@@ -19,3 +19,4 @@ docker-compose.override.yml
 /reports/
 /report.html
 /results.json
+.omo/
