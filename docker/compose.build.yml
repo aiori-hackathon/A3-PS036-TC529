@@ -1,0 +1,40 @@
+# docker/compose.build.yml — CLIMB Phase 1 build verification
+#
+# Builds the full liboqs + libMTL toolchain from pinned submodules.
+#
+# Usage:
+#   docker compose -f docker/compose.build.yml build
+#   docker compose -f docker/compose.build.yml up --exit-code-from climb-smoke
+#
+# Or one-shot (build + test):
+#   docker compose -f docker/compose.build.yml up --build --exit-code-from climb-smoke
+#
+# BLOCKER (2026-09-26): liboqs 0.16.0 removed `OQS_SIG_*_length_public_key` compile-time
+# macros.  libMTL's smoke tests in test/ and examples/ cannot compile against 0.16.0.
+# See the dev notes §Phase 1 for options being evaluated.
+# Until resolved, smoke tests are SKIPPED — the service verifies only that libmtlslib.so
+# and headers are present.
+
+services:
+
+  # ── Build & verification service ──────────────────────────────────────
+  climb-smoke:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.build
+      target: builder
+    command: >
+      sh -c '
+        set -e;
+        echo "============================================================";
+        echo " VERIFICATION — library artifacts present";
+        echo "============================================================";
+        ls -la /usr/local/lib/libmtlslib.so* /usr/local/lib/liboqs.so*;
+        ls /usr/local/include/mtllib/;
+        echo;
+        echo "============================================================";
+        echo " SMOKE TESTS SKIPPED — liboqs 0.16.0 API incompatibility";
+        echo " (test/ and examples/ use removed _length_public_key macros)";
+        echo " See the dev notes §Phase 1 for details.";
+        echo "============================================================";
+      '

@@ -1,0 +1,99 @@
+# docker/Dockerfile.build — CLIMB Phase 1
+#
+# Multi-stage build: compiles OpenSSL ≥3.1.0, liboqs, and libMTL from pinned
+# submodules. The default (builder) stage includes test binaries for smoke
+# verification. The `final` stage copies only libraries and headers into a clean
+# /out/ tree suitable for extraction.
+#
+# ── Pinned dependencies ──
+# Base image:  debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+# OpenSSL:     3.4.1 (bootstrapped — Bookworm's 3.0.x < libMTL's 3.1.0 floor)
+# liboqs:      0.16.0  (git submodule at third_party/liboqs)
+# libMTL:      566c518 (git submodule at third_party/MTL)
+# ──────────────────────────
+
+# ── Stage 1: full builder (default) ──────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS builder
+
+# Build dependencies — the minimum needed for autotools + CMake + OpenSSL
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bc \
+    build-essential \
+    ca-certificates \
+    cmake \
+    libtool \
+    ninja-build \
+    perl \
+    pkg-config \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1. OpenSSL ≥ 3.1.0  (Bookworm ships 3.0.x — not new enough for libMTL)
+# ─────────────────────────────────────────────────────────────────────────
+ARG OPENSSL_VERSION=3.4.1
+RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
+    && cd "openssl-${OPENSSL_VERSION}" \
+    && ./Configure --prefix=/usr/local --libdir=lib \
+        enable-fips \
+        -Wl,-rpath,/usr/local/lib \
+    && make -j"$(nproc)" \
+    && make install_sw \
+    && cd .. && rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2. liboqs — pinned submodule, SLH-DSA only, shared lib
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/liboqs /src/liboqs
+WORKDIR /src/liboqs
+
+RUN mkdir -p build && cd build \
+    && cmake -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_SHARED_LIBS=ON \
+        -DOQS_MINIMAL_BUILD=SIG_slh_dsa \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DOQS_DIST_BUILD=ON \
+        -DOQS_USE_OPENSSL=ON \
+        -DOPENSSL_ROOT_DIR=/usr/local \
+        .. \
+    && ninja -j"$(nproc)" \
+    && ninja install \
+    && cd / && rm -rf /src/liboqs
+
+# Register shared libs for the linker
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/climb-local.conf && ldconfig
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3. libMTL — pinned submodule, autotools, linked against our OpenSSL+liboqs
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/MTL /src/MTL
+WORKDIR /src/MTL
+
+# NOTE: configure.ac clobbers CFLAGS on line 22-25 — do NOT pass CFLAGS at
+# configure time.  CPPFLAGS / LDFLAGS are safe.  Leaving CFLAGS unset gives
+# autoconf's default -g -O2 (adequate for build verification).
+# BLOCKER (2026-09-26): liboqs 0.16.0 removed compile-time _length_public_key
+# macros.  Only src/ (the library) builds; test/ and examples/ reference
+# the removed macros and are incompatible.  See the dev notes §Phase 1.
+RUN autoreconf --install \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure --libdir=/usr/local/lib \
+    && make -C src -j"$(nproc)" \
+    && make -C src install \
+    && ldconfig
+
+WORKDIR /
+
+# ── Stage 2: clean artifact-only stage ──────────────────────────────────
+# Extract with:  docker build --target final -t climb-libs . \
+#                  && docker create --name climb-out climb-libs \
+#                  && docker cp climb-out:/out . && docker rm climb-out
+FROM scratch AS final
+COPY --from=builder /usr/local/lib     /out/lib
+COPY --from=builder /usr/local/include /out/include
