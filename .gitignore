@@ -15,6 +15,10 @@
 # Docker
 docker-compose.override.yml
 
+# Extracted pinned native toolchain (libMTL/liboqs/OpenSSL) for host builds.
+# Regenerate with docker/extract-libs.sh.
+/.mtl-install/
+
 # Generated reports
 /reports/
 /report.html
