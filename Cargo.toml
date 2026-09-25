@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/climb-mtl-sys",
+    "crates/climb-mtl",
+    "crates/climb-dns",
+    "crates/climb-analytical",
+    "crates/climb-report",
+    "crates/climb-tui",
+    "xtask",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/your-org/climb"
+rust-version = "1.98"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+clap = { version = "4", features = ["derive"] }

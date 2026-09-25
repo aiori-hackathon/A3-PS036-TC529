@@ -1,0 +1,12 @@
+[package]
+name = "climb-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+description = "Ratatui live-run dashboard for benchmark visualization (Batch 6)"
+
+[dependencies]
+anyhow.workspace = true

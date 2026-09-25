@@ -1,0 +1,12 @@
+[package]
+name = "climb-mtl"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+description = "Safe Rust wrapper around climb-mtl-sys (Phase 3)"
+
+[dependencies]
+thiserror.workspace = true

@@ -1,0 +1,19 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+description = "cargo-xtask automation: pin-env, bench-all, report"
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+anyhow.workspace = true
+clap.workspace = true
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
