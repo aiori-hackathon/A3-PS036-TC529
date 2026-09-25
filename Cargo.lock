@@ -177,6 +177,7 @@ dependencies = [
 name = "climb-mtl"
 version = "0.1.0"
 dependencies = [
+ "climb-mtl-sys",
  "thiserror",
 ]
 

@@ -9,4 +9,5 @@ rust-version.workspace = true
 description = "Safe Rust wrapper around climb-mtl-sys (Phase 3)"
 
 [dependencies]
+climb-mtl-sys = { path = "../climb-mtl-sys" }
 thiserror.workspace = true

@@ -173,8 +173,16 @@ fn main() {
 
     // Make the example/test binaries in this crate runnable without setting
     // LD_LIBRARY_PATH, by baking the prefix lib dir into the rpath. This does
-    // not propagate to dependent crates (a Phase 3 concern).
+    // NOT propagate to dependent crates (verified in Phase 3) — dependent
+    // crates must consume `DEP_MTLSLIB_LIB_DIR` below and emit their own rpath.
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
+
+    // Expose the resolved lib directory to dependent crates. Because this crate
+    // declares `links = "mtlslib"`, Cargo passes this value to a dependent
+    // crate's build script as `DEP_MTLSLIB_LIB_DIR`. `climb-mtl` uses it to add
+    // an rpath so its integration tests can load liboqs/libcrypto at runtime
+    // without a system-wide install or LD_LIBRARY_PATH.
+    println!("cargo::metadata=lib_dir={}", lib_dir.display());
 
     // ── bindgen ─────────────────────────────────────────────────────────────
     let bindings = bindgen::Builder::default()
