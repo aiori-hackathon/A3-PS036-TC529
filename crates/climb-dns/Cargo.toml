@@ -10,3 +10,7 @@ description = "DNS wire-format helpers for MTL-signed zones (Batch 2+)"
 
 [dependencies]
 thiserror.workspace = true
+hickory-proto.workspace = true
+rand.workspace = true
+rand_chacha.workspace = true
+serde.workspace = true
