@@ -7,6 +7,7 @@ members = [
     "crates/climb-analytical",
     "crates/climb-report",
     "crates/climb-tui",
+    "crates/climb-bench",
     "xtask",
 ]
 

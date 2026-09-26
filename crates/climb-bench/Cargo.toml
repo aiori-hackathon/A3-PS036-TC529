@@ -1,0 +1,21 @@
+[package]
+name = "climb-bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+description = "Criterion benchmark suite — MTL vs non-MTL signing (Phase 5)"
+
+[[bench]]
+name = "signing"
+harness = false
+
+[dependencies]
+climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
+climb-mtl = { path = "../climb-mtl" }
+climb-dns = { path = "../climb-dns" }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
