@@ -15,7 +15,7 @@ reproducible build should reproduce this exact environment.
 | Component | Repo | Tag / branch | Resolved commit SHA |
 |---|---|---|---|
 | **liboqs** | `github.com/open-quantum-safe/liboqs` | `0.16.0` | `5a1a854b0dc9f2141bdc771c555ee60c37950183` |
-| **libMTL** | `github.com/profm0r14rty/MTL` | main (`climb/liboqs-0.16-compat` branch) | `5ed8bbd867e9250c95796397340a8c807a69e5fc` |
+| **libMTL** | `github.com/profm0r14rty/MTL` | main (`climb/liboqs-0.16-compat` branch) | `53ce25da1dfb5afaca843df8e5945e170dc47855` |
 
 > **liboqs version note**: the design notes specifies `≥0.14.0`; the latest
 > stable tag at pin-time was `0.16.0`, which satisfies the floor.
@@ -42,14 +42,15 @@ reproducible build should reproduce this exact environment.
 ```cmake
 -DCMAKE_BUILD_TYPE=Release
 -DBUILD_SHARED_LIBS=ON
--DOQS_MINIMAL_BUILD=SIG_slh_dsa
+-DOQS_MINIMAL_BUILD="SIG_slh_dsa;SIG_ml_dsa"
 -DOQS_BUILD_ONLY_LIB=ON
 -DOQS_DIST_BUILD=ON
 -DOQS_USE_OPENSSL=ON
 ```
 
-These produce only the SLH-DSA (SPHINCS+) signature family as a shared
-library, linked against the bootstrapped OpenSSL 3.4.1.
+These produce the SLH-DSA and ML-DSA signature families as shared libraries,
+linked against the bootstrapped OpenSSL 3.4.1. ML-DSA is included alongside
+SLH-DSA so that the upstream test vectors (which use ML-DSA-44) work.
 
 ## libMTL build flags
 
@@ -68,10 +69,10 @@ make -j"$(nproc)"
 
 | Test | Expected | Status |
 |---|---|---|
-| `test/mtltest` (unit tests) | `MTL Test completed successfully!` + exit 0 | **SKIPPED** — liboqs 0.16.0 removed `_length_public_key` macros; test cannot compile |
-| `examples/test.sh` (integration) | `Testing Completed - All tests pass` + exit 0 | **SKIPPED** — same API incompatibility |
+| `test/mtltest` (unit tests) | All 9 test modules pass (32+ individual tests) | **PASSING** — F2.2 patch applied |
+| `examples/test.sh` (integration) | `Testing Completed - All tests pass` + exit 0 | **MINOR ISSUE** — script invocation in container (exit 127), not related to liboqs compat |
 | `docker compose -f docker/compose.build.yml up --build` | Build passes, artifacts verified | **PASSING** — library (`libmtlslib.so`), headers, and liboqs confirmed at `/usr/local/` |
 | OpenSSL version detected in container | `OpenSSL 3.4.1 11 Feb 2025` | **CONFIRMED** |
 
 ---
-*Last updated: Fix 1 — F1.4 (2026-09-26)*
+*Last updated: Fix 2 — F2.5 (2026-09-26)*

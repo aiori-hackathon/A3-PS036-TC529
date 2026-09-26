@@ -1,6 +1,7 @@
 # docker/compose.build.yml — CLIMB Phase 1 build verification
 #
-# Builds the full liboqs + libMTL toolchain from pinned submodules.
+# Builds the full liboqs + libMTL toolchain from pinned submodules,
+# then runs the upstream test/ suite and examples/test.sh.
 #
 # Usage:
 #   docker compose -f docker/compose.build.yml build
@@ -9,11 +10,10 @@
 # Or one-shot (build + test):
 #   docker compose -f docker/compose.build.yml up --build --exit-code-from climb-smoke
 #
-# BLOCKER (2026-09-26): liboqs 0.16.0 removed `OQS_SIG_*_length_public_key` compile-time
-# macros.  libMTL's smoke tests in test/ and examples/ cannot compile against 0.16.0.
-# See the dev notes §Phase 1 for options being evaluated.
-# Until resolved, smoke tests are SKIPPED — the service verifies only that libmtlslib.so
-# and headers are present.
+# FIX-2 (2026-09-26): patched test/mtltest_mtllib.c for liboqs 0.16.0 compat
+# — compile-time OQS_SIG_*_length_public_key macros replaced with runtime
+# OQS_SIG_new()->length_public_key. liboqs now builds with both SLH-DSA and
+# ML-DSA families (ML-DSA needed for upstream test vectors).
 
 services:
 
@@ -33,8 +33,17 @@ services:
         ls /usr/local/include/mtllib/;
         echo;
         echo "============================================================";
-        echo " SMOKE TESTS SKIPPED — liboqs 0.16.0 API incompatibility";
-        echo " (test/ and examples/ use removed _length_public_key macros)";
-        echo " See the dev notes §Phase 1 for details.";
+        echo " UPSTREAM TEST SUITE — test/mtltest";
+        echo "============================================================";
+        cd /src/MTL;
+        LD_LIBRARY_PATH=/usr/local/lib ./test/mtltest;
+        echo;
+        echo "============================================================";
+        echo " UPSTREAM EXAMPLE — examples/test.sh";
+        echo "============================================================";
+        LD_LIBRARY_PATH=/usr/local/lib bash examples/test.sh;
+        echo;
+        echo "============================================================";
+        echo " ALL TESTS PASSED";
         echo "============================================================";
       '

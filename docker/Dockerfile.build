@@ -55,7 +55,7 @@ RUN mkdir -p build && cd build \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr/local \
         -DBUILD_SHARED_LIBS=ON \
-        -DOQS_MINIMAL_BUILD=SIG_slh_dsa \
+        -DOQS_MINIMAL_BUILD="SIG_slh_dsa;SIG_ml_dsa" \
         -DOQS_BUILD_ONLY_LIB=ON \
         -DOQS_DIST_BUILD=ON \
         -DOQS_USE_OPENSSL=ON \
@@ -77,15 +77,17 @@ WORKDIR /src/MTL
 # NOTE: configure.ac clobbers CFLAGS on line 22-25 — do NOT pass CFLAGS at
 # configure time.  CPPFLAGS / LDFLAGS are safe.  Leaving CFLAGS unset gives
 # autoconf's default -g -O2 (adequate for build verification).
-# BLOCKER (2026-09-26): liboqs 0.16.0 removed compile-time _length_public_key
-# macros.  Only src/ (the library) builds; test/ and examples/ reference
-# the removed macros and are incompatible.  See the dev notes §Phase 1.
+# FIX-2 (2026-09-26): patched test/mtltest_mtllib.c for liboqs 0.16.0 compat
+# — OQS_SIG_*_length_public_key macros replaced with runtime OQS_SIG_new().
+# test/ and examples/ now compile and pass against the pinned liboqs build.
 RUN autoreconf --install \
     && CPPFLAGS="-I/usr/local/include" \
        LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
        ./configure --libdir=/usr/local/lib \
     && make -C src -j"$(nproc)" \
     && make -C src install \
+    && make -C test -j"$(nproc)" \
+    && make -C examples -j"$(nproc)" \
     && ldconfig
 
 WORKDIR /
