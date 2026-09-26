@@ -15,7 +15,7 @@ reproducible build should reproduce this exact environment.
 | Component | Repo | Tag / branch | Resolved commit SHA |
 |---|---|---|---|
 | **liboqs** | `github.com/open-quantum-safe/liboqs` | `0.16.0` | `5a1a854b0dc9f2141bdc771c555ee60c37950183` |
-| **libMTL** | `github.com/verisign/MTL` | main (pinned commit) | `566c5184cd1cf09deed1da8817cadd94bbe52585` |
+| **libMTL** | `github.com/profm0r14rty/MTL` | main (`climb/liboqs-0.16-compat` branch) | `5ed8bbd867e9250c95796397340a8c807a69e5fc` |
 
 > **liboqs version note**: the design notes specifies `≥0.14.0`; the latest
 > stable tag at pin-time was `0.16.0`, which satisfies the floor.
@@ -74,4 +74,4 @@ make -j"$(nproc)"
 | OpenSSL version detected in container | `OpenSSL 3.4.1 11 Feb 2025` | **CONFIRMED** |
 
 ---
-*Last updated: Phase 1 (2026-09-26)*
+*Last updated: Fix 1 — F1.4 (2026-09-26)*

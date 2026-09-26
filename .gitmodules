@@ -1,6 +1,6 @@
 [submodule "third_party/MTL"]
 	path = third_party/MTL
-	url = https://github.com/verisign/MTL.git
+	url = https://github.com/profm0r14rty/MTL.git
 [submodule "third_party/liboqs"]
 	path = third_party/liboqs
 	url = https://github.com/open-quantum-safe/liboqs.git
