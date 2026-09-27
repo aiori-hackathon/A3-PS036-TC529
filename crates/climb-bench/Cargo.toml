@@ -6,10 +6,14 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-description = "Criterion benchmark suite — MTL vs non-MTL signing (Phase 5)"
+description = "Criterion benchmark suite — MTL vs non-MTL signing (Phase 5) and verification (Phase 6)"
 
 [[bench]]
 name = "signing"
+harness = false
+
+[[bench]]
+name = "verifying"
 harness = false
 
 [dependencies]
