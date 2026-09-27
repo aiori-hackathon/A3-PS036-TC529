@@ -1,9 +1,14 @@
-use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use anyhow::{bail, Context, Result};
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+
+use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
+
+mod groups;
+use groups::{BenchTarget, DatasetSize, GROUPS};
 
 /// CLIMB task automation — pin the environment, run benchmarks, generate reports.
 #[derive(Parser)]
@@ -17,10 +22,45 @@ struct Cli {
 enum Commands {
     /// Capture the current build environment and write it to environment.json.
     PinEnv,
-    /// Run all benchmarks (stub — Batch 2).
-    BenchAll,
-    /// Generate the final report from benchmark data (stub — Batch 5).
-    Report,
+    /// Run the Phase 5 signing and Phase 6 verification benchmark suites.
+    BenchAll(BenchAllArgs),
+    /// Print a plain-text summary of Criterion's latest results.
+    Report(ReportArgs),
+}
+
+#[derive(Args)]
+struct BenchAllArgs {
+    /// Dataset sizes to include (comma-separated, or `all`).
+    #[arg(long, value_delimiter = ',', default_value = "all")]
+    sizes: Vec<SizeArg>,
+
+    /// Save results under this Criterion baseline name.
+    #[arg(long)]
+    baseline: Option<String>,
+
+    /// Also run the without-MTL signing groups that take hours to days per run
+    /// on the reference hardware (medium ~18 h, large ~78 days).
+    #[arg(long)]
+    include_slow: bool,
+}
+
+#[derive(Args)]
+struct ReportArgs {
+    /// Criterion baseline directory to read (`new` is the latest run).
+    #[arg(long, default_value = "new")]
+    baseline: String,
+
+    /// Criterion output root.
+    #[arg(long, default_value = "target/criterion")]
+    criterion_dir: PathBuf,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum SizeArg {
+    All,
+    Small,
+    Medium,
+    Large,
 }
 
 /// A snapshot of the build environment, written to `environment.json`.
@@ -52,8 +92,8 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
         Commands::PinEnv => cmd_pin_env(),
-        Commands::BenchAll => cmd_bench_all(),
-        Commands::Report => cmd_report(),
+        Commands::BenchAll(args) => cmd_bench_all(args),
+        Commands::Report(args) => cmd_report(args),
     }
 }
 
@@ -62,7 +102,7 @@ fn cmd_pin_env() -> Result<()> {
     let rustc_version = run_cmd("rustc", &["--version"])?;
     let cargo_version = run_cmd("cargo", &["--version"])?;
     let model_name = read_cpu_model()?;
-    let timestamp = chrono_like_timestamp();
+    let timestamp = iso_timestamp();
 
     let env = Environment {
         system: SystemInfo { uname },
@@ -87,13 +127,116 @@ fn cmd_pin_env() -> Result<()> {
     Ok(())
 }
 
-fn cmd_bench_all() -> Result<()> {
-    println!("not yet implemented, see Batch 2");
+fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
+    let sizes = selected_sizes(&args);
+
+    let mut signing = Vec::new();
+    let mut verifying = Vec::new();
+    let mut skipped = Vec::new();
+
+    for group in GROUPS {
+        if !sizes.contains(&group.size) {
+            continue;
+        }
+        if group.slow && !args.include_slow {
+            skipped.push(group.name);
+            continue;
+        }
+        match group.target {
+            BenchTarget::Signing => signing.push(group.name),
+            BenchTarget::Verifying => verifying.push(group.name),
+        }
+    }
+
+    if !skipped.is_empty() {
+        eprintln!("skipping analytically-infeasible groups (pass --include-slow to run them):");
+        for name in &skipped {
+            eprintln!("  {name}");
+        }
+    }
+
+    run_bench_target("signing", &signing, args.baseline.as_deref())?;
+    run_bench_target("verifying", &verifying, args.baseline.as_deref())?;
+
+    eprintln!("bench-all complete");
     Ok(())
 }
 
-fn cmd_report() -> Result<()> {
-    println!("not yet implemented, see Batch 5");
+fn selected_sizes(args: &BenchAllArgs) -> Vec<DatasetSize> {
+    let mut sizes = Vec::new();
+    for arg in &args.sizes {
+        let size = match arg {
+            SizeArg::All => {
+                return vec![DatasetSize::Small, DatasetSize::Medium, DatasetSize::Large]
+            }
+            SizeArg::Small => DatasetSize::Small,
+            SizeArg::Medium => DatasetSize::Medium,
+            SizeArg::Large => DatasetSize::Large,
+        };
+        if !sizes.contains(&size) {
+            sizes.push(size);
+        }
+    }
+    sizes
+}
+
+fn run_bench_target(target: &str, groups: &[&str], baseline: Option<&str>) -> Result<()> {
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    let filter = groups.join("|");
+    let mut cmd = Command::new("cargo");
+    cmd.args([
+        "bench",
+        "-p",
+        "climb-bench",
+        "--bench",
+        target,
+        "--",
+        &filter,
+    ]);
+    if let Some(name) = baseline {
+        cmd.args(["--save-baseline", name]);
+    }
+
+    eprintln!("running: cargo bench -p climb-bench --bench {target} -- {filter}");
+    let status = cmd
+        .status()
+        .with_context(|| format!("failed to spawn cargo bench for {target}"))?;
+    if !status.success() {
+        bail!("cargo bench --bench {target} exited with {status}");
+    }
+    Ok(())
+}
+
+fn cmd_report(args: ReportArgs) -> Result<()> {
+    let records = scan_criterion(&args.criterion_dir, &args.baseline).with_context(|| {
+        format!(
+            "failed to read Criterion output from {} (baseline '{}')",
+            args.criterion_dir.display(),
+            args.baseline
+        )
+    })?;
+
+    let mut known = Vec::with_capacity(records.len());
+    for record in &records {
+        match parse_group_id(&record.group_id) {
+            Ok(_) => known.push(record.clone()),
+            Err(_) => eprintln!("note: ignoring unrecognized benchmark '{}'", record.full_id),
+        }
+    }
+
+    if known.is_empty() {
+        bail!(
+            "no recognized CLIMB benchmarks under {} (baseline '{}')",
+            args.criterion_dir.display(),
+            args.baseline
+        );
+    }
+
+    let rows = summarize(&known)?;
+    print!("{}", render_text_summary(&rows));
     Ok(())
 }
 
@@ -120,9 +263,7 @@ fn read_cpu_model() -> Result<String> {
     anyhow::bail!("model name not found in /proc/cpuinfo")
 }
 
-/// Return an ISO 8601 timestamp without pulling in the `chrono` crate for this stub phase.
-fn chrono_like_timestamp() -> String {
-    // Use the `date` command to get a real ISO 8601 timestamp.
-    // This avoids adding a chrono dependency just for one field in Phase 0.
+/// Return an ISO 8601 timestamp without pulling in the `chrono` crate.
+fn iso_timestamp() -> String {
     run_cmd("date", &["--iso-8601=seconds"]).unwrap_or_else(|_| "unknown".to_string())
 }

@@ -1,23 +1,15 @@
-//! Statistics post-processing, chart generation, and report rendering.
+//! Criterion output parsing and plain-text summary rendering.
 //!
-//! Generates `report.html` (via `plotters`) and `results.json` from Criterion
-//! benchmark output. Implemented in **Batch 5**.
+//! Reads Criterion's on-disk `benchmark.json` + `estimates.json` files,
+//! parses benchmark group identifiers into semantic categories, and
+//! produces a human-readable two-table summary (signing + verifying).
 
-/// Placeholder — replaced in Batch 5 with report generation.
-#[doc(hidden)]
-pub fn placeholder() -> &'static str {
-    "climb-report: chart and report generation (Batch 5)"
-}
+pub mod error;
+pub mod record;
+pub mod render;
+pub mod summary;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn stub_compiles() {
-        assert_eq!(
-            placeholder(),
-            "climb-report: chart and report generation (Batch 5)"
-        );
-    }
-}
+pub use error::ReportError;
+pub use record::{read_leaf, scan_criterion, CriterionRecord};
+pub use render::{format_duration, render_text_summary};
+pub use summary::{parse_group_id, summarize, BenchKind, MtlMode, Size, SummaryRow};

@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-description = "Statistics post-processing, chart generation, and report rendering (Batch 5)"
+description = "Criterion output parsing, plain-text summaries (Batch 2), and chart/report generation (Batch 5)"
 
 [dependencies]
 thiserror.workspace = true
