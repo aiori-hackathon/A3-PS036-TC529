@@ -1,7 +1,5 @@
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use serde::Serialize;
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -9,9 +7,11 @@ use climb_report::{parse_group_id, render_text_summary, scan_criterion, summariz
 
 mod groups;
 mod memory;
+mod pin_env;
 mod wire;
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use memory::{cmd_memory_report, MemoryReportArgs};
+use pin_env::cmd_pin_env;
 use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
@@ -96,31 +96,6 @@ pub(crate) enum SizeArg {
     Large,
 }
 
-/// A snapshot of the build environment, written to `environment.json`.
-#[derive(Serialize)]
-struct Environment {
-    system: SystemInfo,
-    toolchain: ToolchainInfo,
-    cpu: CpuInfo,
-    timestamp: String,
-}
-
-#[derive(Serialize)]
-struct SystemInfo {
-    uname: String,
-}
-
-#[derive(Serialize)]
-struct ToolchainInfo {
-    rustc_version: String,
-    cargo_version: String,
-}
-
-#[derive(Serialize)]
-struct CpuInfo {
-    model_name: String,
-}
-
 fn main() -> Result<()> {
     let cli = Cli::parse();
     match cli.command {
@@ -130,36 +105,6 @@ fn main() -> Result<()> {
         Commands::WireReport(args) => cmd_wire_report(args),
         Commands::MemoryReport(args) => cmd_memory_report(args),
     }
-}
-
-fn cmd_pin_env() -> Result<()> {
-    let uname = run_cmd("uname", &["-a"])?;
-    let rustc_version = run_cmd("rustc", &["--version"])?;
-    let cargo_version = run_cmd("cargo", &["--version"])?;
-    let model_name = read_cpu_model()?;
-    let timestamp = iso_timestamp();
-
-    let env = Environment {
-        system: SystemInfo { uname },
-        toolchain: ToolchainInfo {
-            rustc_version,
-            cargo_version,
-        },
-        cpu: CpuInfo { model_name },
-        timestamp,
-    };
-
-    let json = serde_json::to_string_pretty(&env).context("failed to serialize environment")?;
-
-    let output_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .expect("xtask is always inside the workspace")
-        .join("environment.json");
-
-    fs::write(&output_path, json).context("failed to write environment.json")?;
-
-    eprintln!("wrote environment snapshot to {}", output_path.display());
-    Ok(())
 }
 
 fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
@@ -338,34 +283,6 @@ fn cmd_report(args: ReportArgs) -> Result<()> {
     let rows = summarize(&known)?;
     print!("{}", render_text_summary(&rows));
     Ok(())
-}
-
-/// Run a command and capture its stdout trimmed.
-fn run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
-        .with_context(|| format!("failed to run {program}"))?;
-    if !output.status.success() {
-        anyhow::bail!("{program} exited with status {}", output.status);
-    }
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
-}
-
-/// Read the CPU model name from /proc/cpuinfo.
-fn read_cpu_model() -> Result<String> {
-    let cpuinfo = fs::read_to_string("/proc/cpuinfo").context("failed to read /proc/cpuinfo")?;
-    for line in cpuinfo.lines() {
-        if let Some(model) = line.strip_prefix("model name\t: ") {
-            return Ok(model.trim().to_string());
-        }
-    }
-    anyhow::bail!("model name not found in /proc/cpuinfo")
-}
-
-/// Return an ISO 8601 timestamp without pulling in the `chrono` crate.
-fn iso_timestamp() -> String {
-    run_cmd("date", &["--iso-8601=seconds"]).unwrap_or_else(|_| "unknown".to_string())
 }
 
 #[cfg(test)]
