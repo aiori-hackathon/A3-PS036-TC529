@@ -73,6 +73,7 @@ struct ReportArgs {
 enum SizeArg {
     All,
     Small,
+    OneK,
     Medium,
     Large,
 }
@@ -183,9 +184,15 @@ fn selected_sizes(args: &BenchAllArgs) -> Vec<DatasetSize> {
     for arg in &args.sizes {
         let size = match arg {
             SizeArg::All => {
-                return vec![DatasetSize::Small, DatasetSize::Medium, DatasetSize::Large]
+                return vec![
+                    DatasetSize::Small,
+                    DatasetSize::OneK,
+                    DatasetSize::Medium,
+                    DatasetSize::Large,
+                ]
             }
             SizeArg::Small => DatasetSize::Small,
+            SizeArg::OneK => DatasetSize::OneK,
             SizeArg::Medium => DatasetSize::Medium,
             SizeArg::Large => DatasetSize::Large,
         };

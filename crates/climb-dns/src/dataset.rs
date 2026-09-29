@@ -16,17 +16,21 @@ use crate::synthetic::SyntheticRecord;
 /// respects this bound.
 pub const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
-/// Predefined dataset sizes as specified in the design notes §4.
+/// Predefined dataset sizes as specified in the design notes §4 plus OneK
+/// validation size.
 ///
 /// | Variant | Messages | Represents |
 /// |---|---|---|
 /// | `Small` | 100 | Low-change-rate stub zone |
+/// | `OneK` | 1,000 | Validation size: large enough to test linear extrapolation from Small, small enough to measure directly |
 /// | `Medium` | 10,000 | Mid-size enterprise zone |
 /// | `Large` | 1,000,000 | High-volume resolver cache / near-TLD scale |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DatasetSize {
     /// 100 messages — a low-change-rate stub zone.
     Small = 100,
+    /// 1,000 messages — validates linear extrapolation from Small without MTL.
+    OneK = 1_000,
     /// 10,000 messages — a mid-size enterprise zone.
     Medium = 10_000,
     /// 1,000,000 messages — a high-volume resolver cache or near-TLD scale.
@@ -87,13 +91,15 @@ mod tests {
     fn count_methods_match() {
         assert_eq!(DatasetSize::Small.count(), 100);
         assert_eq!(DatasetSize::Small.as_usize(), 100);
+        assert_eq!(DatasetSize::OneK.count(), 1_000);
+        assert_eq!(DatasetSize::OneK.as_usize(), 1_000);
         assert_eq!(DatasetSize::Medium.count(), 10_000);
         assert_eq!(DatasetSize::Large.count(), 1_000_000);
     }
 
     #[test]
     fn count_matches_generated_dataset_length() {
-        for size in [DatasetSize::Small, DatasetSize::Medium] {
+        for size in [DatasetSize::Small, DatasetSize::OneK, DatasetSize::Medium] {
             let dataset = generate_dataset(size, 0);
             assert_eq!(
                 dataset.len(),

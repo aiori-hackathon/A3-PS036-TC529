@@ -80,6 +80,9 @@ fn bench_signing(c: &mut Criterion) {
     bench_with_mtl(c, &signer, DatasetSize::Small, None);
     bench_without_mtl(c, &signer, DatasetSize::Small, Some(10));
 
+    bench_with_mtl(c, &signer, DatasetSize::OneK, None);
+    bench_without_mtl(c, &signer, DatasetSize::OneK, Some(10));
+
     bench_with_mtl(c, &signer, DatasetSize::Medium, None);
     bench_without_mtl(c, &signer, DatasetSize::Medium, Some(10));
 
@@ -158,10 +161,11 @@ fn bench_without_mtl(
     let sample_size = sample_size.unwrap_or(10);
     group.sample_size(sample_size);
 
-    // When a single iteration takes hours (Medium ~2h, Large ~205h), warmup
-    // would multiply the total runtime.  A 3-second warmup window is
-    // shorter than one iteration, so Criterion skips warmup entirely.
-    if matches!(size, DatasetSize::Medium | DatasetSize::Large) {
+    // Without MTL at large sizes can take hours. Skip warmup.
+    if matches!(
+        size,
+        DatasetSize::OneK | DatasetSize::Medium | DatasetSize::Large
+    ) {
         group.warm_up_time(Duration::from_secs(3));
     }
 
@@ -192,6 +196,7 @@ fn bench_without_mtl(
 const fn size_label(size: DatasetSize) -> &'static str {
     match size {
         DatasetSize::Small => "small",
+        DatasetSize::OneK => "onek",
         DatasetSize::Medium => "medium",
         DatasetSize::Large => "large",
     }

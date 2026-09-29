@@ -105,6 +105,7 @@ fn bench_verifying(c: &mut Criterion) {
     {
         let trust_cached = true;
         bench_with_mtl(c, &signer, &keypair, DatasetSize::Small, trust_cached, None);
+        bench_with_mtl(c, &signer, &keypair, DatasetSize::OneK, trust_cached, None);
         bench_with_mtl(
             c,
             &signer,
@@ -118,16 +119,14 @@ fn bench_verifying(c: &mut Criterion) {
 
     // trust_cached=false validates the ladder each call.
     bench_with_mtl(c, &signer, &keypair, DatasetSize::Small, false, None);
+    bench_with_mtl(c, &signer, &keypair, DatasetSize::OneK, false, Some(10));
     bench_with_mtl(c, &signer, &keypair, DatasetSize::Medium, false, Some(10));
-    // Large trust_false skipped: 1M × ~0.7 ms/msg ≈ 690 s/iter × 10 samples
-    // ≈ 2 h.  Use the per-message cost from Medium for analytical estimates.
 
     // ---- Without MTL: full signatures (trust_cached does not apply) ----
 
     bench_without_mtl(c, &signer, &keypair, DatasetSize::Small, None);
+    bench_without_mtl(c, &signer, &keypair, DatasetSize::OneK, Some(10));
     bench_without_mtl(c, &signer, &keypair, DatasetSize::Medium, Some(10));
-    // Large without-MTL skipped: same per-message cost as trust_false.
-    // Estimate analytically from Medium.
 }
 
 criterion_group!(benches, bench_verifying);
@@ -177,9 +176,14 @@ fn bench_with_mtl(
     if let Some(n) = sample_size {
         group.sample_size(n);
     }
-    // When a single iteration takes multiple seconds (Medium/Large with
+    // When a single iteration takes multiple seconds (OneK/Medium/Large with
     // trust_cached=false), skip warmup so the runtime stays practical.
-    if sample_size.is_some() && matches!(size, DatasetSize::Medium | DatasetSize::Large) {
+    if sample_size.is_some()
+        && matches!(
+            size,
+            DatasetSize::OneK | DatasetSize::Medium | DatasetSize::Large
+        )
+    {
         group.warm_up_time(Duration::from_secs(3));
     }
 
@@ -262,7 +266,12 @@ fn bench_without_mtl(
     if let Some(n) = sample_size {
         group.sample_size(n);
     }
-    if sample_size.is_some() && matches!(size, DatasetSize::Medium | DatasetSize::Large) {
+    if sample_size.is_some()
+        && matches!(
+            size,
+            DatasetSize::OneK | DatasetSize::Medium | DatasetSize::Large
+        )
+    {
         group.warm_up_time(Duration::from_secs(3));
     }
 
@@ -297,6 +306,7 @@ fn bench_without_mtl(
 const fn size_label(size: DatasetSize) -> &'static str {
     match size {
         DatasetSize::Small => "small",
+        DatasetSize::OneK => "onek",
         DatasetSize::Medium => "medium",
         DatasetSize::Large => "large",
     }

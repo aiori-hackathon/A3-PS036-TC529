@@ -23,6 +23,7 @@ pub enum BenchKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Size {
     Small,
+    OneK,
     Medium,
     Large,
 }
@@ -31,6 +32,7 @@ impl fmt::Display for Size {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Size::Small => write!(f, "Small"),
+            Size::OneK => write!(f, "OneK"),
             Size::Medium => write!(f, "Medium"),
             Size::Large => write!(f, "Large"),
         }
@@ -175,6 +177,7 @@ fn split_size_and_suffix(s: &str) -> Option<(&str, &str)> {
 fn parse_size(s: &str) -> Option<Size> {
     match s {
         "small" => Some(Size::Small),
+        "onek" => Some(Size::OneK),
         "medium" => Some(Size::Medium),
         "large" => Some(Size::Large),
         _ => None,
@@ -248,6 +251,14 @@ mod tests {
         assert_eq!(kind, BenchKind::Signing);
         assert_eq!(size, Size::Medium);
         assert_eq!(mode, MtlMode::WithoutMtl);
+    }
+
+    #[test]
+    fn parse_signing_onek_with_mtl() {
+        let (kind, size, mode) = parse_group_id("signing_onek_with_mtl").unwrap();
+        assert_eq!(kind, BenchKind::Signing);
+        assert_eq!(size, Size::OneK);
+        assert_eq!(mode, MtlMode::WithMtlFullVerify);
     }
 
     #[test]

@@ -45,12 +45,16 @@ fn dataset_different_seed_produces_different_output() {
 fn dataset_counts_match_size() {
     // Given: each DatasetSize variant
     // When: checking count() against generated len()
-    // Then: they match for Small and Medium
+    // Then: they match for Small, OneK, and Medium
     // (Large is checked via count()/as_usize() without materialization)
 
     let small = generate_dataset(DatasetSize::Small, 0);
     assert_eq!(small.len(), DatasetSize::Small.count());
     assert_eq!(DatasetSize::Small.count(), 100);
+
+    let onek = generate_dataset(DatasetSize::OneK, 0);
+    assert_eq!(onek.len(), DatasetSize::OneK.count());
+    assert_eq!(DatasetSize::OneK.count(), 1_000);
 
     let medium = generate_dataset(DatasetSize::Medium, 0);
     assert_eq!(medium.len(), DatasetSize::Medium.count());

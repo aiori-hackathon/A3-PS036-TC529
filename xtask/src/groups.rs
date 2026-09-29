@@ -7,6 +7,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DatasetSize {
     Small,
+    OneK,
     Medium,
     Large,
 }
@@ -38,6 +39,19 @@ pub const GROUPS: &[GroupSpec] = &[
         size: DatasetSize::Small,
         target: BenchTarget::Signing,
         slow: false,
+    },
+    GroupSpec {
+        name: "signing_onek_with_mtl",
+        size: DatasetSize::OneK,
+        target: BenchTarget::Signing,
+        slow: false,
+    },
+    // 1,000 × ~670 ms/sig = ~670 s per iteration (~111 min for a 10-sample run).
+    GroupSpec {
+        name: "signing_onek_without_mtl",
+        size: DatasetSize::OneK,
+        target: BenchTarget::Signing,
+        slow: true,
     },
     GroupSpec {
         name: "signing_medium_with_mtl",
@@ -80,6 +94,24 @@ pub const GROUPS: &[GroupSpec] = &[
     GroupSpec {
         name: "verifying_small_without_mtl",
         size: DatasetSize::Small,
+        target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "verifying_onek_with_mtl_trust_true",
+        size: DatasetSize::OneK,
+        target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "verifying_onek_with_mtl_trust_false",
+        size: DatasetSize::OneK,
+        target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "verifying_onek_without_mtl",
+        size: DatasetSize::OneK,
         target: BenchTarget::Verifying,
         slow: false,
     },
