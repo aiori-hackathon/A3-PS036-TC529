@@ -8,8 +8,10 @@ use std::process::Command;
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
 
 mod groups;
+mod memory;
 mod wire;
 use groups::{BenchTarget, DatasetSize, GROUPS};
+use memory::{cmd_memory_report, MemoryReportArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
@@ -44,6 +46,14 @@ enum Commands {
     /// and prints a human-readable table.  When --out is given, also writes a
     /// JSON array of WireSizeReport values.
     WireReport(WireReportArgs),
+    /// Measure RSS delta before/after sign_batch and cross-validate against
+    /// climb-analytical memory model.
+    ///
+    /// Runs `repeat` measurements per size (default 2), prints measured vs
+    /// analytical comparison table.  Separates libMTL internal footprint from
+    /// dataset/harness overhead by sampling RSS immediately before and after
+    /// sign_batch with the dataset already held in memory.
+    MemoryReport(MemoryReportArgs),
 }
 
 #[derive(Args)]
@@ -118,6 +128,7 @@ fn main() -> Result<()> {
         Commands::BenchAll(args) => cmd_bench_all(args),
         Commands::Report(args) => cmd_report(args),
         Commands::WireReport(args) => cmd_wire_report(args),
+        Commands::MemoryReport(args) => cmd_memory_report(args),
     }
 }
 

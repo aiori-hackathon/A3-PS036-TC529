@@ -29,3 +29,4 @@ clap = { version = "4", features = ["derive"] }
 hickory-proto = "0.26"
 rand = "0.10"
 rand_chacha = "0.10"
+sysinfo = "0.33"

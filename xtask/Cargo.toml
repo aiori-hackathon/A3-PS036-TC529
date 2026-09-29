@@ -19,5 +19,6 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 climb-bench = { path = "../crates/climb-bench" }
 climb-dns = { path = "../crates/climb-dns" }
+climb-analytical = { path = "../crates/climb-analytical" }
 climb-mtl-sys = { path = "../crates/climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-report = { path = "../crates/climb-report" }
