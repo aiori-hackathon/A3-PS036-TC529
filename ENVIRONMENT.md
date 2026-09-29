@@ -65,6 +65,34 @@ make -j"$(nproc)"
 > already set at `./configure` time. Path flags (`-I`, `-L`) are passed via
 > `CPPFLAGS` / `LDFLAGS` instead, which are not touched.
 
+## Pinned benchmark runtime environment
+
+The benchmark numbers-of-record are produced under the following runtime settings, in
+addition to the build-container pinning above:
+
+| Property | Value |
+|---|---|
+| CPU governor | **`performance` on all logical CPUs** (driver `intel_pstate`) |
+| Governor script | `sudo ./scripts/pin-perf-governor.sh` (restore with `… powersave`); `cpupower` preferred if installed, otherwise direct `/sys` writes |
+| CPU pinning | **CPU 2, via `taskset -c 2`** — applied automatically by `cargo xtask bench-all` |
+| Opt out of pinning | `cargo xtask bench-all --no-pin` (for machines without `taskset`, e.g. minimal CI containers) |
+| Criterion baselines | `batch2-pinned` = pinned/governed numbers-of-record; `batch2-final` = prior unpinned run (retained as history) |
+
+**Why CPU 2.** Host CPU is an Intel i3-1115G4: 2 physical cores / 4 logical CPUs, with
+physical core 0 = {cpu0, cpu2} and physical core 1 = {cpu1, cpu3}. Measured interrupt
+totals at phase start were cpu1 = 1,428,276 · cpu3 = 140,767 · cpu0 = 65,862 ·
+**cpu2 = 53,645**. CPU 2 is the quietest logical CPU, so it is the least-contended
+single-CPU target; pinning to one CPU also removes run-to-run migration between the two
+physical cores.
+
+> **Residual variance caveat:** even with the governor fixed and pinning active, Criterion
+> measurements on this laptop vary by up to ~25% run-to-run (thermal/turbo behaviour of a
+> 15 W part under sustained load — not governor drift or CPU migration, which are the two
+> confounders this section removes). Ratios are therefore reported to ~3 significant
+> figures with confidence intervals, and headline figures should be multi-run medians.
+> See `the dev notes` §F3.4 for the measured evidence. This is documented per
+> `the design notes` §8's instruction to state laptop isolation limits honestly.
+
 ## Verification status
 
 | Test | Expected | Status |
@@ -75,4 +103,4 @@ make -j"$(nproc)"
 | OpenSSL version detected in container | `OpenSSL 3.4.1 11 Feb 2025` | **CONFIRMED** |
 
 ---
-*Last updated: Fix 2 — F2.5 (2026-09-26)*
+*Last updated: Fix 3 — F3.5 (2026-09-29)*

@@ -2,13 +2,23 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use serde::Serialize;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
 
 mod groups;
 use groups::{BenchTarget, DatasetSize, GROUPS};
+
+/// The logical CPU to pin benchmarks to.
+///
+/// Host: Intel i3-1115G4, 2 physical cores / 4 logical CPUs.
+/// Physical core 0 = {cpu0, cpu2}, physical core 1 = {cpu1, cpu3}.
+/// Interrupt totals measured at Phase 6 start:
+///   cpu1=1,428,276  cpu3=140,767  cpu0=65,862  cpu2=53,645
+/// CPU 2 is the quietest logical CPU and the quieter sibling of physical core 0,
+/// making it the least-contended choice for a single-threaded benchmark.
+const PIN_CPU: u32 = 2;
 
 /// CLIMB task automation — pin the environment, run benchmarks, generate reports.
 #[derive(Parser)]
@@ -42,6 +52,10 @@ struct BenchAllArgs {
     /// on the reference hardware (medium ~18 h, large ~78 days).
     #[arg(long)]
     include_slow: bool,
+
+    /// Run unpinned, for machines without `taskset` (e.g. minimal CI containers).
+    #[arg(long)]
+    no_pin: bool,
 }
 
 #[derive(Args)]
@@ -155,8 +169,10 @@ fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
         }
     }
 
-    run_bench_target("signing", &signing, args.baseline.as_deref())?;
-    run_bench_target("verifying", &verifying, args.baseline.as_deref())?;
+    let pin_cpu = resolve_pin_cpu(!args.no_pin);
+
+    run_bench_target("signing", &signing, args.baseline.as_deref(), pin_cpu)?;
+    run_bench_target("verifying", &verifying, args.baseline.as_deref(), pin_cpu)?;
 
     eprintln!("bench-all complete");
     Ok(())
@@ -180,13 +196,46 @@ fn selected_sizes(args: &BenchAllArgs) -> Vec<DatasetSize> {
     sizes
 }
 
-fn run_bench_target(target: &str, groups: &[&str], baseline: Option<&str>) -> Result<()> {
-    if groups.is_empty() {
-        return Ok(());
+fn resolve_pin_cpu(enabled: bool) -> Option<u32> {
+    if !enabled {
+        return None;
     }
+    if !binary_on_path("taskset") {
+        eprintln!("warning: taskset not found on PATH — running unpinned");
+        return None;
+    }
+    let cpu_path = format!("/sys/devices/system/cpu/cpu{PIN_CPU}");
+    if !Path::new(&cpu_path).exists() {
+        eprintln!(
+            "warning: CPU {PIN_CPU} not present ({cpu_path} does not exist) — running unpinned"
+        );
+        return None;
+    }
+    Some(PIN_CPU)
+}
 
-    let filter = groups.join("|");
-    let mut cmd = Command::new("cargo");
+fn binary_on_path(name: &str) -> bool {
+    let path_var = std::env::var_os("PATH");
+    match path_var {
+        None => false,
+        Some(joined) => std::env::split_paths(&joined).any(|dir| dir.join(name).exists()),
+    }
+}
+
+fn build_bench_command(
+    target: &str,
+    filter: &str,
+    baseline: Option<&str>,
+    pin_cpu: Option<u32>,
+) -> Command {
+    let mut cmd = if let Some(cpu) = pin_cpu {
+        let mut c = Command::new("taskset");
+        c.args(["-c", &cpu.to_string(), "cargo"]);
+        c
+    } else {
+        Command::new("cargo")
+    };
+
     cmd.args([
         "bench",
         "-p",
@@ -194,20 +243,44 @@ fn run_bench_target(target: &str, groups: &[&str], baseline: Option<&str>) -> Re
         "--bench",
         target,
         "--",
-        &filter,
+        filter,
     ]);
     if let Some(name) = baseline {
         cmd.args(["--save-baseline", name]);
     }
+    cmd
+}
 
-    eprintln!("running: cargo bench -p climb-bench --bench {target} -- {filter}");
-    let status = cmd
+fn run_bench_target(
+    target: &str,
+    groups: &[&str],
+    baseline: Option<&str>,
+    pin_cpu: Option<u32>,
+) -> Result<()> {
+    if groups.is_empty() {
+        return Ok(());
+    }
+
+    let filter = groups.join("|");
+    let cmd = build_bench_command(target, &filter, baseline, pin_cpu);
+
+    eprintln!("running: {}", render_cmd(&cmd));
+    let mut child = cmd;
+    let status = child
         .status()
         .with_context(|| format!("failed to spawn cargo bench for {target}"))?;
     if !status.success() {
         bail!("cargo bench --bench {target} exited with {status}");
     }
     Ok(())
+}
+
+fn render_cmd(cmd: &Command) -> String {
+    let mut parts = vec![cmd.get_program().to_str().unwrap_or("?").to_string()];
+    for arg in cmd.get_args() {
+        parts.push(arg.to_str().unwrap_or("?").to_string());
+    }
+    parts.join(" ")
 }
 
 fn cmd_report(args: ReportArgs) -> Result<()> {
@@ -266,4 +339,60 @@ fn read_cpu_model() -> Result<String> {
 /// Return an ISO 8601 timestamp without pulling in the `chrono` crate.
 fn iso_timestamp() -> String {
     run_cmd("date", &["--iso-8601=seconds"]).unwrap_or_else(|_| "unknown".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pinned_command_invokes_taskset_with_cpu() {
+        let cmd = build_bench_command("signing", "group_a|group_b", None, Some(2));
+        let program = cmd.get_program().to_str().unwrap();
+        assert_eq!(program, "taskset");
+        let args: Vec<&str> = cmd.get_args().filter_map(|a| a.to_str()).collect();
+        assert!(args.contains(&"-c"));
+        assert!(args.contains(&"2"));
+        assert!(args.contains(&"cargo"));
+        assert!(args.contains(&"bench"));
+        assert!(args.contains(&"signing"));
+        assert!(args.contains(&"--"));
+        assert!(args.contains(&"group_a|group_b"));
+        assert!(!args.contains(&"--save-baseline"));
+    }
+
+    #[test]
+    fn pinned_command_includes_save_baseline_when_given() {
+        let cmd = build_bench_command("signing", "g1", Some("my-baseline"), Some(2));
+        let args: Vec<&str> = cmd.get_args().filter_map(|a| a.to_str()).collect();
+        assert!(args.contains(&"--save-baseline"));
+        assert!(args.contains(&"my-baseline"));
+    }
+
+    #[test]
+    fn unpinned_command_invokes_cargo_directly() {
+        let cmd = build_bench_command("verifying", "v1", None, None);
+        let program = cmd.get_program().to_str().unwrap();
+        assert_eq!(program, "cargo");
+        let args: Vec<&str> = cmd.get_args().filter_map(|a| a.to_str()).collect();
+        assert!(!args.contains(&"taskset"));
+    }
+
+    #[test]
+    fn unpinned_command_still_passes_save_baseline() {
+        let cmd = build_bench_command("verifying", "v1", Some("bl"), None);
+        let args: Vec<&str> = cmd.get_args().filter_map(|a| a.to_str()).collect();
+        assert!(args.contains(&"--save-baseline"));
+        assert!(args.contains(&"bl"));
+    }
+
+    #[test]
+    fn binary_on_path_finds_true_for_known_binary() {
+        assert!(binary_on_path("cargo"));
+    }
+
+    #[test]
+    fn binary_on_path_returns_false_for_nonexistent() {
+        assert!(!binary_on_path("__nonexistent_command_xyzzy__"));
+    }
 }
