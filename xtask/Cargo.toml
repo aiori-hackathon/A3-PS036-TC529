@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 
-description = "cargo-xtask automation: pin-env, bench-all, report"
+description = "cargo-xtask automation: pin-env, bench-all, report, wire-report"
 
 [[bin]]
 name = "xtask"
@@ -17,4 +17,7 @@ anyhow.workspace = true
 clap.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+climb-bench = { path = "../crates/climb-bench" }
+climb-dns = { path = "../crates/climb-dns" }
+climb-mtl-sys = { path = "../crates/climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-report = { path = "../crates/climb-report" }

@@ -8,7 +8,9 @@ use std::process::Command;
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
 
 mod groups;
+mod wire;
 use groups::{BenchTarget, DatasetSize, GROUPS};
+use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
 ///
@@ -36,6 +38,12 @@ enum Commands {
     BenchAll(BenchAllArgs),
     /// Print a plain-text summary of Criterion's latest results.
     Report(ReportArgs),
+    /// Measure and display permanent wire-size numbers (MTL vs non-MTL).
+    ///
+    /// Calls climb_bench::measure_wire_sizes for each requested dataset size
+    /// and prints a human-readable table.  When --out is given, also writes a
+    /// JSON array of WireSizeReport values.
+    WireReport(WireReportArgs),
 }
 
 #[derive(Args)]
@@ -70,7 +78,7 @@ struct ReportArgs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-enum SizeArg {
+pub(crate) enum SizeArg {
     All,
     Small,
     OneK,
@@ -109,6 +117,7 @@ fn main() -> Result<()> {
         Commands::PinEnv => cmd_pin_env(),
         Commands::BenchAll(args) => cmd_bench_all(args),
         Commands::Report(args) => cmd_report(args),
+        Commands::WireReport(args) => cmd_wire_report(args),
     }
 }
 

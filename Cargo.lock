@@ -252,6 +252,7 @@ dependencies = [
  "climb-mtl",
  "climb-mtl-sys",
  "criterion",
+ "serde",
 ]
 
 [[package]]
@@ -1452,6 +1453,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "climb-bench",
+ "climb-dns",
+ "climb-mtl-sys",
  "climb-report",
  "serde",
  "serde_json",

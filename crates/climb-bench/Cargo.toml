@@ -20,6 +20,7 @@ harness = false
 climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-mtl = { path = "../climb-mtl" }
 climb-dns = { path = "../climb-dns" }
+serde = { workspace = true, features = ["derive"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
