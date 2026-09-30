@@ -116,5 +116,24 @@ physical cores.
 | `docker compose -f docker/compose.build.yml up --build` | Build passes, artifacts verified | **PASSING** — library (`libmtlslib.so`), headers, and liboqs confirmed at `/usr/local/` |
 | OpenSSL version detected in container | `OpenSSL 3.4.1 11 Feb 2025` | **CONFIRMED** |
 
+## Docker images (Batch 4 — live DNS pipeline)
+
+| Image | Tag | Dockerfile | Source | Source SHA |
+|---|---|---|---|---|
+| **climb-nsd** | `phase12` | `docker/Dockerfile.nsd` | `verisign/mtl-mode-nsd`, branch `IETF-126-Interim` | `772d31732dcda4c75a062e26ba631f8bcb477471` |
+| **climb-unbound** | `phase13` | `docker/Dockerfile.unbound` | `verisign/mtl-mode-unbound`, branch `IETF-126-Interim` | `d47c042a72a7d26b2099db6f43f93cbf4f51b8ff` |
+
+Both images share the same Debian Bookworm base image (digest `sha256:3783cc01…`) and the
+same OpenSSL 3.4.1 + liboqs 0.16.0 + libMTL (pro fm0r14rty/MTL @ `53ce25dcc3…`) build chain.
+NSD only needs OpenSSL (EVP SHAKE-128 for the MTL ladder hash); Unbound additionally links
+liboqs + libmtlslib for MTL algorithm validation and ladder cache management.
+
+**Networking (compose):** Both services run on a shared `climb-net` internal bridge
+(`192.168.13.0/24`, no Internet access per the project conventions §2.3). NSD at `192.168.13.2:53`,
+Unbound at `192.168.13.3:53`. Host-side only: NSD → `127.0.0.1:5354`, Unbound →
+`127.0.0.1:5355`. Compose file: `docker/compose.batch4.yml`.
+- **Zone state:** `climb.example.` is currently unsigned — MTL RRSIG validation deferred
+  until `verisign/mtl-mode-ldns` signer integration (BLOCKER, see the dev notes §12.1/13).
+
 ---
-*Last updated: Fix 3 — F3.5 (2026-09-29)*
+*Last updated: Phase 13 (2026-09-30)*

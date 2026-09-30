@@ -1,0 +1,169 @@
+# docker/Dockerfile.unbound — CLIMB Phase 13
+#
+# Multi-stage build: OpenSSL 3.4.1 → liboqs 0.16.0 → libMTL (our fork) →
+# verisign/mtl-mode-unbound @ IETF-126-Interim → slim runtime.
+#
+# Unlike NSD (Phase 12), Unbound directly links liboqs + libmtlslib and
+# needs the full PQC stack. The MTL algorithm table in val_pqc_algo.c
+# requires headers at <include>/mtllib/ and AC_SEARCH_LIBS([mtl_initns]).
+#
+# ── Pinned dependencies ──
+# Base image:  debian:bookworm-slim@sha256:3783cc0176...
+# OpenSSL:     3.4.1 (bootstrapped — Bookworm's 3.0.x < libMTL's ≥3.1.0 floor)
+# liboqs:      0.16.0  (pinned submodule at third_party/liboqs)
+# libMTL:      profm0r14rty/MTL @ 53ce25dcc35c15e051c5263e41aaeaede18a8aa7
+# Unbound:     verisign/mtl-mode-unbound @ d47c042a72a7d26b2099db6f43f93cbf4f51b8ff
+#              branch IETF-126-Interim (NOT default IETF-121, which is stale)
+# Unbound ver: 1.21.0 (VERSION_MAJOR=1, MINOR=21, MICRO=0 in configure.ac)
+# ──────────────────────────
+
+# ── Stage 1: full builder ───────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bc \
+    bison \
+    build-essential \
+    ca-certificates \
+    cmake \
+    flex \
+    git \
+    libexpat1-dev \
+    libevent-dev \
+    libtool \
+    ninja-build \
+    perl \
+    pkg-config \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1. OpenSSL ≥ 3.1.0  (Bookworm ships 3.0.x — not new enough for libMTL)
+# ─────────────────────────────────────────────────────────────────────────
+ARG OPENSSL_VERSION=3.4.1
+RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
+    && cd "openssl-${OPENSSL_VERSION}" \
+    && ./Configure --prefix=/usr/local --libdir=lib \
+        enable-fips \
+        -Wl,-rpath,/usr/local/lib \
+    && make -j"$(nproc)" \
+    && make install_sw \
+    && cd .. && rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2. liboqs 0.16.0 — pinned submodule, shared lib, SLH-DSA + ML-DSA only
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/liboqs /src/liboqs
+WORKDIR /src/liboqs
+
+RUN mkdir -p build && cd build \
+    && cmake -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_SHARED_LIBS=ON \
+        -DOQS_MINIMAL_BUILD="SIG_slh_dsa;SIG_ml_dsa" \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DOQS_DIST_BUILD=ON \
+        -DOQS_USE_OPENSSL=ON \
+        -DOPENSSL_ROOT_DIR=/usr/local \
+        .. \
+    && ninja -j"$(nproc)" \
+    && ninja install \
+    && cd / && rm -rf /src/liboqs
+
+# Register shared libs for the linker
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/climb-local.conf && ldconfig
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3. libMTL — our pinned fork (pro fm0r14rty/MTL, climb/liboqs-0.16-compat)
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/MTL /src/MTL
+WORKDIR /src/MTL
+
+# Same build pattern as Dockerfile.build: do NOT pass CFLAGS at configure
+# time (configure.ac clobbers them). CPPFLAGS/LDFLAGS are safe.
+RUN autoreconf --install \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure --libdir=/usr/local/lib \
+    && make -C src -j"$(nproc)" \
+    && make -C src install \
+    && ldconfig
+
+WORKDIR /
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4. Unbound MTL-mode fork — IETF-126-Interim (newest, sigtag ext support)
+# ─────────────────────────────────────────────────────────────────────────
+ARG UNBOUND_MTL_REPO=https://github.com/verisign/mtl-mode-unbound.git
+ARG UNBOUND_MTL_BRANCH=IETF-126-Interim
+ARG UNBOUND_MTL_SHA=d47c042a72a7d26b2099db6f43f93cbf4f51b8ff
+
+RUN git clone --branch "${UNBOUND_MTL_BRANCH}" --depth 1 "${UNBOUND_MTL_REPO}" unbound-mtl \
+    && cd unbound-mtl/src \
+    && git fetch --depth 1 origin "${UNBOUND_MTL_SHA}" \
+    && git checkout "${UNBOUND_MTL_SHA}"
+
+WORKDIR /unbound-mtl/src
+
+# Configure with PQC algorithm flags matching our liboqs build.
+# OQS_MINIMAL_BUILD="SIG_slh_dsa;SIG_ml_dsa" — only these two families
+# are available. fl-dsa, mayo, snova flags are omitted (Unbound will fail
+# at runtime for algorithms that liboqs can't resolve).
+# The critical MTL flag is --enable-pqc-algo-mtl-mode, which enables the
+# mtllib_* API calls, the ladder cache, and the PQC sigtag EDNS extension.
+RUN libtoolize -ci \
+    && autoreconf -fi \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure \
+        --prefix=/usr/local/unbound \
+        --enable-pqc-algo-slh-dsa-sha2 \
+        --enable-pqc-algo-slh-dsa-shake \
+        --enable-pqc-algo-ml-dsa \
+        --enable-pqc-algo-mtl-mode \
+    && make -j"$(nproc)" \
+    && make install
+
+# Verify the MTL symbols are present in the binary
+RUN nm /usr/local/unbound/sbin/unbound | grep -q "mtllib_verify" \
+    && echo "unbound: MTL mtllib_verify linked OK" \
+    || (echo "unbound: MISSING mtllib_verify linkage" >&2 && exit 1)
+
+WORKDIR /
+
+# ── Stage 2: slim runtime ───────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS runtime
+
+# Runtime dependencies: libevent (event loop), libexpat (config XML parser),
+# ca-certificates. libcrypto/libssl, liboqs, and libmtlslib are copied from
+# the builder stage (we built OpenSSL 3.4.1 from source; Bookworm's 3.0.x
+# would be an ABI mismatch).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libevent-2.1-7 \
+    libexpat1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy our built shared libraries: OpenSSL 3.4.1, liboqs 0.16.0, libmtlslib
+COPY --from=builder /usr/local/lib /usr/local/lib
+
+# Copy Unbound installation
+COPY --from=builder /usr/local/unbound /usr/local/unbound
+
+# Register shared libraries
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/climb-unbound.conf && ldconfig
+
+# Create runtime directories for Unbound (chroot, state, pid)
+RUN mkdir -p /var/lib/unbound /run/unbound \
+    && chown -R nobody:nogroup /var/lib/unbound /run/unbound
+
+EXPOSE 53/udp 53/tcp
+
+USER nobody
+
+ENTRYPOINT ["/usr/local/unbound/sbin/unbound"]
+CMD ["-d", "-c", "/etc/unbound/unbound.conf"]
