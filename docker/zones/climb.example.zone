@@ -1,0 +1,37 @@
+; docker/zones/climb.example.zone — CLIMB Phase 12
+;
+; Minimal authoritative zone for NSD-MTL serving.
+; Hand-written (not generated from climb-dns) because:
+;   - climb-dns generates wire-format DNS *messages*, not zone files
+;   - climb-dns lacks SOA generation, zone-file presentation format, and
+;     deterministic single-zone layout (records are randomized across 10 zones)
+;   - A hand-written zone is the smallest correct path for Phase 12.3's "real zone"
+;     requirement, per the investigation documented in the dev notes Phase 12.1
+;
+; This zone is unsigned. MTL RRSIGs require the verisign/mtl-mode-ldns signer
+; (not yet vendored) — see the dev notes Phase 12.1 Blockers.
+
+$ORIGIN climb.example.
+$TTL 3600
+
+@       IN  SOA     ns1.climb.example. hostmaster.climb.example. (
+                    2026093001  ; serial
+                    3600        ; refresh
+                    900         ; retry
+                    604800      ; expire
+                    86400       ; minimum (negative-cache TTL)
+)
+
+@       IN  NS      ns1.climb.example.
+
+; Apex A record (glue for ns1)
+ns1     IN  A       127.0.0.1
+
+; Sample host records — these are the records queried in Phase 12.5 verification
+www     IN  A       10.0.0.1
+www     IN  AAAA    2001:db8::1
+mail    IN  A       10.0.0.2
+mail    IN  MX  10  mx.climb.example.
+api     IN  A       10.0.0.3
+api     IN  TXT     "v=CLIMB-phase12"
+mx      IN  A       10.0.0.4

@@ -1,0 +1,101 @@
+# docker/Dockerfile.nsd — CLIMB Phase 12
+#
+# Multi-stage build: clones the pinned verisign/mtl-mode-nsd fork and builds
+# NSD with MTL mode support (EDNS opcode 65050, --enable-draft-mtl).
+#
+# ── Key architectural finding (Phase 12.1 investigation) ──
+# NSD's MTL patch does NOT link against libMTL. The only crypto used in the
+# patched code is OpenSSL EVP SHAKE-128 (val_algo_get_ladder_hash). NSD serves
+# pre-signed zones — signing is done by the separate verisign/mtl-mode-ldns
+# fork (not yet vendored in CLIMB). This Dockerfile therefore only needs
+# libssl-dev from the base image, not the full liboqs/libMTL stack.
+#
+# ── Pinned dependencies ──
+# Base image:   debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+# NSD-MTL fork: verisign/mtl-mode-nsd @ 772d31732dcda4c75a062e26ba631f8bcb477471
+#               branch IETF-126-Interim (NOT the default IETF-125-Hackathon)
+# NSD version:  4.10.1 (fork base; ~5 releases behind upstream 4.15.2)
+# ──────────────────────────
+
+# ── Stage 1: builder ────────────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS builder
+
+# Build dependencies for NSD + autotools bootstrap
+# bison is required — the Verisign fork's configparser.y needs a yacc
+# implementation, but Bookworm's NSD packaging doesn't install it by default.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bison \
+    build-essential \
+    ca-certificates \
+    flex \
+    git \
+    libevent-dev \
+    libssl-dev \
+    libtool \
+    pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Clone the pinned NSD-MTL fork ───────────────────────────────────────
+# ARG so the SHA can be overridden at build time for reproducibility checks.
+ARG NSD_MTL_REPO=https://github.com/verisign/mtl-mode-nsd.git
+ARG NSD_MTL_BRANCH=IETF-126-Interim
+ARG NSD_MTL_SHA=772d31732dcda4c75a062e26ba631f8bcb477471
+
+WORKDIR /src
+RUN git clone --branch "${NSD_MTL_BRANCH}" --depth 1 "${NSD_MTL_REPO}" nsd-mtl \
+    && cd nsd-mtl \
+    && git fetch --depth 1 origin "${NSD_MTL_SHA}" \
+    && git checkout "${NSD_MTL_SHA}"
+
+# ── Build NSD with MTL mode ─────────────────────────────────────────────
+# The fork's configure.ac lives in src/ (not at the repo root — the Verisign
+# fork restructured the layout). The vendored simdzone/ directory is built
+# as part of the NSD build.
+#
+# --enable-draft-mtl compiles in EDNS opcode 65050 support (the renamed flag;
+# PR #397 used --enable-draft-slh-dsa-mtl). Algorithm selection (128–134 for
+# MTL) is hardcoded in src/val_pqc_algo.c.
+#
+# CPPFLAGS/LDFLAGS wired for /usr/local so the builder can use a separately
+# installed OpenSSL if needed (Bookworm's 3.0.x is sufficient — NSD's MTL
+# code only needs SHAKE-128 via EVP, which 3.0.x provides).
+WORKDIR /src/nsd-mtl/src
+RUN autoreconf --install \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure \
+        --prefix=/usr/local/nsd \
+        --enable-draft-mtl \
+    && make -j"$(nproc)" \
+    && make install
+
+# ── Stage 2: slim runtime ───────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+
+# Runtime dependencies: libevent (NSD uses libevent for async I/O), OpenSSL
+# (for SHAKE-128 EVP in the MTL code path), and CA certs (NSD's own needs).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    libevent-2.1-7 \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built NSD tree (nsd binary + supporting files)
+COPY --from=builder /usr/local/nsd /usr/local/nsd
+
+# Runtime directories
+RUN mkdir -p /etc/nsd/zones /var/lib/nsd /run/nsd \
+    && chown -R nobody:nogroup /var/lib/nsd /run/nsd
+
+# Zone files and config are bind-mounted at runtime (see compose.nsd.yml).
+# The image ships only the nsd binary — config and zone data are external.
+
+EXPOSE 53/udp 53/tcp
+
+# Run as unprivileged user (NSD's own recommendation)
+USER nobody
+
+ENTRYPOINT ["/usr/local/nsd/sbin/nsd"]
+CMD ["-d", "-c", "/etc/nsd/nsd.conf"]
