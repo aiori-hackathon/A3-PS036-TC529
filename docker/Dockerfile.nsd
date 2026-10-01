@@ -89,7 +89,7 @@ COPY --from=builder /usr/local/nsd /usr/local/nsd
 RUN mkdir -p /etc/nsd/zones /var/lib/nsd /run/nsd \
     && chown -R nobody:nogroup /var/lib/nsd /run/nsd
 
-# Zone files and config are bind-mounted at runtime (see compose.nsd.yml).
+# Zone files and config are bind-mounted at runtime (see compose.dns-pipeline.yml).
 # The image ships only the nsd binary — config and zone data are external.
 
 EXPOSE 53/udp 53/tcp

@@ -1,0 +1,175 @@
+# docker/Dockerfile.ldns-signer — CLIMB Batch 4 (Phase 14)
+#
+# Multi-stage build that vendors the verisign/mtl-mode-ldns fork and produces
+# the MTL-capable DNSSEC zone-signing tools:
+#   ldns-keygen      — generate SLH-DSA-SHA2-128s-MTL-SHA2-128 keys (alg 130)
+#   ldns-signzone    — sign a zone, emitting condensed + full MTL RRSIGs
+#   ldns-verify-zone — verify the signed zone against the KSK
+#
+# ── Why this exists (Phase 12.1 blocker resolution) ──
+# NSD *serves* pre-signed zones but does not sign them. Without a signer there
+# are no MTL RRSIGs in the zone, so NSD's MTL condensing path (EDNS opcode
+# 65050) has nothing to condense and the live demo cannot show MTL mode at
+# work. This image closes that gap using the reference signer, not any
+# from-scratch cryptography (the project conventions §2.1).
+#
+# ── Build dependency chain ──
+# OpenSSL 3.4.1 → liboqs 0.16.0 (third_party/liboqs submodule) →
+# libMTL (third_party/MTL submodule, our pinned fork) → mtl-mode-ldns.
+# Unlike NSD (OpenSSL-only), the signer links liboqs + libmtlslib at build and
+# runtime — see the dev notes Phase 14.
+#
+# ── Pinned dependencies ──
+# Base image:   debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
+# LDNS-MTL fork: verisign/mtl-mode-ldns @ 1de55d90709ef37e5c5ba81e450761cea31c6fc7
+#                branch IETF-126-Interim (NOT the default IETF-121, which is stale)
+# liboqs:       0.16.0  (pinned submodule at third_party/liboqs)
+# libMTL:       profm0r14rty/MTL @ 53ce25dcc35c15e051c5263e41aaeaede18a8aa7
+# Algorithm:    SLH-DSA-SHA2-128s-MTL-SHA2-128 = DNSSEC algorithm 130
+# ──────────────────────────
+
+# ── Stage 1: full builder ───────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS builder
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf \
+    automake \
+    bc \
+    bison \
+    build-essential \
+    ca-certificates \
+    cmake \
+    flex \
+    git \
+    libtool \
+    ninja-build \
+    perl \
+    pkg-config \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# ─────────────────────────────────────────────────────────────────────────
+# 1. OpenSSL ≥ 3.1.0  (Bookworm ships 3.0.x — not new enough for libMTL)
+# ─────────────────────────────────────────────────────────────────────────
+ARG OPENSSL_VERSION=3.4.1
+RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
+    && cd "openssl-${OPENSSL_VERSION}" \
+    && ./Configure --prefix=/usr/local --libdir=lib \
+        enable-fips \
+        -Wl,-rpath,/usr/local/lib \
+    && make -j"$(nproc)" \
+    && make install_sw \
+    && cd .. && rm -rf "openssl-${OPENSSL_VERSION}" "openssl-${OPENSSL_VERSION}.tar.gz"
+
+# ─────────────────────────────────────────────────────────────────────────
+# 2. liboqs 0.16.0 — pinned submodule, shared lib, SLH-DSA + ML-DSA only
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/liboqs /src/liboqs
+WORKDIR /src/liboqs
+
+RUN mkdir -p build && cd build \
+    && cmake -GNinja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr/local \
+        -DBUILD_SHARED_LIBS=ON \
+        -DOQS_MINIMAL_BUILD="SIG_slh_dsa;SIG_ml_dsa" \
+        -DOQS_BUILD_ONLY_LIB=ON \
+        -DOQS_DIST_BUILD=ON \
+        -DOQS_USE_OPENSSL=ON \
+        -DOPENSSL_ROOT_DIR=/usr/local \
+        .. \
+    && ninja -j"$(nproc)" \
+    && ninja install \
+    && cd / && rm -rf /src/liboqs
+
+RUN echo "/usr/local/lib" >> /etc/ld.so.conf.d/climb-local.conf && ldconfig
+
+# ─────────────────────────────────────────────────────────────────────────
+# 3. libMTL — our pinned fork (profm0r14rty/MTL, climb/liboqs-0.16-compat)
+# ─────────────────────────────────────────────────────────────────────────
+COPY third_party/MTL /src/MTL
+WORKDIR /src/MTL
+
+RUN autoreconf --install \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure --libdir=/usr/local/lib \
+    && make -C src -j"$(nproc)" \
+    && make -C src install \
+    && ldconfig
+
+WORKDIR /
+
+# ─────────────────────────────────────────────────────────────────────────
+# 4. mtl-mode-ldns — the MTL-capable zone signer (IETF-126-Interim)
+# ─────────────────────────────────────────────────────────────────────────
+ARG LDNS_MTL_REPO=https://github.com/verisign/mtl-mode-ldns.git
+ARG LDNS_MTL_BRANCH=IETF-126-Interim
+ARG LDNS_MTL_SHA=1de55d90709ef37e5c5ba81e450761cea31c6fc7
+
+RUN git clone --branch "${LDNS_MTL_BRANCH}" --depth 1 "${LDNS_MTL_REPO}" ldns-mtl \
+    && cd ldns-mtl/src \
+    && git fetch --depth 1 origin "${LDNS_MTL_SHA}" \
+    && git checkout "${LDNS_MTL_SHA}"
+
+WORKDIR /ldns-mtl/src
+
+# Configure with only the algorithms CLIMB needs. --enable-pqc-algo-slh-dsa-sha2
+# defines the pure SLH-DSA-SHA2-128s (alg 246); --enable-pqc-algo-mtl adds the
+# MTL variants including SLH-DSA-SHA2-128s-MTL-SHA2-128 (alg 130). Both flags
+# are required for alg 130 to be compiled in (see the dev notes Phase 14).
+# --disable-dane/--disable-gost drop optional deps irrelevant to zone signing
+# and unavailable in the slim builder.
+RUN libtoolize -ci \
+    && autoreconf -fi \
+    && CPPFLAGS="-I/usr/local/include" \
+       LDFLAGS="-L/usr/local/lib -Wl,-rpath,/usr/local/lib" \
+       ./configure \
+        --prefix=/usr/local/ldns \
+        --with-examples \
+        --with-ssl=/usr/local \
+        --enable-pqc-algo-slh-dsa-sha2 \
+        --enable-pqc-algo-mtl \
+        --disable-dane \
+        --disable-gost \
+    && make -j"$(nproc)" \
+    && make install
+
+# Sanity check: the MTL library must actually be linked. The mtllib_* symbols
+# are resolved by libldns.so.3 (not by the ldns-signzone binary, which only
+# needs libldns), so assert the NEEDED entries on the library. A build that
+# silently dropped --enable-pqc-algo-mtl would otherwise only fail much later,
+# at key-generation time.
+RUN readelf -d /usr/local/ldns/lib/libldns.so.3 | grep -q "libmtlslib" \
+    && readelf -d /usr/local/ldns/lib/libldns.so.3 | grep -q "liboqs" \
+    && echo "libldns: libmtlslib + liboqs linked OK" \
+    || (echo "libldns: MISSING libmtlslib/liboqs linkage" >&2 && exit 1)
+
+WORKDIR /
+
+# ── Stage 2: slim runtime ───────────────────────────────────────────────
+FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS runtime
+
+# Runtime needs only ca-certificates: libcrypto, liboqs, and libmtlslib are
+# copied from the builder (OpenSSL 3.4.1 built from source — Bookworm's 3.0.x
+# would be an ABI mismatch with the built libs).
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /usr/local/lib /usr/local/lib
+COPY --from=builder /usr/local/ldns /usr/local/ldns
+
+# Register both the PQC libs (liboqs, libmtlslib, libcrypto) and ldns's own
+# libldns.so.3, which installs under the /usr/local/ldns prefix libdir.
+RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/climb-ldns.conf \
+    && echo "/usr/local/ldns/lib" >> /etc/ld.so.conf.d/climb-ldns.conf \
+    && ldconfig
+
+# The signer is a one-shot CLI over a mounted zone directory. No ENTRYPOINT so
+# `docker run … climb-ldns-signer:phase14 ldns-keygen …` / `ldns-signzone …`
+# both work; PATH makes the three tools reachable by name.
+ENV PATH="/usr/local/ldns/bin:${PATH}"
+WORKDIR /var/dns/zones
+RUN mkdir -p /var/dns/zones

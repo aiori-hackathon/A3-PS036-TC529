@@ -5,10 +5,12 @@ use std::process::Command;
 
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
 
+mod dns_demo;
 mod groups;
 mod memory;
 mod pin_env;
 mod wire;
+use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use pin_env::cmd_pin_env;
@@ -54,6 +56,14 @@ enum Commands {
     /// dataset/harness overhead by sampling RSS immediately before and after
     /// sign_batch with the dataset already held in memory.
     MemoryReport(MemoryReportArgs),
+    /// Bring up the live MTL DNS pipeline, sign a zone, issue scripted
+    /// queries, capture raw wire bytes, and tear down.
+    ///
+    /// Demonstrates the ~37x bandwidth collapse (full signed ladder vs
+    /// condensed Merkle path) using NSD-MTL, Unbound-MTL, and the
+    /// ldns zone signer — all inside internal-only Docker bridge networks.
+    /// Captures are written under target/dns-demo/.
+    DnsDemo(DnsDemoArgs),
 }
 
 #[derive(Args)]
@@ -104,6 +114,7 @@ fn main() -> Result<()> {
         Commands::Report(args) => cmd_report(args),
         Commands::WireReport(args) => cmd_wire_report(args),
         Commands::MemoryReport(args) => cmd_memory_report(args),
+        Commands::DnsDemo(args) => cmd_dns_demo(args),
     }
 }
 

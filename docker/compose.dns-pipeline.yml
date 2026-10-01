@@ -1,0 +1,170 @@
+# docker/compose.dns-pipeline.yml — CLIMB Batch 4 (Phases 12–14)
+#
+# The single canonical Compose file for the live MTL DNS pipeline: the patched
+# NSD-MTL authoritative server (Phase 12) and the patched Unbound-MTL recursive
+# resolver (Phase 13), plus the two one-shot tools (Phase 14): a `dig` query
+# client and the reference MTL zone signer.
+#
+# It supersedes docker/compose.nsd.yml (Phase 12, NSD only) and
+# docker/compose.batch4.yml (Phase 13); keeping one file removes the drift
+# between two near-identical service definitions.
+#
+# ── Usage ──────────────────────────────────────────────────────────────
+#   # 1. Build the four images (nsd, unbound, dig, signer)
+#   docker compose -f docker/compose.dns-pipeline.yml --profile tools build
+#
+#   # 2. Bring the pipeline up (both servers)
+#   docker compose -f docker/compose.dns-pipeline.yml up -d
+#
+#   # 3. Query NSD directly over the internal network
+#   docker compose -f docker/compose.dns-pipeline.yml --profile tools run --rm \
+#       dig @nsd climb.example. SOA
+#
+#   # 4. Query through the Unbound resolver
+#   docker compose -f docker/compose.dns-pipeline.yml --profile tools run --rm \
+#       dig @unbound www.climb.example. A
+#
+#   # 5. Tear down
+#   docker compose -f docker/compose.dns-pipeline.yml down
+#
+#   # 6. Or drive the whole thing automatically:  cargo xtask dns-demo
+#
+# ── What is bound where (the project conventions §2.3 "No Internet deployment") ──────
+# NOTHING is published to the host. There is no `ports:` mapping anywhere in
+# this file. NSD and Unbound listen on `0.0.0.0:53` inside their own network
+# namespaces only, reachable solely from containers attached to the internal
+# `climb-net` bridge. Neither server is reachable from the LAN or the Internet.
+#
+# Two distinct properties of `internal: true` are worth stating precisely,
+# because conflating them is what let the previous files' localhost port
+# mappings go unnoticed as inert:
+#   1. Host *port publishing* is suppressed: no `docker-proxy` listener is
+#      created, so `127.0.0.1:5354` was never actually bound.
+#   2. The host can still reach the containers at their private bridge
+#      addresses (`192.168.13.2` / `192.168.13.3`) via the `br-*` interface.
+#      Those are RFC1918 host-local addresses; the bridge has no route to the
+#      LAN, so this is not a public exposure.
+#
+# The demo does not rely on property (2): `cargo xtask dns-demo` runs `dig` and
+# the wire-capture helper from inside `climb-net`, on the same bridge the
+# servers use, so no host listener is needed at all. (The Arch host also has no
+# `dig` installed.) If host-side querying over a published localhost port is
+# ever genuinely required, the localhost-only pattern is at the bottom of this
+# file; it must never be widened to `0.0.0.0` or a public interface.
+
+name: climb-dns
+
+services:
+
+  # ── Authoritative: NSD-MTL (Phase 12) ───────────────────────────────
+  nsd:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.nsd
+    image: climb-nsd:phase12
+
+    # Zone directory is overridable so `cargo xtask dns-demo` can point NSD at
+    # a freshly MTL-signed zone in a scratch dir (see Phase 14) without
+    # touching the committed unsigned zone in ./zones. Default keeps plain
+    # `docker compose up` working out of the box.
+    volumes:
+      - ${CLIMB_ZONE_DIR:-./zones}:/etc/nsd/zones:ro
+      - ./configs/nsd.conf:/etc/nsd/nsd.conf:ro
+
+    cap_drop:
+      - ALL
+
+    restart: "no"
+
+    networks:
+      climb-net:
+        ipv4_address: 192.168.13.2
+
+  # ── Recursive validator: Unbound-MTL (Phase 13) ─────────────────────
+  unbound:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.unbound
+    image: climb-unbound:phase13
+
+    volumes:
+      - ./configs/unbound.conf:/etc/unbound/unbound.conf:ro
+
+    cap_drop:
+      - ALL
+
+    restart: "no"
+
+    networks:
+      climb-net:
+        ipv4_address: 192.168.13.3
+
+    # Unbound's stub-zone queries fail without NSD, so start NSD first.
+    depends_on:
+      - nsd
+
+  # ── Query tool: dig (Phase 14) ──────────────────────────────────────
+  # A throwaway client that lives on the internal network so queries never
+  # leave it. Started explicitly per query via `run --rm`, never `up`.
+  dig:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dig
+    image: climb-dig:phase14
+    networks:
+      - climb-net
+    # `profiles` keeps `up -d` from starting this one-shot tool.
+    profiles:
+      - tools
+
+  # ── Signer: ldns keygen/signzone (Phase 14) ─────────────────────────
+  # The reference MTL signer, used by `cargo xtask dns-demo` to produce a real
+  # MTL-signed zone (NSD only *serves* pre-signed zones). Also a one-shot tool,
+  # so it is behind the same `tools` profile and never starts with `up`.
+  signer:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ldns-signer
+    image: climb-ldns-signer:phase14
+    networks:
+      - climb-net
+    profiles:
+      - tools
+
+# ── Shared internal bridge (the project conventions §2.3) ───────────────────────────
+# `internal: true` means Docker installs no route or NAT rule from this bridge
+# to the outside world: containers on climb-net can reach each other and
+# nothing else. This is the single network both servers and the dig tool share.
+networks:
+  climb-net:
+    name: climb-net
+    driver: bridge
+    internal: true
+    ipam:
+      config:
+        - subnet: 192.168.13.0/24
+
+# ── Optional: localhost-only host access (disabled by default) ────────
+# If you ever need to query from the host, add a second, non-internal bridge
+# and publish ONLY to 127.0.0.1. The bridge must disable IP masquerading so
+# containers still have no route to the Internet:
+#
+#   services:
+#     nsd:
+#       ports: ["127.0.0.1:5354:53/udp", "127.0.0.1:5354:53/tcp"]
+#       networks: [climb-net, climb-edge]
+#     unbound:
+#       ports: ["127.0.0.1:5355:53/udp", "127.0.0.1:5355:53/tcp"]
+#       networks: [climb-net, climb-edge]
+#   networks:
+#     climb-edge:
+#       driver: bridge
+#       driver_opts:
+#         com.docker.network.bridge.enable_ip_masquerade: "false"
+#       ipam:
+#         config:
+#           - subnet: 192.168.14.0/24
+#
+# Then `dig @127.0.0.1 -p 5354 …`. The host binding is localhost-only by
+# construction (127.0.0.1, never 0.0.0.0) and the container still cannot reach
+# the Internet (masquerade disabled + the primary network is internal).

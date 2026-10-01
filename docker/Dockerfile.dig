@@ -1,0 +1,27 @@
+# docker/Dockerfile.dig — CLIMB Batch 4 (Phase 14) query tool
+#
+# A minimal `dig` image used by `cargo xtask dns-demo` to issue the scripted
+# DNS queries from *inside* the pipeline's Docker network. The Arch host has no
+# `dig`/`kdig`/`drill`, and `sudo` is unavailable, so the demo cannot query
+# from the host. Running dig in a container is also strictly safer: it keeps
+# every query on the internal `climb-net` and requires no host port exposure
+# (the project conventions §2.3).
+#
+# bind-tools provides `dig` (and `host`/`nslookup`). `openssl` provides the
+# SHAKE-128 digest used to compute an MTL SigTag (EDNS option 65050): NSD's
+# ladder-hash is SHAKE-128 over the signed ladder (src/val_pqc_algo.c
+# val_algo_get_ladder_hash uses EVP_shake128), and `cargo xtask dns-demo`
+# reproduces that exact hash with the same OpenSSL primitive so NSD will serve
+# a condensed proof. No new cryptography is introduced.
+#
+# The base is pinned by digest so the tool versions are reproducible.
+
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc
+
+RUN apk add --no-cache bind-tools openssl python3
+
+# Remainder of Dockerfile...
+
+# Default to the authoritative NSD on the internal network; the demo overrides
+# both the server and the query on the command line.
+ENTRYPOINT ["dig"]

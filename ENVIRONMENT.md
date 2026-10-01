@@ -122,18 +122,33 @@ physical cores.
 |---|---|---|---|---|
 | **climb-nsd** | `phase12` | `docker/Dockerfile.nsd` | `verisign/mtl-mode-nsd`, branch `IETF-126-Interim` | `772d31732dcda4c75a062e26ba631f8bcb477471` |
 | **climb-unbound** | `phase13` | `docker/Dockerfile.unbound` | `verisign/mtl-mode-unbound`, branch `IETF-126-Interim` | `d47c042a72a7d26b2099db6f43f93cbf4f51b8ff` |
+| **climb-ldns-signer** | `phase14` | `docker/Dockerfile.ldns-signer` | `verisign/mtl-mode-ldns`, branch `IETF-126-Interim` | `1de55d90709ef37e5c5ba81e450761cea31c6fc7` |
+| **climb-dig** | `phase14` | `docker/Dockerfile.dig` | `alpine:3.20` + `bind-tools`/`openssl`/`python3` | `alpine@sha256:d9e853e8…` |
 
-Both images share the same Debian Bookworm base image (digest `sha256:3783cc01…`) and the
-same OpenSSL 3.4.1 + liboqs 0.16.0 + libMTL (pro fm0r14rty/MTL @ `53ce25dcc3…`) build chain.
-NSD only needs OpenSSL (EVP SHAKE-128 for the MTL ladder hash); Unbound additionally links
-liboqs + libmtlslib for MTL algorithm validation and ladder cache management.
+`climb-nsd`, `climb-unbound`, and `climb-ldns-signer` share the same Debian Bookworm base
+image (digest `sha256:3783cc01…`) and the same OpenSSL 3.4.1 + liboqs 0.16.0 + libMTL
+(pro fm0r14rty/MTL @ `53ce25dcc3…`) build chain. NSD only needs OpenSSL (EVP SHAKE-128 for
+the MTL ladder hash); Unbound and the signer additionally link liboqs + libmtlslib — for
+Unbound this is validation/ladder-cache management, for the signer it is actual MTL
+signature generation. `climb-dig` is an Alpine-based query tool used by `cargo xtask
+dns-demo`.
 
-**Networking (compose):** Both services run on a shared `climb-net` internal bridge
-(`192.168.13.0/24`, no Internet access per the project conventions §2.3). NSD at `192.168.13.2:53`,
-Unbound at `192.168.13.3:53`. Host-side only: NSD → `127.0.0.1:5354`, Unbound →
-`127.0.0.1:5355`. Compose file: `docker/compose.batch4.yml`.
-- **Zone state:** `climb.example.` is currently unsigned — MTL RRSIG validation deferred
-  until `verisign/mtl-mode-ldns` signer integration (BLOCKER, see the dev notes §12.1/13).
+**Networking (compose):** all services run on a single shared `climb-net` internal bridge
+(`192.168.13.0/24`, `internal: true`, no Internet access per the project conventions §2.3). NSD at
+`192.168.13.2:53`, Unbound at `192.168.13.3:53`. Compose file:
+`docker/compose.dns-pipeline.yml` (supersedes `compose.nsd.yml` and `compose.batch4.yml`).
+
+- **Nothing is published to the host.** There are deliberately no `ports:` mappings. Docker
+  does not create host listeners for a service whose only network is `internal: true`, so
+  the localhost port mappings the earlier compose files declared were inert; the query path
+  now runs inside `climb-net` as a short-lived `dig` container instead. See
+  `docker/compose.dns-pipeline.yml` for the documented localhost-only fallback if host
+  access is ever required.
+- **Zone state:** `climb.example.` is MTL-signed (SLH-DSA-SHA2-128s-MTL-SHA2-128, alg 130)
+  by `climb-ldns-signer`. `cargo xtask dns-demo` signs it live, serves it via NSD, and
+  demonstrates condensed-signature responses; Unbound validates it and returns `ad`. The
+  committed `docker/zones/climb.example.zone` remains the unsigned source zone that the
+  demo signs.
 
 ---
-*Last updated: Phase 13 (2026-09-30)*
+*Last updated: Phase 14 (2026-09-30)*
