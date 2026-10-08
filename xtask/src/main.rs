@@ -3,14 +3,18 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
+use climb_report::charts::generate_charts;
+use climb_report::html::{check_report, relative_href, render_html};
+use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize, ClimbResults};
 
+mod charts;
 mod consolidate;
 mod dns_demo;
 mod groups;
 mod memory;
 mod pin_env;
 mod wire;
+use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
@@ -42,7 +46,8 @@ enum Commands {
     PinEnv,
     /// Run the Phase 5 signing and Phase 6 verification benchmark suites.
     BenchAll(BenchAllArgs),
-    /// Print a plain-text summary of Criterion's latest results.
+    /// Print a plain-text summary of Criterion's latest results, or render
+    /// the self-contained HTML report with `--format html`.
     Report(ReportArgs),
     /// Measure and display permanent wire-size numbers (MTL vs non-MTL).
     ///
@@ -68,6 +73,11 @@ enum Commands {
     DnsDemo(DnsDemoArgs),
     /// Consolidate all existing metric outputs into a single coherent artifact.
     Consolidate(ConsolidateArgs),
+    /// Render the five SVG report charts from consolidated results.
+    ///
+    /// Reads `target/climb-results.json` (Phase 15) and writes
+    /// `target/climb-report/charts/*.svg` (Phase 16).
+    Charts(ChartsArgs),
 }
 
 #[derive(Args)]
@@ -99,6 +109,34 @@ struct ReportArgs {
     /// Criterion output root.
     #[arg(long, default_value = "target/criterion")]
     criterion_dir: PathBuf,
+
+    /// Output format: Criterion text tables or the self-contained HTML report.
+    #[arg(long, value_enum, default_value = "text")]
+    format: ReportFormat,
+
+    /// HTML report output path (`--format html`).
+    #[arg(long, default_value = "target/climb-report/report.html")]
+    out: PathBuf,
+
+    /// Consolidated results document to validate against (`--format html`).
+    #[arg(long, default_value = "target/climb-results.json")]
+    results: PathBuf,
+
+    /// Directory holding the five SVG charts (`--format html`).
+    #[arg(long, default_value = "target/climb-report/charts")]
+    charts: PathBuf,
+
+    /// Validate an existing report against the results document instead of writing one.
+    #[arg(long)]
+    check: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum ReportFormat {
+    /// Criterion-derived plain-text tables.
+    Text,
+    /// Self-contained HTML with embedded charts and claims registry.
+    Html,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
@@ -120,6 +158,7 @@ fn main() -> Result<()> {
         Commands::MemoryReport(args) => cmd_memory_report(args),
         Commands::DnsDemo(args) => cmd_dns_demo(args),
         Commands::Consolidate(args) => cmd_consolidate(args),
+        Commands::Charts(args) => cmd_charts(args),
     }
 }
 
@@ -272,6 +311,80 @@ fn render_cmd(cmd: &Command) -> String {
 }
 
 fn cmd_report(args: ReportArgs) -> Result<()> {
+    match args.format {
+        ReportFormat::Text => {
+            if args.check {
+                bail!("--check is only supported with --format html");
+            }
+            cmd_report_text(args)
+        }
+        ReportFormat::Html if args.check => cmd_report_check(&args),
+        ReportFormat::Html => cmd_report_html(&args),
+    }
+}
+
+fn load_results(path: &Path) -> Result<ClimbResults> {
+    let s = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&s).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+fn cmd_report_html(args: &ReportArgs) -> Result<()> {
+    let results = load_results(&args.results)?;
+
+    let written =
+        generate_charts(&results, &args.charts).with_context(|| "failed to render charts")?;
+    for path in &written {
+        println!("wrote {}", path.display());
+    }
+
+    let out_dir = args.out.parent().unwrap_or_else(|| Path::new("."));
+    let href = relative_href(out_dir, &args.results);
+    let html = render_html(&results, &args.charts, &href)
+        .with_context(|| "failed to render HTML report")?;
+
+    let failures = check_report(&html, &results);
+    if !failures.is_empty() {
+        for failure in &failures {
+            eprintln!("self-check: {failure}");
+        }
+        bail!(
+            "freshly rendered report failed self-check ({} problem(s))",
+            failures.len()
+        );
+    }
+
+    if let Some(parent) = args.out.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(&args.out, &html)
+        .with_context(|| format!("failed to write {}", args.out.display()))?;
+    println!("wrote {} (self-check clean)", args.out.display());
+    Ok(())
+}
+
+fn cmd_report_check(args: &ReportArgs) -> Result<()> {
+    let html = std::fs::read_to_string(&args.out)
+        .with_context(|| format!("failed to read {}", args.out.display()))?;
+    let results = load_results(&args.results)?;
+
+    let failures = check_report(&html, &results);
+    if failures.is_empty() {
+        eprintln!("{}: report and results agree", args.out.display());
+        return Ok(());
+    }
+    for failure in &failures {
+        eprintln!("check failed: {failure}");
+    }
+    bail!(
+        "{}: {} check failure(s)",
+        args.out.display(),
+        failures.len()
+    );
+}
+
+fn cmd_report_text(args: ReportArgs) -> Result<()> {
     let records = scan_criterion(&args.criterion_dir, &args.baseline).with_context(|| {
         format!(
             "failed to read Criterion output from {} (baseline '{}')",

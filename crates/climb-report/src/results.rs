@@ -154,51 +154,15 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ReportErr
     })
 }
 
+/// Scans from the criterion root (same traversal as `cargo xtask report`);
+/// unrecognized group ids from stale layouts are dropped instead of failing.
 fn read_summary_rows(criterion_dir: &Path, baseline: &str) -> Result<Vec<SummaryRow>, ReportError> {
-    let root = criterion_dir;
-    let mut all_records: Vec<CriterionRecord> = Vec::new();
-    let mut stack: Vec<PathBuf> = vec![root.to_path_buf()];
-    while let Some(dir) = stack.pop() {
-        let entries = fs::read_dir(&dir).map_err(|e| ReportError::Io {
-            path: dir.clone(),
-            source: e,
-        })?;
-        for entry in entries.flatten() {
-            let p = entry.path();
-            let ft = entry.file_type().map_err(|e| ReportError::Io {
-                path: p.clone(),
-                source: e,
-            })?;
-            if ft.is_dir() {
-                stack.push(p);
-                continue;
-            }
-            if ft.is_file() && p.file_name().and_then(|n| n.to_str()) == Some("benchmark.json") {
-                if let Some(parent) = p.parent() {
-                    if parent.ends_with(baseline) {
-                        let records = scan_criterion(parent, baseline).map_err(|e| match e {
-                            ReportError::Io { path, source } => ReportError::Io { path, source },
-                            ReportError::JsonDecode { path, source } => {
-                                ReportError::JsonDecode { path, source }
-                            }
-                            ReportError::MissingFile { file, dir } => {
-                                ReportError::MissingFile { file, dir }
-                            }
-                            ReportError::MalformedData { path, reason } => {
-                                ReportError::MalformedData { path, reason }
-                            }
-                            ReportError::UnknownGroupId { id } => {
-                                ReportError::UnknownGroupId { id }
-                            }
-                            ReportError::MissingRoot { path } => ReportError::MissingRoot { path },
-                        })?;
-                        all_records.extend(records);
-                    }
-                }
-            }
-        }
-    }
-    summarize(&all_records)
+    let records = scan_criterion(criterion_dir, baseline)?;
+    let known: Vec<CriterionRecord> = records
+        .into_iter()
+        .filter(|rec| crate::summary::parse_group_id(&rec.group_id).is_ok())
+        .collect();
+    summarize(&known)
 }
 
 pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, ReportError> {

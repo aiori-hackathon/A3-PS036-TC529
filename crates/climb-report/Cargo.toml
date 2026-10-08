@@ -14,3 +14,4 @@ serde.workspace = true
 serde_json.workspace = true
 climb-analytical = { path = "../climb-analytical" }
 climb-bench = { path = "../climb-bench" }
+plotters.workspace = true

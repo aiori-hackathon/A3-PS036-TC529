@@ -4,7 +4,9 @@
 //! parses benchmark group identifiers into semantic categories, and
 //! produces a human-readable two-table summary (signing + verifying).
 
+pub mod charts;
 pub mod error;
+pub mod html;
 pub mod record;
 pub mod render;
 pub mod results;

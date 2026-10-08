@@ -30,3 +30,10 @@ hickory-proto = "0.26"
 rand = "0.10"
 rand_chacha = "0.10"
 sysinfo = "0.33"
+plotters = { version = "0.3", default-features = false, features = [
+    "svg_backend",
+    "ttf",
+    "line_series",
+    "point_series",
+    "errorbar",
+] }
