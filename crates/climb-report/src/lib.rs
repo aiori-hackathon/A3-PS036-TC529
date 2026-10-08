@@ -7,9 +7,11 @@
 pub mod error;
 pub mod record;
 pub mod render;
+pub mod results;
 pub mod summary;
 
 pub use error::ReportError;
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};
+pub use results::{consolidate_results, ClimbResults, ConsolidateOptions};
 pub use summary::{parse_group_id, summarize, BenchKind, MtlMode, Size, SummaryRow};

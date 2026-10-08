@@ -12,3 +12,5 @@ description = "Criterion output parsing, plain-text summaries (Batch 2), and cha
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+climb-analytical = { path = "../climb-analytical" }
+climb-bench = { path = "../climb-bench" }

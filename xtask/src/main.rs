@@ -5,11 +5,13 @@ use std::process::Command;
 
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize};
 
+mod consolidate;
 mod dns_demo;
 mod groups;
 mod memory;
 mod pin_env;
 mod wire;
+use consolidate::{cmd_consolidate, ConsolidateArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use memory::{cmd_memory_report, MemoryReportArgs};
@@ -64,6 +66,8 @@ enum Commands {
     /// ldns zone signer — all inside internal-only Docker bridge networks.
     /// Captures are written under target/dns-demo/.
     DnsDemo(DnsDemoArgs),
+    /// Consolidate all existing metric outputs into a single coherent artifact.
+    Consolidate(ConsolidateArgs),
 }
 
 #[derive(Args)]
@@ -115,6 +119,7 @@ fn main() -> Result<()> {
         Commands::WireReport(args) => cmd_wire_report(args),
         Commands::MemoryReport(args) => cmd_memory_report(args),
         Commands::DnsDemo(args) => cmd_dns_demo(args),
+        Commands::Consolidate(args) => cmd_consolidate(args),
     }
 }
 
