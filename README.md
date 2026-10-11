@@ -3,8 +3,6 @@
 **AIORI-3 Hackathon PS-036**: Benchmarking Merkle Tree Ladder (MTL) mode for post-quantum
 DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
 
-See [`the design notes`](./the design notes) for the full architecture, experiment design, and
-phase roadmap.
 
 ## Build
 
