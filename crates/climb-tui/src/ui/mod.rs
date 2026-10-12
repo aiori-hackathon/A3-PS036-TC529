@@ -1,9 +1,11 @@
 //! The widget tree (phase 18.7): tab bar, tab bodies, status bar, help overlay, and
-//! the too-small-screen guard. The Overview tab renders the real consolidated
-//! results (phase 19); the remaining tabs are placeholders until later phases wire
-//! their data views.
+//! the too-small-screen guard. Overview, Signing and Verifying render real data
+//! views; the remaining tabs are placeholders until later phases wire theirs.
 
+pub mod amortization;
 pub mod overview;
+pub mod signing;
+pub mod verifying;
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -73,6 +75,12 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
     match &app.data {
         LoadState::Loaded(view) if app.tab == Tab::Overview => {
             overview::render_overview(frame, area, app, view, theme, glyphs);
+        }
+        LoadState::Loaded(view) if app.tab == Tab::Signing => {
+            signing::render_signing(frame, area, app, view, theme, glyphs);
+        }
+        LoadState::Loaded(view) if app.tab == Tab::Verifying => {
+            verifying::render_verifying(frame, area, app, view, theme, glyphs);
         }
         LoadState::Missing { path } => render_load_error(
             frame,
@@ -263,6 +271,8 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("T", "cycle theme: dark → light → contrast"),
         entry("a", "toggle ASCII glyphs"),
         entry("r", "reload results from disk"),
+        entry("← / →", "select dataset size"),
+        entry("v", "toggle total / per message"),
         entry("q / Esc / Ctrl-C", "quit"),
         Line::from(""),
         Line::from(vec![
@@ -508,10 +518,83 @@ mod tests {
     #[test]
     fn renders_placeholder_body_naming_the_tab() {
         let mut app = app_loaded_with(story_view(None));
-        app.update(crate::app::Action::SelectTab(1));
+        app.update(crate::app::Action::SelectTab(Tab::Wire.index()));
         let out = render_to_string(&app, 80, 24);
         assert!(out.contains("data view lands in a later phase"));
-        assert!(out.contains("Signing"));
+        assert!(out.contains("Wire"));
+    }
+
+    #[test]
+    fn signing_tab_renders_bars_table_and_amortization_at_120x40() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Signing.index()));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Signing",
+            "total time",
+            "With MTL",
+            "Without MTL",
+            "Speed-up",
+            "40x",
+            "Amortization",
+            "messages",
+        ] {
+            assert!(
+                out.contains(needle),
+                "signing tab misses {needle:?} at 120x40:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("no signing rows recorded"),
+            "amortization panel must show the chart, not the placeholder:\n{out}"
+        );
+    }
+
+    #[test]
+    fn verifying_tab_renders_bars_and_table_at_120x40() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Verifying.index()));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Verifying",
+            "total time",
+            "Trust-cached",
+            "Full ladder",
+            "Without MTL",
+            "no rows recorded",
+        ] {
+            assert!(
+                out.contains(needle),
+                "verifying tab misses {needle:?} at 120x40:\n{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn value_mode_v_toggles_the_signing_titles() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Signing.index()));
+        let total = render_to_string(&app, 120, 40);
+        assert!(total.contains("total time"), "total mode:\n{total}");
+        app.update(crate::app::Action::ToggleValueMode);
+        let per = render_to_string(&app, 120, 40);
+        assert!(per.contains("per message"), "per-message mode:\n{per}");
+        assert!(
+            !per.contains("Tables \u{00b7} total time"),
+            "table title must switch with v:\n{per}"
+        );
+    }
+
+    #[test]
+    fn signing_tab_renders_at_80x24_without_panic() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Signing.index()));
+        let out = render_to_string(&app, 80, 24);
+        assert!(out.contains("Signing"), "signing tab at 80x24:\n{out}");
+        assert!(
+            out.contains("Amortization"),
+            "amortization panel at 80x24:\n{out}"
+        );
     }
 
     #[test]

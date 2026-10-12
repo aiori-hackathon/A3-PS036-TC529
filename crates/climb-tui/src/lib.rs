@@ -21,6 +21,7 @@ pub mod event;
 pub mod terminal;
 pub mod theme;
 pub mod ui;
+pub mod widgets;
 
 pub use app::{map_key, Action, App, Effect, Tab};
 pub use cli::Cli;
