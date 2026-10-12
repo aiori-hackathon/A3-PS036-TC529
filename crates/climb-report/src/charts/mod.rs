@@ -1119,8 +1119,8 @@ mod tests {
     /// A minimal but fully populated [`ClimbResults`] covering every size.
     fn synthetic_results() -> ClimbResults {
         use crate::results::{
-            AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, DnsPipelineHeadline,
-            EnvironmentFingerprint, MemoryResults,
+            AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
+            MemoryResults,
         };
         ClimbResults {
             version: "1.0".to_string(),
@@ -1150,12 +1150,7 @@ mod tests {
                 docker: serde_json::json!({}),
                 benchmark_runtime: serde_json::json!({}),
             },
-            dns_pipeline: DnsPipelineHeadline {
-                full_signature_bytes_www_a: None,
-                condensed_proof_bytes_www_a: None,
-                reduction_percent_www_a: None,
-                notes: None,
-            },
+            dns_pipeline: None,
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
                 largest_wire_reduction_percent: None,

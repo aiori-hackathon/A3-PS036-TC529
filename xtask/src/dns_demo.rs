@@ -22,8 +22,45 @@ use clap::Args;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
+
+use climb_report::{DnsCapture, DnsCaptureFlags, DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery};
+
+// ---------------------------------------------------------------------------
+// JSON output mode — all human output moves to stderr when `--json` is set
+// ---------------------------------------------------------------------------
+
+/// Set when `--json` is given: human-readable output is redirected to stderr
+/// so stdout carries only the capture JSON.
+static JSON_MODE: AtomicBool = AtomicBool::new(false);
+
+fn json_mode() -> bool {
+    JSON_MODE.load(Ordering::Relaxed)
+}
+
+/// `println!` that writes to stderr instead of stdout in JSON mode.
+macro_rules! humanln {
+    ($($arg:tt)*) => {
+        if json_mode() {
+            eprintln!($($arg)*);
+        } else {
+            println!($($arg)*);
+        }
+    };
+}
+
+/// `print!` that writes to stderr instead of stdout in JSON mode.
+macro_rules! humanprint {
+    ($($arg:tt)*) => {
+        if json_mode() {
+            eprint!($($arg)*);
+        } else {
+            print!($($arg)*);
+        }
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,6 +75,22 @@ const NSD_READY_TIMEOUT_SECS: u64 = 30;
 const NSD_POLL_SECS: u64 = 2;
 const SIGTAG_SCRIPT: &str = "scripts/mtl_sigtag.py";
 const CAPTURE_SCRIPT: &str = "scripts/mtl_dns_capture.py";
+const CAPTURE_SCHEMA_VERSION: u32 = 1;
+const ALGORITHM: &str = "SLH-DSA-SHA2-128s-MTL-SHA2-128";
+const ZONE_NAME: &str = "climb.example.";
+const CAPTURE_TRANSPORT: &str = "tcp";
+
+/// Docker images the demo requires, with a human description for the
+/// preflight report.  Shared by `check_images` and the capture recorder.
+const REQUIRED_IMAGES: &[(&str, &str)] = &[
+    ("climb-nsd:phase12", "Authoritative NSD-MTL"),
+    ("climb-unbound:phase13", "Recursive Unbound-MTL"),
+    ("climb-dig:phase14", "Query tool (dig)"),
+    (
+        "climb-ldns-signer:phase14",
+        "Zone signer (ldns-keygen/signzone)",
+    ),
+];
 
 /// Queries always issued in the demo.  Order matters — the headline
 /// comparison uses the `www.climb.example. A` row.
@@ -64,6 +117,15 @@ pub(crate) struct DnsDemoArgs {
     /// Reuse an existing signed zone file instead of signing fresh.
     #[arg(long, value_name = "PATH")]
     reuse_zone: Option<PathBuf>,
+
+    /// Write the recorded DNS capture as JSON to this path (default
+    /// `target/dns-capture.json`); omit to skip writing.
+    #[arg(long, num_args = 0..=1, default_missing_value = "target/dns-capture.json", value_name = "PATH")]
+    record: Option<PathBuf>,
+
+    /// Print the capture JSON on stdout; human-readable output goes to stderr.
+    #[arg(long)]
+    json: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -71,13 +133,13 @@ pub(crate) struct DnsDemoArgs {
 // ---------------------------------------------------------------------------
 
 fn print_phase(n: u32, title: &str) {
-    println!("\n{:=<72}", "");
-    println!("  Phase {n} — {title}");
-    println!("{:=<72}", "");
+    humanln!("\n{:=<72}", "");
+    humanln!("  Phase {n} — {title}");
+    humanln!("{:=<72}", "");
 }
 
 fn print_status(label: &str, value: &str) {
-    println!("  {label:<22} {value}");
+    humanln!("  {label:<22} {value}");
 }
 
 fn render_cmd(cmd: &Command) -> String {
@@ -203,11 +265,24 @@ fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
-/// Run a command, inherit stdio, and check success.  Prints the command
-/// before execution.
-fn run_cmd_inherit(mut cmd: Command) -> Result<()> {
+/// Run a command and return its exit status.  In JSON mode the child's
+/// stdout/stderr are forwarded to stderr so stdout carries only the capture
+/// JSON.
+fn run_cmd_status(mut cmd: Command) -> Result<std::process::ExitStatus> {
     print_cmd(&cmd);
-    let status = cmd.status().context("failed to execute command")?;
+    if json_mode() {
+        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+        let output = cmd.output().context("failed to execute command")?;
+        eprint!("{}", String::from_utf8_lossy(&output.stdout));
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        return Ok(output.status);
+    }
+    cmd.status().context("failed to execute command")
+}
+
+/// Run a command, inherit stdio, and check success.
+fn run_cmd_inherit(cmd: Command) -> Result<()> {
+    let status = run_cmd_status(cmd)?;
     if !status.success() {
         bail!("command exited with {status}");
     }
@@ -244,16 +319,7 @@ fn check_docker() -> Result<()> {
 
 /// List the four required images and report which exist.
 fn check_images() -> Result<()> {
-    let required = [
-        ("climb-nsd:phase12", "Authoritative NSD-MTL"),
-        ("climb-unbound:phase13", "Recursive Unbound-MTL"),
-        ("climb-dig:phase14", "Query tool (dig)"),
-        (
-            "climb-ldns-signer:phase14",
-            "Zone signer (ldns-keygen/signzone)",
-        ),
-    ];
-    for (image, desc) in &required {
+    for (image, desc) in REQUIRED_IMAGES {
         let exists = image_exists(image);
         let status = if exists {
             "present"
@@ -311,6 +377,10 @@ fn wait_for_nsd_ready(root: &Path) -> Result<()> {
 /// One row from `scripts/mtl_dns_capture.py` output.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CaptureRow {
+    label: String,
+    qname: String,
+    qtype: String,
+    rcode: Option<u8>,
     bytes: u64,
     rrsig_lead_byte: Option<u8>,
     rrsig_len: Option<u64>,
@@ -352,7 +422,7 @@ fn run_capture(
     let stdout = run_cmd_capture(cmd)?;
 
     // Print the raw table so the user sees the demo-quality output.
-    print!("{stdout}");
+    humanprint!("{stdout}");
 
     Ok(parse_capture_output(&stdout, label))
 }
@@ -413,7 +483,7 @@ fn print_dig_output(output: &str, max_chars: usize) {
         if line.is_empty() || line.starts_with("; <<>>") || line.starts_with(";; global options") {
             continue;
         }
-        println!("    {}", truncate_line(line, max_chars));
+        humanln!("    {}", truncate_line(line, max_chars));
     }
 }
 
@@ -440,16 +510,16 @@ fn print_headline(baseline: &[CaptureRow], condensed: &[CaptureRow]) {
         f64::INFINITY
     };
 
-    println!();
-    println!("  Query:  www.climb.example. A");
-    println!("  ──────────────────────────────────────────────────────────────────");
-    println!("  Full signature      {full_b:>8} B  (lead byte 1, signed ladder in response)",);
-    println!("  Condensed proof     {cond_b:>8} B  (lead byte 2, Merkle path only)",);
-    println!("  ──────────────────────────────────────────────────────────────────");
-    println!("  Saved               {saved:>8} B  ({pct:.1}% smaller, ~{ratio:.0}x)",);
-    println!();
-    println!("  This is the MTL bandwidth collapse: replacing a ~8 KB signed");
-    println!("  ladder with a ~140 B Merkle authentication path.");
+    humanln!();
+    humanln!("  Query:  www.climb.example. A");
+    humanln!("  ──────────────────────────────────────────────────────────────────");
+    humanln!("  Full signature      {full_b:>8} B  (lead byte 1, signed ladder in response)",);
+    humanln!("  Condensed proof     {cond_b:>8} B  (lead byte 2, Merkle path only)",);
+    humanln!("  ──────────────────────────────────────────────────────────────────");
+    humanln!("  Saved               {saved:>8} B  ({pct:.1}% smaller, ~{ratio:.0}x)",);
+    humanln!();
+    humanln!("  This is the MTL bandwidth collapse: replacing a ~8 KB signed");
+    humanln!("  ladder with a ~140 B Merkle authentication path.");
 }
 
 // ---------------------------------------------------------------------------
@@ -472,8 +542,10 @@ fn print_headline(baseline: &[CaptureRow], condensed: &[CaptureRow]) {
 ///  69:    space
 ///  70+:   filename
 ///
-/// Returns one row per data line.  Skips header/separator lines.
-fn parse_capture_output(stdout: &str, _label: &str) -> Vec<CaptureRow> {
+/// Returns one row per data line.  Skips header/separator lines.  Slices use
+/// `str::get` so a multi-byte cell (the em-dash "—") can never panic the
+/// offset arithmetic; an unparseable line is skipped.
+fn parse_capture_output(stdout: &str, label: &str) -> Vec<CaptureRow> {
     let mut rows = Vec::new();
 
     for line in stdout.lines() {
@@ -487,12 +559,21 @@ fn parse_capture_output(stdout: &str, _label: &str) -> Vec<CaptureRow> {
             continue;
         }
 
-        let bytes_str = line[37..44].trim();
+        let Some(bytes_str) = line.get(37..44).map(str::trim) else {
+            continue;
+        };
         let Ok(bytes) = bytes_str.parse::<u64>() else {
             continue;
         };
 
-        let rrsig_str = line[53..69].trim();
+        let qname = line.get(2..30).map(str::trim).unwrap_or("").to_string();
+        let qtype = line.get(31..36).map(str::trim).unwrap_or("").to_string();
+        let rcode = line
+            .get(46..52)
+            .map(str::trim)
+            .and_then(|s| s.parse::<u8>().ok());
+
+        let rrsig_str = line.get(53..69).map(str::trim).unwrap_or("");
         let (rrsig_kind, rrsig_lead_byte, rrsig_len) =
             if rrsig_str == "\u{2014}" || rrsig_str.is_empty() {
                 (None, None, None)
@@ -514,6 +595,10 @@ fn parse_capture_output(stdout: &str, _label: &str) -> Vec<CaptureRow> {
             };
 
         rows.push(CaptureRow {
+            label: label.to_string(),
+            qname,
+            qtype,
+            rcode,
             bytes,
             rrsig_lead_byte,
             rrsig_len,
@@ -525,10 +610,108 @@ fn parse_capture_output(stdout: &str, _label: &str) -> Vec<CaptureRow> {
 }
 
 // ---------------------------------------------------------------------------
+// Capture recording (F7.3)
+// ---------------------------------------------------------------------------
+
+/// Build the shared [`DnsCapture`] document from the parsed capture rows.
+fn build_dns_capture(
+    baseline: &[CaptureRow],
+    condensed: &[CaptureRow],
+    unbound: &[CaptureRow],
+) -> DnsCapture {
+    let mut queries = Vec::new();
+    for rows in [baseline, condensed, unbound] {
+        for row in rows {
+            queries.push(DnsCaptureQuery {
+                label: row.label.clone(),
+                qname: row.qname.clone(),
+                qtype: row.qtype.clone(),
+                response_bytes: row.bytes,
+                answer_rrsig_bytes: row.rrsig_len,
+                flags: DnsCaptureFlags {
+                    ad: None,
+                    tc: None,
+                    rcode: row.rcode,
+                },
+                transport: CAPTURE_TRANSPORT.to_string(),
+                edns_udp_size: None,
+                elapsed_ms: None,
+            });
+        }
+    }
+
+    DnsCapture {
+        schema_version: CAPTURE_SCHEMA_VERSION,
+        recorded_at: iso8601_now(),
+        host: DnsCaptureHost {
+            hostname: hostname(),
+            uname: uname(),
+        },
+        images: REQUIRED_IMAGES
+            .iter()
+            .map(|(image, _)| DnsCaptureImage {
+                reference: (*image).to_string(),
+                digest: image_digest(image),
+            })
+            .collect(),
+        algorithm: ALGORITHM.to_string(),
+        zone: ZONE_NAME.to_string(),
+        queries,
+    }
+}
+
+fn iso8601_now() -> String {
+    Command::new("date")
+        .arg("--iso-8601=seconds")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn hostname() -> String {
+    fs::read_to_string("/etc/hostname")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn uname() -> String {
+    Command::new("uname")
+        .arg("-a")
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string())
+}
+
+fn image_digest(image: &str) -> Option<String> {
+    Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{index .RepoDigests 0}}",
+            image,
+        ])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty() && !s.starts_with('<'))
+}
+
+// ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
 
 pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
+    JSON_MODE.store(args.json, Ordering::Relaxed);
     let root = workspace_root()?;
     let scratch = root.join("target").join("dns-demo");
 
@@ -631,7 +814,7 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
             signed_zone = signed_copy;
         }
 
-        println!();
+        humanln!();
         let ssz = signed_zone
             .metadata()
             .with_context(|| format!("signed zone not found at {}", signed_zone.display()))?
@@ -684,9 +867,9 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
 
     // ── Phase 5: Baseline queries (full signature) ──────────────────
     print_phase(5, "Baseline Queries — Full Signatures");
-    println!("  Querying NSD directly (192.168.13.2) with DO bit, no SigTag.");
-    println!("  NSD returns the full signed ladder (~8 KB) in every response.");
-    println!();
+    humanln!("  Querying NSD directly (192.168.13.2) with DO bit, no SigTag.");
+    humanln!("  NSD returns the full signed ladder (~8 KB) in every response.");
+    humanln!();
     let base_dir = scratch.join("captures-full");
     let baseline_rows = run_capture(&root, NSD_IP, &base_dir, None, "full")?;
 
@@ -694,32 +877,32 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
     print_phase(6, "MTL SigTag + Condensed Queries");
 
     let sigtag = run_sigtag(&root, &signed_zone)?;
-    println!("  SigTag (SHAKE-128 hash of the signed ladder):");
-    println!("  ┌──────────────────────────────────────────────────────────────────┐");
-    println!("  │ {sigtag} │");
-    println!("  └──────────────────────────────────────────────────────────────────┘");
-    println!();
-    println!("  Querying NSD with the SigTag in EDNS option 65050.");
-    println!("  NSD recognises the cached ladder hash and returns condensed proofs.");
-    println!();
+    humanln!("  SigTag (SHAKE-128 hash of the signed ladder):");
+    humanln!("  ┌──────────────────────────────────────────────────────────────────┐");
+    humanln!("  │ {sigtag} │");
+    humanln!("  └──────────────────────────────────────────────────────────────────┘");
+    humanln!();
+    humanln!("  Querying NSD with the SigTag in EDNS option 65050.");
+    humanln!("  NSD recognises the cached ladder hash and returns condensed proofs.");
+    humanln!();
 
     let cond_dir = scratch.join("captures-condensed");
     let condensed_rows = run_capture(&root, NSD_IP, &cond_dir, Some(&sigtag), "condensed")?;
 
     // ── Phase 7: Live dig queries ───────────────────────────────────
     print_phase(7, "Live dig Queries — Full vs Condensed");
-    println!("  The same query issued by real `dig`, twice. The only");
-    println!("  difference is the MTL SigTag in EDNS option 65050.");
-    println!();
+    humanln!("  The same query issued by real `dig`, twice. The only");
+    humanln!("  difference is the MTL SigTag in EDNS option 65050.");
+    humanln!();
 
     for &(qname, qtype) in QUERIES {
-        println!("  ── {qname} {qtype} ──");
-        println!("  full signature:");
+        humanln!("  ── {qname} {qtype} ──");
+        humanln!("  full signature:");
         print_dig_output(&run_dig(&root, "nsd", qname, qtype, None)?, 96);
-        println!();
-        println!("  condensed (SigTag advertised):");
+        humanln!();
+        humanln!("  condensed (SigTag advertised):");
         print_dig_output(&run_dig(&root, "nsd", qname, qtype, Some(&sigtag))?, 96);
-        println!();
+        humanln!();
     }
 
     // ── Phase 8: Headline comparison ────────────────────────────────
@@ -728,76 +911,96 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
 
     // ── Phase 9: Unbound forwarding ─────────────────────────────────
     print_phase(9, "Unbound Forwarding (iterator mode)");
-    println!("  The committed unbound.conf uses module-config: \"iterator\"");
-    println!("  (forwarding) — it forwards queries to NSD and returns answers");
-    println!("  but does not perform DNSSEC validation or set the `ad` flag.");
-    println!("  Full validation requires switching to \"validator iterator\" and");
-    println!("  adding a trust-anchor for climb.example. — this is documented");
-    println!("  but not exercised in the default demo run.");
-    println!("  MTL SigTag exchange still happens on the Unbound→NSD upstream");
-    println!("  path (enable-edns-sigtag-mtl: yes), reducing internal bandwidth.");
-    println!();
+    humanln!("  The committed unbound.conf uses module-config: \"iterator\"");
+    humanln!("  (forwarding) — it forwards queries to NSD and returns answers");
+    humanln!("  but does not perform DNSSEC validation or set the `ad` flag.");
+    humanln!("  Full validation requires switching to \"validator iterator\" and");
+    humanln!("  adding a trust-anchor for climb.example. — this is documented");
+    humanln!("  but not exercised in the default demo run.");
+    humanln!("  MTL SigTag exchange still happens on the Unbound→NSD upstream");
+    humanln!("  path (enable-edns-sigtag-mtl: yes), reducing internal bandwidth.");
+    humanln!();
 
     let ub_dir = scratch.join("captures-unbound");
-    let _unbound_rows = run_capture(&root, UNBOUND_IP, &ub_dir, None, "unbound")?;
-    println!("  All queries via Unbound returned successfully.");
-    println!("  (The AD flag is absent — expected in iterator mode.)");
+    let unbound_rows = run_capture(&root, UNBOUND_IP, &ub_dir, None, "unbound")?;
+    humanln!("  All queries via Unbound returned successfully.");
+    humanln!("  (The AD flag is absent — expected in iterator mode.)");
 
     // ── Phase 10: Wire captures summary ─────────────────────────────
     print_phase(10, "Wire Captures");
 
     let total_full: u64 = baseline_rows.iter().map(|r| r.bytes).sum();
     let total_cond: u64 = condensed_rows.iter().map(|r| r.bytes).sum();
-    println!(
+    humanln!(
         "  Full-signature responses:  {}  ({} B / {} queries)",
         base_dir.display(),
         total_full,
         baseline_rows.len(),
     );
-    println!(
+    humanln!(
         "  Condensed-signature:       {}  ({} B / {} queries)",
         cond_dir.display(),
         total_cond,
         condensed_rows.len(),
     );
-    println!("  Via Unbound (iterator):    {}", ub_dir.display(),);
-    println!("  Each .bin file is a complete DNS wire-format response.");
+    humanln!("  Via Unbound (iterator):    {}", ub_dir.display(),);
+    humanln!("  Each .bin file is a complete DNS wire-format response.");
+
+    // ── Record the capture (F7.3) ───────────────────────────────────
+    if args.record.is_some() || args.json {
+        let capture = build_dns_capture(&baseline_rows, &condensed_rows, &unbound_rows);
+        let json =
+            serde_json::to_string_pretty(&capture).context("failed to serialize DNS capture")?;
+        if let Some(path) = &args.record {
+            if let Some(parent) = path.parent() {
+                if !parent.as_os_str().is_empty() {
+                    fs::create_dir_all(parent)
+                        .with_context(|| format!("failed to create {}", parent.display()))?;
+                }
+            }
+            fs::write(path, &json)
+                .with_context(|| format!("failed to write {}", path.display()))?;
+            humanln!("  Recorded DNS capture → {}", path.display());
+        }
+        if args.json {
+            println!("{json}");
+        }
+    }
 
     // ── Phase 11: Teardown ──────────────────────────────────────────
     print_phase(11, "Teardown");
 
     if args.keep {
         guard.disarm(); // already disarmed; explicit for clarity
-        println!("  Pipeline LEFT RUNNING (--keep).");
-        println!();
-        println!("  To tear down manually:");
-        println!("    docker compose -f docker/compose.dns-pipeline.yml down");
-        println!();
-        println!("  Scratch directory:  {}", scratch.display());
-        println!("  Signed zone:        {}", signed_zone.display());
+        humanln!("  Pipeline LEFT RUNNING (--keep).");
+        humanln!();
+        humanln!("  To tear down manually:");
+        humanln!("    docker compose -f docker/compose.dns-pipeline.yml down");
+        humanln!();
+        humanln!("  Scratch directory:  {}", scratch.display());
+        humanln!("  Signed zone:        {}", signed_zone.display());
     } else {
         // Explicit compose down.
         {
-            let mut cmd = compose_cmd(&root, &["down", "--remove-orphans"]);
-            print_cmd(&cmd);
-            let status = cmd.status().context("docker compose down failed")?;
+            let cmd = compose_cmd(&root, &["down", "--remove-orphans"]);
+            let status = run_cmd_status(cmd)?;
             if !status.success() {
                 eprintln!("  warning: docker compose down exited with {status}");
             }
         }
         guard.disarm(); // prevent double-down in Drop
-        println!("  Pipeline shut down.");
+        humanln!("  Pipeline shut down.");
 
         if scratch.exists() {
             fs::remove_dir_all(&scratch).context("failed to remove scratch directory")?;
-            println!("  Scratch directory removed.");
+            humanln!("  Scratch directory removed.");
         }
     }
 
     // ── Final ────────────────────────────────────────────────────────
-    println!("\n{:=<72}", "");
-    println!("  Demo complete.");
-    println!("{:=<72}", "");
+    humanln!("\n{:=<72}", "");
+    humanln!("  Demo complete.");
+    humanln!("{:=<72}", "");
     Ok(())
 }
 
@@ -912,6 +1115,57 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].rrsig_lead_byte, None);
         assert_eq!(rows[0].rrsig_kind, None);
+    }
+
+    #[test]
+    fn parse_capture_records_qname_qtype_rcode_and_label() {
+        let rows = parse_capture_output(&sample_capture_full(), "full");
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[1].label, "full");
+        assert_eq!(rows[1].qname, "www.climb.example.");
+        assert_eq!(rows[1].qtype, "A");
+        assert_eq!(rows[1].rcode, Some(0));
+    }
+
+    // ── build_dns_capture ────────────────────────────────────────────
+
+    #[test]
+    fn build_dns_capture_includes_all_three_passes() {
+        let baseline = parse_capture_output(&sample_capture_full(), "full");
+        let condensed = parse_capture_output(&sample_capture_condensed(), "condensed");
+        let unbound = parse_capture_output(&sample_capture_full(), "unbound");
+        let capture = build_dns_capture(&baseline, &condensed, &unbound);
+        assert_eq!(capture.schema_version, 1);
+        assert_eq!(capture.queries.len(), 9);
+        assert_eq!(
+            capture.queries.iter().filter(|q| q.label == "full").count(),
+            3
+        );
+        assert_eq!(
+            capture
+                .queries
+                .iter()
+                .filter(|q| q.label == "condensed")
+                .count(),
+            3
+        );
+        assert_eq!(
+            capture
+                .queries
+                .iter()
+                .filter(|q| q.label == "unbound")
+                .count(),
+            3
+        );
+        assert_eq!(capture.algorithm, ALGORITHM);
+        assert_eq!(capture.zone, ZONE_NAME);
+        let a_row = capture
+            .queries
+            .iter()
+            .find(|q| q.label == "full" && q.qtype == "A")
+            .expect("www A row");
+        assert_eq!(a_row.response_bytes, 24_438);
+        assert_eq!(a_row.transport, "tcp");
     }
 
     // ── compute_reduction ────────────────────────────────────────────

@@ -88,12 +88,84 @@ pub struct EnvironmentFingerprint {
     pub benchmark_runtime: serde_json::Value,
 }
 
+/// Where a [`DnsPipelineHeadline`] came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum DnsCaptureSource {
+    /// A live `cargo xtask dns-demo --record` run.
+    Live,
+    /// The committed `data/dns-capture.recorded.json` fixture.
+    RecordedFixture,
+}
+
+/// DNS header flags recorded for one captured query.
+///
+/// Only `rcode` is observed by the current capture path; `ad` and `tc` are
+/// part of the shared schema but are left `None` rather than guessed at.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DnsCaptureFlags {
+    pub ad: Option<bool>,
+    pub tc: Option<bool>,
+    pub rcode: Option<u8>,
+}
+
+/// One query captured during the live MTL DNS pipeline demo.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DnsCaptureQuery {
+    /// Capture pass: `full`, `condensed`, or `unbound`.
+    pub label: String,
+    pub qname: String,
+    pub qtype: String,
+    pub response_bytes: u64,
+    /// Length of the first answer RRSIG signature field, when present.
+    pub answer_rrsig_bytes: Option<u64>,
+    pub flags: DnsCaptureFlags,
+    pub transport: String,
+    pub edns_udp_size: Option<u16>,
+    pub elapsed_ms: Option<f64>,
+}
+
+/// Host summary for a recorded capture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DnsCaptureHost {
+    pub hostname: String,
+    pub uname: String,
+}
+
+/// Docker image reference (and digest, when resolvable) used for a capture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DnsCaptureImage {
+    pub reference: String,
+    pub digest: Option<String>,
+}
+
+/// A complete recorded run of the live MTL DNS pipeline demo.
+///
+/// Written by `cargo xtask dns-demo --record` and consumed by
+/// `cargo xtask consolidate`. Fields the capture path does not observe are
+/// optional and left `None`; nothing here is synthesized.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DnsCapture {
+    pub schema_version: u32,
+    /// RFC 3339 timestamp of the recording.
+    pub recorded_at: String,
+    pub host: DnsCaptureHost,
+    pub images: Vec<DnsCaptureImage>,
+    pub algorithm: String,
+    pub zone: String,
+    pub queries: Vec<DnsCaptureQuery>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DnsPipelineHeadline {
     pub full_signature_bytes_www_a: Option<u64>,
     pub condensed_proof_bytes_www_a: Option<u64>,
     pub reduction_percent_www_a: Option<f64>,
     pub notes: Option<String>,
+    /// Provenance of these numbers.
+    pub source: DnsCaptureSource,
+    /// RFC 3339 timestamp of the recording, when known.
+    pub recorded_at: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -113,7 +185,9 @@ pub struct ClimbResults {
     pub wire_size: Vec<WireSizeResult>,
     pub memory: MemoryResults,
     pub environment: EnvironmentFingerprint,
-    pub dns_pipeline: DnsPipelineHeadline,
+    /// DNS pipeline headline, or `None` when no capture (live or recorded
+    /// fixture) is available.
+    pub dns_pipeline: Option<DnsPipelineHeadline>,
     pub derived: DerivedSummary,
     /// Non-fatal consolidation warnings (missing or stale optional inputs).
     ///
@@ -129,6 +203,11 @@ pub struct ConsolidateOptions {
     pub criterion_dir: PathBuf,
     pub wire_report_path: Option<PathBuf>,
     pub memory_report_path: Option<PathBuf>,
+    /// Live DNS capture written by `cargo xtask dns-demo --record`
+    /// (preferred when present).
+    pub dns_capture_path: PathBuf,
+    /// Committed recorded fixture used when no live capture exists.
+    pub dns_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
     pub output_path: PathBuf,
@@ -192,6 +271,7 @@ fn derive_summary(
     wire_size: &[WireSizeResult],
     signing: &[SigningBenchmarkResult],
     verifying: &[VerifyingBenchmarkResult],
+    dns_pipeline: Option<&DnsPipelineHeadline>,
 ) -> DerivedSummary {
     let mut overall_wire_reduction: Option<f64> = None;
     let mut largest_wire_reduction: Option<f64> = None;
@@ -234,11 +314,79 @@ fn derive_summary(
         overall_wire_reduction_percent: overall_wire_reduction,
         largest_wire_reduction_percent: largest_wire_reduction,
         overall_verifying_trust_cached_speedup_avg: trust_cached_avg,
-        headline: Some(
-            "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)"
-                .to_string(),
-        ),
+        headline: dns_pipeline.and_then(headline_from_dns),
     }
+}
+
+/// Derive the one-line headline from captured DNS numbers; `None` when the
+/// capture is absent or incomplete, so the headline is never a constant.
+fn headline_from_dns(headline: &DnsPipelineHeadline) -> Option<String> {
+    let full = headline.full_signature_bytes_www_a?;
+    let cond = headline.condensed_proof_bytes_www_a?;
+    let pct = headline.reduction_percent_www_a?;
+    Some(format!(
+        "MTL condensed responses are ~{pct:.1}% smaller than full signatures ({} B \u{2192} {} B)",
+        crate::charts::fmt_count(full as f64),
+        crate::charts::fmt_count(cond as f64),
+    ))
+}
+
+/// The question whose byte counts the DNS headline is computed from.
+const HEADLINE_QNAME: &str = "www.climb.example.";
+const HEADLINE_QTYPE: &str = "A";
+
+/// Derive the DNS headline from captured byte counts: the full/condensed
+/// bytes come from the matching `www.climb.example. A` rows and the reduction
+/// is computed from them, never hardcoded.
+fn headline_from_capture(capture: &DnsCapture, source: DnsCaptureSource) -> DnsPipelineHeadline {
+    let find = |label: &str| {
+        capture
+            .queries
+            .iter()
+            .find(|q| {
+                q.label.eq_ignore_ascii_case(label)
+                    && q.qname.eq_ignore_ascii_case(HEADLINE_QNAME)
+                    && q.qtype.eq_ignore_ascii_case(HEADLINE_QTYPE)
+            })
+            .map(|q| q.response_bytes)
+    };
+    let full = find("full");
+    let condensed = find("condensed");
+    let reduction = match (full, condensed) {
+        (Some(f), Some(c)) if f > 0 => Some(((f - c) as f64 / f as f64) * 100.0),
+        _ => None,
+    };
+    DnsPipelineHeadline {
+        full_signature_bytes_www_a: full,
+        condensed_proof_bytes_www_a: condensed,
+        reduction_percent_www_a: reduction,
+        notes: Some(format!(
+            "From {} DNS demo (www.climb.example. A)",
+            match source {
+                DnsCaptureSource::Live => "live",
+                DnsCaptureSource::RecordedFixture => "recorded fixture",
+            }
+        )),
+        source,
+        recorded_at: Some(capture.recorded_at.clone()),
+    }
+}
+
+/// Load the DNS capture, preferring a live recording over the committed
+/// fixture; `None` when neither exists.
+fn load_dns_capture(
+    live: &Path,
+    fixture: &Path,
+) -> Result<Option<DnsPipelineHeadline>, ReportError> {
+    let (path, source) = if live.exists() {
+        (live, DnsCaptureSource::Live)
+    } else if fixture.exists() {
+        (fixture, DnsCaptureSource::RecordedFixture)
+    } else {
+        return Ok(None);
+    };
+    let capture: DnsCapture = read_json(path)?;
+    Ok(Some(headline_from_capture(&capture, source)))
 }
 
 pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, ReportError> {
@@ -411,14 +559,9 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         }
     };
 
-    let dns_pipeline = DnsPipelineHeadline {
-        full_signature_bytes_www_a: Some(24438),
-        condensed_proof_bytes_www_a: Some(658),
-        reduction_percent_www_a: Some(97.3),
-        notes: Some("From Phase 14 live DNS demo (www.climb.example. A)".to_string()),
-    };
+    let dns_pipeline = load_dns_capture(&opts.dns_capture_path, &opts.dns_fixture_path)?;
 
-    let derived = derive_summary(&wire_size, &signing, &verifying);
+    let derived = derive_summary(&wire_size, &signing, &verifying, dns_pipeline.as_ref());
 
     let results = ClimbResults {
         version: "1.0".to_string(),
@@ -562,7 +705,15 @@ mod tests {
         let signing = vec![signing_row("Small", "With MTL", 1000.0)];
         let verifying = vec![verifying_row("Small", "MTL (trust cached)", 100.0)];
         let wire = vec![wire_row("small", 97.3)];
-        let derived = derive_summary(&wire, &signing, &verifying);
+        let dns = DnsPipelineHeadline {
+            full_signature_bytes_www_a: Some(24_438),
+            condensed_proof_bytes_www_a: Some(658),
+            reduction_percent_www_a: Some(97.3),
+            notes: Some("note".to_string()),
+            source: DnsCaptureSource::Live,
+            recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
+        };
+        let derived = derive_summary(&wire, &signing, &verifying, Some(&dns));
         ClimbResults {
             version: "1.0".to_string(),
             generated_at: "2026-10-12T00:00:00Z".to_string(),
@@ -578,12 +729,7 @@ mod tests {
                 submodules: vec![serde_json::json!({"name": "climb-mtl"})],
                 ..environment_fingerprint()
             },
-            dns_pipeline: DnsPipelineHeadline {
-                full_signature_bytes_www_a: Some(24_438),
-                condensed_proof_bytes_www_a: Some(658),
-                reduction_percent_www_a: Some(97.3),
-                notes: Some("note".to_string()),
-            },
+            dns_pipeline: Some(dns),
             derived,
             warnings: vec!["wire report missing: /x".to_string()],
         }
@@ -613,12 +759,7 @@ mod tests {
                 analytical_model: analytical_model(),
             },
             environment: environment_fingerprint(),
-            dns_pipeline: DnsPipelineHeadline {
-                full_signature_bytes_www_a: None,
-                condensed_proof_bytes_www_a: None,
-                reduction_percent_www_a: None,
-                notes: None,
-            },
+            dns_pipeline: None,
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
                 largest_wire_reduction_percent: None,
@@ -640,7 +781,7 @@ mod tests {
             wire_row("medium", 96.7),
             wire_row("large", 95.7),
         ];
-        let derived = derive_summary(&wire, &[], &[]);
+        let derived = derive_summary(&wire, &[], &[], None);
         let overall = derived.overall_wire_reduction_percent.expect("some");
         assert!(
             (overall - 96.466_666_666_666_67).abs() < 1e-9,
@@ -652,7 +793,7 @@ mod tests {
 
     #[test]
     fn derive_wire_reduction_is_none_without_wire_data() {
-        let derived = derive_summary(&[], &[], &[]);
+        let derived = derive_summary(&[], &[], &[], None);
         assert_eq!(derived.overall_wire_reduction_percent, None);
         assert_eq!(derived.largest_wire_reduction_percent, None);
         assert_eq!(derived.overall_verifying_trust_cached_speedup_avg, None);
@@ -671,7 +812,7 @@ mod tests {
             verifying_row("Small", "MTL (trust cached)", 100.0),
             verifying_row("Medium", "MTL (trust cached)", 400.0),
         ];
-        let derived = derive_summary(&[], &signing, &verifying);
+        let derived = derive_summary(&[], &signing, &verifying, None);
         let avg = derived
             .overall_verifying_trust_cached_speedup_avg
             .expect("some");
@@ -682,7 +823,7 @@ mod tests {
     fn derive_trust_cached_speedup_is_none_without_cached_rows() {
         let signing = vec![signing_row("Small", "With MTL", 1000.0)];
         let verifying = vec![verifying_row("Small", "With MTL", 100.0)];
-        let derived = derive_summary(&[], &signing, &verifying);
+        let derived = derive_summary(&[], &signing, &verifying, None);
         assert_eq!(derived.overall_verifying_trust_cached_speedup_avg, None);
     }
 
@@ -849,6 +990,8 @@ mod tests {
             criterion_dir: criterion,
             wire_report_path: Some(root.join("nonexistent-wire.json")),
             memory_report_path: Some(root.join("nonexistent-memory.json")),
+            dns_capture_path: root.join("nonexistent-dns-capture.json"),
+            dns_fixture_path: root.join("nonexistent-dns-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             output_path: root.join("out.json"),
@@ -858,6 +1001,7 @@ mod tests {
 
         assert_eq!(results.derived.overall_wire_reduction_percent, None);
         assert_eq!(results.derived.largest_wire_reduction_percent, None);
+        assert_eq!(results.dns_pipeline, None);
         assert_eq!(results.benchmark.signing.len(), 1);
         assert!(
             results
@@ -905,6 +1049,8 @@ mod tests {
             criterion_dir: criterion,
             wire_report_path: None,
             memory_report_path: None,
+            dns_capture_path: root.join("dns-capture.json"),
+            dns_fixture_path: root.join("dns-fixture.json"),
             environment_path: root.join("environment.json"),
             baseline: "new".to_string(),
             output_path: output.clone(),
@@ -918,5 +1064,137 @@ mod tests {
         let json = fs::read_to_string(&output).unwrap();
         let parsed: ClimbResults = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, results);
+    }
+
+    fn dns_query(label: &str, bytes: u64) -> DnsCaptureQuery {
+        DnsCaptureQuery {
+            label: label.to_string(),
+            qname: "www.climb.example.".to_string(),
+            qtype: "A".to_string(),
+            response_bytes: bytes,
+            answer_rrsig_bytes: Some(69),
+            flags: DnsCaptureFlags {
+                ad: None,
+                tc: None,
+                rcode: Some(0),
+            },
+            transport: "tcp".to_string(),
+            edns_udp_size: None,
+            elapsed_ms: None,
+        }
+    }
+
+    fn dns_capture_fixture(full: u64, condensed: u64) -> DnsCapture {
+        DnsCapture {
+            schema_version: 1,
+            recorded_at: "2026-10-12T00:00:00Z".to_string(),
+            host: DnsCaptureHost {
+                hostname: "test-host".to_string(),
+                uname: "Linux test".to_string(),
+            },
+            images: Vec::new(),
+            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+            zone: "climb.example.".to_string(),
+            queries: vec![dns_query("full", full), dns_query("condensed", condensed)],
+        }
+    }
+
+    #[test]
+    fn dns_capture_roundtrip_equals_original() {
+        let original = dns_capture_fixture(24_438, 658);
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: DnsCapture = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn headline_from_capture_computes_reduction_from_www_a_rows() {
+        let capture = dns_capture_fixture(24_438, 658);
+        let headline = headline_from_capture(&capture, DnsCaptureSource::Live);
+        assert_eq!(headline.full_signature_bytes_www_a, Some(24_438));
+        assert_eq!(headline.condensed_proof_bytes_www_a, Some(658));
+        let pct = headline.reduction_percent_www_a.expect("some");
+        assert!((pct - 97.307_37).abs() < 1e-3, "pct={pct}");
+        assert_eq!(headline.source, DnsCaptureSource::Live);
+        assert_eq!(
+            headline.recorded_at.as_deref(),
+            Some("2026-10-12T00:00:00Z")
+        );
+    }
+
+    #[test]
+    fn headline_from_capture_is_null_when_rows_absent() {
+        let mut capture = dns_capture_fixture(24_438, 658);
+        capture.queries.clear();
+        let headline = headline_from_capture(&capture, DnsCaptureSource::RecordedFixture);
+        assert_eq!(headline.full_signature_bytes_www_a, None);
+        assert_eq!(headline.condensed_proof_bytes_www_a, None);
+        assert_eq!(headline.reduction_percent_www_a, None);
+        assert_eq!(headline.source, DnsCaptureSource::RecordedFixture);
+    }
+
+    #[test]
+    fn headline_from_dns_renders_expected_sentence() {
+        let dns = DnsPipelineHeadline {
+            full_signature_bytes_www_a: Some(24_438),
+            condensed_proof_bytes_www_a: Some(658),
+            reduction_percent_www_a: Some(97.307_37),
+            notes: None,
+            source: DnsCaptureSource::RecordedFixture,
+            recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
+        };
+        let headline = headline_from_dns(&dns).expect("some");
+        assert!(headline.contains("97.3%"), "headline={headline}");
+        assert!(headline.contains("24,438 B"), "headline={headline}");
+        assert!(headline.contains("658 B"), "headline={headline}");
+    }
+
+    #[test]
+    fn derive_summary_headline_is_none_without_dns_capture() {
+        let derived = derive_summary(&[], &[], &[], None);
+        assert_eq!(derived.headline, None);
+    }
+
+    #[test]
+    fn load_dns_capture_prefers_live_over_fixture() {
+        let root = temp_root("dns-live-preference");
+        let live = root.join("live.json");
+        let fixture = root.join("fixture.json");
+        fs::write(
+            &live,
+            serde_json::to_string(&dns_capture_fixture(100, 10)).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &fixture,
+            serde_json::to_string(&dns_capture_fixture(999, 999)).unwrap(),
+        )
+        .unwrap();
+        let headline = load_dns_capture(&live, &fixture).unwrap().expect("some");
+        assert_eq!(headline.source, DnsCaptureSource::Live);
+        assert_eq!(headline.full_signature_bytes_www_a, Some(100));
+    }
+
+    #[test]
+    fn load_dns_capture_falls_back_to_recorded_fixture() {
+        let root = temp_root("dns-fixture-fallback");
+        let live = root.join("missing-live.json");
+        let fixture = root.join("fixture.json");
+        fs::write(
+            &fixture,
+            serde_json::to_string(&dns_capture_fixture(24_438, 658)).unwrap(),
+        )
+        .unwrap();
+        let headline = load_dns_capture(&live, &fixture).unwrap().expect("some");
+        assert_eq!(headline.source, DnsCaptureSource::RecordedFixture);
+        assert_eq!(headline.full_signature_bytes_www_a, Some(24_438));
+    }
+
+    #[test]
+    fn load_dns_capture_returns_none_when_neither_exists() {
+        let root = temp_root("dns-none");
+        let headline =
+            load_dns_capture(&root.join("no-live.json"), &root.join("no-fixture.json")).unwrap();
+        assert_eq!(headline, None);
     }
 }

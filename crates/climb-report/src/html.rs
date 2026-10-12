@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::charts::{fmt_count, CHART_FILES};
 use crate::error::ReportError;
-use crate::results::ClimbResults;
+use crate::results::{ClimbResults, DnsCaptureSource};
 
 /// Opening tag of the embedded claims registry; [`check_report`] locates
 /// the payload by searching for this exact marker.
@@ -45,13 +45,14 @@ pub struct Claim {
 
 /// Summary-grid rows: display label → claim id. Claims whose id has no
 /// value in the results document render as an em dash.
-const SUMMARY_ROWS: [(&str, &str); 6] = [
+const SUMMARY_ROWS: [(&str, &str); 7] = [
     ("Overall wire reduction", "overall-wire-reduction"),
     ("Largest wire reduction", "largest-wire-reduction"),
     ("Trust-cached verify speedup (avg)", "trust-cached-speedup"),
     ("www.a full signed ladder", "dns-full-signature"),
     ("www.a condensed MTL proof", "dns-condensed-proof"),
     ("www.a wire reduction", "dns-wire-reduction"),
+    ("www.a capture provenance", "dns-provenance"),
 ];
 
 /// Figure captions, index-aligned with [`CHART_FILES`].
@@ -176,14 +177,13 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             .overall_verifying_trust_cached_speedup_avg
             .map(|v| format!("{v:.1}\u{d7}")),
     );
+    let dns = results.dns_pipeline.as_ref();
     push_claim(
         &mut claims,
         &root,
         "dns-full-signature",
         "/dns_pipeline/full_signature_bytes_www_a",
-        results
-            .dns_pipeline
-            .full_signature_bytes_www_a
+        dns.and_then(|d| d.full_signature_bytes_www_a)
             .map(|v| format!("{} B", fmt_count(v as f64))),
     );
     push_claim(
@@ -191,9 +191,7 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         &root,
         "dns-condensed-proof",
         "/dns_pipeline/condensed_proof_bytes_www_a",
-        results
-            .dns_pipeline
-            .condensed_proof_bytes_www_a
+        dns.and_then(|d| d.condensed_proof_bytes_www_a)
             .map(|v| format!("{} B", fmt_count(v as f64))),
     );
     push_claim(
@@ -201,10 +199,21 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         &root,
         "dns-wire-reduction",
         "/dns_pipeline/reduction_percent_www_a",
-        results
-            .dns_pipeline
-            .reduction_percent_www_a
+        dns.and_then(|d| d.reduction_percent_www_a)
             .map(|v| format!("{v:.1}%")),
+    );
+    push_claim(
+        &mut claims,
+        &root,
+        "dns-provenance",
+        "/dns_pipeline/source",
+        dns.map(|d| match d.source {
+            DnsCaptureSource::Live => "live run".to_string(),
+            DnsCaptureSource::RecordedFixture => match &d.recorded_at {
+                Some(at) => format!("recorded fixture ({at})"),
+                None => "recorded fixture".to_string(),
+            },
+        }),
     );
     push_claim(
         &mut claims,
@@ -518,8 +527,8 @@ pub fn relative_href(from_dir: &Path, to: &Path) -> String {
 mod tests {
     use super::*;
     use crate::results::{
-        AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, DnsPipelineHeadline,
-        EnvironmentFingerprint, MemoryResults,
+        AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, DnsCaptureSource,
+        DnsPipelineHeadline, EnvironmentFingerprint, MemoryResults,
     };
 
     fn synthetic_results() -> ClimbResults {
@@ -551,12 +560,14 @@ mod tests {
                 docker: serde_json::json!({}),
                 benchmark_runtime: serde_json::json!({}),
             },
-            dns_pipeline: DnsPipelineHeadline {
+            dns_pipeline: Some(DnsPipelineHeadline {
                 full_signature_bytes_www_a: Some(24_438),
                 condensed_proof_bytes_www_a: Some(658),
                 reduction_percent_www_a: Some(97.3),
                 notes: None,
-            },
+                source: DnsCaptureSource::RecordedFixture,
+                recorded_at: Some("2026-10-08T12:00:00Z".to_string()),
+            }),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: Some(96.45),
                 largest_wire_reduction_percent: Some(97.0),
@@ -716,12 +727,7 @@ mod tests {
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
         };
-        results.dns_pipeline = DnsPipelineHeadline {
-            full_signature_bytes_www_a: None,
-            condensed_proof_bytes_www_a: None,
-            reduction_percent_www_a: None,
-            notes: None,
-        };
+        results.dns_pipeline = None;
         let dir = unique_temp_dir("html-empty");
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("mkdir");
