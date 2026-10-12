@@ -8,5 +8,16 @@ rust-version.workspace = true
 
 description = "Ratatui live-run dashboard for benchmark visualization (Batch 6)"
 
+[[bin]]
+name = "climb-tui"
+path = "src/main.rs"
+
 [dependencies]
 anyhow.workspace = true
+clap.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+tracing.workspace = true
+tracing-appender.workspace = true
+# env-filter so log verbosity is filterable via RUST_LOG (the project conventions §3).
+tracing-subscriber = { workspace = true, features = ["env-filter"] }

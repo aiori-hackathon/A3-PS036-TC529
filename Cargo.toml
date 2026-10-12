@@ -30,6 +30,12 @@ hickory-proto = "0.26"
 rand = "0.10"
 rand_chacha = "0.10"
 sysinfo = "0.33"
+# Batch 6 demo layer (climb-tui). ratatui's default `crossterm` backend resolves to
+# crossterm 0.29 (via ratatui-crossterm's default `crossterm_0_29` feature), so the direct
+# crossterm dependency is pinned to the same minor to keep a single copy in the graph.
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+crossterm = "0.29"
+tracing-appender = "0.2"
 plotters = { version = "0.3", default-features = false, features = [
     "svg_backend",
     "ttf",
