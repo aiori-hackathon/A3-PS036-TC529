@@ -3,9 +3,11 @@
 //! views; the remaining tabs are placeholders until later phases wire theirs.
 
 pub mod amortization;
+pub mod memory;
 pub mod overview;
 pub mod signing;
 pub mod verifying;
+pub mod wire;
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -81,6 +83,12 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
         }
         LoadState::Loaded(view) if app.tab == Tab::Verifying => {
             verifying::render_verifying(frame, area, app, view, theme, glyphs);
+        }
+        LoadState::Loaded(view) if app.tab == Tab::Wire => {
+            wire::render_wire(frame, area, view, theme, glyphs);
+        }
+        LoadState::Loaded(view) if app.tab == Tab::Memory => {
+            memory::render_memory(frame, area, view, theme, glyphs);
         }
         LoadState::Missing { path } => render_load_error(
             frame,
@@ -518,10 +526,50 @@ mod tests {
     #[test]
     fn renders_placeholder_body_naming_the_tab() {
         let mut app = app_loaded_with(story_view(None));
-        app.update(crate::app::Action::SelectTab(Tab::Wire.index()));
+        app.update(crate::app::Action::SelectTab(Tab::Ladder.index()));
         let out = render_to_string(&app, 80, 24);
         assert!(out.contains("data view lands in a later phase"));
-        assert!(out.contains("Wire"));
+        assert!(out.contains("Ladder"));
+    }
+
+    #[test]
+    fn wire_tab_renders_bars_and_gauge_at_120x40() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Wire.index()));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Wire",
+            "With MTL",
+            "Without MTL",
+            "Single-answer UDP fit",
+            "normalised per size",
+        ] {
+            assert!(
+                out.contains(needle),
+                "wire tab misses {needle:?} at 120x40:\n{out}"
+            );
+        }
+        assert!(
+            !out.contains("data view lands in a later phase"),
+            "Wire must render its view, not the placeholder:\n{out}"
+        );
+    }
+
+    #[test]
+    fn memory_tab_renders_at_80x24_and_120x40() {
+        let mut app = app_loaded_with(story_view(None));
+        app.update(crate::app::Action::SelectTab(Tab::Memory.index()));
+        let narrow = render_to_string(&app, 80, 24);
+        assert!(narrow.contains("Memory"), "memory tab at 80x24:\n{narrow}");
+        assert!(
+            narrow.contains("Reading these numbers"),
+            "explainer panel at 80x24:\n{narrow}"
+        );
+        let wide = render_to_string(&app, 120, 40);
+        assert!(
+            wide.contains("no rows recorded"),
+            "empty memory rows show the placeholder at 120x40:\n{wide}"
+        );
     }
 
     #[test]

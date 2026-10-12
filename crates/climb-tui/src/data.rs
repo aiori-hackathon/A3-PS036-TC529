@@ -10,11 +10,14 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use climb_report::charts::{
-    amortization_data, fmt_count, fmt_time_ns, per_msg_mean, size_n, timing_bar_data, BenchRow,
+    amortization_data, fmt_bytes, fmt_count, fmt_time_ns, per_msg_mean, size_n, timing_bar_data,
+    BenchRow,
 };
 use climb_report::{ClimbResults, DnsCaptureSource};
 
 use crate::widgets::log_bars::{Bar, BarGroup, BarKind};
+use crate::widgets::stacked_bars::{SegmentStyle, StackBar, StackGroup, StackSegment};
+use crate::widgets::udp_gauge::{nice_axis_max, GaugeMarker, MarkerKind, REFERENCE_SIZES};
 
 /// How the consolidated results file looks at load time.
 #[derive(Debug, Clone, PartialEq)]
@@ -297,6 +300,16 @@ fn speedup(slower: f64, faster: f64) -> String {
     format!("{}x", fmt_count(slower / faster))
 }
 
+/// Title-case a section's size label so the Wire/Memory tabs (which store it
+/// lowercase) match the Signing/Verifying tabs' spelling.
+fn title_size(size: &str) -> String {
+    let mut chars = size.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Read a string field from an environment JSON object, if present.
 fn json_str(obj: &serde_json::Value, key: &str) -> Option<String> {
     obj.get(key)?.as_str().map(str::to_string)
@@ -487,6 +500,16 @@ pub struct AmortizationView {
     pub y_bounds: [f64; 2],
     pub x_labels: Vec<String>,
     pub y_labels: Vec<String>,
+}
+
+/// Render-ready payloads and axis for the UDP-fit gauge (phase 21.2).
+#[derive(Debug, Clone, PartialEq)]
+pub struct UdpGaugeData {
+    pub axis_min: u64,
+    pub axis_max: u64,
+    pub markers: Vec<GaugeMarker>,
+    /// Where the numbers came from: the DNS capture or the wire fallback.
+    pub source_note: String,
 }
 
 /// A per-size value tagged with the climb-report series it came from.
@@ -834,12 +857,249 @@ impl ResultsView {
     }
 }
 
+impl ResultsView {
+    /// Per-size wire breakdown for the stacked bars (phase 21.1).
+    ///
+    /// Each size gets a `With MTL` bar split into the shared ladder and the
+    /// per-message condensed bytes, and a `Without MTL` bar of full
+    /// signatures. Bars normalise per size on the without-MTL total, so the
+    /// amortisation reads directly as bar length.
+    pub fn wire_stacks(&self) -> Vec<StackGroup> {
+        let mut rows: Vec<_> = self.results.wire_size.iter().collect();
+        rows.sort_by_key(|row| row.message_count);
+        rows.into_iter()
+            .map(|row| {
+                let condensed_total = row
+                    .with_mtl_total_bytes
+                    .saturating_sub(row.ladder_len as u64);
+                let uniform = if row.condensed_uniform {
+                    " (uniform)"
+                } else {
+                    ""
+                };
+                let caption = format!(
+                    "condensed signature: min {} B / mean {} B / max {} B{}",
+                    fmt_count(row.condensed_min as f64),
+                    fmt_count(row.condensed_mean),
+                    fmt_count(row.condensed_max as f64),
+                    uniform,
+                );
+                StackGroup {
+                    label: title_size(&row.size),
+                    scale_max: row.without_mtl_total_bytes.max(1),
+                    caption: Some(caption),
+                    bars: vec![
+                        StackBar {
+                            name: "With MTL".to_string(),
+                            segments: vec![
+                                StackSegment {
+                                    label: "shared ladder".to_string(),
+                                    bytes: row.ladder_len as u64,
+                                    style: SegmentStyle::Hatched,
+                                },
+                                StackSegment {
+                                    label: format!(
+                                        "{} \u{00d7} condensed",
+                                        fmt_count(row.message_count as f64)
+                                    ),
+                                    bytes: condensed_total,
+                                    style: SegmentStyle::Dotted,
+                                },
+                            ],
+                            note: format!(
+                                "{} B \u{00b7} \u{2212}{:.1}%",
+                                fmt_count(row.with_mtl_total_bytes as f64),
+                                row.reduction_percent,
+                            ),
+                        },
+                        StackBar {
+                            name: "Without MTL".to_string(),
+                            segments: vec![StackSegment {
+                                label: format!(
+                                    "{} \u{00d7} full",
+                                    fmt_count(row.message_count as f64)
+                                ),
+                                bytes: row.without_mtl_total_bytes,
+                                style: SegmentStyle::Solid,
+                            }],
+                            note: format!("{} B", fmt_count(row.without_mtl_total_bytes as f64)),
+                        },
+                    ],
+                }
+            })
+            .collect()
+    }
+
+    /// Payloads, axis and provenance for the UDP-fit gauge (phase 21.2).
+    ///
+    /// Prefers the DNS capture's full-signature and condensed-response sizes;
+    /// with no capture present it falls back to the largest wire-size report's
+    /// per-record sizes and names the source in the note.
+    pub fn udp_gauge_data(&self) -> UdpGaugeData {
+        if let Some((full, condensed, note)) = self.udp_from_capture() {
+            return Self::gauge_from_markers(
+                vec![
+                    GaugeMarker {
+                        label: "full signature".to_string(),
+                        bytes: full,
+                        kind: MarkerKind::Full,
+                    },
+                    GaugeMarker {
+                        label: "condensed proof".to_string(),
+                        bytes: condensed,
+                        kind: MarkerKind::Condensed,
+                    },
+                ],
+                note,
+            );
+        }
+        if let Some((full, condensed)) = self.udp_from_wire() {
+            return Self::gauge_from_markers(
+                vec![
+                    GaugeMarker {
+                        label: "full signature".to_string(),
+                        bytes: full,
+                        kind: MarkerKind::Full,
+                    },
+                    GaugeMarker {
+                        label: "condensed proof".to_string(),
+                        bytes: condensed,
+                        kind: MarkerKind::Condensed,
+                    },
+                ],
+                "no DNS capture \u{2014} per-record sizes from the wire report".to_string(),
+            );
+        }
+        UdpGaugeData {
+            axis_min: 0,
+            axis_max: 0,
+            markers: Vec::new(),
+            source_note: "no wire or capture data recorded".to_string(),
+        }
+    }
+
+    fn udp_from_capture(&self) -> Option<(u64, u64, String)> {
+        let dns = self.results.dns_pipeline.as_ref()?;
+        let full = dns.full_signature_bytes_www_a?;
+        let condensed = dns.condensed_proof_bytes_www_a?;
+        let note = self
+            .dns_provenance()
+            .map(|provenance| format!("from {provenance}"))
+            .unwrap_or_else(|| "from the DNS capture".to_string());
+        Some((full, condensed, note))
+    }
+
+    fn udp_from_wire(&self) -> Option<(u64, u64)> {
+        let row = self
+            .results
+            .wire_size
+            .iter()
+            .max_by_key(|row| row.message_count)?;
+        let condensed = row.condensed_max as u64;
+        let full = row.ladder_len as u64 + condensed;
+        Some((full, condensed))
+    }
+
+    fn gauge_from_markers(markers: Vec<GaugeMarker>, source_note: String) -> UdpGaugeData {
+        let peak = markers
+            .iter()
+            .map(|marker| marker.bytes)
+            .chain(REFERENCE_SIZES)
+            .max()
+            .unwrap_or(0);
+        UdpGaugeData {
+            axis_min: 0,
+            axis_max: nice_axis_max(peak),
+            markers,
+            source_note,
+        }
+    }
+
+    /// Per-size measured-vs-analytical memory bars (phase 21.4).
+    ///
+    /// The analytical bar is the libMTL page model plus harness buffers (when
+    /// the F8 fields are present); the measured bar is the mean RSS delta. The
+    /// caption carries the residual and the measured/model ratio.
+    pub fn memory_stacks(&self) -> Vec<StackGroup> {
+        let mut rows: Vec<_> = self.results.memory.measured.iter().collect();
+        rows.sort_by_key(|row| row.message_count);
+        rows.into_iter()
+            .map(|row| {
+                let has_harness = row.harness_buffers_bytes > 0;
+                let mut analytical_segments = vec![StackSegment {
+                    label: "libMTL pages".to_string(),
+                    bytes: row.libmtl_analytical_bytes as u64,
+                    style: SegmentStyle::Hatched,
+                }];
+                if has_harness {
+                    analytical_segments.push(StackSegment {
+                        label: "harness buffers".to_string(),
+                        bytes: row.harness_buffers_bytes,
+                        style: SegmentStyle::Dotted,
+                    });
+                }
+                let model_note = if has_harness {
+                    ""
+                } else {
+                    " (pre-F8: no harness model)"
+                };
+                let caption = format!(
+                    "residual {} ({:+.1}%) \u{00b7} measured/model {:.2}\u{00d7}{}",
+                    fmt_bytes(row.residual_bytes as f64),
+                    row.residual_percent,
+                    row.measured_analytical_total_ratio,
+                    model_note,
+                );
+                StackGroup {
+                    label: title_size(&row.size),
+                    scale_max: row
+                        .measured_mean_bytes
+                        .max(row.analytical_total_bytes)
+                        .max(1),
+                    caption: Some(caption),
+                    bars: vec![
+                        StackBar {
+                            name: "Analytical".to_string(),
+                            segments: analytical_segments,
+                            note: fmt_bytes(row.analytical_total_bytes as f64),
+                        },
+                        StackBar {
+                            name: "Measured".to_string(),
+                            segments: vec![StackSegment {
+                                label: "measured RSS".to_string(),
+                                bytes: row.measured_mean_bytes,
+                                style: SegmentStyle::Solid,
+                            }],
+                            note: format!(
+                                "{} \u{00b1}{}",
+                                fmt_bytes(row.measured_mean_bytes as f64),
+                                fmt_bytes(row.measured_stddev_bytes),
+                            ),
+                        },
+                    ],
+                }
+            })
+            .collect()
+    }
+
+    /// Whether any memory row models harness buffers (the F8 fields are
+    /// present and non-zero).
+    pub fn memory_has_harness(&self) -> bool {
+        self.results
+            .memory
+            .measured
+            .iter()
+            .any(|row| row.harness_buffers_bytes > 0)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use climb_report::results::{
         AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
-        MemoryResults, SigningBenchmarkResult, VerifyingBenchmarkResult, WireSizeResult,
+        MemoryResult, MemoryResults, SigningBenchmarkResult, VerifyingBenchmarkResult,
+        WireSizeResult,
     };
     use climb_report::DnsPipelineHeadline;
 
@@ -929,6 +1189,60 @@ mod tests {
             without_mtl_total_bytes: 1000,
             reduction_percent: reduction,
         }
+    }
+
+    fn wire_size_row(
+        size: &str,
+        messages: usize,
+        ladder: usize,
+        condensed_mean: f64,
+        with_mtl: u64,
+        without_mtl: u64,
+        reduction: f64,
+    ) -> WireSizeResult {
+        WireSizeResult {
+            size: size.to_string(),
+            message_count: messages,
+            ladder_len: ladder,
+            condensed_min: condensed_mean as usize,
+            condensed_mean,
+            condensed_max: condensed_mean as usize,
+            condensed_uniform: true,
+            with_mtl_total_bytes: with_mtl,
+            without_mtl_total_bytes: without_mtl,
+            reduction_percent: reduction,
+        }
+    }
+
+    fn memory_result(
+        size: &str,
+        messages: usize,
+        measured: u64,
+        libmtl: usize,
+        harness: u64,
+    ) -> MemoryResult {
+        let analytical = libmtl as u64 + harness;
+        MemoryResult {
+            size: size.to_string(),
+            message_count: messages,
+            measured_mean_bytes: measured,
+            libmtl_analytical_bytes: libmtl,
+            harness_buffers_bytes: harness,
+            analytical_total_bytes: analytical,
+            residual_bytes: measured as i64 - analytical as i64,
+            residual_percent: (measured as f64 - analytical as f64) / analytical as f64 * 100.0,
+            ratio: measured as f64 / analytical as f64,
+            measured_analytical_total_ratio: measured as f64 / analytical as f64,
+            measured_range_min_bytes: measured / 2,
+            measured_range_max_bytes: measured * 2,
+            measured_stddev_bytes: measured as f64 / 8.0,
+        }
+    }
+
+    fn view_with_memory(measured: Vec<MemoryResult>) -> ResultsView {
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        view.results.memory.measured = measured;
+        view
     }
 
     fn empty_derived() -> DerivedSummary {
@@ -1558,5 +1872,154 @@ mod tests {
         assert!(amort.with_points.is_empty());
         assert!(amort.without_points.is_empty());
         assert!(amort.fit_points.is_empty());
+    }
+
+    #[test]
+    fn wire_stacks_split_ladder_and_condensed_with_per_size_scale() {
+        let view = view_with(
+            Vec::new(),
+            Vec::new(),
+            vec![
+                wire_size_row(
+                    "large",
+                    1_000_000,
+                    8120,
+                    367.06,
+                    367_067_832,
+                    8_487_059_712,
+                    95.675,
+                ),
+                wire_size_row("small", 100, 7992, 164.32, 24_424, 815_632, 97.005),
+            ],
+            None,
+            empty_derived(),
+        );
+        let stacks = view.wire_stacks();
+        assert_eq!(stacks.len(), 2);
+        assert_eq!(stacks[0].label, "Small", "sizes sort ascending by messages");
+        assert_eq!(stacks[1].label, "Large");
+        assert_eq!(stacks[0].scale_max, 815_632);
+
+        let with = &stacks[0].bars[0];
+        let segment_sum: u64 = with.segments.iter().map(|s| s.bytes).sum();
+        assert_eq!(
+            segment_sum, 24_424,
+            "ladder + N*condensed == with-MTL total"
+        );
+        assert_eq!(with.segments[0].bytes, 7992, "shared ladder segment");
+        assert_eq!(
+            with.segments[1].bytes,
+            24_424 - 7992,
+            "condensed segment is total minus ladder"
+        );
+        assert!(with.note.contains("97.0%"), "reduction %: {}", with.note);
+
+        let without = &stacks[0].bars[1];
+        assert_eq!(without.segments[0].bytes, 815_632);
+        assert_eq!(without.total(), 815_632);
+
+        let caption = stacks[0].caption.as_deref().unwrap();
+        assert!(caption.contains("min 164 B"), "{caption}");
+        assert!(caption.contains("max 164 B"), "{caption}");
+    }
+
+    #[test]
+    fn wire_stacks_is_empty_without_wire_rows() {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        assert!(view.wire_stacks().is_empty());
+    }
+
+    #[test]
+    fn udp_gauge_prefers_the_dns_capture() {
+        let view = view_with(
+            Vec::new(),
+            Vec::new(),
+            vec![wire_size_row(
+                "small", 100, 7992, 164.32, 24_424, 815_632, 97.005,
+            )],
+            Some(dns_headline(24_438, 658)),
+            empty_derived(),
+        );
+        let gauge = view.udp_gauge_data();
+        assert_eq!(gauge.markers.len(), 2);
+        assert_eq!(gauge.markers[0].bytes, 24_438);
+        assert_eq!(gauge.markers[1].bytes, 658);
+        assert!(gauge.axis_max >= 24_438);
+        assert!(
+            gauge.source_note.contains("recorded"),
+            "{}",
+            gauge.source_note
+        );
+    }
+
+    #[test]
+    fn udp_gauge_falls_back_to_per_record_wire_sizes() {
+        let view = view_with(
+            Vec::new(),
+            Vec::new(),
+            vec![wire_size_row(
+                "small", 100, 7992, 164.32, 24_424, 815_632, 97.005,
+            )],
+            None,
+            empty_derived(),
+        );
+        let gauge = view.udp_gauge_data();
+        assert_eq!(gauge.markers[0].bytes, 7992 + 164, "ladder + one condensed");
+        assert_eq!(gauge.markers[1].bytes, 164);
+        assert!(
+            gauge.source_note.contains("no DNS capture"),
+            "{}",
+            gauge.source_note
+        );
+    }
+
+    #[test]
+    fn udp_gauge_is_empty_without_any_source() {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        let gauge = view.udp_gauge_data();
+        assert!(gauge.markers.is_empty());
+        assert_eq!(gauge.axis_max, 0);
+    }
+
+    #[test]
+    fn memory_stacks_sum_segments_and_report_residual() {
+        let view = view_with_memory(vec![
+            memory_result("large", 1_000_000, 320_679_936, 49_283_072, 32_000_032),
+            memory_result("small", 100, 851_968, 2_097_152, 3_232),
+        ]);
+        let stacks = view.memory_stacks();
+        assert_eq!(stacks.len(), 2);
+        assert_eq!(stacks[0].label, "Small");
+        let analytical = &stacks[0].bars[0];
+        assert_eq!(
+            analytical.segments.len(),
+            2,
+            "libMTL pages + harness buffers"
+        );
+        let sum: u64 = analytical.segments.iter().map(|s| s.bytes).sum();
+        assert_eq!(sum, 2_100_384, "analytical segments sum to the total");
+        let caption = stacks[0].caption.as_deref().unwrap();
+        assert!(caption.contains("-59.4%"), "{caption}");
+        assert!(caption.contains("measured/model 0.41"), "{caption}");
+        assert!(view.memory_has_harness());
+    }
+
+    #[test]
+    fn memory_stacks_drop_harness_when_absent() {
+        let view = view_with_memory(vec![memory_result("small", 100, 851_968, 2_097_152, 0)]);
+        let stacks = view.memory_stacks();
+        let analytical = &stacks[0].bars[0];
+        assert_eq!(analytical.segments.len(), 1, "libMTL-only when F8 absent");
+        assert_eq!(analytical.segments[0].bytes, 2_097_152);
+        let caption = stacks[0].caption.as_deref().unwrap();
+        assert!(caption.contains("pre-F8"), "{caption}");
+        assert!(!view.memory_has_harness());
+    }
+
+    #[test]
+    fn memory_stacks_is_empty_without_rows() {
+        let view = view_with_memory(Vec::new());
+        assert!(view.memory_stacks().is_empty());
+        assert!(!view.memory_has_harness());
     }
 }

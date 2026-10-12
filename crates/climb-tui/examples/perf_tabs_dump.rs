@@ -1,5 +1,6 @@
-//! Render the Signing and Verifying tabs onto an in-memory [`TestBackend`] and
-//! print the character buffers to stdout (phase 20.6 evidence tool).
+//! Render the Signing, Verifying, Wire and Memory tabs onto an in-memory
+//! [`TestBackend`] and print the character buffers to stdout (phases 20.6,
+//! 21.6 evidence tool).
 //!
 //! Usage:
 //! ```text
@@ -34,7 +35,7 @@ fn main() -> Result<()> {
     let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
     app.set_data(data::load(Path::new(&results)));
 
-    for tab in [Tab::Signing, Tab::Verifying] {
+    for tab in [Tab::Signing, Tab::Verifying, Tab::Wire, Tab::Memory] {
         app.update(Action::SelectTab(tab.index()));
         println!("=== {} ({width}x{height}) ===", tab.title());
         print!("{}", dump(&mut app, width, height)?);
