@@ -1,0 +1,165 @@
+{
+  "schema_version": 1,
+  "recorded_at": "2026-10-12T14:24:26+05:30",
+  "host": {
+    "hostname": "whynot",
+    "uname": "Linux whynot 7.2.5-3-omarchy #1 SMP PREEMPT_DYNAMIC Mon, 14 Sep 2026 19:55:01 +0000 x86_64 GNU/Linux"
+  },
+  "images": [
+    {
+      "reference": "climb-nsd:phase12",
+      "digest": "climb-nsd@sha256:3c557d132db069ff528e4cef6b6acc3b3e0aa28dfaa79a623c2e6ed3d9f973ec"
+    },
+    {
+      "reference": "climb-unbound:phase13",
+      "digest": "climb-unbound@sha256:ffeb632719df147a96aac292d499f4832660c8ce80a53048453de13a0ce395c4"
+    },
+    {
+      "reference": "climb-dig:phase14",
+      "digest": "climb-dig@sha256:e827637627cc6049725d75662e59835480ef8e7f722d397368ce3b942dc85e14"
+    },
+    {
+      "reference": "climb-ldns-signer:phase14",
+      "digest": "climb-ldns-signer@sha256:072ff95eac5fb07ff39452fcdaf280dd1074d214fb3ca2fb6285317910b150f1"
+    }
+  ],
+  "algorithm": "SLH-DSA-SHA2-128s-MTL-SHA2-128",
+  "zone": "climb.example.",
+  "queries": [
+    {
+      "label": "full",
+      "qname": "climb.example.",
+      "qtype": "SOA",
+      "response_bytes": 24465,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "full",
+      "qname": "www.climb.example.",
+      "qtype": "A",
+      "response_bytes": 24438,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "full",
+      "qname": "mail.climb.example.",
+      "qtype": "MX",
+      "response_bytes": 32572,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "condensed",
+      "qname": "climb.example.",
+      "qtype": "SOA",
+      "response_bytes": 685,
+      "answer_rrsig_bytes": 141,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "condensed",
+      "qname": "www.climb.example.",
+      "qtype": "A",
+      "response_bytes": 658,
+      "answer_rrsig_bytes": 141,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "condensed",
+      "qname": "mail.climb.example.",
+      "qtype": "MX",
+      "response_bytes": 864,
+      "answer_rrsig_bytes": 141,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "unbound",
+      "qname": "climb.example.",
+      "qtype": "SOA",
+      "response_bytes": 8207,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "unbound",
+      "qname": "www.climb.example.",
+      "qtype": "A",
+      "response_bytes": 8176,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    },
+    {
+      "label": "unbound",
+      "qname": "mail.climb.example.",
+      "qtype": "MX",
+      "response_bytes": 8180,
+      "answer_rrsig_bytes": 8069,
+      "flags": {
+        "ad": null,
+        "tc": null,
+        "rcode": 0
+      },
+      "transport": "tcp",
+      "edns_udp_size": null,
+      "elapsed_ms": null
+    }
+  ]
+}
