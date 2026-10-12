@@ -563,6 +563,7 @@ mod tests {
                 overall_verifying_trust_cached_speedup_avg: Some(10.125),
                 headline: Some("MTL cuts www.a wire bytes by 97.3%.".to_string()),
             },
+            warnings: Vec::new(),
         }
     }
 

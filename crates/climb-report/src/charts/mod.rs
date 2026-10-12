@@ -1162,6 +1162,7 @@ mod tests {
                 overall_verifying_trust_cached_speedup_avg: None,
                 headline: None,
             },
+            warnings: Vec::new(),
         }
     }
 
