@@ -56,8 +56,8 @@ pub const AMORTIZATION_FOOTNOTES: [&str; 3] = [
 /// Footnotes for the measured-vs-analytical memory chart.
 pub const MEMORY_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → memory (from target/memory-report.json; model: climb-analytical).",
-    "Filled circles + whiskers = measured peak-RSS deltas (min/mean/max); hollow diamonds = model.",
-    "Ratios are recomputed from the stored byte counts — measured ÷ analytical, never the stored ratio.",
+    "Filled circles + whiskers = measured peak-RSS deltas (min/mean/max); analytical = stacked bars (libMTL pages + harness buffers, ESTIMATE).",
+    "Ratios shown as measured ÷ analytical_total; residual annotated (measured − analytical_total) with bytes and %.",
 ];
 
 /// Canvas width for every chart, in pixels.
@@ -530,7 +530,14 @@ pub fn draw_memory(
 
     let (mut y_lo, mut y_hi) = (f64::INFINITY, 0.0f64);
     for p in &data.points {
-        for v in [p.measured, p.measured_min, p.measured_max, p.analytical] {
+        for v in [
+            p.measured,
+            p.measured_min,
+            p.measured_max,
+            p.analytical_total,
+            p.libmtl_pages,
+            p.harness_buffers,
+        ] {
             if v > 0.0 && v.is_finite() {
                 y_lo = y_lo.min(v);
                 y_hi = y_hi.max(v);
@@ -581,28 +588,61 @@ pub fn draw_memory(
             .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.filled()));
         any_label = true;
     }
-    if data.points.iter().any(|p| p.analytical > 0.0) {
+    if data.points.iter().any(|p| p.analytical_total > 0.0) {
         let points = data.points.clone();
-        let drawings = chart
+        // Draw stacked analytical bars: libMTL pages (bottom) then harness buffers (top)
+        let bar_w = 0.30_f64;
+        // Bottom segment: libMTL pages
+        let drawings_bottom = chart
             .draw_series(points.iter().filter_map(|p| {
-                if p.analytical <= 0.0 {
+                if p.analytical_total <= 0.0 {
                     return None;
                 }
-                let n = p.n as f64;
-                let v = p.analytical;
-                Some(Polygon::new(
-                    vec![(n, v * 1.25), (n * 1.15, v), (n, v / 1.25), (n / 1.15, v)],
-                    ShapeStyle::from(COLOR_MODEL).stroke_width(2),
+                let base = p.libmtl_pages;
+                if base <= 0.0 {
+                    return None;
+                }
+                let c = (p.n as f64).log10();
+                let left = 10f64.powf(c - bar_w / 2.0);
+                let right = 10f64.powf(c + bar_w / 2.0);
+                Some(Rectangle::new(
+                    [(left, y_lo), (right, base)],
+                    ShapeStyle::from(COLOR_WITHOUT_MTL).filled(),
                 ))
             }))
             .map_err(|e| chart_err(path, e))?;
-        drawings
-            .label("Analytical model estimate")
+        drawings_bottom.label("libMTL pages only").legend(|(x, y)| {
+            Rectangle::new(
+                [(x, y), (x + 16, y + 11)],
+                ShapeStyle::from(COLOR_WITHOUT_MTL).filled(),
+            )
+        });
+        // Top segment: harness buffers (stacked on libMTL pages)
+        let drawings_top = chart
+            .draw_series(points.iter().filter_map(|p| {
+                if p.analytical_total <= 0.0 {
+                    return None;
+                }
+                let base = p.libmtl_pages;
+                let topv = p.harness_buffers;
+                if topv <= 0.0 {
+                    return None;
+                }
+                let c = (p.n as f64).log10();
+                let left = 10f64.powf(c - bar_w / 2.0);
+                let right = 10f64.powf(c + bar_w / 2.0);
+                Some(Rectangle::new(
+                    [(left, base), (right, base + topv)],
+                    ShapeStyle::from(RGBColor(44, 160, 44)).filled(),
+                ))
+            }))
+            .map_err(|e| chart_err(path, e))?;
+        drawings_top
+            .label("harness buffers (ESTIMATE)")
             .legend(|(x, y)| {
-                let (cx, cy) = (x + 7, y + 5);
-                Polygon::new(
-                    vec![(cx, cy - 5), (cx + 5, cy), (cx, cy + 5), (cx - 5, cy)],
-                    ShapeStyle::from(COLOR_MODEL).stroke_width(2),
+                Rectangle::new(
+                    [(x, y), (x + 16, y + 11)],
+                    ShapeStyle::from(RGBColor(44, 160, 44)).filled(),
                 )
             });
         any_label = true;
@@ -632,19 +672,20 @@ pub fn draw_memory(
             .map_err(|e| chart_err(path, e))?;
     }
 
-    // Ratio labels above each measured whisker, recomputed from the bytes.
+    // Ratio labels and residual annotations above each measured whisker
     let dark = RGBColor(70, 70, 75);
     let ratio_style = TextStyle::from(("sans-serif", 10)).color(&dark);
+    let residual_style = TextStyle::from(("sans-serif", 9)).color(&dark);
     let decades_x = (x_hi / x_lo).log10();
     let px_per_decade = (CHART_W as f64 - Y_LABEL_AREA as f64 - 2.0 * MARGIN as f64) / decades_x;
     let labels: Vec<Text<'_, (f64, f64), String>> = data
         .points
         .iter()
         .filter_map(|p| {
-            if p.analytical <= 0.0 || p.measured <= 0.0 {
+            if p.analytical_total <= 0.0 || p.measured <= 0.0 {
                 return None;
             }
-            let ratio = p.measured / p.analytical;
+            let ratio = p.measured / p.analytical_total;
             let text = format!("{ratio:.2}x");
             let half_px = text.chars().count() as f64 * 6.0 / 2.0;
             let shift = half_px / px_per_decade;
@@ -655,6 +696,29 @@ pub fn draw_memory(
         .collect();
     if !labels.is_empty() {
         chart.draw_series(labels).map_err(|e| chart_err(path, e))?;
+    }
+    let residuals: Vec<Text<'_, (f64, f64), String>> = data
+        .points
+        .iter()
+        .filter_map(|p| {
+            if p.analytical_total <= 0.0 || p.measured <= 0.0 {
+                return None;
+            }
+            // Format residual: signed bytes and percent
+            let resid = p.residual as i64;
+            let pct = p.residual_percent;
+            let text = format!("residual: {resid:+} B ({pct:+.1}%)");
+            let half_px = text.chars().count() as f64 * 5.4 / 2.0;
+            let shift = half_px / px_per_decade;
+            let x = 10f64.powf((p.n as f64).log10() - shift);
+            let y = ((p.measured_max * 1.9).min(y_hi / 1.2)) + 14.0;
+            Some(Text::new(text, (x, y), residual_style.clone()))
+        })
+        .collect();
+    if !residuals.is_empty() {
+        chart
+            .draw_series(residuals)
+            .map_err(|e| chart_err(path, e))?;
     }
 
     if any_label {

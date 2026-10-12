@@ -222,6 +222,65 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         "/derived/headline",
         results.derived.headline.clone(),
     );
+    // Memory claims: per-size decomposition and residuals
+    for m in &results.memory.measured {
+        let idx = results
+            .memory
+            .measured
+            .iter()
+            .position(|x| x.size == m.size)
+            .unwrap_or(0);
+        let base = format!("/memory/measured/{}", idx);
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-libmtl-pages", m.size),
+            &format!("{}/libmtl_analytical_bytes", base),
+            Some(m.libmtl_analytical_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-harness-buffers", m.size),
+            &format!("{}/harness_buffers_bytes", base),
+            Some(m.harness_buffers_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-analytical-total", m.size),
+            &format!("{}/analytical_total_bytes", base),
+            Some(m.analytical_total_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-residual-bytes", m.size),
+            &format!("{}/residual_bytes", base),
+            Some(m.residual_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-residual-percent", m.size),
+            &format!("{}/residual_percent", base),
+            Some(format!("{:.1}%", m.residual_percent)),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-measured-analytical-total", m.size),
+            &format!("{}/measured_analytical_total_ratio", base),
+            Some(format!("{:.2}x", m.measured_analytical_total_ratio)),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-measured-mean", m.size),
+            &format!("{}/measured_mean_bytes", base),
+            Some(m.measured_mean_bytes.to_string()),
+        );
+    }
     Ok(claims)
 }
 

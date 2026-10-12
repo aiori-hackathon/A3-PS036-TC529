@@ -224,6 +224,84 @@ pub fn estimate_memory_footprint_for(size: DatasetSize) -> MemoryEstimate {
     estimate_memory_footprint(size.count())
 }
 
+/// Estimate of Rust harness buffer memory held for `sign_batch` output.
+///
+/// The `SignOutput` contains the shared ladder and per-message condensed
+/// signatures, each stored in Rust `Vec<u8>` allocations. This is an
+/// **ESTIMATE** — it models the heap bytes held by those `Vec`s using an
+/// assumed overhead (24-byte Vec header + allocator rounding to 16 B), not
+/// measured RSS.
+///
+/// **Assumptions (documented):**
+/// - Each `Vec<u8>` incurs overhead of 24 bytes (pointer, length, capacity)
+///   plus allocator rounding to 16-byte alignment.
+/// - Per allocation overhead modelled as `((24 + 15) / 16) * 16` = 32 bytes
+///   total overhead per Vec allocation (24-byte header rounded up to 16 B
+///   boundary alignment).
+/// - One allocation for the ladder Vec, and one allocation per condensed
+///   signature Vec (N messages => N+1 Vec allocations).
+/// - Data payload bytes: `ladder_len + condensed_len_sum`.
+///
+/// This is intentionally kept pure and has no dependency on `climb-report`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HarnessOutputEstimate {
+    /// Number of messages.
+    pub n: usize,
+    /// Sum of condensed signature lengths (bytes).
+    pub condensed_len_sum: usize,
+    /// Ladder length (bytes).
+    pub ladder_len: usize,
+    /// Data payload bytes (ladder + sum of condensed).
+    pub payload_bytes: usize,
+    /// Estimated Vec overhead bytes (per-Vec overhead applied to N+1 Vecs).
+    pub vec_overhead_bytes: usize,
+    /// Estimated total bytes held by harness buffers (payload + overhead).
+    pub estimated_total_bytes: usize,
+    /// Per-Vec overhead assumption used.
+    pub per_vec_overhead_bytes: usize,
+}
+
+/// Per-Vec overhead assumption: 24-byte Vec header + allocator rounding to
+/// 16-byte alignment => ~32 bytes.
+pub const PER_VEC_OVERHEAD_BYTES: usize = 32;
+
+/// Estimate harness buffer memory for one `sign_batch` output.
+///
+/// Returns an [`HarnessOutputEstimate`] with documented assumptions.
+/// This is an ESTIMATE — not a measured value.
+pub fn harness_output_estimate(
+    n: usize,
+    condensed_len_sum: usize,
+    ladder_len: usize,
+) -> HarnessOutputEstimate {
+    let payload_bytes = condensed_len_sum.saturating_add(ladder_len);
+    // N condensed signatures + 1 ladder = N+1 Vec allocations
+    let vec_count = if n == 0 { 0usize } else { n + 1 };
+    let vec_overhead_bytes = vec_count.saturating_mul(PER_VEC_OVERHEAD_BYTES);
+    let estimated_total_bytes = payload_bytes.saturating_add(vec_overhead_bytes);
+
+    HarnessOutputEstimate {
+        n,
+        condensed_len_sum,
+        ladder_len,
+        payload_bytes,
+        vec_overhead_bytes,
+        estimated_total_bytes,
+        per_vec_overhead_bytes: PER_VEC_OVERHEAD_BYTES,
+    }
+}
+
+impl HarnessOutputEstimate {
+    #[must_use]
+    pub fn vec_count(&self) -> usize {
+        if self.n == 0 {
+            0
+        } else {
+            self.n + 1
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Module: helper to compute max_tree_index in non-test code (exposed for docs)
 // ---------------------------------------------------------------------------
@@ -402,5 +480,19 @@ mod tests {
         assert_eq!(MTL_TREE_MAX_PAGES, 8_192);
         assert_eq!(MTL_TREE_RANDOMIZER_PAGES, 8_192);
         assert_eq!(HASH_SIZE, 16);
+    }
+
+    #[test]
+    fn harness_output_estimate_hand_number() {
+        // Hand-number test for N=100 as specified.
+        let est = harness_output_estimate(100, 10_000, 8_000);
+        assert_eq!(est.n, 100);
+        assert_eq!(est.condensed_len_sum, 10_000);
+        assert_eq!(est.ladder_len, 8_000);
+        assert_eq!(est.payload_bytes, 18_000);
+        assert_eq!(est.vec_count(), 101);
+        assert_eq!(est.vec_overhead_bytes, 101 * PER_VEC_OVERHEAD_BYTES);
+        assert_eq!(est.estimated_total_bytes, 18_000 + 101 * 32);
+        assert_eq!(est.per_vec_overhead_bytes, PER_VEC_OVERHEAD_BYTES);
     }
 }

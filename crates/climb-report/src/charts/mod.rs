@@ -381,10 +381,20 @@ pub struct MemoryPoint {
     pub measured_min: f64,
     /// Measured maximum in bytes (whisker high).
     pub measured_max: f64,
-    /// Analytical model estimate in bytes.
-    pub analytical: f64,
+    /// Analytical model estimate in bytes (libMTL pages).
+    pub libmtl_pages: f64,
+    /// Harness buffers estimate in bytes.
+    pub harness_buffers: f64,
+    /// Analytical total estimate in bytes (libMTL + harness).
+    pub analytical_total: f64,
+    /// Residual (measured - analytical_total).
+    pub residual: f64,
+    /// Residual percent.
+    pub residual_percent: f64,
     /// Ratio label, e.g. `"0.41x"`.
     pub ratio_label: String,
+    /// Measured / analytical_total ratio label.
+    pub measured_analytical_total_ratio_label: String,
 }
 
 /// Fully prepared data for the memory chart.
@@ -665,7 +675,7 @@ pub fn memory_data(rows: &[MemoryResult]) -> MemoryData {
     let points = sorted
         .iter()
         .map(|r| {
-            let analytical = r.analytical_bytes as f64;
+            let analytical = r.analytical_total_bytes as f64;
             let measured = r.measured_mean_bytes as f64;
             let ratio = if analytical > 0.0 {
                 measured / analytical
@@ -677,8 +687,13 @@ pub fn memory_data(rows: &[MemoryResult]) -> MemoryData {
                 measured,
                 measured_min: r.measured_range_min_bytes as f64,
                 measured_max: r.measured_range_max_bytes as f64,
-                analytical,
+                libmtl_pages: r.libmtl_analytical_bytes as f64,
+                harness_buffers: r.harness_buffers_bytes as f64,
+                analytical_total: r.analytical_total_bytes as f64,
+                residual: r.residual_bytes as f64,
+                residual_percent: r.residual_percent,
                 ratio_label: format!("{ratio:.2}x"),
+                measured_analytical_total_ratio_label: format!("{ratio:.2}x"),
             }
         })
         .collect();
@@ -868,9 +883,14 @@ mod tests {
             MemoryResult {
                 size: "small".to_string(),
                 message_count: 100,
-                measured_mean_bytes: 851_968,
-                analytical_bytes: 2_097_152,
-                ratio: 0.406_25,
+                measured_mean_bytes: 886_784,
+                libmtl_analytical_bytes: 2_097_152,
+                harness_buffers_bytes: 0,
+                analytical_total_bytes: 2_097_152,
+                residual_bytes: 886_784 - 2_097_152,
+                residual_percent: ((851_968.0 - 2_097_152.0) / 2_097_152.0) * 100.0,
+                measured_analytical_total_ratio: 886_784.0 / 2_097_152.0,
+                ratio: 0.422_851_562_5,
                 measured_range_min_bytes: 73_728,
                 measured_range_max_bytes: 1_630_208,
                 measured_stddev_bytes: 0.0,
@@ -879,7 +899,12 @@ mod tests {
                 size: "medium".to_string(),
                 message_count: 10_000,
                 measured_mean_bytes: 2_258_944,
-                analytical_bytes: 2_097_152,
+                libmtl_analytical_bytes: 2_097_152,
+                harness_buffers_bytes: 0,
+                analytical_total_bytes: 2_097_152,
+                residual_bytes: 2_258_944 - 2_097_152,
+                residual_percent: ((2_258_944.0 - 2_097_152.0) / 2_097_152.0) * 100.0,
+                measured_analytical_total_ratio: 2_258_944.0 / 2_097_152.0,
                 ratio: 1.077_148_437_5,
                 measured_range_min_bytes: 942_080,
                 measured_range_max_bytes: 3_575_808,
@@ -889,7 +914,12 @@ mod tests {
                 size: "large".to_string(),
                 message_count: 1_000_000,
                 measured_mean_bytes: 320_679_936,
-                analytical_bytes: 49_283_072,
+                libmtl_analytical_bytes: 49_283_072,
+                harness_buffers_bytes: 0,
+                analytical_total_bytes: 49_283_072,
+                residual_bytes: 320_679_936 - 49_283_072,
+                residual_percent: ((320_679_936.0 - 49_283_072.0) / 49_283_072.0) * 100.0,
+                measured_analytical_total_ratio: 320_679_936.0 / 49_283_072.0,
                 ratio: 6.506_898_271_276_596,
                 measured_range_min_bytes: 80_093_184,
                 measured_range_max_bytes: 561_266_688,
@@ -1064,11 +1094,11 @@ mod tests {
         let rows = memory_rows();
         let data = memory_data(&rows);
         assert_eq!(data.points.len(), 3);
-        assert_eq!(data.points[0].ratio_label, "0.41x");
+        assert_eq!(data.points[0].ratio_label, "0.42x");
         assert_eq!(data.points[1].ratio_label, "1.08x");
         assert_eq!(data.points[2].ratio_label, "6.51x");
         assert_eq!(data.points[2].measured, 320_679_936.0);
-        assert_eq!(data.points[2].analytical, 49_283_072.0);
+        assert_eq!(data.points[2].analytical_total, 49_283_072.0);
         assert_eq!(data.points[0].measured_min, 73_728.0);
         assert_eq!(data.points[0].measured_max, 1_630_208.0);
     }

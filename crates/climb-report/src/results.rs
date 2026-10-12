@@ -55,8 +55,13 @@ pub struct MemoryResult {
     pub size: String,
     pub message_count: usize,
     pub measured_mean_bytes: u64,
-    pub analytical_bytes: usize,
+    pub libmtl_analytical_bytes: usize,
+    pub harness_buffers_bytes: u64,
+    pub analytical_total_bytes: u64,
+    pub residual_bytes: i64,
+    pub residual_percent: f64,
     pub ratio: f64,
+    pub measured_analytical_total_ratio: f64,
     pub measured_range_min_bytes: u64,
     pub measured_range_max_bytes: u64,
     pub measured_stddev_bytes: f64,
@@ -493,12 +498,27 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
             // Try comparisons first? Or detect structure
             if let Ok(comp) = serde_json::from_str::<Vec<climb_bench::RssComparison>>(&content) {
                 for c in comp {
+                    let measured = c.measured_mean_bytes as i64;
+                    let total = c.analytical_bytes as i64;
                     memory_results.measured.push(MemoryResult {
                         size: format!("{:?}", c.size).to_lowercase(),
                         message_count: c.message_count,
                         measured_mean_bytes: c.measured_mean_bytes,
-                        analytical_bytes: c.analytical_bytes,
+                        libmtl_analytical_bytes: c.analytical_bytes,
+                        harness_buffers_bytes: 0,
+                        analytical_total_bytes: c.analytical_bytes as u64,
+                        residual_bytes: measured - total,
+                        residual_percent: if total == 0 {
+                            0.0
+                        } else {
+                            (measured as f64 - total as f64) / (total as f64) * 100.0
+                        },
                         ratio: c.ratio,
+                        measured_analytical_total_ratio: if c.analytical_bytes == 0 {
+                            0.0
+                        } else {
+                            c.measured_mean_bytes as f64 / (c.analytical_bytes as f64)
+                        },
                         measured_range_min_bytes: c.measured_range_bytes.0,
                         measured_range_max_bytes: c.measured_range_bytes.1,
                         measured_stddev_bytes: c.measured_stddev_bytes,
@@ -524,15 +544,33 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
                         let stddev = variance.sqrt();
                         let analytical =
                             climb_analytical::estimate_memory_footprint(run.size.count());
+                        let harness =
+                            climb_analytical::harness_output_estimate(run.size.count(), 0, 0);
+                        let total = (analytical.total_memory_bytes as u64)
+                            + (harness.estimated_total_bytes as u64);
+                        let measured_i64 = mean.round() as i64;
                         memory_results.measured.push(MemoryResult {
                             size: format!("{:?}", run.size).to_lowercase(),
                             message_count: run.size.count(),
                             measured_mean_bytes: mean.round() as u64,
-                            analytical_bytes: analytical.total_memory_bytes,
+                            libmtl_analytical_bytes: analytical.total_memory_bytes,
+                            harness_buffers_bytes: harness.estimated_total_bytes as u64,
+                            analytical_total_bytes: total,
+                            residual_bytes: measured_i64 - (total as i64),
+                            residual_percent: if total == 0 {
+                                0.0
+                            } else {
+                                ((measured_i64 as f64) - (total as f64)) / (total as f64) * 100.0
+                            },
                             ratio: if analytical.total_memory_bytes == 0 {
                                 0.0
                             } else {
                                 mean / (analytical.total_memory_bytes as f64)
+                            },
+                            measured_analytical_total_ratio: if total == 0 {
+                                0.0
+                            } else {
+                                mean / (total as f64)
                             },
                             measured_range_min_bytes: minv,
                             measured_range_max_bytes: maxv,
@@ -671,7 +709,12 @@ mod tests {
             size: size.to_string(),
             message_count: 100,
             measured_mean_bytes: 4096,
-            analytical_bytes: 4096,
+            libmtl_analytical_bytes: 4096,
+            harness_buffers_bytes: 0,
+            analytical_total_bytes: 4096,
+            residual_bytes: 0,
+            residual_percent: 0.0,
+            measured_analytical_total_ratio: 1.0,
             ratio: 1.0,
             measured_range_min_bytes: 4000,
             measured_range_max_bytes: 4200,
