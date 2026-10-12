@@ -343,8 +343,10 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "climb-report",
  "crossterm",
  "ratatui",
+ "serde_json",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

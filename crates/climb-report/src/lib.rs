@@ -13,6 +13,7 @@ pub mod results;
 pub mod summary;
 
 pub use error::ReportError;
+pub use html::check_report;
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};
 pub use results::{

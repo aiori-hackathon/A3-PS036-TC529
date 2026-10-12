@@ -414,7 +414,11 @@ pub struct MemoryData {
 const UNIVERSE: [u64; 4] = [100, 1_000, 10_000, 1_000_000];
 
 /// Mean per-message cost (ns) across measured rows of one condition.
-fn per_msg_mean(rows: &[impl BenchRow], condition: &str) -> Option<f64> {
+///
+/// Public because the TUI Overview reuses the exact same extrapolation method
+/// as the charts; keeping the shared implementation here guarantees the two
+/// never drift apart.
+pub fn per_msg_mean(rows: &[impl BenchRow], condition: &str) -> Option<f64> {
     let mut sum = 0.0;
     let mut count = 0.0;
     for row in rows {

@@ -6,10 +6,12 @@
 //! binding lives in one place, [`map_key`].
 
 use std::path::PathBuf;
+use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
+use crate::data::LoadState;
 use crate::theme::{ColorDepth, Theme, ThemeId};
 
 /// The dashboard's tabs, in display order.
@@ -97,6 +99,7 @@ pub enum Action {
     ToggleHelp,
     CycleTheme,
     ToggleAscii,
+    Reload,
     Tick,
     Resize {
         width: u16,
@@ -108,7 +111,7 @@ pub enum Action {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Effect {
     Quit,
-    /// Load consolidated results; wired in a later phase.
+    /// (Re)load consolidated results and store the outcome on [`App::data`].
     LoadResults(PathBuf),
 }
 
@@ -125,6 +128,10 @@ pub struct App {
     pub color_depth: ColorDepth,
     pub tick: usize,
     pub last_size: (u16, u16),
+    /// Consolidated results state; updated by the runtime on load/reload.
+    pub data: LoadState,
+    /// Wall clock at startup, driving the Overview ladder animation.
+    started_at: Instant,
 }
 
 impl App {
@@ -142,6 +149,8 @@ impl App {
             color_depth,
             tick: 0,
             last_size: (80, 24),
+            data: LoadState::NotLoaded,
+            started_at: Instant::now(),
         }
     }
 
@@ -162,10 +171,21 @@ impl App {
             Action::ToggleHelp => self.show_help = !self.show_help,
             Action::CycleTheme => self.theme = self.theme.next(),
             Action::ToggleAscii => self.ascii = !self.ascii,
+            Action::Reload => return Some(Effect::LoadResults(self.results_path.clone())),
             Action::Tick => self.tick = self.tick.wrapping_add(1),
             Action::Resize { width, height } => self.last_size = (width, height),
         }
         None
+    }
+
+    /// Replace the loaded results state (called by the runtime after a load).
+    pub fn set_data(&mut self, state: LoadState) {
+        self.data = state;
+    }
+
+    /// Wall-clock time since startup (drives the Overview ladder animation).
+    pub fn elapsed(&self) -> std::time::Duration {
+        self.started_at.elapsed()
     }
 
     /// Resolve the current theme for rendering.
@@ -191,6 +211,7 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('?') => Some(Action::ToggleHelp),
         KeyCode::Char('T') => Some(Action::CycleTheme),
         KeyCode::Char('a') => Some(Action::ToggleAscii),
+        KeyCode::Char('r') => Some(Action::Reload),
         _ => None,
     }
 }
@@ -304,6 +325,18 @@ mod tests {
     }
 
     #[test]
+    fn reload_returns_load_effect_for_the_configured_path() {
+        let cli = Cli::parse_from(["climb-tui", "--results", "/tmp/fake-results.json"]);
+        let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
+        assert_eq!(app.data, LoadState::NotLoaded);
+        let effect = app.update(Action::Reload);
+        assert_eq!(
+            effect,
+            Some(Effect::LoadResults(PathBuf::from("/tmp/fake-results.json")))
+        );
+    }
+
+    #[test]
     fn quit_sets_flag_and_returns_effect() {
         let mut app = test_app();
         let effect = app.update(Action::Quit);
@@ -336,7 +369,7 @@ mod tests {
         use KeyCode::*;
         let none = KeyModifiers::NONE;
         let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 16] = [
+        let cases: [(KeyEvent, Option<Action>); 17] = [
             (KeyEvent::new(Tab, none), Some(Action::NextTab)),
             (KeyEvent::new(BackTab, none), Some(Action::PrevTab)),
             (KeyEvent::new(Char('1'), none), Some(Action::SelectTab(0))),
@@ -345,6 +378,7 @@ mod tests {
             (KeyEvent::new(Char('?'), none), Some(Action::ToggleHelp)),
             (KeyEvent::new(Char('T'), none), Some(Action::CycleTheme)),
             (KeyEvent::new(Char('a'), none), Some(Action::ToggleAscii)),
+            (KeyEvent::new(Char('r'), none), Some(Action::Reload)),
             (KeyEvent::new(Char('q'), none), Some(Action::Quit)),
             (KeyEvent::new(Esc, none), Some(Action::Quit)),
             (KeyEvent::new(Char('c'), ctrl), Some(Action::Quit)),

@@ -29,6 +29,8 @@ fn main() -> Result<()> {
         depth = color_depth.label(),
         "climb-tui starting"
     );
+    let initial_path = app.results_path.clone();
+    apply(&mut app, Effect::LoadResults(initial_path));
 
     run(&mut app)
 }
@@ -65,7 +67,7 @@ fn event_loop(
         };
 
         if let Some(effect) = action.and_then(|action| app.update(action)) {
-            apply(effect);
+            apply(app, effect);
         }
 
         if app.should_quit {
@@ -75,11 +77,13 @@ fn event_loop(
     Ok(())
 }
 
-fn apply(effect: Effect) {
+fn apply(app: &mut App, effect: Effect) {
     match effect {
         Effect::Quit => {}
         Effect::LoadResults(path) => {
-            tracing::info!(?path, "results load requested (wired in a later phase)");
+            let state = climb_tui::data::load(&path);
+            tracing::info!(path = %path.display(), loaded = %state.summary(), "results loaded");
+            app.set_data(state);
         }
     }
 }

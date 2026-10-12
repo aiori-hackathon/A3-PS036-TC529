@@ -16,6 +16,7 @@
 
 pub mod app;
 pub mod cli;
+pub mod data;
 pub mod event;
 pub mod terminal;
 pub mod theme;

@@ -171,6 +171,11 @@ pub struct DnsPipelineHeadline {
     pub source: DnsCaptureSource,
     /// RFC 3339 timestamp of the recording, when known.
     pub recorded_at: Option<String>,
+    /// Signature/hash algorithm these numbers were produced with, when known.
+    /// Sourced from the DNS capture (never synthesized); `#[serde(default)]`
+    /// keeps older results files that predate this field parseable.
+    #[serde(default)]
+    pub algorithm: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -374,6 +379,7 @@ fn headline_from_capture(capture: &DnsCapture, source: DnsCaptureSource) -> DnsP
         )),
         source,
         recorded_at: Some(capture.recorded_at.clone()),
+        algorithm: Some(capture.algorithm.clone()),
     }
 }
 
@@ -755,6 +761,7 @@ mod tests {
             notes: Some("note".to_string()),
             source: DnsCaptureSource::Live,
             recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
+            algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
         };
         let derived = derive_summary(&wire, &signing, &verifying, Some(&dns));
         ClimbResults {
@@ -1185,6 +1192,7 @@ mod tests {
             notes: None,
             source: DnsCaptureSource::RecordedFixture,
             recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
+            algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
         };
         let headline = headline_from_dns(&dns).expect("some");
         assert!(headline.contains("97.3%"), "headline={headline}");

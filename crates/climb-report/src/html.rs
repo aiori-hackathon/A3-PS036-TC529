@@ -626,6 +626,7 @@ mod tests {
                 notes: None,
                 source: DnsCaptureSource::RecordedFixture,
                 recorded_at: Some("2026-10-08T12:00:00Z".to_string()),
+                algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
             }),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: Some(96.45),
