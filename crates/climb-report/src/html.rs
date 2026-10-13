@@ -284,6 +284,41 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
     Ok(claims)
 }
 
+/// Render the per-size memory model-vs-measurement table.
+///
+/// Every displayed cell is pulled from the claims registry by id, so the body
+/// contains each registered memory value verbatim — the property
+/// [`check_claims`] enforces. Returns an empty string when there are no rows.
+fn render_memory_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    if results.memory.measured.is_empty() {
+        return String::new();
+    }
+    let cell = |size: &str, suffix: &str| -> String {
+        let id = format!("memory-{size}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for m in &results.memory.measured {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&m.size),
+            escape_html(&cell(&m.size, "libmtl-pages")),
+            escape_html(&cell(&m.size, "harness-buffers")),
+            escape_html(&cell(&m.size, "analytical-total")),
+            escape_html(&cell(&m.size, "measured-mean")),
+            escape_html(&cell(&m.size, "residual-bytes")),
+            escape_html(&cell(&m.size, "residual-percent")),
+            escape_html(&cell(&m.size, "measured-analytical-total")),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"memory-h\">\n<h2 id=\"memory-h\">Memory model vs measurement</h2>\n<p class=\"note\">Analytical total = libMTL page model + harness-output buffers (an ESTIMATE, not a measurement); measured = mean RSS delta across repeats. residual = measured &minus; analytical total; ratio = measured &divide; analytical total. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>libMTL pages (B)</th><th>harness buffers (B)</th><th>analytical total (B)</th><th>measured mean (B)</th><th>residual (B)</th><th>residual %</th><th>measured/analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
 /// Render the full HTML report.
 ///
 /// `charts_dir` must contain the five files named in
@@ -353,6 +388,7 @@ pub fn render_html(
     // Keep '</script>' out of the payload so hostile strings cannot close
     // the tag early; '<' is only valid inside JSON strings here.
     let claims_json = claims_json.replace('<', "\\u003c");
+    let memory_html = render_memory_section(results, &claims);
 
     Ok(format!(
         r#"<!DOCTYPE html>
@@ -390,6 +426,9 @@ figcaption {{ font-size:.85rem; color:var(--muted); margin-top:.5rem; }}
 details {{ margin:.5rem 0 0; }}
 summary {{ cursor:pointer; color:var(--muted); font-size:.9rem; }}
 pre {{ background:#f1f3f6; padding:1rem; border-radius:8px; overflow:auto; font-size:.78rem; }}
+.memtable {{ width:100%; border-collapse:collapse; font-size:.82rem; font-variant-numeric:tabular-nums; }}
+.memtable th,.memtable td {{ padding:.4rem .5rem; border-bottom:1px solid var(--line); text-align:right; white-space:nowrap; }}
+.memtable th:first-child,.memtable td:first-child {{ text-align:left; }}
 footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 @media print {{ body {{ background:#fff; }} section {{ border:none; padding:0; break-inside:avoid; }} }}
 </style>
@@ -409,7 +448,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 <section aria-labelledby="charts-h">
 <h2 id="charts-h">Charts</h2>
 {figures}</section>
-<section aria-labelledby="method-h">
+{memory_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the with-MTL batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -432,6 +471,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         figures = figures,
         env_json = escape_html(&env_json),
         claims_json = claims_json,
+        memory_html = memory_html,
     ))
 }
 
@@ -587,7 +627,7 @@ mod tests {
     use super::*;
     use crate::results::{
         AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, DnsCaptureSource,
-        DnsPipelineHeadline, EnvironmentFingerprint, MemoryResults,
+        DnsPipelineHeadline, EnvironmentFingerprint, MemoryResult, MemoryResults,
     };
 
     fn synthetic_results() -> ClimbResults {
@@ -855,5 +895,80 @@ mod tests {
             &serde_json::json!([1.0]),
             &serde_json::json!([2.0])
         ));
+    }
+
+    fn memory_fixture() -> ClimbResults {
+        let mut results = synthetic_results();
+        results.memory.measured = vec![MemoryResult {
+            size: "small".to_string(),
+            message_count: 100,
+            measured_mean_bytes: 851_968,
+            libmtl_analytical_bytes: 2_097_152,
+            harness_buffers_bytes: 27_656,
+            analytical_total_bytes: 2_124_808,
+            residual_bytes: 851_968 - 2_124_808,
+            residual_percent: (851_968.0 - 2_124_808.0) / 2_124_808.0 * 100.0,
+            measured_analytical_total_ratio: 851_968.0 / 2_124_808.0,
+            ratio: 851_968.0 / 2_124_808.0,
+            measured_range_min_bytes: 73_728,
+            measured_range_max_bytes: 1_630_208,
+            measured_stddev_bytes: 778_240.0,
+        }];
+        results
+    }
+
+    fn render_memory_fixture() -> (ClimbResults, String) {
+        let results = memory_fixture();
+        let dir = unique_temp_dir("html-memory");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        (results, html)
+    }
+
+    #[test]
+    fn memory_claims_are_rendered_in_body_and_check_clean() {
+        let (results, html) = render_memory_fixture();
+        assert!(html.contains("Memory model vs measurement"));
+        let claims = build_claims(&results).expect("claims");
+        for suffix in [
+            "libmtl-pages",
+            "harness-buffers",
+            "analytical-total",
+            "measured-mean",
+            "residual-bytes",
+            "residual-percent",
+            "measured-analytical-total",
+        ] {
+            let id = format!("memory-small-{suffix}");
+            let claim = claims
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap_or_else(|| panic!("missing claim {id}"));
+            assert!(
+                html.contains(&claim.formatted) || html.contains(&escape_html(&claim.formatted)),
+                "missing rendered string for claim {id} = {}",
+                claim.formatted
+            );
+        }
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn check_detects_tampered_memory_residual() {
+        let (results, html) = render_memory_fixture();
+        let mut tampered = memory_fixture();
+        tampered.memory.measured[0].residual_bytes += 1;
+        let failures = check_report(&html, &tampered);
+        assert!(
+            failures
+                .iter()
+                .any(|f| f.contains("memory-small-residual-bytes")),
+            "expected memory residual drift, got {failures:?}"
+        );
+        assert!(failures.iter().any(|f| f.contains("value drift")));
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 }

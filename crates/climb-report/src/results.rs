@@ -479,6 +479,15 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         }
     }
 
+    // The Rust harness holds one `SignOutput` per `sign_batch`: the shared
+    // ladder plus one condensed signature per message. Those are exactly the
+    // bytes the wire-size pass measured for the same dataset size, so the
+    // harness term is derived from the wire row — `with_mtl_total` is the
+    // ladder plus the condensed sum, and the condensed sum is the remainder.
+    // A size with no wire row leaves the payload unmodelled rather than
+    // inventing one.
+    let wire_for = |size_label: &str| wire_size.iter().find(|w| w.size == size_label);
+
     let mut memory_results = MemoryResults {
         measured: Vec::new(),
         analytical_model: AnalyticalMemoryModel {
@@ -550,8 +559,29 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
                         let stddev = variance.sqrt();
                         let analytical =
                             climb_analytical::estimate_memory_footprint(run.size.count());
-                        let harness =
-                            climb_analytical::harness_output_estimate(run.size.count(), 0, 0);
+                        let size_label = format!("{:?}", run.size).to_lowercase();
+                        let (harness_n, condensed_sum, ladder_len) = match wire_for(&size_label) {
+                            Some(w) => {
+                                let condensed =
+                                    w.with_mtl_total_bytes.saturating_sub(w.ladder_len as u64);
+                                (
+                                    w.message_count,
+                                    usize::try_from(condensed).unwrap_or(usize::MAX),
+                                    w.ladder_len,
+                                )
+                            }
+                            None => {
+                                warnings.push(format!(
+                                    "memory report size `{size_label}` has no matching wire-size row; harness payload not modelled"
+                                ));
+                                (run.size.count(), 0, 0)
+                            }
+                        };
+                        let harness = climb_analytical::harness_output_estimate(
+                            harness_n,
+                            condensed_sum,
+                            ladder_len,
+                        );
                         let total = (analytical.total_memory_bytes as u64)
                             + (harness.estimated_total_bytes as u64);
                         let measured_i64 = mean.round() as i64;
@@ -1114,6 +1144,162 @@ mod tests {
         let json = fs::read_to_string(&output).unwrap();
         let parsed: ClimbResults = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, results);
+    }
+
+    const WIRE_REPORT_JSON: &str = r#"[
+      {"size":"Small","seed":1,"message_count":100,"ladder_len":7992,
+       "condensed":{"min":108,"max":172,"mean":164.32,"total":16432,"uniform":false},
+       "with_mtl_total":24424,"without_mtl_total":815632,"reduction_percent":97.00551228985621,"full_invariant_samples":6},
+      {"size":"Medium","seed":1,"message_count":10000,"ladder_len":8056,
+       "condensed":{"min":140,"max":284,"mean":273.5296,"total":2735296,"uniform":false},
+       "with_mtl_total":2743352,"without_mtl_total":83295296,"reduction_percent":96.70647427677068,"full_invariant_samples":6},
+      {"size":"Large","seed":1,"message_count":1000000,"ladder_len":8120,
+       "condensed":{"min":172,"max":380,"mean":367.059712,"total":367059712,"uniform":false},
+       "with_mtl_total":367067832,"without_mtl_total":8487059712,"reduction_percent":95.67497054980069,"full_invariant_samples":6}
+    ]"#;
+
+    // Two repeats per size, chosen so the arithmetic mean equals the mean of
+    // record: small (1_630_208 + 73_728)/2 = 851_968,
+    // medium (3_575_808 + 942_080)/2 = 2_258_944,
+    // large (561_266_688 + 80_093_184)/2 = 320_679_936.
+    const MEMORY_REPORT_JSON: &str = r#"{"seed":1,"runs":[
+      {"size":"Small","runs":[
+        {"rss_before_bytes":14675968,"rss_after_bytes":16306176,"delta_bytes":1630208,"delta_mib":1.5546875},
+        {"rss_before_bytes":16273408,"rss_after_bytes":16347136,"delta_bytes":73728,"delta_mib":0.0703125}],"repeat_count":2},
+      {"size":"Medium","runs":[
+        {"rss_before_bytes":22171648,"rss_after_bytes":25747456,"delta_bytes":3575808,"delta_mib":3.41015625},
+        {"rss_before_bytes":25903104,"rss_after_bytes":26845184,"delta_bytes":942080,"delta_mib":0.8984375}],"repeat_count":2},
+      {"size":"Large","runs":[
+        {"rss_before_bytes":584851456,"rss_after_bytes":1146118144,"delta_bytes":561266688,"delta_mib":535.265625},
+        {"rss_before_bytes":1075388416,"rss_after_bytes":1155481600,"delta_bytes":80093184,"delta_mib":76.3828125}],"repeat_count":2}
+    ]}"#;
+
+    fn write_report_inputs(root: &Path) -> (PathBuf, PathBuf) {
+        let wire = root.join("wire.json");
+        let memory = root.join("memory.json");
+        fs::write(&wire, WIRE_REPORT_JSON).unwrap();
+        fs::write(&memory, MEMORY_REPORT_JSON).unwrap();
+        (wire, memory)
+    }
+
+    fn consolidate_with(
+        root: &Path,
+        wire: Option<PathBuf>,
+        memory: Option<PathBuf>,
+    ) -> ClimbResults {
+        let criterion = root.join("criterion");
+        fs::create_dir_all(&criterion).unwrap();
+        let opts = ConsolidateOptions {
+            force: true,
+            criterion_dir: criterion,
+            wire_report_path: wire,
+            memory_report_path: memory,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            output_path: root.join("out.json"),
+        };
+        consolidate_results(opts).unwrap()
+    }
+
+    fn memory_of<'a>(results: &'a ClimbResults, size: &str) -> &'a MemoryResult {
+        results
+            .memory
+            .measured
+            .iter()
+            .find(|m| m.size == size)
+            .unwrap_or_else(|| panic!("missing memory row for {size}"))
+    }
+
+    #[test]
+    fn consolidate_derives_harness_from_wire_condensed_payload() {
+        let root = temp_root("memory-wire");
+        let (wire, memory) = write_report_inputs(&root);
+        let results = consolidate_with(&root, Some(wire), Some(memory));
+
+        assert_eq!(results.memory.measured.len(), 3);
+        assert!(
+            results.warnings.is_empty(),
+            "warnings={:?}",
+            results.warnings
+        );
+
+        // The harness payload term is the wire row's condensed sum
+        // (with_mtl_total - ladder_len) plus the ladder, plus (n+1) x 32.
+        // Small:  24_424 + 101 x 32         = 27_656;   total = 2_097_152 + 27_656
+        // Medium: 2_743_352 + 10_001 x 32   = 3_063_384; total = 2_097_152 + 3_063_384
+        // Large:  367_067_832 + 1_000_001 x 32 = 399_067_864; total = 49_283_072 + that
+        let small = memory_of(&results, "small");
+        assert_eq!(small.harness_buffers_bytes, 27_656);
+        assert_eq!(small.analytical_total_bytes, 2_124_808);
+        assert_eq!(small.residual_bytes, 851_968 - 2_124_808);
+        assert_eq!(
+            small.measured_analytical_total_ratio,
+            851_968.0 / 2_124_808.0
+        );
+
+        let medium = memory_of(&results, "medium");
+        assert_eq!(medium.harness_buffers_bytes, 3_063_384);
+        assert_eq!(medium.analytical_total_bytes, 5_160_536);
+        assert_eq!(medium.residual_bytes, 2_258_944 - 5_160_536);
+
+        let large = memory_of(&results, "large");
+        assert_eq!(large.harness_buffers_bytes, 399_067_864);
+        assert_eq!(large.analytical_total_bytes, 448_350_936);
+        assert_eq!(large.residual_bytes, 320_679_936 - 448_350_936);
+        assert!(large.residual_bytes < 0);
+        assert!(large.measured_analytical_total_ratio < 1.0);
+
+        // libMTL pages + harness buffers reconstructs the analytical total.
+        for m in &results.memory.measured {
+            assert_eq!(
+                m.libmtl_analytical_bytes as u64 + m.harness_buffers_bytes,
+                m.analytical_total_bytes,
+                "size {}",
+                m.size
+            );
+        }
+    }
+
+    #[test]
+    fn consolidate_memory_without_wire_row_leaves_payload_unmodelled() {
+        let root = temp_root("memory-no-wire");
+        let (_, memory) = write_report_inputs(&root);
+        let results = consolidate_with(&root, None, Some(memory));
+
+        assert_eq!(results.memory.measured.len(), 3);
+        for m in &results.memory.measured {
+            // Only the (n+1)-Vec overhead is modelled when no wire row exists.
+            assert_eq!(
+                m.harness_buffers_bytes,
+                (m.message_count + 1) as u64 * 32,
+                "size {}",
+                m.size
+            );
+            assert_eq!(
+                m.analytical_total_bytes,
+                m.libmtl_analytical_bytes as u64 + m.harness_buffers_bytes
+            );
+        }
+        let fallbacks = results
+            .warnings
+            .iter()
+            .filter(|w| w.contains("no matching wire-size row"))
+            .count();
+        assert_eq!(fallbacks, 3, "warnings={:?}", results.warnings);
+    }
+
+    #[test]
+    fn harness_estimate_payload_term_equals_wire_condensed_sum() {
+        // Independent of consolidate: the payload handed to the estimate is the
+        // wire condensed sum (367_059_712 for Large) and the total adds the
+        // ladder plus (n+1) x 32 overhead.
+        let est = climb_analytical::harness_output_estimate(1_000_000, 367_059_712, 8_120);
+        assert_eq!(est.condensed_len_sum, 367_059_712);
+        assert_eq!(est.payload_bytes, 367_067_832);
+        assert_eq!(est.vec_overhead_bytes, 1_000_001 * 32);
+        assert_eq!(est.estimated_total_bytes, 367_067_832 + 1_000_001 * 32);
     }
 
     fn dns_query(label: &str, bytes: u64) -> DnsCaptureQuery {

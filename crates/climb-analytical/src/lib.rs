@@ -495,4 +495,36 @@ mod tests {
         assert_eq!(est.estimated_total_bytes, 18_000 + 101 * 32);
         assert_eq!(est.per_vec_overhead_bytes, PER_VEC_OVERHEAD_BYTES);
     }
+
+    #[test]
+    fn harness_output_estimate_three_sizes_arithmetic() {
+        // (n, sum of condensed lengths, ladder length) taken from the three
+        // wire-size rows. Everything else is derived, not typed:
+        // payload = condensed sum + ladder; overhead = (n + 1) x 32.
+        let cases = [
+            (100usize, 16_432usize, 7_992usize),
+            (10_000, 2_735_296, 8_056),
+            (1_000_000, 367_059_712, 8_120),
+        ];
+        for (n, condensed, ladder) in cases {
+            let est = harness_output_estimate(n, condensed, ladder);
+            assert_eq!(est.condensed_len_sum, condensed);
+            assert_eq!(est.ladder_len, ladder);
+            assert_eq!(est.payload_bytes, condensed + ladder);
+            assert_eq!(est.vec_overhead_bytes, (n + 1) * PER_VEC_OVERHEAD_BYTES);
+            assert_eq!(
+                est.estimated_total_bytes,
+                condensed + ladder + (n + 1) * PER_VEC_OVERHEAD_BYTES
+            );
+        }
+    }
+
+    #[test]
+    fn harness_output_estimate_zero_n_has_no_vec_overhead() {
+        let est = harness_output_estimate(0, 0, 0);
+        assert_eq!(est.vec_count(), 0);
+        assert_eq!(est.vec_overhead_bytes, 0);
+        assert_eq!(est.payload_bytes, 0);
+        assert_eq!(est.estimated_total_bytes, 0);
+    }
 }

@@ -883,51 +883,57 @@ mod tests {
     }
 
     fn memory_rows() -> Vec<MemoryResult> {
+        // Values mirror the committed `target/memory-report.json` run and the
+        // matching wire rows. Harness buffers = ladder + condensed sum +
+        // (N+1) x 32-byte Vec overhead:
+        //   small  = 7_992 + 16_432 + 101 x 32      = 27_656
+        //   medium = 8_056 + 2_735_296 + 10_001 x 32 = 3_063_384
+        //   large  = 8_120 + 367_059_712 + 1_000_001 x 32 = 399_067_864
         vec![
             MemoryResult {
                 size: "small".to_string(),
                 message_count: 100,
-                measured_mean_bytes: 886_784,
+                measured_mean_bytes: 851_968,
                 libmtl_analytical_bytes: 2_097_152,
-                harness_buffers_bytes: 0,
-                analytical_total_bytes: 2_097_152,
-                residual_bytes: 886_784 - 2_097_152,
-                residual_percent: ((851_968.0 - 2_097_152.0) / 2_097_152.0) * 100.0,
-                measured_analytical_total_ratio: 886_784.0 / 2_097_152.0,
-                ratio: 0.422_851_562_5,
+                harness_buffers_bytes: 27_656,
+                analytical_total_bytes: 2_124_808,
+                residual_bytes: 851_968 - 2_124_808,
+                residual_percent: ((851_968.0 - 2_124_808.0) / 2_124_808.0) * 100.0,
+                measured_analytical_total_ratio: 851_968.0 / 2_124_808.0,
+                ratio: 851_968.0 / 2_124_808.0,
                 measured_range_min_bytes: 73_728,
                 measured_range_max_bytes: 1_630_208,
-                measured_stddev_bytes: 0.0,
+                measured_stddev_bytes: 778_240.0,
             },
             MemoryResult {
                 size: "medium".to_string(),
                 message_count: 10_000,
                 measured_mean_bytes: 2_258_944,
                 libmtl_analytical_bytes: 2_097_152,
-                harness_buffers_bytes: 0,
-                analytical_total_bytes: 2_097_152,
-                residual_bytes: 2_258_944 - 2_097_152,
-                residual_percent: ((2_258_944.0 - 2_097_152.0) / 2_097_152.0) * 100.0,
-                measured_analytical_total_ratio: 2_258_944.0 / 2_097_152.0,
-                ratio: 1.077_148_437_5,
+                harness_buffers_bytes: 3_063_384,
+                analytical_total_bytes: 5_160_536,
+                residual_bytes: 2_258_944 - 5_160_536,
+                residual_percent: ((2_258_944.0 - 5_160_536.0) / 5_160_536.0) * 100.0,
+                measured_analytical_total_ratio: 2_258_944.0 / 5_160_536.0,
+                ratio: 2_258_944.0 / 5_160_536.0,
                 measured_range_min_bytes: 942_080,
                 measured_range_max_bytes: 3_575_808,
-                measured_stddev_bytes: 0.0,
+                measured_stddev_bytes: 1_316_864.0,
             },
             MemoryResult {
                 size: "large".to_string(),
                 message_count: 1_000_000,
                 measured_mean_bytes: 320_679_936,
                 libmtl_analytical_bytes: 49_283_072,
-                harness_buffers_bytes: 0,
-                analytical_total_bytes: 49_283_072,
-                residual_bytes: 320_679_936 - 49_283_072,
-                residual_percent: ((320_679_936.0 - 49_283_072.0) / 49_283_072.0) * 100.0,
-                measured_analytical_total_ratio: 320_679_936.0 / 49_283_072.0,
-                ratio: 6.506_898_271_276_596,
+                harness_buffers_bytes: 399_067_864,
+                analytical_total_bytes: 448_350_936,
+                residual_bytes: 320_679_936 - 448_350_936,
+                residual_percent: ((320_679_936.0 - 448_350_936.0) / 448_350_936.0) * 100.0,
+                measured_analytical_total_ratio: 320_679_936.0 / 448_350_936.0,
+                ratio: 320_679_936.0 / 448_350_936.0,
                 measured_range_min_bytes: 80_093_184,
                 measured_range_max_bytes: 561_266_688,
-                measured_stddev_bytes: 0.0,
+                measured_stddev_bytes: 240_586_752.0,
             },
         ]
     }
@@ -1098,13 +1104,29 @@ mod tests {
         let rows = memory_rows();
         let data = memory_data(&rows);
         assert_eq!(data.points.len(), 3);
-        assert_eq!(data.points[0].ratio_label, "0.42x");
-        assert_eq!(data.points[1].ratio_label, "1.08x");
-        assert_eq!(data.points[2].ratio_label, "6.51x");
+        // Admin ratios are measured / analytical_total, not the stored ratio.
+        assert_eq!(data.points[0].ratio_label, "0.40x");
+        assert_eq!(data.points[1].ratio_label, "0.44x");
+        assert_eq!(data.points[2].ratio_label, "0.72x");
         assert_eq!(data.points[2].measured, 320_679_936.0);
-        assert_eq!(data.points[2].analytical_total, 49_283_072.0);
+        assert_eq!(data.points[2].analytical_total, 448_350_936.0);
+        assert_eq!(data.points[2].residual, -127_671_000.0);
         assert_eq!(data.points[0].measured_min, 73_728.0);
         assert_eq!(data.points[0].measured_max, 1_630_208.0);
+    }
+
+    #[test]
+    fn memory_stacked_series_sums_to_analytical_total() {
+        let rows = memory_rows();
+        let data = memory_data(&rows);
+        for p in &data.points {
+            assert_eq!(
+                p.libmtl_pages + p.harness_buffers,
+                p.analytical_total,
+                "stacked libMTL + harness must equal analytical_total at n={}",
+                p.n
+            );
+        }
     }
 
     #[test]
