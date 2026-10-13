@@ -13,6 +13,7 @@ mod dns_demo;
 mod groups;
 mod memory;
 mod pin_env;
+mod reproduce;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
@@ -20,6 +21,7 @@ use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use pin_env::cmd_pin_env;
+use reproduce::{cmd_reproduce, ReproduceArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
@@ -78,6 +80,13 @@ enum Commands {
     /// Reads `target/climb-results.json` (Phase 15) and writes
     /// `target/climb-report/charts/*.svg` (Phase 16).
     Charts(ChartsArgs),
+    /// Run the whole artifact chain in order, from one command.
+    ///
+    /// Pins the environment, measures wire sizes and memory, optionally
+    /// re-runs the benchmarks, captures (or falls back to) the DNS pipeline,
+    /// then consolidates, charts, renders and self-checks the report — so the
+    /// artifacts always agree.  Use `--quick` for Small/Medium only.
+    Reproduce(ReproduceArgs),
 }
 
 #[derive(Args)]
@@ -159,6 +168,7 @@ fn main() -> Result<()> {
         Commands::DnsDemo(args) => cmd_dns_demo(args),
         Commands::Consolidate(args) => cmd_consolidate(args),
         Commands::Charts(args) => cmd_charts(args),
+        Commands::Reproduce(args) => cmd_reproduce(args),
     }
 }
 

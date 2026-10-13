@@ -26,3 +26,30 @@ cargo xtask pin-env
 
 Writes `environment.json` at the repository root with CPU model, kernel version,
 Rust/Cargo versions, and other build-environment metadata.
+
+## Reproduce
+
+One command runs the whole artifact chain in order and leaves the report
+self-check passing:
+
+```bash
+cargo xtask reproduce
+```
+
+It pins the environment, measures wire sizes and memory, optionally re-runs the
+benchmark suite, captures the live DNS pipeline (or falls back to the committed
+recorded capture), then consolidates, charts, renders and self-checks the
+report. Each step's status and duration are printed, and the run stops at the
+first failure with the failing step named. The final step is the report
+self-check, so a zero exit means the artifacts and the rendered report agree.
+
+| Flag | Effect |
+|---|---|
+| `--quick` | Limit every measurement to the Small and Medium datasets |
+| `--bench` | Re-run the Criterion benchmark suite (default: reuse the last output) |
+| `--skip-dns` | Skip the live DNS pipeline and use the recorded capture |
+| `--force` | Accept optional inputs regardless of age when consolidating |
+
+The live DNS step also runs only when Docker is available; otherwise the
+recorded capture is used automatically.
+
