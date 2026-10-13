@@ -18,6 +18,6 @@ pub mod dataset;
 pub mod error;
 mod synthetic;
 
-pub use dataset::{generate_dataset, DatasetSize, MAX_MESSAGE_LEN};
+pub use dataset::{generate_dataset, generate_dataset_count, DatasetSize, MAX_MESSAGE_LEN};
 pub use error::DnsError;
 pub use synthetic::SyntheticRecord;

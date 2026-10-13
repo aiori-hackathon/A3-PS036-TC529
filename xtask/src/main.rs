@@ -11,6 +11,7 @@ mod charts;
 mod consolidate;
 mod dns_demo;
 mod groups;
+mod ladder_verify;
 mod memory;
 mod pin_env;
 mod reproduce;
@@ -19,6 +20,7 @@ use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
+use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use pin_env::cmd_pin_env;
 use reproduce::{cmd_reproduce, ReproduceArgs};
@@ -65,6 +67,13 @@ enum Commands {
     /// dataset/harness overhead by sampling RSS immediately before and after
     /// sign_batch with the dataset already held in memory.
     MemoryReport(MemoryReportArgs),
+    /// Measure the real MTL ladder shape across a range of leaf counts.
+    ///
+    /// Signs a deterministic dataset of exactly N messages per size, parses the
+    /// signed ladder and condensed-signature bytes back into their structural
+    /// fields, and records the result as a `LadderVerification` document. This
+    /// is the measured evidence the closed-form ladder model is checked against.
+    LadderVerify(LadderVerifyArgs),
     /// Bring up the live MTL DNS pipeline, sign a zone, issue scripted
     /// queries, capture raw wire bytes, and tear down.
     ///
@@ -165,6 +174,7 @@ fn main() -> Result<()> {
         Commands::Report(args) => cmd_report(args),
         Commands::WireReport(args) => cmd_wire_report(args),
         Commands::MemoryReport(args) => cmd_memory_report(args),
+        Commands::LadderVerify(args) => cmd_ladder_verify(args),
         Commands::DnsDemo(args) => cmd_dns_demo(args),
         Commands::Consolidate(args) => cmd_consolidate(args),
         Commands::Charts(args) => cmd_charts(args),

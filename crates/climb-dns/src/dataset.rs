@@ -66,8 +66,29 @@ impl DatasetSize {
 /// normal operation.
 #[must_use]
 pub fn generate_dataset(size: DatasetSize, seed: u64) -> Vec<Vec<u8>> {
+    generate_dataset_count(size.count(), seed)
+}
+
+/// Generate a deterministic synthetic DNS dataset of exactly `count` messages.
+///
+/// Prefer this over [`generate_dataset`] for the ladder-shape investigation,
+/// which needs leaf counts outside the predefined [`DatasetSize`] variants so
+/// the Merkle tree can be exercised at awkward sizes (N = 5, 7, 13, 33, …).
+///
+/// The RNG is a [`ChaCha8Rng`] seeded **exclusively** from `seed`, and the
+/// messages are the first `count` outputs of [`SyntheticRecord::generate`], so
+/// `generate_dataset_count(n, seed)` is a prefix of
+/// `generate_dataset_count(m, seed)` for `n <= m` and is byte-identical across
+/// runs. `count == 0` yields an empty vector.
+///
+/// # Panics
+///
+/// Panics only if hickory-proto fails to encode one of our fixed small shapes.
+/// This is a genuine library regression and never a runtime error under
+/// normal operation.
+#[must_use]
+pub fn generate_dataset_count(count: usize, seed: u64) -> Vec<Vec<u8>> {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
-    let count = size.count();
     let mut messages = Vec::with_capacity(count);
     for _ in 0..count {
         let record = SyntheticRecord::generate(&mut rng);
@@ -130,6 +151,41 @@ mod tests {
             any_different,
             "different seeds must produce at least one differing message"
         );
+    }
+
+    #[test]
+    fn generate_dataset_count_honours_exact_count() {
+        for count in [0usize, 1, 2, 3, 5, 7, 13, 33, 256] {
+            let dataset = generate_dataset_count(count, 42);
+            assert_eq!(dataset.len(), count, "count={count}");
+        }
+    }
+
+    #[test]
+    fn generate_dataset_count_is_deterministic() {
+        let a = generate_dataset_count(17, 7);
+        let b = generate_dataset_count(17, 7);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn generate_dataset_count_is_a_prefix_of_larger_samples() {
+        let big = generate_dataset_count(64, 3);
+        for n in [1usize, 2, 8, 16, 33, 64] {
+            let small = generate_dataset_count(n, 3);
+            assert_eq!(small, big[..n], "prefix mismatch at n={n}");
+        }
+    }
+
+    #[test]
+    fn generate_dataset_matches_generate_dataset_count() {
+        for size in [DatasetSize::Small, DatasetSize::OneK] {
+            assert_eq!(
+                generate_dataset(size, 42),
+                generate_dataset_count(size.count(), 42),
+                "size={size:?}"
+            );
+        }
     }
 
     #[test]

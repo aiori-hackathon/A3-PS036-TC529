@@ -163,7 +163,7 @@ pub(crate) fn cmd_pin_env() -> Result<()> {
 }
 
 /// Workspace root = the parent of the `xtask` crate directory.
-fn workspace_root() -> Result<PathBuf> {
+pub(crate) fn workspace_root() -> Result<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let root = dir
         .parent()
@@ -220,7 +220,7 @@ fn capture_cpu() -> CpuInfo {
 }
 
 /// Read submodule SHAs from `git submodule status` in the workspace root.
-fn capture_submodules(root: &Path) -> Vec<SubmoduleInfo> {
+pub(crate) fn capture_submodules(root: &Path) -> Vec<SubmoduleInfo> {
     match run_cmd_in(root, "git", &["submodule", "status"]) {
         Ok(out) => parse_submodule_status(&out),
         Err(_) => Vec::new(),
@@ -532,7 +532,7 @@ fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<String> {
 }
 
 /// Return an ISO 8601 timestamp without pulling in the `chrono` crate.
-fn iso_timestamp() -> String {
+pub(crate) fn iso_timestamp() -> String {
     run_cmd("date", &["--iso-8601=seconds"]).unwrap_or_else(|_| "unknown".to_string())
 }
 

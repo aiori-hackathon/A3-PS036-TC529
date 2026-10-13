@@ -7,6 +7,7 @@
 pub mod charts;
 pub mod error;
 pub mod html;
+pub mod ladder;
 pub mod record;
 pub mod render;
 pub mod results;
@@ -14,6 +15,9 @@ pub mod summary;
 
 pub use error::ReportError;
 pub use html::check_report;
+pub use ladder::{
+    LadderProvenance, LadderVerification, SubmoduleRef, LADDER_VERIFICATION_SCHEMA_VERSION,
+};
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};
 pub use results::{
@@ -21,3 +25,5 @@ pub use results::{
     DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery, DnsCaptureSource, DnsPipelineHeadline,
 };
 pub use summary::{parse_group_id, summarize, BenchKind, MtlMode, Size, SummaryRow};
+
+pub use climb_bench::{LadderRow, LadderRung};

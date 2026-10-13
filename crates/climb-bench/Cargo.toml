@@ -21,6 +21,7 @@ climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_D
 climb-mtl = { path = "../climb-mtl" }
 climb-dns = { path = "../climb-dns" }
 climb-analytical = { path = "../climb-analytical" }
+thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
 sysinfo = { workspace = true }
 serde_json.workspace = true

@@ -4,6 +4,13 @@
 //! model as defined in `third_party/MTL/src/mtl_node_set.h` and the linear node
 //! index formula in `third_party/MTL/src/mtl_node_set.c`.
 
+pub mod ladder;
+
+pub use ladder::{
+    auth_path_len, predicted_condensed_len, predicted_ladder_len, rung_for_leaf, rungs, Rung,
+    CONDENSED_FIXED_LEN, MTL_INDEX_LEN,
+};
+
 /// The actual `MTL_TREE_PAGE_SIZE` from `third_party/MTL/src/mtl_node_set.h:57`.
 ///
 /// Each page is lazily allocated (via `calloc`) the first time a node index

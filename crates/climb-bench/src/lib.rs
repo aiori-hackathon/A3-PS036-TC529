@@ -6,9 +6,16 @@
 //!   the throwaway probe that previously existed only as a markdown table).
 //! - [`memory`] — direct RSS delta measurement of libMTL's memory footprint
 //!   via `sysinfo`, separated from dataset/harness overhead.
+//! - [`ladder_verify`] — measured MTL ladder shape (rungs, per-leaf auth paths,
+//!   wire lengths) for arbitrary leaf counts, parsed from real libMTL bytes.
 
+pub mod ladder_verify;
 pub mod memory;
 pub mod wire_size;
+pub use ladder_verify::{
+    measure_ladder_rows, LadderRow, LadderRung, LadderVerifyError, DEFAULT_LADDER_SEED,
+    DEFAULT_LADDER_SIZES,
+};
 pub use memory::{
     compare_to_analytical, measure_all_sizes, measure_rss_delta, measure_rss_delta_repeated,
     RssComparison, RssDeltaReport, RssDeltaRun, RssSizeReport,
