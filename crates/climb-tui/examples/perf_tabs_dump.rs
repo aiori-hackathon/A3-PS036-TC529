@@ -1,14 +1,15 @@
-//! Render the Signing, Verifying, Wire and Memory tabs onto an in-memory
-//! [`TestBackend`] and print the character buffers to stdout (phases 20.6,
-//! 21.6 evidence tool).
+//! Render the Signing, Verifying, Wire, Memory and Ladder tabs onto an
+//! in-memory [`TestBackend`] and print the character buffers to stdout (the
+//! evidence tool for the data-view tabs).
 //!
 //! Usage:
 //! ```text
-//! cargo run -p climb-tui --example perf_tabs_dump [RESULTS] [WIDTH] [HEIGHT]
+//! cargo run -p climb-tui --example perf_tabs_dump [RESULTS] [WIDTH] [HEIGHT] [N]
 //! ```
 //! `RESULTS` defaults to `target/climb-results.json`, `WIDTH`/`HEIGHT` to
-//! 120x40. The dump lets a reviewer verify the performance-tab layout on a
-//! write-only terminal and becomes the dev notes evidence.
+//! 120x40, and `N` (the Ladder tab's leaf count) to 8. The dump lets a reviewer
+//! verify the tab layouts on a write-only terminal and becomes the dev notes
+//! evidence.
 
 use std::path::Path;
 
@@ -30,12 +31,22 @@ fn main() -> Result<()> {
         .unwrap_or_else(|| "target/climb-results.json".to_string());
     let width: u16 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(120);
     let height: u16 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(40);
+    let ladder_n: u64 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(8);
 
     let cli = Cli::parse_from(["climb-tui", "--results", &results]);
     let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
     app.set_data(data::load(Path::new(&results)));
+    let ladder = data::load_ladder(&app.ladder_path);
+    app.set_ladder(ladder);
+    app.ladder_n = ladder_n;
 
-    for tab in [Tab::Signing, Tab::Verifying, Tab::Wire, Tab::Memory] {
+    for tab in [
+        Tab::Signing,
+        Tab::Verifying,
+        Tab::Wire,
+        Tab::Memory,
+        Tab::Ladder,
+    ] {
         app.update(Action::SelectTab(tab.index()));
         println!("=== {} ({width}x{height}) ===", tab.title());
         print!("{}", dump(&mut app, width, height)?);

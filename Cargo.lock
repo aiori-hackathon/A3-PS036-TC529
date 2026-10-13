@@ -345,6 +345,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "climb-analytical",
+ "climb-bench",
  "climb-report",
  "crossterm",
  "ratatui",

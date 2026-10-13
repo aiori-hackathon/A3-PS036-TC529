@@ -11,8 +11,11 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
-use crate::data::{LoadState, ValueMode};
+use crate::data::{LadderLoadState, LoadState, ValueMode};
 use crate::theme::{ColorDepth, Theme, ThemeId};
+use crate::widgets::ladder_view::{
+    MAX_LEAVES as LADDER_MAX_LEAVES, MIN_LEAVES as LADDER_MIN_LEAVES,
+};
 
 /// The dashboard's tabs, in display order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -104,6 +107,14 @@ pub enum Action {
     NextSize,
     ToggleValueMode,
     Tick,
+    /// Grow the modelled ladder by one leaf (Ladder tab).
+    LadderUp,
+    /// Shrink the modelled ladder by one leaf (Ladder tab).
+    LadderDown,
+    /// Toggle the "one big post-quantum signature" banner (Ladder tab).
+    ToggleBanner,
+    /// Toggle automatic leaf advance (Ladder tab).
+    ToggleAutoplay,
     Resize {
         width: u16,
         height: u16,
@@ -137,6 +148,18 @@ pub struct App {
     pub selected_size: usize,
     /// Whether Signing/Verifying show batch totals or per-message costs.
     pub value_mode: ValueMode,
+    /// Leaves (messages) modelled on the Ladder tab.
+    pub ladder_n: u64,
+    /// Selected leaf (message) on the Ladder tab.
+    pub ladder_leaf: u64,
+    /// Whether the "one big signature" banner is shown.
+    pub ladder_banner: bool,
+    /// Whether the Ladder tab advances the selected leaf each tick.
+    pub ladder_autoplay: bool,
+    /// Path to the ladder-verification artifact backing the badge.
+    pub ladder_path: PathBuf,
+    /// Recorded ladder verification; updated by the runtime on load/reload.
+    ladder: LadderLoadState,
     /// Wall clock at startup, driving the Overview ladder animation.
     started_at: Instant,
 }
@@ -159,6 +182,12 @@ impl App {
             data: LoadState::NotLoaded,
             selected_size: 0,
             value_mode: ValueMode::Total,
+            ladder_n: 8,
+            ladder_leaf: 0,
+            ladder_banner: false,
+            ladder_autoplay: false,
+            ladder_path: cli.ladder.clone(),
+            ladder: LadderLoadState::Absent,
             started_at: Instant::now(),
         }
     }
@@ -188,10 +217,37 @@ impl App {
             Action::CycleTheme => self.theme = self.theme.next(),
             Action::ToggleAscii => self.ascii = !self.ascii,
             Action::Reload => return Some(Effect::LoadResults(self.results_path.clone())),
-            Action::PrevSize => self.selected_size = self.step_size(-1),
-            Action::NextSize => self.selected_size = self.step_size(1),
+            Action::PrevSize => {
+                if self.tab == Tab::Ladder {
+                    self.ladder_leaf = self.step_leaf(-1);
+                } else {
+                    self.selected_size = self.step_size(-1);
+                }
+            }
+            Action::NextSize => {
+                if self.tab == Tab::Ladder {
+                    self.ladder_leaf = self.step_leaf(1);
+                } else {
+                    self.selected_size = self.step_size(1);
+                }
+            }
             Action::ToggleValueMode => self.value_mode = self.value_mode.toggled(),
-            Action::Tick => self.tick = self.tick.wrapping_add(1),
+            Action::Tick => {
+                self.tick = self.tick.wrapping_add(1);
+                if self.tab == Tab::Ladder && self.ladder_autoplay {
+                    self.ladder_leaf = self.step_leaf(1);
+                }
+            }
+            Action::LadderUp => {
+                self.ladder_n = (self.ladder_n + 1).min(LADDER_MAX_LEAVES);
+                self.clamp_leaf();
+            }
+            Action::LadderDown => {
+                self.ladder_n = self.ladder_n.saturating_sub(1).max(LADDER_MIN_LEAVES);
+                self.clamp_leaf();
+            }
+            Action::ToggleBanner => self.ladder_banner = !self.ladder_banner,
+            Action::ToggleAutoplay => self.ladder_autoplay = !self.ladder_autoplay,
             Action::Resize { width, height } => self.last_size = (width, height),
         }
         None
@@ -219,6 +275,17 @@ impl App {
         (self.selected_size as isize + delta).rem_euclid(count as isize) as usize
     }
 
+    /// Step the selected leaf by `delta` (`-1` or `+1`), wrapping around.
+    fn step_leaf(&self, delta: isize) -> u64 {
+        let n = self.ladder_n.max(1);
+        (self.ladder_leaf as isize + delta).rem_euclid(n as isize) as u64
+    }
+
+    /// Keep the selected leaf in range after the ladder size changes.
+    fn clamp_leaf(&mut self) {
+        self.ladder_leaf = self.ladder_leaf.min(self.ladder_n.saturating_sub(1));
+    }
+
     /// Keep the selected size in range after the tab or data changes.
     fn clamp_size(&mut self) {
         let count = self.size_count();
@@ -233,6 +300,36 @@ impl App {
     /// The currently selected value mode (totals vs per-message).
     pub fn value_mode(&self) -> ValueMode {
         self.value_mode
+    }
+
+    /// Leaves (messages) modelled on the Ladder tab.
+    pub fn ladder_n(&self) -> u64 {
+        self.ladder_n
+    }
+
+    /// Selected leaf (message) on the Ladder tab.
+    pub fn ladder_leaf(&self) -> u64 {
+        self.ladder_leaf
+    }
+
+    /// Whether the "one big signature" banner is shown.
+    pub fn ladder_banner(&self) -> bool {
+        self.ladder_banner
+    }
+
+    /// Whether the Ladder tab auto-advances the selected leaf.
+    pub fn ladder_autoplay(&self) -> bool {
+        self.ladder_autoplay
+    }
+
+    /// The recorded ladder verification, when one loaded.
+    pub fn ladder(&self) -> &LadderLoadState {
+        &self.ladder
+    }
+
+    /// Replace the loaded ladder-verification state (called by the runtime).
+    pub fn set_ladder(&mut self, state: LadderLoadState) {
+        self.ladder = state;
     }
 
     /// Replace the loaded results state (called by the runtime after a load).
@@ -271,6 +368,10 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('r') => Some(Action::Reload),
         KeyCode::Left => Some(Action::PrevSize),
         KeyCode::Right => Some(Action::NextSize),
+        KeyCode::Up => Some(Action::LadderUp),
+        KeyCode::Down => Some(Action::LadderDown),
+        KeyCode::Char(' ') => Some(Action::ToggleBanner),
+        KeyCode::Enter => Some(Action::ToggleAutoplay),
         KeyCode::Char('v') => Some(Action::ToggleValueMode),
         _ => None,
     }
@@ -489,6 +590,10 @@ mod tests {
             Action::PrevSize,
             Action::NextSize,
             Action::ToggleValueMode,
+            Action::LadderUp,
+            Action::LadderDown,
+            Action::ToggleBanner,
+            Action::ToggleAutoplay,
             Action::Tick,
             Action::Resize {
                 width: 1,
@@ -504,7 +609,7 @@ mod tests {
         use KeyCode::*;
         let none = KeyModifiers::NONE;
         let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 20] = [
+        let cases: [(KeyEvent, Option<Action>); 23] = [
             (KeyEvent::new(Tab, none), Some(Action::NextTab)),
             (KeyEvent::new(BackTab, none), Some(Action::PrevTab)),
             (KeyEvent::new(Char('1'), none), Some(Action::SelectTab(0))),
@@ -516,6 +621,10 @@ mod tests {
             (KeyEvent::new(Char('r'), none), Some(Action::Reload)),
             (KeyEvent::new(Left, none), Some(Action::PrevSize)),
             (KeyEvent::new(Right, none), Some(Action::NextSize)),
+            (KeyEvent::new(Up, none), Some(Action::LadderUp)),
+            (KeyEvent::new(Down, none), Some(Action::LadderDown)),
+            (KeyEvent::new(Char(' '), none), Some(Action::ToggleBanner)),
+            (KeyEvent::new(Enter, none), Some(Action::ToggleAutoplay)),
             (
                 KeyEvent::new(Char('v'), none),
                 Some(Action::ToggleValueMode),
@@ -527,7 +636,6 @@ mod tests {
             (KeyEvent::new(Char('t'), none), None),
             (KeyEvent::new(Char('c'), none), None),
             (KeyEvent::new(Char('x'), none), None),
-            (KeyEvent::new(Enter, none), None),
         ];
         for (key, expected) in cases {
             assert_eq!(map_key(key), expected, "wrong mapping for {key:?}");
@@ -586,5 +694,84 @@ mod tests {
         assert_eq!(app.value_mode(), ValueMode::PerMessage);
         app.update(Action::ToggleValueMode);
         assert_eq!(app.value_mode(), ValueMode::Total);
+    }
+
+    #[test]
+    fn ladder_size_clamps_between_one_and_thirty_two() {
+        let mut app = test_app();
+        app.ladder_n = LADDER_MAX_LEAVES;
+        app.update(Action::LadderUp);
+        assert_eq!(app.ladder_n(), LADDER_MAX_LEAVES, "up past 32 clamps");
+        for _ in 0..(LADDER_MAX_LEAVES + 5) {
+            app.update(Action::LadderDown);
+        }
+        assert_eq!(app.ladder_n(), LADDER_MIN_LEAVES, "down below 1 clamps");
+        assert_eq!(app.ladder_leaf(), 0);
+    }
+
+    #[test]
+    fn shrinking_the_ladder_clamps_the_selected_leaf() {
+        let mut app = test_app();
+        app.ladder_n = 16;
+        app.ladder_leaf = 15;
+        for _ in 0..8 {
+            app.update(Action::LadderDown);
+        }
+        assert_eq!(app.ladder_n(), 8);
+        assert_eq!(app.ladder_leaf(), 7, "leaf clamps into the smaller ladder");
+    }
+
+    #[test]
+    fn left_and_right_steer_the_leaf_on_the_ladder_tab() {
+        let mut app = test_app();
+        app.tab = Tab::Ladder;
+        app.ladder_n = 8;
+        app.ladder_leaf = 0;
+        app.update(Action::NextSize);
+        assert_eq!(app.ladder_leaf(), 1);
+        app.update(Action::PrevSize);
+        app.update(Action::PrevSize);
+        assert_eq!(app.ladder_leaf(), 7, "prev from the first leaf wraps");
+        assert_eq!(app.selected_size(), 0, "the size index is untouched");
+    }
+
+    #[test]
+    fn banner_and_autoplay_toggle_independently() {
+        let mut app = test_app();
+        assert!(!app.ladder_banner());
+        assert!(!app.ladder_autoplay());
+        app.update(Action::ToggleBanner);
+        assert!(app.ladder_banner());
+        assert!(!app.ladder_autoplay());
+        app.update(Action::ToggleAutoplay);
+        app.update(Action::ToggleBanner);
+        assert!(!app.ladder_banner());
+        assert!(app.ladder_autoplay());
+    }
+
+    #[test]
+    fn tick_advances_the_leaf_only_when_the_ladder_tab_autoplays() {
+        let mut app = test_app();
+        app.tab = Tab::Ladder;
+        app.ladder_n = 4;
+        app.ladder_leaf = 0;
+        app.update(Action::Tick);
+        assert_eq!(app.ladder_leaf(), 0, "no autoplay, no advance");
+
+        app.update(Action::ToggleAutoplay);
+        app.update(Action::Tick);
+        assert_eq!(app.ladder_leaf(), 1);
+        app.update(Action::Tick);
+        app.update(Action::Tick);
+        app.update(Action::Tick);
+        assert_eq!(app.ladder_leaf(), 0, "autoplay wraps past the last leaf");
+
+        app.tab = Tab::Overview;
+        app.update(Action::Tick);
+        assert_eq!(
+            app.ladder_leaf(),
+            0,
+            "off the Ladder tab the leaf is frozen"
+        );
     }
 }

@@ -6,11 +6,13 @@
 //! [`ClimbResults`] through `climb_report::charts::fmt_*` — no result number
 //! appears as a literal anywhere in this crate.
 
+mod ladder;
 mod memory;
 mod overview;
 mod signing;
 mod wire;
 
+pub use ladder::{badge as ladder_badge, load_ladder, BadgeKind, LadderBadge, LadderLoadState};
 pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
 pub use signing::{
     per_message, AmortizationView, DetailLine, PerfCell, SigningRow, ValueMode, VerifyingRow,

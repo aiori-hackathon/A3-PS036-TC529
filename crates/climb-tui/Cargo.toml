@@ -15,6 +15,7 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+climb-analytical = { path = "../climb-analytical" }
 climb-report = { path = "../climb-report" }
 ratatui.workspace = true
 crossterm.workspace = true
@@ -23,3 +24,6 @@ tracing.workspace = true
 tracing-appender.workspace = true
 # env-filter so log verbosity is filterable via RUST_LOG (the project conventions §3).
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
+
+[dev-dependencies]
+climb-bench = { path = "../climb-bench" }

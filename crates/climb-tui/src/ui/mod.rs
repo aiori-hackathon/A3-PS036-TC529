@@ -3,6 +3,7 @@
 //! views; the remaining tabs are placeholders until later phases wire theirs.
 
 pub mod amortization;
+pub mod ladder;
 pub mod memory;
 pub mod overview;
 pub mod signing;
@@ -74,6 +75,10 @@ fn render_tabs(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
 }
 
 fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
+    if app.tab == Tab::Ladder {
+        ladder::render_ladder(frame, area, app, theme, glyphs);
+        return;
+    }
     match &app.data {
         LoadState::Loaded(view) if app.tab == Tab::Overview => {
             overview::render_overview(frame, area, app, view, theme, glyphs);
@@ -281,6 +286,9 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("r", "reload results from disk"),
         entry("← / →", "select dataset size"),
         entry("v", "toggle total / per message"),
+        entry("↑ / ↓", "ladder: fewer / more leaves"),
+        entry("Space", "ladder: toggle the signature banner"),
+        entry("Enter", "ladder: auto-play the leaves"),
         entry("q / Esc / Ctrl-C", "quit"),
         Line::from(""),
         Line::from(vec![
@@ -526,10 +534,10 @@ mod tests {
     #[test]
     fn renders_placeholder_body_naming_the_tab() {
         let mut app = app_loaded_with(story_view(None));
-        app.update(crate::app::Action::SelectTab(Tab::Ladder.index()));
+        app.update(crate::app::Action::SelectTab(Tab::Method.index()));
         let out = render_to_string(&app, 80, 24);
         assert!(out.contains("data view lands in a later phase"));
-        assert!(out.contains("Ladder"));
+        assert!(out.contains("Method"));
     }
 
     #[test]
