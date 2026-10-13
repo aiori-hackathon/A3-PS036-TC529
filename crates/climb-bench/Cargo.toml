@@ -23,6 +23,10 @@ climb-dns = { path = "../climb-dns" }
 climb-analytical = { path = "../climb-analytical" }
 serde = { workspace = true, features = ["derive"] }
 sysinfo = { workspace = true }
+serde_json.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
+[[bin]]
+name = "mem_probe"
+path = "src/bin/mem_probe.rs"
