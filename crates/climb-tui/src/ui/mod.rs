@@ -739,7 +739,7 @@ mod tests {
             "0123456",
             "SLH-DSA-SHA2-128s-MTL-SHA2-128",
             "fresh",
-            "claims agree",
+            "agree",
             "recorded 2026-10-12",
         ] {
             assert!(
@@ -747,6 +747,21 @@ mod tests {
                 "panels miss {needle:?} at 120x40:\n{out}"
             );
         }
+    }
+
+    #[test]
+    fn overview_artifact_panel_reports_a_stale_report() {
+        let view = ResultsView::new(
+            story_view(None).results().clone(),
+            Some(Duration::from_secs(60)),
+            ReportHealth::ReportStale,
+        );
+        let app = app_loaded_with(view);
+        let out = render_to_string(&app, 120, 40);
+        assert!(
+            out.contains("report older than results"),
+            "stale-report copy missing:\n{out}"
+        );
     }
 
     #[test]

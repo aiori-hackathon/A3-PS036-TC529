@@ -67,16 +67,7 @@ fn render_hero(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
     let [letters_col, ladder_col] =
         Layout::horizontal([Constraint::Min(10), Constraint::Length(5)]).areas(word_row);
 
-    let letters: Vec<Line> = CLIMB
-        .iter()
-        .map(|row| {
-            Line::from(Span::styled(
-                *row,
-                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-            ))
-        })
-        .collect();
-    frame.render_widget(Paragraph::new(letters), letters_col);
+    frame.render_widget(Paragraph::new(wordmark_lines(glyphs, theme)), letters_col);
 
     let ladder_lines = ladder_lines(app.elapsed(), glyphs, theme);
     frame.render_widget(
@@ -98,6 +89,22 @@ fn render_hero(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
         ))),
         tagline_area,
     );
+}
+
+/// The CLIMB word mark: every `X` in the mask becomes a filled bar glyph, and
+/// each row carries the theme's vertical accent gradient.
+fn wordmark_lines(glyphs: &Glyphs, theme: &Theme) -> Vec<Line<'static>> {
+    CLIMB
+        .iter()
+        .zip(theme.wordmark_rows(RUNGS))
+        .map(|(mask, style)| {
+            let text: String = mask
+                .chars()
+                .map(|c| if c == 'X' { glyphs.bar_filled } else { c })
+                .collect();
+            Line::from(Span::styled(text, style))
+        })
+        .collect()
 }
 
 /// Five 3-character ladder rows, one rung lit, climbing bottom to top and
@@ -296,15 +303,15 @@ fn health_lines(view: &ResultsView, theme: &Theme) -> Vec<Line<'static>> {
         None => format!("{warn_mark} age unknown"),
     };
     let report_line = match view.report_health() {
-        ReportHealth::Agree => {
-            let mark = if theme.ascii { "ok" } else { "\u{2714}" };
-            format!("{mark} claims agree")
+        ReportHealth::Agree => format!("{fresh_mark} agree"),
+        ReportHealth::ReportStale => {
+            format!("{warn_mark} report older than results: run cargo xtask report")
         }
         ReportHealth::Drift(count) => {
             let mark = if theme.ascii { "MISMATCH" } else { "\u{2716}" };
-            format!("{mark} {count} drift failures")
+            format!("{mark} {count} mismatches")
         }
-        ReportHealth::NoReport => format!("{} no report.html", dash(theme)),
+        ReportHealth::NoReport => format!("{} no report yet", dash(theme)),
     };
     let dns_line = view
         .dns_provenance()
@@ -412,5 +419,27 @@ mod tests {
         );
         assert_eq!(dash(&ascii), "-");
         assert_eq!(dash(&unicode), "\u{2014}");
+    }
+
+    #[test]
+    fn wordmark_lines_fill_the_mask_with_the_active_glyph() {
+        let theme = Theme::new(
+            crate::theme::ThemeId::Dark,
+            crate::theme::ColorDepth::TrueColor,
+            false,
+        );
+        let unicode = wordmark_lines(&Glyphs::unicode(), &theme);
+        assert_eq!(unicode.len(), RUNGS);
+        assert!(
+            unicode[0].spans[0].content.contains('\u{2588}'),
+            "unicode word mark uses the filled block glyph"
+        );
+        assert!(
+            !unicode[0].spans[0].content.contains('X'),
+            "the X mask sentinel must be replaced"
+        );
+        let ascii = wordmark_lines(&Glyphs::ascii(), &theme);
+        assert!(ascii[0].spans[0].content.contains('#'));
+        assert!(!ascii[0].spans[0].content.contains('X'));
     }
 }

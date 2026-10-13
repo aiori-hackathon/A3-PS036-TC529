@@ -123,6 +123,12 @@ pub fn map_color(rgb: Rgb, depth: ColorDepth) -> Color {
     }
 }
 
+fn lerp_rgb(from: Rgb, to: Rgb, t: f64) -> Rgb {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |a: u8, b: u8| (a as f64 + (b as f64 - a as f64) * t).round() as u8;
+    (mix(from.0, to.0), mix(from.1, to.1), mix(from.2, to.2))
+}
+
 fn dist2(a: Rgb, b: Rgb) -> u32 {
     let d = |x: u8, y: u8| {
         let delta = x as i32 - y as i32;
@@ -329,6 +335,29 @@ impl Theme {
             Glyphs::unicode()
         }
     }
+
+    /// One style per word-mark row: a top-to-bottom `accent` → `accent2`
+    /// gradient, bold throughout. At [`ColorDepth::Mono`] only the bold
+    /// survives, so the mark stays legible with no colour to rely on.
+    pub fn wordmark_rows(&self, rows: usize) -> Vec<Style> {
+        let palette = self.id.palette();
+        (0..rows)
+            .map(|row| {
+                if self.depth == ColorDepth::Mono {
+                    return Style::new().add_modifier(Modifier::BOLD);
+                }
+                let t = if rows <= 1 {
+                    0.0
+                } else {
+                    row as f64 / (rows - 1) as f64
+                };
+                let rgb = lerp_rgb(palette.accent, palette.accent2, t);
+                Style::new()
+                    .fg(map_color(rgb, self.depth))
+                    .add_modifier(Modifier::BOLD)
+            })
+            .collect()
+    }
 }
 
 /// Border, bar, ladder and spinner glyphs for one rendering mode.
@@ -505,5 +534,34 @@ mod tests {
         assert_eq!(ThemeId::Dark.to_string(), "dark");
         assert_eq!(ThemeId::Light.to_string(), "light");
         assert_eq!(ThemeId::Contrast.to_string(), "contrast");
+    }
+
+    #[test]
+    fn wordmark_rows_returns_one_style_per_row() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        assert_eq!(theme.wordmark_rows(5).len(), 5);
+        assert!(theme.wordmark_rows(0).is_empty());
+    }
+
+    #[test]
+    fn wordmark_rows_gradient_runs_accent_to_accent2() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        let rows = theme.wordmark_rows(5);
+        assert_eq!(rows[0].fg, Some(theme.accent));
+        assert_eq!(rows[4].fg, Some(theme.accent2));
+        assert!(
+            rows.iter()
+                .all(|style| style.add_modifier.contains(Modifier::BOLD)),
+            "every word-mark row stays bold"
+        );
+    }
+
+    #[test]
+    fn wordmark_rows_keep_only_bold_in_mono() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::Mono, false);
+        for style in theme.wordmark_rows(5) {
+            assert_eq!(style.fg, None, "mono carries no colour");
+            assert!(style.add_modifier.contains(Modifier::BOLD));
+        }
     }
 }
