@@ -197,6 +197,15 @@ fn main() {
         .allowlist_type(
             "^(MTL|MTLLIB|SERIESID|SEED|AUTHPATH|RANDOMIZER|RUNG|LADDER|H_LEAF|H_INT|OQS_).*",
         )
+        // The plain (non-MTL) SLH-DSA baseline needs exactly the five liboqs
+        // signature entry points and the one algorithm identifier this project
+        // selects. Binding the wider `OQS_SIG_*` surface (context-string
+        // variants, stateful schemes, the full scheme table) is deliberately
+        // avoided: an unused FFI symbol is unaudited code, and the FFI/safe
+        // boundary exists so the wrapped surface stays as small as the harness
+        // requires.
+        .allowlist_function("^OQS_SIG_(new|free|keypair|sign|verify)$")
+        .allowlist_var("^OQS_SIG_alg_slh_dsa_pure_sha2_128s$")
         // CLI help helper takes a FILE*; not part of the crypto API surface.
         .blocklist_function("mtllib_key_write_algorithms")
         .blocklist_item("FILE")

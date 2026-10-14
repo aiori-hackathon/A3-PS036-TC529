@@ -82,7 +82,7 @@ use std::time::{Duration, Instant};
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use climb_dns::{generate_dataset, DatasetSize};
-use climb_mtl::{MtlKeyPair, MtlSigner, Signature};
+use climb_mtl::{MtlKeyPair, MtlSigner, PlainSlhDsa, Signature};
 
 /// Fixed seed for benchmark reproducibility.
 ///
@@ -127,6 +127,9 @@ fn bench_verifying(c: &mut Criterion) {
     bench_without_mtl(c, &signer, &keypair, DatasetSize::Small, None);
     bench_without_mtl(c, &signer, &keypair, DatasetSize::OneK, Some(10));
     bench_without_mtl(c, &signer, &keypair, DatasetSize::Medium, Some(10));
+
+    bench_plain_slh_dsa(c, DatasetSize::Small);
+    bench_plain_slh_dsa(c, DatasetSize::Medium);
 }
 
 criterion_group!(benches, bench_verifying);
@@ -292,6 +295,42 @@ fn bench_without_mtl(
             }
 
             total
+        })
+    });
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Plain SLH-DSA (configuration A) — one full signature per message, no ladder
+// ---------------------------------------------------------------------------
+
+/// Benchmark one plain SLH-DSA verification (configuration A).
+///
+/// Signatures are generated once before the group is created, so the ~0.74 s
+/// signing cost never leaks into the measured verification time. As with the
+/// signing side, one message per iteration is measured at Small and Medium
+/// (`k = 2` samples); Large is extrapolated, not run.
+fn bench_plain_slh_dsa(c: &mut Criterion, size: DatasetSize) {
+    let label = size_label(size);
+    let dataset = generate_dataset(size, BENCH_SEED);
+    let message = dataset
+        .first()
+        .expect("seeded dataset is non-empty")
+        .clone();
+
+    let keypair = PlainSlhDsa::generate().expect("plain SLH-DSA keypair");
+    let signature = keypair.sign(&message).expect("plain sign setup");
+
+    let mut group = c.benchmark_group(format!("verifying_{}_plain_slh_dsa", label));
+    group.throughput(Throughput::Elements(1));
+    group.bench_function(BenchmarkId::from_parameter("verify"), |b| {
+        b.iter(|| {
+            let ok = keypair
+                .verify(black_box(&message), black_box(&signature))
+                .expect("plain verify must not error");
+            assert!(ok, "plain signature must verify");
+            black_box(ok)
         })
     });
 

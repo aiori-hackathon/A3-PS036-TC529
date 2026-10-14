@@ -60,7 +60,7 @@ use std::time::Duration;
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use climb_dns::{generate_dataset, DatasetSize};
-use climb_mtl::MtlKeyPair;
+use climb_mtl::{MtlKeyPair, PlainSlhDsa};
 
 /// Fixed seed for benchmark reproducibility.
 ///
@@ -88,6 +88,9 @@ fn bench_signing(c: &mut Criterion) {
 
     bench_with_mtl(c, &signer, DatasetSize::Large, None);
     bench_without_mtl(c, &signer, DatasetSize::Large, Some(10));
+
+    bench_plain_slh_dsa(c, DatasetSize::Small);
+    bench_plain_slh_dsa(c, DatasetSize::Medium);
 }
 
 criterion_group!(benches, bench_signing);
@@ -184,6 +187,43 @@ fn bench_without_mtl(
             })
         },
     );
+
+    group.finish();
+}
+
+// ---------------------------------------------------------------------------
+// Plain SLH-DSA (configuration A) — one full signature per message, no ladder
+// ---------------------------------------------------------------------------
+
+/// Benchmark one plain SLH-DSA signature (configuration A).
+///
+/// Configuration A signs each RRset with its own full SLH-DSA signature and no
+/// ladder, so its per-message cost is independent of the batch size. One message
+/// per iteration is measured at Small and Medium, giving `k = 2` samples of that
+/// per-message cost; a batch of any size is then obtained with the project's
+/// existing `n x per-message mean` extrapolation. Large is not run — at
+/// `1e6 x ~0.74 s` a single iteration would take days.
+fn bench_plain_slh_dsa(c: &mut Criterion, size: DatasetSize) {
+    let label = size_label(size);
+    let dataset = generate_dataset(size, BENCH_SEED);
+    let message = dataset
+        .first()
+        .expect("seeded dataset is non-empty")
+        .clone();
+
+    let keypair = PlainSlhDsa::generate().expect("plain SLH-DSA keypair");
+
+    let mut group = c.benchmark_group(format!("signing_{}_plain_slh_dsa", label));
+    group.throughput(Throughput::Elements(1));
+    group.bench_function(BenchmarkId::from_parameter("sign"), |b| {
+        b.iter(|| {
+            black_box(
+                keypair
+                    .sign(black_box(&message))
+                    .expect("plain sign must not fail"),
+            )
+        })
+    });
 
     group.finish();
 }

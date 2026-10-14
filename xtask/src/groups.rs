@@ -79,6 +79,22 @@ pub const GROUPS: &[GroupSpec] = &[
         target: BenchTarget::Signing,
         slow: true,
     },
+    // Configuration A: one plain SLH-DSA signature per message, measured on a
+    // single message from the seeded dataset. Large is not scheduled — its
+    // per-message cost is extrapolated to `n x mean` from the Small/Medium
+    // samples (k = 2), not run.
+    GroupSpec {
+        name: "signing_small_plain_slh_dsa",
+        size: DatasetSize::Small,
+        target: BenchTarget::Signing,
+        slow: false,
+    },
+    GroupSpec {
+        name: "signing_medium_plain_slh_dsa",
+        size: DatasetSize::Medium,
+        target: BenchTarget::Signing,
+        slow: false,
+    },
     GroupSpec {
         name: "verifying_small_with_mtl_trust_true",
         size: DatasetSize::Small,
@@ -136,6 +152,18 @@ pub const GROUPS: &[GroupSpec] = &[
     GroupSpec {
         name: "verifying_large_with_mtl_trust_true",
         size: DatasetSize::Large,
+        target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "verifying_small_plain_slh_dsa",
+        size: DatasetSize::Small,
+        target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "verifying_medium_plain_slh_dsa",
+        size: DatasetSize::Medium,
         target: BenchTarget::Verifying,
         slow: false,
     },

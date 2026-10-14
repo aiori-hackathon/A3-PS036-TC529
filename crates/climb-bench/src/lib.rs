@@ -20,7 +20,9 @@ pub use memory::{
     compare_to_analytical, measure_all_sizes, measure_rss_delta, measure_rss_delta_repeated,
     RssComparison, RssDeltaReport, RssDeltaRun, RssSizeReport,
 };
-pub use wire_size::{measure_wire_sizes, CondensedStats, WireSizeReport, DEFAULT_WIRE_SEED};
+pub use wire_size::{
+    measure_wire_sizes, CondensedStats, PlainRrsigStats, WireSizeReport, DEFAULT_WIRE_SEED,
+};
 
 // F11.2: parse /proc/self/status VmRSS and VmHWM (kB)
 pub fn parse_status_kb(s: &str) -> Option<(u64, u64)> {

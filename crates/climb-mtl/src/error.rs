@@ -72,4 +72,24 @@ pub enum MtlError {
         expected: usize,
         actual: usize,
     },
+
+    /// liboqs does not provide the requested plain SLH-DSA scheme.
+    #[error("liboqs does not provide the plain SLH-DSA scheme {algorithm:?}")]
+    SchemeUnavailable { algorithm: String },
+
+    /// liboqs plain SLH-DSA key generation failed.
+    #[error("liboqs plain SLH-DSA key generation returned status {status}")]
+    PlainKeypairFailed { status: i32 },
+
+    /// liboqs plain SLH-DSA signing failed.
+    #[error("liboqs plain SLH-DSA signing returned status {status}")]
+    PlainSignFailed { status: i32 },
+
+    /// A liboqs plain SLH-DSA operation returned a status the wrapper does not
+    /// classify.
+    #[error("liboqs plain SLH-DSA operation {operation} returned status {status}")]
+    PlainNative {
+        operation: &'static str,
+        status: i32,
+    },
 }

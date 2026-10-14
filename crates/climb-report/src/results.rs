@@ -1425,6 +1425,24 @@ mod tests {
        "with_mtl_total":367067832,"without_mtl_total":8487059712,"reduction_percent":95.67497054980069,"full_invariant_samples":6}
     ]"#;
 
+    // The same three rows as they are written today, with the additive plain
+    // (configuration A) block present. A committed copy of the current
+    // wire-report artifact, used to prove the consumer parses the new shape.
+    const WIRE_REPORT_JSON_WITH_PLAIN: &str = r#"[
+      {"size":"Small","seed":4849331494946035253,"message_count":100,"ladder_len":7992,
+       "condensed":{"min":108,"max":172,"mean":164.32,"total":16432,"uniform":false},
+       "with_mtl_total":24424,"without_mtl_total":815632,"reduction_percent":97.00551228985621,"full_invariant_samples":6,
+       "plain":{"signature_len":7856,"samples":1,"total":785600}},
+      {"size":"Medium","seed":4849331494946035253,"message_count":10000,"ladder_len":8056,
+       "condensed":{"min":140,"max":284,"mean":273.5296,"total":2735296,"uniform":false},
+       "with_mtl_total":2743352,"without_mtl_total":83295296,"reduction_percent":96.70647427677068,"full_invariant_samples":6,
+       "plain":{"signature_len":7856,"samples":1,"total":78560000}},
+      {"size":"Large","seed":4849331494946035253,"message_count":1000000,"ladder_len":8120,
+       "condensed":{"min":172,"max":380,"mean":367.059712,"total":367059712,"uniform":false},
+       "with_mtl_total":367067832,"without_mtl_total":8487059712,"reduction_percent":95.67497054980069,"full_invariant_samples":6,
+       "plain":{"signature_len":7856,"samples":1,"total":7856000000}}
+    ]"#;
+
     // Two repeats per size, chosen so the arithmetic mean equals the mean of
     // record: small (1_630_208 + 73_728)/2 = 851_968,
     // medium (3_575_808 + 942_080)/2 = 2_258_944,
@@ -1535,6 +1553,49 @@ mod tests {
                 m.size
             );
         }
+    }
+
+    #[test]
+    fn consolidate_parses_wire_report_with_plain_config_a() {
+        let root = temp_root("wire-plain");
+        let wire = root.join("wire.json");
+        let memory = root.join("memory.json");
+        fs::write(&wire, WIRE_REPORT_JSON_WITH_PLAIN).unwrap();
+        fs::write(&memory, MEMORY_REPORT_JSON).unwrap();
+
+        let results = consolidate_with(&root, Some(wire), Some(memory));
+        assert!(
+            results.warnings.is_empty(),
+            "warnings={:?}",
+            results.warnings
+        );
+        assert_eq!(results.wire_size.len(), 3);
+
+        let medium = results
+            .wire_size
+            .iter()
+            .find(|r| r.size == "medium")
+            .expect("medium wire row");
+        assert_eq!(medium.with_mtl_total_bytes, 2_743_352);
+        assert_eq!(medium.without_mtl_total_bytes, 83_295_296);
+        assert!((medium.reduction_percent - 96.70647427677068).abs() < 1e-9);
+    }
+
+    #[test]
+    fn consolidate_accepts_legacy_wire_report_without_plain() {
+        let root = temp_root("wire-legacy");
+        let wire = root.join("wire.json");
+        let memory = root.join("memory.json");
+        fs::write(&wire, WIRE_REPORT_JSON).unwrap();
+        fs::write(&memory, MEMORY_REPORT_JSON).unwrap();
+
+        let results = consolidate_with(&root, Some(wire), Some(memory));
+        assert!(
+            results.warnings.is_empty(),
+            "warnings={:?}",
+            results.warnings
+        );
+        assert_eq!(results.wire_size.len(), 3);
     }
 
     #[test]

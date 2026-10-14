@@ -31,13 +31,19 @@
 //! | **Ladder** | The shared signed Merkle tree ladder, signed once per batch |
 //! | **With MTL total** | `ladder_len + sum(condensed_i)` — one ladder for N messages |
 //! | **Without MTL total** | `sum(condensed_i) + N × ladder_len` — N full signatures, each `condensed_i \|\| ladder` |
+//! | **Plain total (A)** | `N × signature_len` — one full SLH-DSA signature per message, no ladder |
 //! | **Reduction** | `(without - with) / without × 100%` |
 //!
 //! Here *without MTL* means the MTL wrapper's non-amortised mode: every
 //! message carries a **complete MTL signature** (`condensed_i || ladder`).  It
-//! is not a plain SLH-DSA RRSIG (a single full SLH-DSA signature per RRset,
-//! with no ladder at all), which is a different baseline; `docs/BASELINES.md`
-//! records the wire-byte formula of each configuration.
+//! is not the plain SLH-DSA RRSIG baseline (a single full SLH-DSA signature per
+//! RRset, with no ladder at all), which `docs/BASELINES.md` calls configuration
+//! A and which this report records separately as [`PlainRrsigStats`].
+//!
+//! Configuration A's per-message signature length is read from liboqs (never
+//! compiled in), and its batch total uses the project's existing
+//! per-message-to-N extrapolation — the same `N × per-message` identity used to
+//! extend timing measurements across dataset sizes.
 //!
 //! The identity `without - with == (N - 1) × ladder_len` holds by construction
 //! because the only difference between the two totals is that *without-MTL*
@@ -71,6 +77,21 @@ pub struct CondensedStats {
     pub uniform: bool,
 }
 
+/// Plain (configuration A) wire totals: one full SLH-DSA signature per RRset.
+///
+/// The per-message signature length is read from liboqs rather than compiled
+/// in, and the batch total applies the project's existing per-message-to-N
+/// extrapolation (`message_count × signature_len`) to that measured length.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub struct PlainRrsigStats {
+    /// The liboqs-reported SLH-DSA signature length, in bytes per message.
+    pub signature_len: usize,
+    /// Number of signatures actually measured to obtain `signature_len`.
+    pub samples: usize,
+    /// Extrapolated batch total: `message_count × signature_len`.
+    pub total: u64,
+}
+
 /// A complete wire-size measurement report covering one dataset size.
 ///
 /// Produced by [`measure_wire_sizes`]; suitable for direct serialisation into
@@ -99,6 +120,10 @@ pub struct WireSizeReport {
     /// Number of positions where `full_signature(i).len() == condensed_len + ladder_len`
     /// was verified (sampled, not exhaustive — see module docs).
     pub full_invariant_samples: usize,
+    /// Plain RRSIG (configuration A) totals. Defaulted when absent so reports
+    /// written before configuration A existed still parse (see module docs).
+    #[serde(default)]
+    pub plain: PlainRrsigStats,
 }
 
 // ---------------------------------------------------------------------------
@@ -164,6 +189,8 @@ fn stats(lens: &[usize]) -> CondensedStats {
 ///    counting the number actually checked into `full_invariant_samples`.
 ///    Not all `N` are reconstructed — `Large` (1M × ~8.5 KB ≈ 8 GB) would
 ///    be prohibitive.
+/// 9. `plain.signature_len` is read from liboqs and `plain.total` is the
+///    extrapolated `message_count × signature_len` (configuration A).
 ///
 /// # Errors
 ///
@@ -200,8 +227,16 @@ pub fn measure_wire_sizes(size: DatasetSize, seed: u64) -> Result<WireSizeReport
             without_mtl_total: 0,
             reduction_percent: 0.0,
             full_invariant_samples: 0,
+            plain: PlainRrsigStats::default(),
         });
     }
+
+    let plain_signature_len = climb_mtl::plain_signature_len()?;
+    let plain = PlainRrsigStats {
+        signature_len: plain_signature_len,
+        samples: 1,
+        total: (message_count as u64) * (plain_signature_len as u64),
+    };
 
     let keypair = MtlKeyPair::generate()?;
     let signer = keypair.signer();
@@ -279,6 +314,7 @@ pub fn measure_wire_sizes(size: DatasetSize, seed: u64) -> Result<WireSizeReport
         without_mtl_total,
         reduction_percent,
         full_invariant_samples,
+        plain,
     })
 }
 

@@ -135,7 +135,7 @@ fn print_wire_report_table(reports: &[WireSizeReport]) {
     // Column widths chosen to accommodate all reasonable values,
     // avoiding dynamic sizing for determinism.
     let header = format!(
-        "{:<6} {:>8} {:>7} {:>9} {:>10} {:>9} {:>8} {:>10} {:>13} {:>10}",
+        "{:<6} {:>8} {:>7} {:>9} {:>10} {:>9} {:>8} {:>10} {:>13} {:>10} {:>14}",
         "Size",
         "N",
         "Ladder",
@@ -146,6 +146,7 @@ fn print_wire_report_table(reports: &[WireSizeReport]) {
         "With MTL",
         "Without MTL",
         "Reduction%",
+        "Plain (A)",
     );
     let separator = "-".repeat(header.len());
 
@@ -169,9 +170,19 @@ fn print_wire_report_table(reports: &[WireSizeReport]) {
             "no"
         };
 
+        // Configuration A is a full SLH-DSA signature per message, so its
+        // total extrapolates a measured per-message length across N messages.
+        // The large row carries the star because that extrapolation spans the
+        // widest unmeasured gap; the footnote below spells out k.
+        let plain_cell = if report.size == DnsDatasetSize::Large {
+            format!("{}*", report.plain.total)
+        } else {
+            report.plain.total.to_string()
+        };
+
         let _ = writeln!(
             handle,
-            "{size_label:<6} {n:>8} {ladder:>7} {c_min:>9} {c_mean:>10.0} {c_max:>9} {uniform:>8} {with_mtl:>10} {without_mtl:>13} {reduction:>9.2}%",
+            "{size_label:<6} {n:>8} {ladder:>7} {c_min:>9} {c_mean:>10.0} {c_max:>9} {uniform:>8} {with_mtl:>10} {without_mtl:>13} {reduction:>9.2}% {plain:>14}",
             size_label = size_label,
             n = report.message_count,
             ladder = human_bytes(report.ladder_len as u64),
@@ -182,6 +193,22 @@ fn print_wire_report_table(reports: &[WireSizeReport]) {
             with_mtl = human_bytes(report.with_mtl_total),
             without_mtl = human_bytes(report.without_mtl_total),
             reduction = report.reduction_percent,
+            plain = plain_cell,
+        );
+    }
+
+    if let Some(first) = reports.first() {
+        let _ = writeln!(handle, "{separator}");
+        let _ = writeln!(
+            handle,
+            "Config A (Plain) = N x plain SLH-DSA signature length, read from \
+             liboqs ({} B, k={} sampled).",
+            first.plain.signature_len, first.plain.samples
+        );
+        let _ = writeln!(
+            handle,
+            "* large Plain total is EXTRAPOLATED from that per-message length \
+             via the N x length identity."
         );
     }
 }

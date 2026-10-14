@@ -43,15 +43,25 @@
 
 mod error;
 mod ffi;
+mod ffi_plain;
+mod plain;
 
 use std::ffi::CString;
 
 pub use error::MtlError;
+pub use plain::{plain_signature_len, PlainSlhDsa};
 
 /// The algorithm selected in the project blueprint: the small-signature ("s")
 /// SLH-DSA variant with an SHA2-128 MTL tree, chosen because DNS over UDP is a
 /// size-sensitive context.
 pub const DEFAULT_ALGORITHM: &str = "SLH-DSA-SHA2-128s-MTL-SHA2-128";
+
+/// The liboqs algorithm identifier for the plain (non-MTL) SLH-DSA baseline:
+/// the small-signature ("s") SHA2-128 pure variant the MTL ladder also signs.
+pub const DEFAULT_PLAIN_ALGORITHM: &str = "SLH_DSA_PURE_SHA2_128S";
+
+/// Environment variable that overrides the plain baseline scheme name.
+pub const PLAIN_ALGORITHM_ENV: &str = "CLIMB_PLAIN_SLH_DSA_ALG";
 
 /// The maximum message length libMTL accepts, in bytes.
 ///

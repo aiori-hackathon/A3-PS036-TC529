@@ -213,3 +213,54 @@ fn larger_batches_have_longer_ladders() {
         medium.ladder_len,
     );
 }
+
+// ---------------------------------------------------------------------------
+// Configuration A — plain RRSIG row arithmetic (from the measured length)
+// ---------------------------------------------------------------------------
+
+/// The plain row's total must be `N x signature_len`, where `signature_len` is
+/// the length the library reports — not a literal.  Cross-checks the row against
+/// `climb_mtl::plain_signature_len()` and the batch arithmetic.
+#[test]
+fn plain_row_total_is_n_times_measured_length() {
+    for size in [DatasetSize::Small, DatasetSize::Medium] {
+        let report = measure_wire_sizes(size, DEFAULT_WIRE_SEED).expect("measure_wire_sizes");
+        let n = report.message_count as u64;
+        let len = report.plain.signature_len as u64;
+
+        let library_len = climb_mtl::plain_signature_len().expect("liboqs signature length");
+        assert_eq!(
+            report.plain.signature_len, library_len,
+            "plain row length must be the library's reported length"
+        );
+        assert!(
+            report.plain.samples >= 1,
+            "at least one signature length must be sampled"
+        );
+        assert_eq!(
+            report.plain.total,
+            n * len,
+            "plain.total must be message_count x measured signature length"
+        );
+    }
+}
+
+/// The measured length must equal the length of a real plain signature produced
+/// by the wrapper over the same seeded dataset — ties the wire row to the
+/// primitive it models, with no literal in the assertion.
+#[test]
+fn plain_row_length_matches_a_real_plain_signature() {
+    let report =
+        measure_wire_sizes(DatasetSize::Small, DEFAULT_WIRE_SEED).expect("measure_wire_sizes");
+    let dataset = generate_dataset(DatasetSize::Small, DEFAULT_WIRE_SEED);
+    let keypair = climb_mtl::PlainSlhDsa::generate().expect("plain SLH-DSA keypair");
+    let signature = keypair
+        .sign(&dataset[0])
+        .expect("plain sign over seeded message");
+
+    assert_eq!(
+        signature.len(),
+        report.plain.signature_len,
+        "measured length must equal a real plain signature's length"
+    );
+}
