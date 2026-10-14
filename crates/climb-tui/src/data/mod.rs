@@ -359,6 +359,10 @@ pub(crate) mod test_support {
             measured_range_min_bytes: measured / 2,
             measured_range_max_bytes: measured * 2,
             measured_stddev_bytes: measured as f64 / 8.0,
+            median_bytes: measured,
+            iqr_bytes: measured / 4,
+            samples: 3,
+            method: "isolated-process".to_string(),
         }
     }
 

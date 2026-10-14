@@ -15,6 +15,7 @@ mod ladder_verify;
 mod memory;
 mod pin_env;
 mod reproduce;
+mod verify_consolidated;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
@@ -24,6 +25,7 @@ use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use pin_env::cmd_pin_env;
 use reproduce::{cmd_reproduce, ReproduceArgs};
+use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
@@ -84,6 +86,9 @@ enum Commands {
     DnsDemo(DnsDemoArgs),
     /// Consolidate all existing metric outputs into a single coherent artifact.
     Consolidate(ConsolidateArgs),
+    /// Verify the consolidated results carry one memory row per size described
+    /// by the memory report, so a silently-empty memory section fails the chain.
+    VerifyConsolidated(VerifyConsolidatedArgs),
     /// Render the five SVG report charts from consolidated results.
     ///
     /// Reads `target/climb-results.json` (Phase 15) and writes
@@ -177,6 +182,7 @@ fn main() -> Result<()> {
         Commands::LadderVerify(args) => cmd_ladder_verify(args),
         Commands::DnsDemo(args) => cmd_dns_demo(args),
         Commands::Consolidate(args) => cmd_consolidate(args),
+        Commands::VerifyConsolidated(args) => cmd_verify_consolidated(args),
         Commands::Charts(args) => cmd_charts(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
     }

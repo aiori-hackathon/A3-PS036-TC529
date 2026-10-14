@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ReportError;
+use crate::memory::{parse_memory_artifact, MemoryArtifact};
 use crate::record::{scan_criterion, CriterionRecord};
 use crate::summary::{summarize, SummaryRow};
 
@@ -65,6 +66,26 @@ pub struct MemoryResult {
     pub measured_range_min_bytes: u64,
     pub measured_range_max_bytes: u64,
     pub measured_stddev_bytes: f64,
+    /// Central measured value in bytes when the source reports one. For the
+    /// isolated-process artifact this is its median; for the legacy
+    /// comparison shape (which carries only a mean) it mirrors
+    /// `measured_mean_bytes`. Zero for results written before this field
+    /// existed.
+    #[serde(default)]
+    pub median_bytes: u64,
+    /// Interquartile range in bytes, as reported by the isolated-process
+    /// artifact. Zero for legacy shapes (which carry a range/stddev instead)
+    /// and for results written before this field existed.
+    #[serde(default)]
+    pub iqr_bytes: u64,
+    /// Number of measurement samples behind this row; zero when the source
+    /// does not report a sample count.
+    #[serde(default)]
+    pub samples: usize,
+    /// Measurement method that produced this row, e.g. `isolated-process` or
+    /// `rss-delta`. Empty for results written before this field existed.
+    #[serde(default)]
+    pub method: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -486,7 +507,6 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     // ladder plus the condensed sum, and the condensed sum is the remainder.
     // A size with no wire row leaves the payload unmodelled rather than
     // inventing one.
-    let wire_for = |size_label: &str| wire_size.iter().find(|w| w.size == size_label);
 
     let mut memory_results = MemoryResults {
         measured: Vec::new(),
@@ -504,117 +524,18 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
             warnings.push(format!("memory report stale (>24h): {}", p.display()));
         }
         if p.exists() {
-            // Try to read as Vec<RssComparison> (what consolidate expects if we wrote comparisons)
-            // But the current xtask writes the full RssDeltaReport. Try both.
             let content = fs::read_to_string(p).map_err(|e| ReportError::Io {
                 path: p.clone(),
                 source: e,
             })?;
-            // Try comparisons first? Or detect structure
-            if let Ok(comp) = serde_json::from_str::<Vec<climb_bench::RssComparison>>(&content) {
-                for c in comp {
-                    let measured = c.measured_mean_bytes as i64;
-                    let total = c.analytical_bytes as i64;
-                    memory_results.measured.push(MemoryResult {
-                        size: format!("{:?}", c.size).to_lowercase(),
-                        message_count: c.message_count,
-                        measured_mean_bytes: c.measured_mean_bytes,
-                        libmtl_analytical_bytes: c.analytical_bytes,
-                        harness_buffers_bytes: 0,
-                        analytical_total_bytes: c.analytical_bytes as u64,
-                        residual_bytes: measured - total,
-                        residual_percent: if total == 0 {
-                            0.0
-                        } else {
-                            (measured as f64 - total as f64) / (total as f64) * 100.0
-                        },
-                        ratio: c.ratio,
-                        measured_analytical_total_ratio: if c.analytical_bytes == 0 {
-                            0.0
-                        } else {
-                            c.measured_mean_bytes as f64 / (c.analytical_bytes as f64)
-                        },
-                        measured_range_min_bytes: c.measured_range_bytes.0,
-                        measured_range_max_bytes: c.measured_range_bytes.1,
-                        measured_stddev_bytes: c.measured_stddev_bytes,
-                    });
-                }
-            } else if let Ok(full) = serde_json::from_str::<climb_bench::RssDeltaReport>(&content) {
-                for run in &full.runs {
-                    if !run.runs.is_empty() {
-                        let n = run.runs.len() as f64;
-                        let mean: f64 =
-                            run.runs.iter().map(|r| r.delta_bytes as f64).sum::<f64>() / n;
-                        let minv = run.runs.iter().map(|r| r.delta_bytes).min().unwrap_or(0);
-                        let maxv = run.runs.iter().map(|r| r.delta_bytes).max().unwrap_or(0);
-                        let variance: f64 = run
-                            .runs
-                            .iter()
-                            .map(|r| {
-                                let d = r.delta_bytes as f64 - mean;
-                                d * d
-                            })
-                            .sum::<f64>()
-                            / if n > 0.0 { n } else { 1.0 };
-                        let stddev = variance.sqrt();
-                        let analytical =
-                            climb_analytical::estimate_memory_footprint(run.size.count());
-                        let size_label = format!("{:?}", run.size).to_lowercase();
-                        let (harness_n, condensed_sum, ladder_len) = match wire_for(&size_label) {
-                            Some(w) => {
-                                let condensed =
-                                    w.with_mtl_total_bytes.saturating_sub(w.ladder_len as u64);
-                                (
-                                    w.message_count,
-                                    usize::try_from(condensed).unwrap_or(usize::MAX),
-                                    w.ladder_len,
-                                )
-                            }
-                            None => {
-                                warnings.push(format!(
-                                    "memory report size `{size_label}` has no matching wire-size row; harness payload not modelled"
-                                ));
-                                (run.size.count(), 0, 0)
-                            }
-                        };
-                        let harness = climb_analytical::harness_output_estimate(
-                            harness_n,
-                            condensed_sum,
-                            ladder_len,
-                        );
-                        let total = (analytical.total_memory_bytes as u64)
-                            + (harness.estimated_total_bytes as u64);
-                        let measured_i64 = mean.round() as i64;
-                        memory_results.measured.push(MemoryResult {
-                            size: format!("{:?}", run.size).to_lowercase(),
-                            message_count: run.size.count(),
-                            measured_mean_bytes: mean.round() as u64,
-                            libmtl_analytical_bytes: analytical.total_memory_bytes,
-                            harness_buffers_bytes: harness.estimated_total_bytes as u64,
-                            analytical_total_bytes: total,
-                            residual_bytes: measured_i64 - (total as i64),
-                            residual_percent: if total == 0 {
-                                0.0
-                            } else {
-                                ((measured_i64 as f64) - (total as f64)) / (total as f64) * 100.0
-                            },
-                            ratio: if analytical.total_memory_bytes == 0 {
-                                0.0
-                            } else {
-                                mean / (analytical.total_memory_bytes as f64)
-                            },
-                            measured_analytical_total_ratio: if total == 0 {
-                                0.0
-                            } else {
-                                mean / (total as f64)
-                            },
-                            measured_range_min_bytes: minv,
-                            measured_range_max_bytes: maxv,
-                            measured_stddev_bytes: stddev,
-                        });
-                    }
-                }
-            }
+            // A present-but-unparseable artifact is a hard error naming the
+            // path, never a silently empty memory section.
+            let artifact =
+                parse_memory_artifact(&content).map_err(|e| ReportError::MalformedData {
+                    path: p.clone(),
+                    reason: e.to_string(),
+                })?;
+            memory_results.measured = memory_rows(&artifact, &wire_size, &mut warnings);
         }
     }
 
@@ -660,6 +581,239 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     })?;
 
     Ok(results)
+}
+
+/// One measured central value plus its spread, in the units the consolidated
+/// memory row records.
+struct MeasuredRow {
+    size: String,
+    message_count: usize,
+    mean: f64,
+    median_bytes: u64,
+    iqr_bytes: u64,
+    samples: usize,
+    method: String,
+    min_bytes: u64,
+    max_bytes: u64,
+    stddev_bytes: f64,
+}
+
+/// The analytical decomposition for one size: the libMTL page model plus the
+/// harness-output buffers implied by the matching wire row.
+struct Analytical {
+    libmtl_bytes: usize,
+    harness_bytes: u64,
+    total_bytes: u64,
+}
+
+/// Population standard deviation of a sample, in the sample's own units.
+fn population_stddev(values: &[f64]) -> f64 {
+    let n = values.len() as f64;
+    if n == 0.0 {
+        return 0.0;
+    }
+    let mean = values.iter().sum::<f64>() / n;
+    let variance = values.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
+    variance.sqrt()
+}
+
+/// Decompose the analytical memory estimate for `size_label` into libMTL pages
+/// and harness buffers, warning (and leaving the payload unmodelled) when no
+/// wire row exists for that size.
+fn analytical_for(
+    message_count: usize,
+    size_label: &str,
+    wire_size: &[WireSizeResult],
+    warnings: &mut Vec<String>,
+) -> Analytical {
+    let libmtl = climb_analytical::estimate_memory_footprint(message_count);
+    let (harness_n, condensed_sum, ladder_len) = match wire_size
+        .iter()
+        .find(|w| w.size == size_label)
+    {
+        Some(w) => {
+            let condensed = w.with_mtl_total_bytes.saturating_sub(w.ladder_len as u64);
+            (
+                w.message_count,
+                usize::try_from(condensed).unwrap_or(usize::MAX),
+                w.ladder_len,
+            )
+        }
+        None => {
+            warnings.push(format!(
+                    "memory report size `{size_label}` has no matching wire-size row; harness payload not modelled"
+                ));
+            (message_count, 0, 0)
+        }
+    };
+    let harness = climb_analytical::harness_output_estimate(harness_n, condensed_sum, ladder_len);
+    Analytical {
+        libmtl_bytes: libmtl.total_memory_bytes,
+        harness_bytes: harness.estimated_total_bytes as u64,
+        total_bytes: libmtl.total_memory_bytes as u64 + harness.estimated_total_bytes as u64,
+    }
+}
+
+/// Assemble a consolidated memory row from a measured value and its analytical
+/// decomposition.
+fn memory_row(measured: MeasuredRow, analytical: Analytical) -> MemoryResult {
+    let total = analytical.total_bytes;
+    let measured_i64 = measured.mean.round() as i64;
+    MemoryResult {
+        size: measured.size,
+        message_count: measured.message_count,
+        measured_mean_bytes: measured.mean.round() as u64,
+        libmtl_analytical_bytes: analytical.libmtl_bytes,
+        harness_buffers_bytes: analytical.harness_bytes,
+        analytical_total_bytes: total,
+        residual_bytes: measured_i64 - total as i64,
+        residual_percent: if total == 0 {
+            0.0
+        } else {
+            (measured_i64 as f64 - total as f64) / (total as f64) * 100.0
+        },
+        ratio: if analytical.libmtl_bytes == 0 {
+            0.0
+        } else {
+            measured.mean / (analytical.libmtl_bytes as f64)
+        },
+        measured_analytical_total_ratio: if total == 0 {
+            0.0
+        } else {
+            measured.mean / (total as f64)
+        },
+        measured_range_min_bytes: measured.min_bytes,
+        measured_range_max_bytes: measured.max_bytes,
+        measured_stddev_bytes: measured.stddev_bytes,
+        median_bytes: measured.median_bytes,
+        iqr_bytes: measured.iqr_bytes,
+        samples: measured.samples,
+        method: measured.method,
+    }
+}
+
+/// The isolated-process report: the median is the measured central value, and
+/// the spread is the artifact's own IQR (with a standard deviation derived from
+/// the raw per-sample deltas for the pre-existing `measured_stddev_bytes`).
+fn isolated_memory_row(
+    run: &crate::memory::SizeReport,
+    wire_size: &[WireSizeResult],
+    warnings: &mut Vec<String>,
+) -> MemoryResult {
+    let stddev = 1024.0
+        * population_stddev(
+            &run.deltas_kb
+                .iter()
+                .map(|&kb| kb as f64)
+                .collect::<Vec<_>>(),
+        );
+    let analytical = analytical_for(run.message_count, &run.size, wire_size, warnings);
+    memory_row(
+        MeasuredRow {
+            size: run.size.clone(),
+            message_count: run.message_count,
+            mean: run.median_bytes as f64,
+            median_bytes: run.median_bytes,
+            iqr_bytes: run.iqr_bytes,
+            samples: run.samples.len(),
+            method: run.method.clone(),
+            min_bytes: run.min_bytes,
+            max_bytes: run.max_bytes,
+            stddev_bytes: stddev,
+        },
+        analytical,
+    )
+}
+
+/// The legacy in-process delta report: mean, min, max and stddev are computed
+/// from the per-run deltas; the median and IQR are computed from the same
+/// sample so the newer columns are populated wherever they are derivable.
+fn legacy_rss_delta_row(
+    run: &climb_bench::RssSizeReport,
+    wire_size: &[WireSizeResult],
+    warnings: &mut Vec<String>,
+) -> MemoryResult {
+    let deltas: Vec<u64> = run.runs.iter().map(|r| r.delta_bytes).collect();
+    let n = deltas.len() as f64;
+    let mean = deltas.iter().map(|&d| d as f64).sum::<f64>() / n;
+    let (median_f, _, _, iqr) = climb_bench::median_iqr(&deltas);
+    let minv = deltas.iter().copied().min().unwrap_or(0);
+    let maxv = deltas.iter().copied().max().unwrap_or(0);
+    let stddev = population_stddev(&deltas.iter().map(|&d| d as f64).collect::<Vec<_>>());
+    let size_label = format!("{:?}", run.size).to_lowercase();
+    let analytical = analytical_for(run.size.count(), &size_label, wire_size, warnings);
+    memory_row(
+        MeasuredRow {
+            size: size_label,
+            message_count: run.size.count(),
+            mean,
+            median_bytes: median_f.round() as u64,
+            iqr_bytes: iqr,
+            samples: deltas.len(),
+            method: "rss-delta".to_string(),
+            min_bytes: minv,
+            max_bytes: maxv,
+            stddev_bytes: stddev,
+        },
+        analytical,
+    )
+}
+
+/// The legacy comparison shape carries a pre-computed analytical total and no
+/// harness term, so it is mapped as-is; it reports a mean and a range but no
+/// median, IQR or sample count.
+fn comparison_memory_row(c: &climb_bench::RssComparison) -> MemoryResult {
+    let measured = c.measured_mean_bytes as i64;
+    let total = c.analytical_bytes as i64;
+    MemoryResult {
+        size: format!("{:?}", c.size).to_lowercase(),
+        message_count: c.message_count,
+        measured_mean_bytes: c.measured_mean_bytes,
+        libmtl_analytical_bytes: c.analytical_bytes,
+        harness_buffers_bytes: 0,
+        analytical_total_bytes: c.analytical_bytes as u64,
+        residual_bytes: measured - total,
+        residual_percent: if total == 0 {
+            0.0
+        } else {
+            (measured as f64 - total as f64) / (total as f64) * 100.0
+        },
+        ratio: c.ratio,
+        measured_analytical_total_ratio: if c.analytical_bytes == 0 {
+            0.0
+        } else {
+            c.measured_mean_bytes as f64 / (c.analytical_bytes as f64)
+        },
+        measured_range_min_bytes: c.measured_range_bytes.0,
+        measured_range_max_bytes: c.measured_range_bytes.1,
+        measured_stddev_bytes: c.measured_stddev_bytes,
+        median_bytes: c.measured_mean_bytes,
+        iqr_bytes: 0,
+        samples: 0,
+        method: "rss-comparison".to_string(),
+    }
+}
+
+/// Turn one recognized memory artifact into the consolidated rows.
+fn memory_rows(
+    artifact: &MemoryArtifact,
+    wire_size: &[WireSizeResult],
+    warnings: &mut Vec<String>,
+) -> Vec<MemoryResult> {
+    match artifact {
+        MemoryArtifact::Isolated(report) => report
+            .runs
+            .iter()
+            .map(|run| isolated_memory_row(run, wire_size, warnings))
+            .collect(),
+        MemoryArtifact::LegacyRssDelta(report) => report
+            .runs
+            .iter()
+            .filter(|run| !run.runs.is_empty())
+            .map(|run| legacy_rss_delta_row(run, wire_size, warnings))
+            .collect(),
+        MemoryArtifact::LegacyComparison(rows) => rows.iter().map(comparison_memory_row).collect(),
+    }
 }
 
 fn chrono_like_timestamp() -> String {
@@ -755,6 +909,10 @@ mod tests {
             measured_range_min_bytes: 4000,
             measured_range_max_bytes: 4200,
             measured_stddev_bytes: 50.0,
+            median_bytes: 4096,
+            iqr_bytes: 0,
+            samples: 1,
+            method: "isolated-process".to_string(),
         }
     }
 

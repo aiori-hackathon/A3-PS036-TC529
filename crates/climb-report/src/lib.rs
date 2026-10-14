@@ -8,6 +8,7 @@ pub mod charts;
 pub mod error;
 pub mod html;
 pub mod ladder;
+pub mod memory;
 pub mod record;
 pub mod render;
 pub mod results;
@@ -17,6 +18,10 @@ pub use error::ReportError;
 pub use html::check_report;
 pub use ladder::{
     LadderProvenance, LadderVerification, SubmoduleRef, LADDER_VERIFICATION_SCHEMA_VERSION,
+};
+pub use memory::{
+    parse_memory_artifact, MemoryArtifact, MemoryParseError, MemoryReportJson, ProbeLine,
+    SizeReport, ISOLATED_PROCESS_METHOD,
 };
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};

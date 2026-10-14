@@ -904,6 +904,10 @@ mod tests {
                 measured_range_min_bytes: 73_728,
                 measured_range_max_bytes: 1_630_208,
                 measured_stddev_bytes: 778_240.0,
+                median_bytes: 851_968,
+                iqr_bytes: 1_556_480,
+                samples: 2,
+                method: "isolated-process".to_string(),
             },
             MemoryResult {
                 size: "medium".to_string(),
@@ -919,6 +923,10 @@ mod tests {
                 measured_range_min_bytes: 942_080,
                 measured_range_max_bytes: 3_575_808,
                 measured_stddev_bytes: 1_316_864.0,
+                median_bytes: 2_258_944,
+                iqr_bytes: 2_633_728,
+                samples: 2,
+                method: "isolated-process".to_string(),
             },
             MemoryResult {
                 size: "large".to_string(),
@@ -934,6 +942,10 @@ mod tests {
                 measured_range_min_bytes: 80_093_184,
                 measured_range_max_bytes: 561_266_688,
                 measured_stddev_bytes: 240_586_752.0,
+                median_bytes: 320_679_936,
+                iqr_bytes: 481_173_504,
+                samples: 2,
+                method: "isolated-process".to_string(),
             },
         ]
     }

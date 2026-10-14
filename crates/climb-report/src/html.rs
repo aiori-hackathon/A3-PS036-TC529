@@ -913,6 +913,10 @@ mod tests {
             measured_range_min_bytes: 73_728,
             measured_range_max_bytes: 1_630_208,
             measured_stddev_bytes: 778_240.0,
+            median_bytes: 851_968,
+            iqr_bytes: 1_556_480,
+            samples: 2,
+            method: "isolated-process".to_string(),
         }];
         results
     }

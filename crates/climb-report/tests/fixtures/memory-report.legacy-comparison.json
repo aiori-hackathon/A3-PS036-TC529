@@ -1,0 +1,29 @@
+[
+  {
+    "size": "Small",
+    "message_count": 100,
+    "measured_mean_bytes": 851968,
+    "analytical_bytes": 2097152,
+    "ratio": 0.406,
+    "measured_range_bytes": [73728, 1630208],
+    "measured_stddev_bytes": 778240.0
+  },
+  {
+    "size": "Medium",
+    "message_count": 10000,
+    "measured_mean_bytes": 2258944,
+    "analytical_bytes": 2097152,
+    "ratio": 1.077,
+    "measured_range_bytes": [942080, 3575808],
+    "measured_stddev_bytes": 1316864.0
+  },
+  {
+    "size": "Large",
+    "message_count": 1000000,
+    "measured_mean_bytes": 320679936,
+    "analytical_bytes": 49283072,
+    "ratio": 6.506,
+    "measured_range_bytes": [80093184, 561266688],
+    "measured_stddev_bytes": 240586752.0
+  }
+]

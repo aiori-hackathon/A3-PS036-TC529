@@ -7,13 +7,13 @@
 
 use anyhow::{Context, Result};
 use clap::Args;
-use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
 use climb_bench::{median_iqr, DEFAULT_WIRE_SEED};
 use climb_dns::DatasetSize as DnsDatasetSize;
+use climb_report::memory::{MemoryReportJson, ProbeLine, SizeReport, ISOLATED_PROCESS_METHOD};
 
 use crate::SizeArg;
 
@@ -30,40 +30,6 @@ pub(crate) struct MemoryReportArgs {
 
     #[arg(long)]
     out: Option<PathBuf>,
-}
-
-#[derive(Debug, Serialize, serde::Deserialize, Clone)]
-struct ProbeLine {
-    size: String,
-    baseline_kb: u64,
-    after_kb: u64,
-    hwm_kb: u64,
-}
-
-#[derive(Debug, Serialize, serde::Deserialize, Clone)]
-struct SizeReport {
-    size: String,
-    message_count: usize,
-    method: String,
-    samples: Vec<ProbeLine>,
-    deltas_kb: Vec<u64>,
-    median_kb: f64,
-    q1_kb: u64,
-    q3_kb: u64,
-    iqr_kb: u64,
-    min_kb: u64,
-    max_kb: u64,
-    median_bytes: u64,
-    min_bytes: u64,
-    max_bytes: u64,
-    iqr_bytes: u64,
-}
-
-#[derive(Debug, Serialize, serde::Deserialize, Clone)]
-struct MemoryReportJson {
-    method: String,
-    seed: u64,
-    runs: Vec<SizeReport>,
 }
 
 pub(crate) fn cmd_memory_report(args: MemoryReportArgs) -> Result<()> {
@@ -94,7 +60,7 @@ pub(crate) fn cmd_memory_report(args: MemoryReportArgs) -> Result<()> {
         runs.push(SizeReport {
             size: size_str.clone(),
             message_count,
-            method: "isolated-process".to_string(),
+            method: ISOLATED_PROCESS_METHOD.to_string(),
             samples,
             deltas_kb: deltas.clone(),
             median_kb: median_f,
@@ -116,7 +82,7 @@ pub(crate) fn cmd_memory_report(args: MemoryReportArgs) -> Result<()> {
                 .with_context(|| format!("failed to create parent dirs for {}", path.display()))?;
         }
         let full = MemoryReportJson {
-            method: "isolated-process".to_string(),
+            method: ISOLATED_PROCESS_METHOD.to_string(),
             seed: args.seed,
             runs: runs.clone(),
         };

@@ -1,0 +1,59 @@
+{
+  "seed": 1,
+  "runs": [
+    {
+      "size": "Small",
+      "runs": [
+        {
+          "rss_before_bytes": 14675968,
+          "rss_after_bytes": 16306176,
+          "delta_bytes": 1630208,
+          "delta_mib": 1.5546875
+        },
+        {
+          "rss_before_bytes": 16273408,
+          "rss_after_bytes": 16347136,
+          "delta_bytes": 73728,
+          "delta_mib": 0.0703125
+        }
+      ],
+      "repeat_count": 2
+    },
+    {
+      "size": "Medium",
+      "runs": [
+        {
+          "rss_before_bytes": 22171648,
+          "rss_after_bytes": 25747456,
+          "delta_bytes": 3575808,
+          "delta_mib": 3.41015625
+        },
+        {
+          "rss_before_bytes": 25903104,
+          "rss_after_bytes": 26845184,
+          "delta_bytes": 942080,
+          "delta_mib": 0.8984375
+        }
+      ],
+      "repeat_count": 2
+    },
+    {
+      "size": "Large",
+      "runs": [
+        {
+          "rss_before_bytes": 584851456,
+          "rss_after_bytes": 1146118144,
+          "delta_bytes": 561266688,
+          "delta_mib": 535.265625
+        },
+        {
+          "rss_before_bytes": 1075388416,
+          "rss_after_bytes": 1155481600,
+          "delta_bytes": 80093184,
+          "delta_mib": 76.3828125
+        }
+      ],
+      "repeat_count": 2
+    }
+  ]
+}

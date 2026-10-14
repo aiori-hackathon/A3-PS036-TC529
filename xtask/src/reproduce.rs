@@ -94,6 +94,7 @@ pub(crate) enum StepId {
     BenchAll,
     DnsDemo,
     Consolidate,
+    VerifyConsolidated,
     Charts,
     ReportHtml,
     ReportCheck,
@@ -110,6 +111,7 @@ impl StepId {
             StepId::BenchAll => "bench-all",
             StepId::DnsDemo => "dns-demo",
             StepId::Consolidate => "consolidate",
+            StepId::VerifyConsolidated => "verify-consolidated",
             StepId::Charts => "charts",
             StepId::ReportHtml => "report --format html",
             StepId::ReportCheck => "report --check",
@@ -183,7 +185,7 @@ pub(crate) struct ReproduceOpts {
 /// Build the ordered step list for `opts`.  Pure: no I/O, no subprocesses.
 pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
     let sizes = if opts.quick { SIZES_QUICK } else { SIZES_FULL };
-    let mut steps = Vec::with_capacity(9);
+    let mut steps = Vec::with_capacity(10);
 
     steps.push(Step::run(StepId::PinEnv, &["pin-env"]));
 
@@ -234,6 +236,21 @@ pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
         argv: consolidate,
         skip: None,
     });
+
+    // Consolidation warns on an absent memory report and errors on an
+    // unparseable one, but silently accepts a valid report it fails to map.
+    // This step fails the chain when the consolidated rows do not cover every
+    // size the report describes.
+    steps.push(Step::run(
+        StepId::VerifyConsolidated,
+        &[
+            "verify-consolidated",
+            "--memory-report",
+            MEMORY_REPORT,
+            "--results",
+            RESULTS,
+        ],
+    ));
 
     steps.push(Step::run(StepId::Charts, &["charts"]));
 
@@ -454,6 +471,7 @@ mod tests {
                 StepId::BenchAll,
                 StepId::DnsDemo,
                 StepId::Consolidate,
+                StepId::VerifyConsolidated,
                 StepId::Charts,
                 StepId::ReportHtml,
                 StepId::ReportCheck,
@@ -567,6 +585,24 @@ mod tests {
     }
 
     #[test]
+    fn verify_consolidated_receives_the_memory_report_and_results() {
+        let steps = plan(&base());
+        let verify = find(&steps, StepId::VerifyConsolidated);
+        assert_eq!(value_of(verify, "--memory-report"), MEMORY_REPORT);
+        assert_eq!(value_of(verify, "--results"), RESULTS);
+        let order = kinds(&steps);
+        let after = order
+            .iter()
+            .position(|&id| id == StepId::Consolidate)
+            .unwrap();
+        let at = order
+            .iter()
+            .position(|&id| id == StepId::VerifyConsolidated)
+            .unwrap();
+        assert_eq!(at, after + 1, "verify-consolidated follows consolidate");
+    }
+
+    #[test]
     fn wire_and_memory_write_to_the_canonical_paths() {
         let steps = plan(&base());
         assert_eq!(
@@ -598,6 +634,7 @@ mod tests {
             StepId::BenchAll,
             StepId::DnsDemo,
             StepId::Consolidate,
+            StepId::VerifyConsolidated,
             StepId::Charts,
             StepId::ReportHtml,
             StepId::ReportCheck,
