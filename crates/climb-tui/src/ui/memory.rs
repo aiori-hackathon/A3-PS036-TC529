@@ -1,8 +1,8 @@
-//! The Memory tab (phase 21.4): per-size stacked bars comparing the analytical
-//! model (libMTL pages, plus harness buffers when the F8 fields are present)
-//! against the measured RSS delta, beside a plain-language panel explaining
-//! what each bar and the residual mean. On wide terminals the panels sit side
-//! by side; below [`WIDE_WIDTH`] the explainer collapses beneath the bars.
+//! The Memory tab: per-size stacked bars comparing the itemised analytical
+//! model (libMTL page model, harness buffers, dataset buffers, keypair image)
+//! against the measured resident RSS delta, beside a plain-language panel
+//! explaining what each bar and the residual mean. On wide terminals the panels
+//! sit side by side; below [`WIDE_WIDTH`] the explainer collapses beneath the bars.
 
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
@@ -71,6 +71,8 @@ fn render_panels(
         legend: vec![
             ("libMTL pages".to_string(), SegmentStyle::Hatched),
             ("harness buffers".to_string(), SegmentStyle::Dotted),
+            ("dataset buffers".to_string(), SegmentStyle::Dotted),
+            ("keypair image".to_string(), SegmentStyle::Dotted),
             ("measured RSS".to_string(), SegmentStyle::Solid),
         ],
         scale_note: Some("linear scale, normalised per size".to_string()),
@@ -96,30 +98,38 @@ fn explainer_lines(has_harness: bool, theme: &Theme) -> Vec<Line<'static>> {
         Line::from(""),
         Line::from(vec![
             Span::styled("  analytical ", theme.extrapolated),
-            Span::styled("libMTL page model", Style::new().fg(theme.fg)),
+            Span::styled("itemised model total", Style::new().fg(theme.fg)),
         ]),
         Line::from(vec![
             Span::styled("  measured   ", theme.measured),
-            Span::styled("resident-set delta", Style::new().fg(theme.fg)),
+            Span::styled("resident median (n runs)", Style::new().fg(theme.fg)),
         ]),
         Line::from(""),
+        Line::from(Span::styled(
+            "  peak     = high-water \u{2212} baseline",
+            Style::new().fg(theme.muted),
+        )),
+        Line::from(Span::styled(
+            "  residual = resident median \u{2212} model",
+            Style::new().fg(theme.muted),
+        )),
+        Line::from(Span::styled(
+            "  ratio    = measured \u{00f7} analytical",
+            Style::new().fg(theme.muted),
+        )),
     ];
     if has_harness {
         lines.push(Line::from(Span::styled(
-            "  modelled = libMTL pages + harness buffers",
+            "  model = libMTL + harness + dataset",
             Style::new().fg(theme.muted),
         )));
         lines.push(Line::from(Span::styled(
-            "  residual = measured \u{2212} modelled",
+            "          + keypair image",
             Style::new().fg(theme.muted),
         )));
     } else {
         lines.push(Line::from(Span::styled(
-            "  harness buffers are not modelled (pre-F8),",
-            Style::new().fg(theme.muted),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  so analytical is the libMTL page model",
+            "  harness buffers not modelled (pre-F8)",
             Style::new().fg(theme.muted),
         )));
     }
@@ -141,8 +151,8 @@ mod tests {
             label: "Small".to_string(),
             scale_max: 2_100_384,
             caption: Some(
-                "residual -1.2 MB (-59.4%) \u{00b7} measured/model 0.41\u{00d7}; \
-                 modelled = libMTL pages + harness buffers"
+                "peak 852 kB \u{00b7} ratio 0.40\u{00d7} \u{00b7} resid -1.3 MB (-60.5%) \u{00b7} \
+                 n=3, IQR 213 kB"
                     .to_string(),
             ),
             bars: vec![
@@ -227,10 +237,10 @@ mod tests {
             "Memory",
             "Analytical",
             "Measured",
-            "libMTL page model",
-            "resident-set delta",
+            "itemised model total",
+            "resident median",
             "Reading these numbers",
-            "harness buffers",
+            "dataset buffers",
         ] {
             assert!(
                 out.contains(needle),

@@ -310,6 +310,100 @@ impl HarnessOutputEstimate {
 }
 
 // ---------------------------------------------------------------------------
+// Itemised memory model
+// ---------------------------------------------------------------------------
+
+/// Serialized length of a libMTL `SLH-DSA-SHA2-128s-MTL-SHA2-128` key image, in
+/// bytes.
+///
+/// A discovered constant, not a fit: the image is the fixed serialization of
+/// the algorithm tag, secret key, public key, flags and series id. It is pinned
+/// by a test against a freshly generated keypair's `key_image_len`.
+pub const KEY_IMAGE_BYTES: usize = 186;
+
+/// Capacity of the per-message wire buffer the DNS encoder allocates, in bytes.
+///
+/// `climb-dns` serializes each dataset message through hickory's
+/// `Message::to_vec`, which starts from `Vec::with_capacity(512)` and returns
+/// that buffer. Every stored message therefore retains a 512-byte heap
+/// allocation regardless of how short the message actually is -- a real,
+/// size-proportional term the tree/randomizer/harness model omitted.
+pub const DATASET_MESSAGE_BUFFER_BYTES: usize = 512;
+
+/// Inline size of a `Vec` header, in bytes (`size_of::<Vec<u8>>()` on 64-bit).
+///
+/// The dataset holds its messages in a `Vec<Vec<u8>>`, so one 24-byte header per
+/// message lives inside the outer allocation.
+pub const VEC_HEADER_BYTES: usize = 24;
+
+/// Estimated heap bytes retained by the dataset's message buffers.
+///
+/// Each of the `n` messages owns a [`DATASET_MESSAGE_BUFFER_BYTES`]-sized heap
+/// allocation, and its header costs [`VEC_HEADER_BYTES`] inside the outer
+/// `Vec`. A documented model, not a measurement.
+#[must_use]
+pub fn dataset_buffers_estimate(n: usize) -> usize {
+    n.saturating_mul(DATASET_MESSAGE_BUFFER_BYTES + VEC_HEADER_BYTES)
+}
+
+/// Itemised analytical memory model: every term exposed separately so each can
+/// be compared against the matching measured stage delta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MemoryModelEstimate {
+    /// Number of leaf messages.
+    pub leaf_count: usize,
+    /// Tree node-set page bytes (`tree_memory_bytes` from the footprint model).
+    pub tree_nodes_bytes: usize,
+    /// Randomizer page bytes (`randomizer_memory_bytes`).
+    pub randomizer_bytes: usize,
+    /// Harness `sign_batch` output payload bytes (ladder + condensed signatures).
+    pub harness_payload_bytes: usize,
+    /// Harness `Vec` header/rounding overhead bytes.
+    pub harness_overhead_bytes: usize,
+    /// Dataset message-buffer bytes ([`dataset_buffers_estimate`]).
+    pub dataset_buffers_bytes: usize,
+    /// Serialized key image bytes ([`KEY_IMAGE_BYTES`]). The native key/signing
+    /// context is deliberately not modelled and remains in the measured residual.
+    pub keypair_bytes: usize,
+    /// Sum of every term above.
+    pub total_bytes: usize,
+}
+
+/// Build an itemised [`MemoryModelEstimate`] for `n` leaves.
+///
+/// `condensed_len_sum` and `ladder_len` are the measured `sign_batch` output
+/// lengths (see [`harness_output_estimate`]); every other term is derived from
+/// the documented constants above. This is the analytical model, never a
+/// measured value.
+#[must_use]
+pub fn memory_model_estimate(
+    n: usize,
+    condensed_len_sum: usize,
+    ladder_len: usize,
+) -> MemoryModelEstimate {
+    let footprint = estimate_memory_footprint(n);
+    let harness = harness_output_estimate(n, condensed_len_sum, ladder_len);
+    let dataset_buffers_bytes = dataset_buffers_estimate(n);
+    let total_bytes = footprint
+        .tree_memory_bytes
+        .saturating_add(footprint.randomizer_memory_bytes)
+        .saturating_add(harness.payload_bytes)
+        .saturating_add(harness.vec_overhead_bytes)
+        .saturating_add(dataset_buffers_bytes)
+        .saturating_add(KEY_IMAGE_BYTES);
+    MemoryModelEstimate {
+        leaf_count: n,
+        tree_nodes_bytes: footprint.tree_memory_bytes,
+        randomizer_bytes: footprint.randomizer_memory_bytes,
+        harness_payload_bytes: harness.payload_bytes,
+        harness_overhead_bytes: harness.vec_overhead_bytes,
+        dataset_buffers_bytes,
+        keypair_bytes: KEY_IMAGE_BYTES,
+        total_bytes,
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Module: helper to compute max_tree_index in non-test code (exposed for docs)
 // ---------------------------------------------------------------------------
 #[doc(hidden)]
@@ -533,5 +627,62 @@ mod tests {
         assert_eq!(est.vec_overhead_bytes, 0);
         assert_eq!(est.payload_bytes, 0);
         assert_eq!(est.estimated_total_bytes, 0);
+    }
+
+    // -- itemised memory model --
+
+    #[test]
+    fn dataset_buffers_estimate_arithmetic() {
+        assert_eq!(dataset_buffers_estimate(0), 0);
+        assert_eq!(dataset_buffers_estimate(1), 536);
+        assert_eq!(dataset_buffers_estimate(100), 53_600);
+        assert_eq!(dataset_buffers_estimate(10_000), 5_360_000);
+        assert_eq!(dataset_buffers_estimate(1_000_000), 536_000_000);
+    }
+
+    #[test]
+    fn dataset_buffer_constants_match_their_sources() {
+        // 512 is hickory's `Message::to_vec` buffer; 24 is the Vec header; 186 is
+        // the discovered key image length.
+        assert_eq!(DATASET_MESSAGE_BUFFER_BYTES, 512);
+        assert_eq!(VEC_HEADER_BYTES, 24);
+        assert_eq!(KEY_IMAGE_BYTES, 186);
+        assert_eq!(DATASET_MESSAGE_BUFFER_BYTES + VEC_HEADER_BYTES, 536);
+    }
+
+    #[test]
+    fn memory_model_total_is_the_sum_of_its_terms() {
+        let m = memory_model_estimate(1_000_000, 367_059_712, 8_120);
+        let sum = m.tree_nodes_bytes
+            + m.randomizer_bytes
+            + m.harness_payload_bytes
+            + m.harness_overhead_bytes
+            + m.dataset_buffers_bytes
+            + m.keypair_bytes;
+        assert_eq!(m.total_bytes, sum);
+        assert_eq!(m.leaf_count, 1_000_000);
+        assert_eq!(m.harness_payload_bytes, 367_059_712 + 8_120);
+        assert_eq!(m.dataset_buffers_bytes, 536_000_000);
+        assert_eq!(m.keypair_bytes, KEY_IMAGE_BYTES);
+    }
+
+    #[test]
+    fn memory_model_adds_dataset_term_to_footprint_and_harness() {
+        let n = 10_000;
+        let m = memory_model_estimate(n, 2_735_296, 8_056);
+        let fp = estimate_memory_footprint(n);
+        let h = harness_output_estimate(n, 2_735_296, 8_056);
+        assert_eq!(m.tree_nodes_bytes, fp.tree_memory_bytes);
+        assert_eq!(m.randomizer_bytes, fp.randomizer_memory_bytes);
+        assert_eq!(m.harness_payload_bytes, h.payload_bytes);
+        assert_eq!(m.harness_overhead_bytes, h.vec_overhead_bytes);
+        assert_eq!(m.dataset_buffers_bytes, dataset_buffers_estimate(n));
+        assert_eq!(
+            m.total_bytes,
+            fp.total_memory_bytes
+                + h.estimated_total_bytes
+                + dataset_buffers_estimate(n)
+                + KEY_IMAGE_BYTES
+        );
     }
 }

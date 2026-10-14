@@ -7,11 +7,13 @@ use crate::widgets::stacked_bars::{SegmentStyle, StackBar, StackGroup, StackSegm
 use super::{title_size, ResultsView};
 
 impl ResultsView {
-    /// Per-size measured-vs-analytical memory bars (phase 21.4).
+    /// Per-size measured-vs-analytical memory bars.
     ///
-    /// The analytical bar is the libMTL page model plus harness buffers (when
-    /// the F8 fields are present); the measured bar is the mean RSS delta. The
-    /// caption carries the residual and the measured/model ratio.
+    /// The analytical bar is the itemised model (libMTL page model, harness
+    /// buffers when present, dataset message buffers, keypair image); the
+    /// measured bar is the resident RSS delta (median of n isolated-process
+    /// runs). The caption carries the headline peak, the resident median and
+    /// IQR, the residual, and the resident/model ratio.
     pub fn memory_stacks(&self) -> Vec<StackGroup> {
         let mut rows: Vec<_> = self.results.memory.measured.iter().collect();
         rows.sort_by_key(|row| row.message_count);
@@ -30,22 +32,40 @@ impl ResultsView {
                         style: SegmentStyle::Dotted,
                     });
                 }
+                if row.dataset_buffers_bytes > 0 {
+                    analytical_segments.push(StackSegment {
+                        label: "dataset buffers".to_string(),
+                        bytes: row.dataset_buffers_bytes,
+                        style: SegmentStyle::Dotted,
+                    });
+                }
+                if row.keypair_bytes > 0 {
+                    analytical_segments.push(StackSegment {
+                        label: "keypair image".to_string(),
+                        bytes: row.keypair_bytes,
+                        style: SegmentStyle::Dotted,
+                    });
+                }
                 let model_note = if has_harness {
                     ""
                 } else {
                     " (pre-F8: no harness model)"
                 };
                 let caption = format!(
-                    "residual {} ({:+.1}%) \u{00b7} measured/model {:.2}\u{00d7}{}",
+                    "peak {} \u{00b7} ratio {:.2}\u{00d7} \u{00b7} resid {} ({:+.1}%) \u{00b7} n={}, IQR {}{}",
+                    fmt_bytes(row.measured_peak_bytes as f64),
+                    row.measured_analytical_total_ratio,
                     fmt_bytes(row.residual_bytes as f64),
                     row.residual_percent,
-                    row.measured_analytical_total_ratio,
+                    row.samples,
+                    fmt_bytes(row.iqr_bytes as f64),
                     model_note,
                 );
                 StackGroup {
                     label: title_size(&row.size),
                     scale_max: row
                         .measured_mean_bytes
+                        .max(row.measured_peak_bytes)
                         .max(row.analytical_total_bytes)
                         .max(1),
                     caption: Some(caption),
@@ -59,14 +79,10 @@ impl ResultsView {
                             name: "Measured".to_string(),
                             segments: vec![StackSegment {
                                 label: "measured RSS".to_string(),
-                                bytes: row.measured_mean_bytes,
+                                bytes: row.median_bytes,
                                 style: SegmentStyle::Solid,
                             }],
-                            note: format!(
-                                "{} \u{00b1}{}",
-                                fmt_bytes(row.measured_mean_bytes as f64),
-                                fmt_bytes(row.measured_stddev_bytes),
-                            ),
+                            note: fmt_bytes(row.median_bytes as f64),
                         },
                     ],
                 }
@@ -101,14 +117,15 @@ mod tests {
         let analytical = &stacks[0].bars[0];
         assert_eq!(
             analytical.segments.len(),
-            2,
-            "libMTL pages + harness buffers"
+            4,
+            "libMTL pages + harness + dataset buffers + keypair image"
         );
         let sum: u64 = analytical.segments.iter().map(|s| s.bytes).sum();
-        assert_eq!(sum, 2_100_384, "analytical segments sum to the total");
+        let expected = 2_097_152u64 + 3_232 + 100 * 536 + 186;
+        assert_eq!(sum, expected, "analytical segments sum to the total");
         let caption = stacks[0].caption.as_deref().unwrap();
-        assert!(caption.contains("-59.4%"), "{caption}");
-        assert!(caption.contains("measured/model 0.41"), "{caption}");
+        assert!(caption.contains("-60.5%"), "{caption}");
+        assert!(caption.contains("ratio 0.40"), "{caption}");
         assert!(view.memory_has_harness());
     }
 
@@ -117,7 +134,11 @@ mod tests {
         let view = view_with_memory(vec![memory_result("small", 100, 851_968, 2_097_152, 0)]);
         let stacks = view.memory_stacks();
         let analytical = &stacks[0].bars[0];
-        assert_eq!(analytical.segments.len(), 1, "libMTL-only when F8 absent");
+        assert_eq!(
+            analytical.segments.len(),
+            3,
+            "harness dropped; libMTL + dataset buffers + keypair remain"
+        );
         assert_eq!(analytical.segments[0].bytes, 2_097_152);
         let caption = stacks[0].caption.as_deref().unwrap();
         assert!(caption.contains("pre-F8"), "{caption}");

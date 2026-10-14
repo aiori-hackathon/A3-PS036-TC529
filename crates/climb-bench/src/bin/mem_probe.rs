@@ -9,8 +9,11 @@ use std::process;
 struct ProbeResult {
     size: String,
     baseline_kb: u64,
+    after_dataset_kb: u64,
+    after_keypair_kb: u64,
     after_kb: u64,
     hwm_kb: u64,
+    key_image_bytes: u64,
 }
 
 fn parse_size(s: &str) -> Option<DatasetSize> {
@@ -65,6 +68,25 @@ fn read_status_self() -> Result<String, io::Error> {
     Ok(buf)
 }
 
+/// Sample RSS and peak RSS (kilobytes) from `/proc/self/status`, exiting the
+/// process on failure: a sample is the measurement, so a missing reading is a
+/// hard error rather than a silent zero.
+fn sample_rss() -> (u64, u64) {
+    match read_status_self() {
+        Ok(s) => match parse_status_kb(&s) {
+            Some(pair) => pair,
+            None => {
+                eprintln!("failed to parse /proc/self/status");
+                process::exit(3);
+            }
+        },
+        Err(e) => {
+            eprintln!("failed to read /proc/self/status: {}", e);
+            process::exit(3);
+        }
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     if args.len() < 3 {
@@ -89,9 +111,16 @@ fn main() {
         }
     };
 
-    // Generate dataset and keypair outside the delta window
+    // Four RSS sample points, each measured from process start so every stage
+    // delta (dataset, keypair, sign) is attributable. `hwm` is the running peak.
+    let (baseline, _) = sample_rss();
+
+    // Stage 1: after dataset generation.
     let dataset = generate_dataset(size, seed);
     let messages: Vec<&[u8]> = dataset.iter().map(|m| m.as_slice()).collect();
+    let (after_dataset, _) = sample_rss();
+
+    // Stage 2: after keypair generation.
     let keypair = match MtlKeyPair::generate() {
         Ok(k) => k,
         Err(e) => {
@@ -99,22 +128,9 @@ fn main() {
             process::exit(2);
         }
     };
+    let (after_keypair, _) = sample_rss();
 
-    let baseline = match read_status_self() {
-        Ok(s) => match parse_status_kb(&s) {
-            Some((r, _h)) => r,
-            None => {
-                eprintln!("failed to parse /proc/self/status");
-                process::exit(3);
-            }
-        },
-        Err(e) => {
-            eprintln!("failed to read /proc/self/status: {}", e);
-            process::exit(3);
-        }
-    };
-
-    // Sign
+    // Stage 3: after sign_batch returns (its output is still alive).
     let signer = keypair.signer();
     let _output = match signer.sign_batch(&messages) {
         Ok(o) => o,
@@ -123,26 +139,16 @@ fn main() {
             process::exit(4);
         }
     };
-
-    let after = match read_status_self() {
-        Ok(s) => match parse_status_kb(&s) {
-            Some((r, h)) => (r, h),
-            None => {
-                eprintln!("failed to parse /proc/self/status after");
-                process::exit(3);
-            }
-        },
-        Err(e) => {
-            eprintln!("failed to read /proc/self/status: {}", e);
-            process::exit(3);
-        }
-    };
+    let (after, hwm) = sample_rss();
 
     let res = ProbeResult {
         size: size_str.to_ascii_lowercase(),
         baseline_kb: baseline,
-        after_kb: after.0,
-        hwm_kb: after.1,
+        after_dataset_kb: after_dataset,
+        after_keypair_kb: after_keypair,
+        after_kb: after,
+        hwm_kb: hwm,
+        key_image_bytes: keypair.key_image_len() as u64,
     };
     let json = serde_json::to_string(&res).unwrap_or_else(|_| "{}".to_string());
     println!("{}", json);

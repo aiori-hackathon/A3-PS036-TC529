@@ -243,6 +243,14 @@ impl MtlKeyPair {
         &self.series_id
     }
 
+    /// Length in bytes of the serialized key image this keypair was built from.
+    ///
+    /// Only the length is exposed: the key image itself embeds the secret key.
+    /// It is reported as the keypair's held-bytes term in the memory model.
+    pub fn key_image_len(&self) -> usize {
+        self.key_image.len()
+    }
+
     /// Create a signer that re-derives a fresh native context per batch.
     ///
     /// Each batch starts from an empty ladder, so repeated calls do not

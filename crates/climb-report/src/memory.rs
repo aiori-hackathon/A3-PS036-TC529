@@ -23,18 +23,60 @@ use serde::{Deserialize, Serialize};
 /// only value [`MemoryReportJson`] accepts there.
 pub const ISOLATED_PROCESS_METHOD: &str = "isolated-process";
 
-/// One RSS probe sample: the resident set size just before and just after
-/// signing, plus the process high-water mark, all in kilobytes.
+/// One RSS probe sample: the process-start baseline, the intermediate stage
+/// points, the post-sign resident reading and the process high-water mark, all
+/// in kilobytes.
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 pub struct ProbeLine {
     /// Dataset size label this sample belongs to (`small`, `medium`, `large`).
     pub size: String,
-    /// RSS in kilobytes sampled before `sign_batch`.
+    /// Process RSS in kilobytes at process start, before the dataset or keypair
+    /// is generated. Every stage delta is measured from this baseline.
     pub baseline_kb: u64,
+    /// RSS in kilobytes after dataset generation. `None` in artifacts written
+    /// before stage attribution was recorded.
+    #[serde(default)]
+    pub after_dataset_kb: Option<u64>,
+    /// RSS in kilobytes after keypair generation. `None` in artifacts written
+    /// before stage attribution was recorded.
+    #[serde(default)]
+    pub after_keypair_kb: Option<u64>,
     /// RSS in kilobytes sampled after `sign_batch` returned.
     pub after_kb: u64,
     /// Peak RSS in kilobytes observed during the probe.
     pub hwm_kb: u64,
+    /// Length in bytes of the key image the probe's keypair was built from;
+    /// `None` in artifacts written before this field was recorded.
+    #[serde(default)]
+    pub key_image_bytes: Option<u64>,
+}
+
+/// Median and interquartile range of one measured stage's delta, in kilobytes.
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct StageStats {
+    /// Median delta in kilobytes.
+    pub median_kb: f64,
+    /// Interquartile range in kilobytes.
+    pub iqr_kb: u64,
+}
+
+/// Per-stage delta breakdown for one size, all in kilobytes.
+///
+/// Each delta is measured from process start to that stage's sample point
+/// (`dataset`, `keypair`, `sign`) or is a derived whole-run figure (`resident`
+/// = after − baseline, `peak` = hwm − baseline).
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct StageDeltas {
+    /// Dataset generation delta.
+    pub dataset: StageStats,
+    /// Keypair generation delta.
+    pub keypair: StageStats,
+    /// `sign_batch` delta.
+    pub sign: StageStats,
+    /// Whole-run resident delta (`after − baseline`).
+    pub resident: StageStats,
+    /// Whole-run peak delta (`hwm − baseline`): the headline footprint metric.
+    pub peak: StageStats,
 }
 
 /// Per-size summary of the isolated-process probe.
@@ -70,6 +112,15 @@ pub struct SizeReport {
     pub max_bytes: u64,
     /// Interquartile range in bytes.
     pub iqr_bytes: u64,
+    /// Per-stage delta breakdown; `None` in artifacts written before stage
+    /// attribution was recorded.
+    #[serde(default)]
+    pub stages: Option<StageDeltas>,
+    /// Why this size's sample count was chosen as it was (e.g. a `Large` run
+    /// pinned to three samples because one sample exceeded the time budget);
+    /// `None` when the default count was used.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// The JSON document written by `cargo xtask memory-report`.
@@ -225,6 +276,23 @@ mod tests {
        "analytical_bytes":2097152,"ratio":0.406,"measured_range_bytes":[73728,1630208],
        "measured_stddev_bytes":778240.0}]"#;
 
+    /// The current shape, with stage attribution and the key-image provenance.
+    const STAGED: &str = r#"{"method":"isolated-process","seed":1,"runs":[
+      {"size":"large","message_count":1000000,"method":"isolated-process",
+       "samples":[{"size":"large","baseline_kb":10,"after_dataset_kb":100,
+         "after_keypair_kb":110,"after_kb":300,"hwm_kb":320,
+         "key_image_bytes":186}],
+       "deltas_kb":[290],"median_kb":290.0,"q1_kb":290,"q3_kb":290,"iqr_kb":0,
+       "min_kb":290,"max_kb":290,"median_bytes":296960,"min_bytes":296960,
+       "max_bytes":296960,"iqr_bytes":0,
+       "stages":{
+         "dataset":{"median_kb":90.0,"iqr_kb":0},
+         "keypair":{"median_kb":10.0,"iqr_kb":0},
+         "sign":{"median_kb":190.0,"iqr_kb":0},
+         "resident":{"median_kb":290.0,"iqr_kb":0},
+         "peak":{"median_kb":310.0,"iqr_kb":0}},
+       "note":"large measured with n=3 (one sample exceeded 90 s)"}]}"#;
+
     #[test]
     fn parses_the_isolated_process_shape_by_method() {
         match parse_memory_artifact(ISOLATED).unwrap() {
@@ -233,6 +301,45 @@ mod tests {
                 assert_eq!(doc.runs.len(), 1);
                 assert_eq!(doc.runs[0].median_bytes, 106_496);
                 assert_eq!(doc.runs[0].samples.len(), 1);
+            }
+            other => panic!("expected isolated shape, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn pre_stage_isolated_samples_parse_with_none_stage_fields() {
+        match parse_memory_artifact(ISOLATED).unwrap() {
+            MemoryArtifact::Isolated(doc) => {
+                let sample = &doc.runs[0].samples[0];
+                assert_eq!(sample.after_dataset_kb, None);
+                assert_eq!(sample.after_keypair_kb, None);
+                assert_eq!(sample.key_image_bytes, None);
+                assert_eq!(doc.runs[0].stages, None);
+                assert_eq!(doc.runs[0].note, None);
+            }
+            other => panic!("expected isolated shape, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_stage_attribution_and_key_image_provenance() {
+        match parse_memory_artifact(STAGED).unwrap() {
+            MemoryArtifact::Isolated(doc) => {
+                let run = &doc.runs[0];
+                let sample = &run.samples[0];
+                assert_eq!(sample.after_dataset_kb, Some(100));
+                assert_eq!(sample.after_keypair_kb, Some(110));
+                assert_eq!(sample.key_image_bytes, Some(186));
+                let stages = run.stages.as_ref().expect("stages present");
+                assert_eq!(stages.dataset.median_kb, 90.0);
+                assert_eq!(stages.keypair.median_kb, 10.0);
+                assert_eq!(stages.sign.median_kb, 190.0);
+                assert_eq!(stages.resident.median_kb, 290.0);
+                assert_eq!(stages.peak.median_kb, 310.0);
+                assert_eq!(
+                    run.note.as_deref(),
+                    Some("large measured with n=3 (one sample exceeded 90 s)")
+                );
             }
             other => panic!("expected isolated shape, got {other:?}"),
         }

@@ -88,6 +88,23 @@ fn committed_isolated_fixture_consolidates_and_survives_every_consumer() {
             row.measured_range_max_bytes,
             expected_run["max_bytes"].as_u64().unwrap()
         );
+
+        // Stage attribution and the derived model terms must survive
+        // consolidation, cross-checked against the committed artifact.
+        let stages = expected_run["stages"]
+            .as_object()
+            .unwrap_or_else(|| panic!("fixture has stage attribution for {size}"));
+        let stage_kb =
+            |key: &str| (stages[key]["median_kb"].as_f64().unwrap() * 1024.0).round() as u64;
+        let row_stages = row.stages.as_ref().expect("row carries stages");
+        assert_eq!(row_stages.dataset_delta_bytes, stage_kb("dataset"));
+        assert_eq!(row_stages.keypair_delta_bytes, stage_kb("keypair"));
+        assert_eq!(row_stages.sign_delta_bytes, stage_kb("sign"));
+        assert_eq!(row_stages.resident_bytes, stage_kb("resident"));
+        assert_eq!(row_stages.peak_bytes, stage_kb("peak"));
+        assert_eq!(row.measured_peak_bytes, stage_kb("peak"));
+        assert_eq!(row.dataset_buffers_bytes, row.message_count as u64 * 536);
+        assert_eq!(row.keypair_bytes, 186);
     }
 
     // serde_json's default float parser is not bit-exact on round-trip, so the
@@ -120,6 +137,10 @@ fn committed_isolated_fixture_consolidates_and_survives_every_consumer() {
             before.measured_range_max_bytes,
             after.measured_range_max_bytes
         );
+        assert_eq!(before.dataset_buffers_bytes, after.dataset_buffers_bytes);
+        assert_eq!(before.keypair_bytes, after.keypair_bytes);
+        assert_eq!(before.measured_peak_bytes, after.measured_peak_bytes);
+        assert_eq!(before.stages, after.stages);
     }
 
     let charts = root.join("charts");

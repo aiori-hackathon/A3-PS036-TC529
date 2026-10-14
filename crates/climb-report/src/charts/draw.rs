@@ -56,8 +56,8 @@ pub const AMORTIZATION_FOOTNOTES: [&str; 3] = [
 /// Footnotes for the measured-vs-analytical memory chart.
 pub const MEMORY_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → memory (from target/memory-report.json; model: climb-analytical).",
-    "Filled circles + whiskers = measured peak-RSS deltas (min/mean/max); analytical = stacked bars (libMTL pages + harness buffers, ESTIMATE).",
-    "Ratios shown as measured ÷ analytical_total; residual annotated (measured − analytical_total) with bytes and %.",
+    "Triangles = measured peak RSS (median hwm − baseline, headline); circles + whiskers = measured resident RSS (median, min–max); stacked bars = analytical ESTIMATE (libMTL pages + harness buffers + dataset buffers + keypair image).",
+    "Ratio and residual use measured resident ÷ analytical total (measured − analytical); every measured value is a median over its isolated-process runs.",
 ];
 
 /// Canvas width for every chart, in pixels.
@@ -532,11 +532,14 @@ pub fn draw_memory(
     for p in &data.points {
         for v in [
             p.measured,
+            p.measured_peak,
             p.measured_min,
             p.measured_max,
             p.analytical_total,
             p.libmtl_pages,
             p.harness_buffers,
+            p.dataset_buffers,
+            p.keypair,
         ] {
             if v > 0.0 && v.is_finite() {
                 y_lo = y_lo.min(v);
@@ -584,8 +587,27 @@ pub fn draw_memory(
             }))
             .map_err(|e| chart_err(path, e))?;
         drawings
-            .label("Measured peak RSS (mean, min–max whiskers)")
+            .label("Measured resident RSS (median, min–max whiskers)")
             .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.filled()));
+        any_label = true;
+    }
+    if data.points.iter().any(|p| p.measured_peak > 0.0) {
+        let points = data.points.clone();
+        let drawings = chart
+            .draw_series(points.iter().filter_map(|p| {
+                if p.measured_peak <= 0.0 {
+                    return None;
+                }
+                Some(TriangleMarker::new(
+                    (p.n as f64, p.measured_peak),
+                    7,
+                    COLOR_MODEL.filled(),
+                ))
+            }))
+            .map_err(|e| chart_err(path, e))?;
+        drawings
+            .label("Measured peak RSS (median, hwm − baseline): headline")
+            .legend(|(x, y)| TriangleMarker::new((x + 7, y + 5), 7, COLOR_MODEL.filled()));
         any_label = true;
     }
     if data.points.iter().any(|p| p.analytical_total > 0.0) {
@@ -643,6 +665,62 @@ pub fn draw_memory(
                 Rectangle::new(
                     [(x, y), (x + 16, y + 11)],
                     ShapeStyle::from(RGBColor(44, 160, 44)).filled(),
+                )
+            });
+        // Third segment: dataset message buffers (stacked on libMTL + harness)
+        let drawings_dataset = chart
+            .draw_series(points.iter().filter_map(|p| {
+                if p.analytical_total <= 0.0 {
+                    return None;
+                }
+                let base = p.libmtl_pages + p.harness_buffers;
+                let topv = p.dataset_buffers;
+                if topv <= 0.0 {
+                    return None;
+                }
+                let c = (p.n as f64).log10();
+                let left = 10f64.powf(c - bar_w / 2.0);
+                let right = 10f64.powf(c + bar_w / 2.0);
+                Some(Rectangle::new(
+                    [(left, base), (right, base + topv)],
+                    ShapeStyle::from(RGBColor(230, 159, 0)).filled(),
+                ))
+            }))
+            .map_err(|e| chart_err(path, e))?;
+        drawings_dataset
+            .label("dataset buffers (ESTIMATE)")
+            .legend(|(x, y)| {
+                Rectangle::new(
+                    [(x, y), (x + 16, y + 11)],
+                    ShapeStyle::from(RGBColor(230, 159, 0)).filled(),
+                )
+            });
+        // Fourth segment: keypair key image (stacked on all of the above)
+        let drawings_keypair = chart
+            .draw_series(points.iter().filter_map(|p| {
+                if p.analytical_total <= 0.0 {
+                    return None;
+                }
+                let base = p.libmtl_pages + p.harness_buffers + p.dataset_buffers;
+                let topv = p.keypair;
+                if topv <= 0.0 {
+                    return None;
+                }
+                let c = (p.n as f64).log10();
+                let left = 10f64.powf(c - bar_w / 2.0);
+                let right = 10f64.powf(c + bar_w / 2.0);
+                Some(Rectangle::new(
+                    [(left, base), (right, base + topv)],
+                    ShapeStyle::from(RGBColor(148, 103, 189)).filled(),
+                ))
+            }))
+            .map_err(|e| chart_err(path, e))?;
+        drawings_keypair
+            .label("keypair image (ESTIMATE)")
+            .legend(|(x, y)| {
+                Rectangle::new(
+                    [(x, y), (x + 16, y + 11)],
+                    ShapeStyle::from(RGBColor(148, 103, 189)).filled(),
                 )
             });
         any_label = true;

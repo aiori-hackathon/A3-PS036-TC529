@@ -375,7 +375,9 @@ pub struct AmortizationData {
 pub struct MemoryPoint {
     /// Dataset size (message count).
     pub n: u64,
-    /// Measured peak RSS mean in bytes.
+    /// Measured peak RSS delta (median) in bytes: the headline footprint metric.
+    pub measured_peak: f64,
+    /// Measured resident RSS delta (median) in bytes, compared against the model.
     pub measured: f64,
     /// Measured minimum in bytes (whisker low).
     pub measured_min: f64,
@@ -385,7 +387,11 @@ pub struct MemoryPoint {
     pub libmtl_pages: f64,
     /// Harness buffers estimate in bytes.
     pub harness_buffers: f64,
-    /// Analytical total estimate in bytes (libMTL + harness).
+    /// Dataset message buffers estimate in bytes.
+    pub dataset_buffers: f64,
+    /// Keypair (key image) estimate in bytes.
+    pub keypair: f64,
+    /// Analytical total estimate in bytes (libMTL + harness + dataset + keypair).
     pub analytical_total: f64,
     /// Residual (measured - analytical_total).
     pub residual: f64,
@@ -688,11 +694,14 @@ pub fn memory_data(rows: &[MemoryResult]) -> MemoryData {
             };
             MemoryPoint {
                 n: r.message_count as u64,
+                measured_peak: r.measured_peak_bytes as f64,
                 measured,
                 measured_min: r.measured_range_min_bytes as f64,
                 measured_max: r.measured_range_max_bytes as f64,
                 libmtl_pages: r.libmtl_analytical_bytes as f64,
                 harness_buffers: r.harness_buffers_bytes as f64,
+                dataset_buffers: r.dataset_buffers_bytes as f64,
+                keypair: r.keypair_bytes as f64,
                 analytical_total: r.analytical_total_bytes as f64,
                 residual: r.residual_bytes as f64,
                 residual_percent: r.residual_percent,
@@ -896,11 +905,11 @@ mod tests {
                 measured_mean_bytes: 851_968,
                 libmtl_analytical_bytes: 2_097_152,
                 harness_buffers_bytes: 27_656,
-                analytical_total_bytes: 2_124_808,
-                residual_bytes: 851_968 - 2_124_808,
-                residual_percent: ((851_968.0 - 2_124_808.0) / 2_124_808.0) * 100.0,
-                measured_analytical_total_ratio: 851_968.0 / 2_124_808.0,
-                ratio: 851_968.0 / 2_124_808.0,
+                analytical_total_bytes: 2_178_594,
+                residual_bytes: 851_968 - 2_178_594,
+                residual_percent: ((851_968.0 - 2_178_594.0) / 2_178_594.0) * 100.0,
+                measured_analytical_total_ratio: 851_968.0 / 2_178_594.0,
+                ratio: 851_968.0 / 2_178_594.0,
                 measured_range_min_bytes: 73_728,
                 measured_range_max_bytes: 1_630_208,
                 measured_stddev_bytes: 778_240.0,
@@ -908,6 +917,10 @@ mod tests {
                 iqr_bytes: 1_556_480,
                 samples: 2,
                 method: "isolated-process".to_string(),
+                dataset_buffers_bytes: 53_600,
+                keypair_bytes: 186,
+                measured_peak_bytes: 851_968,
+                stages: None,
             },
             MemoryResult {
                 size: "medium".to_string(),
@@ -915,11 +928,11 @@ mod tests {
                 measured_mean_bytes: 2_258_944,
                 libmtl_analytical_bytes: 2_097_152,
                 harness_buffers_bytes: 3_063_384,
-                analytical_total_bytes: 5_160_536,
-                residual_bytes: 2_258_944 - 5_160_536,
-                residual_percent: ((2_258_944.0 - 5_160_536.0) / 5_160_536.0) * 100.0,
-                measured_analytical_total_ratio: 2_258_944.0 / 5_160_536.0,
-                ratio: 2_258_944.0 / 5_160_536.0,
+                analytical_total_bytes: 10_520_722,
+                residual_bytes: 2_258_944 - 10_520_722,
+                residual_percent: ((2_258_944.0 - 10_520_722.0) / 10_520_722.0) * 100.0,
+                measured_analytical_total_ratio: 2_258_944.0 / 10_520_722.0,
+                ratio: 2_258_944.0 / 10_520_722.0,
                 measured_range_min_bytes: 942_080,
                 measured_range_max_bytes: 3_575_808,
                 measured_stddev_bytes: 1_316_864.0,
@@ -927,6 +940,10 @@ mod tests {
                 iqr_bytes: 2_633_728,
                 samples: 2,
                 method: "isolated-process".to_string(),
+                dataset_buffers_bytes: 5_360_000,
+                keypair_bytes: 186,
+                measured_peak_bytes: 2_258_944,
+                stages: None,
             },
             MemoryResult {
                 size: "large".to_string(),
@@ -934,11 +951,11 @@ mod tests {
                 measured_mean_bytes: 320_679_936,
                 libmtl_analytical_bytes: 49_283_072,
                 harness_buffers_bytes: 399_067_864,
-                analytical_total_bytes: 448_350_936,
-                residual_bytes: 320_679_936 - 448_350_936,
-                residual_percent: ((320_679_936.0 - 448_350_936.0) / 448_350_936.0) * 100.0,
-                measured_analytical_total_ratio: 320_679_936.0 / 448_350_936.0,
-                ratio: 320_679_936.0 / 448_350_936.0,
+                analytical_total_bytes: 984_351_122,
+                residual_bytes: 320_679_936 - 984_351_122,
+                residual_percent: ((320_679_936.0 - 984_351_122.0) / 984_351_122.0) * 100.0,
+                measured_analytical_total_ratio: 320_679_936.0 / 984_351_122.0,
+                ratio: 320_679_936.0 / 984_351_122.0,
                 measured_range_min_bytes: 80_093_184,
                 measured_range_max_bytes: 561_266_688,
                 measured_stddev_bytes: 240_586_752.0,
@@ -946,6 +963,10 @@ mod tests {
                 iqr_bytes: 481_173_504,
                 samples: 2,
                 method: "isolated-process".to_string(),
+                dataset_buffers_bytes: 536_000_000,
+                keypair_bytes: 186,
+                measured_peak_bytes: 320_679_936,
+                stages: None,
             },
         ]
     }
@@ -1117,12 +1138,13 @@ mod tests {
         let data = memory_data(&rows);
         assert_eq!(data.points.len(), 3);
         // Admin ratios are measured / analytical_total, not the stored ratio.
-        assert_eq!(data.points[0].ratio_label, "0.40x");
-        assert_eq!(data.points[1].ratio_label, "0.44x");
-        assert_eq!(data.points[2].ratio_label, "0.72x");
+        assert_eq!(data.points[0].ratio_label, "0.39x");
+        assert_eq!(data.points[1].ratio_label, "0.21x");
+        assert_eq!(data.points[2].ratio_label, "0.33x");
         assert_eq!(data.points[2].measured, 320_679_936.0);
-        assert_eq!(data.points[2].analytical_total, 448_350_936.0);
-        assert_eq!(data.points[2].residual, -127_671_000.0);
+        assert_eq!(data.points[2].measured_peak, 320_679_936.0);
+        assert_eq!(data.points[2].analytical_total, 984_351_122.0);
+        assert_eq!(data.points[2].residual, -663_671_186.0);
         assert_eq!(data.points[0].measured_min, 73_728.0);
         assert_eq!(data.points[0].measured_max, 1_630_208.0);
     }
@@ -1133,9 +1155,9 @@ mod tests {
         let data = memory_data(&rows);
         for p in &data.points {
             assert_eq!(
-                p.libmtl_pages + p.harness_buffers,
+                p.libmtl_pages + p.harness_buffers + p.dataset_buffers + p.keypair,
                 p.analytical_total,
-                "stacked libMTL + harness must equal analytical_total at n={}",
+                "stacked analytical terms must equal analytical_total at n={}",
                 p.n
             );
         }

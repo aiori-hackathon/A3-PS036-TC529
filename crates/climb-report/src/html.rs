@@ -61,7 +61,7 @@ const CHART_CAPTIONS: [&str; 5] = [
     "Batch verification time per dataset size, including trust-cached ladder rows (measured only).",
     "Transmitted bytes with MTL vs without MTL — both series measured from real output, no modelling.",
     "With-MTL signing: measured per-message cost and the OLS fit of the batch total.",
-    "Peak RSS delta measured against the analytical page-count model, with recomputed ratios.",
+    "Measured peak and resident RSS deltas against the itemised analytical model (libMTL pages + harness buffers + dataset buffers + keypair), with recomputed ratios and residual.",
 ];
 
 /// Escape text for HTML body/attribute context.
@@ -280,6 +280,41 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             &format!("{}/measured_mean_bytes", base),
             Some(m.measured_mean_bytes.to_string()),
         );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-dataset-buffers", m.size),
+            &format!("{}/dataset_buffers_bytes", base),
+            Some(m.dataset_buffers_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-keypair", m.size),
+            &format!("{}/keypair_bytes", base),
+            Some(m.keypair_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-measured-peak", m.size),
+            &format!("{}/measured_peak_bytes", base),
+            Some(m.measured_peak_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-samples", m.size),
+            &format!("{}/samples", base),
+            Some(m.samples.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("memory-{}-iqr", m.size),
+            &format!("{}/iqr_bytes", base),
+            Some(m.iqr_bytes.to_string()),
+        );
     }
     Ok(claims)
 }
@@ -303,19 +338,24 @@ fn render_memory_section(results: &ClimbResults, claims: &[Claim]) -> String {
     let mut rows = String::new();
     for m in &results.memory.measured {
         rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
             escape_html(&m.size),
             escape_html(&cell(&m.size, "libmtl-pages")),
             escape_html(&cell(&m.size, "harness-buffers")),
+            escape_html(&cell(&m.size, "dataset-buffers")),
+            escape_html(&cell(&m.size, "keypair")),
             escape_html(&cell(&m.size, "analytical-total")),
+            escape_html(&cell(&m.size, "measured-peak")),
             escape_html(&cell(&m.size, "measured-mean")),
+            escape_html(&cell(&m.size, "samples")),
+            escape_html(&cell(&m.size, "iqr")),
             escape_html(&cell(&m.size, "residual-bytes")),
             escape_html(&cell(&m.size, "residual-percent")),
             escape_html(&cell(&m.size, "measured-analytical-total")),
         ));
     }
     format!(
-        "<section aria-labelledby=\"memory-h\">\n<h2 id=\"memory-h\">Memory model vs measurement</h2>\n<p class=\"note\">Analytical total = libMTL page model + harness-output buffers (an ESTIMATE, not a measurement); measured = mean RSS delta across repeats. residual = measured &minus; analytical total; ratio = measured &divide; analytical total. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>libMTL pages (B)</th><th>harness buffers (B)</th><th>analytical total (B)</th><th>measured mean (B)</th><th>residual (B)</th><th>residual %</th><th>measured/analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+        "<section aria-labelledby=\"memory-h\">\n<h2 id=\"memory-h\">Memory model vs measurement</h2>\n<p class=\"note\">Analytical total = libMTL page model + harness-output buffers + dataset message buffers + keypair key image (an ESTIMATE, not a measurement). Measured resident = median RSS delta over n isolated-process runs, with the run-to-run IQR shown; measured peak = median high-water-mark delta (hwm &minus; baseline), the headline footprint metric. residual = measured resident &minus; analytical total; ratio convention throughout = measured resident &divide; analytical total. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>libMTL pages (B)</th><th>harness buffers (B)</th><th>dataset buffers (B)</th><th>keypair (B)</th><th>analytical total (B)</th><th>measured peak (B)</th><th>measured resident (B)</th><th>n runs</th><th>resident IQR (B)</th><th>residual (B)</th><th>residual %</th><th>measured/analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
     )
 }
 
@@ -917,6 +957,10 @@ mod tests {
             iqr_bytes: 1_556_480,
             samples: 2,
             method: "isolated-process".to_string(),
+            dataset_buffers_bytes: 53_600,
+            keypair_bytes: 186,
+            measured_peak_bytes: 851_968,
+            stages: None,
         }];
         results
     }

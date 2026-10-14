@@ -9,66 +9,110 @@
       "samples": [
         {
           "size": "small",
-          "baseline_kb": 8412,
-          "after_kb": 8616,
-          "hwm_kb": 8616
+          "baseline_kb": 4704,
+          "after_dataset_kb": 5256,
+          "after_keypair_kb": 8512,
+          "after_kb": 8716,
+          "hwm_kb": 8716,
+          "key_image_bytes": 186
         },
         {
           "size": "small",
-          "baseline_kb": 8392,
+          "baseline_kb": 4704,
+          "after_dataset_kb": 5128,
+          "after_keypair_kb": 8392,
           "after_kb": 8596,
-          "hwm_kb": 8644
+          "hwm_kb": 8596,
+          "key_image_bytes": 186
         },
         {
           "size": "small",
-          "baseline_kb": 8376,
-          "after_kb": 8580,
-          "hwm_kb": 8628
+          "baseline_kb": 4632,
+          "after_dataset_kb": 5188,
+          "after_keypair_kb": 8440,
+          "after_kb": 8644,
+          "hwm_kb": 8644,
+          "key_image_bytes": 186
         },
         {
           "size": "small",
-          "baseline_kb": 8404,
-          "after_kb": 8608,
-          "hwm_kb": 8608
+          "baseline_kb": 4704,
+          "after_dataset_kb": 5128,
+          "after_keypair_kb": 8384,
+          "after_kb": 8588,
+          "hwm_kb": 8588,
+          "key_image_bytes": 186
         },
         {
           "size": "small",
-          "baseline_kb": 8360,
-          "after_kb": 8564,
-          "hwm_kb": 8612
-        },
-        {
-          "size": "small",
-          "baseline_kb": 8424,
+          "baseline_kb": 4636,
+          "after_dataset_kb": 5172,
+          "after_keypair_kb": 8424,
           "after_kb": 8628,
-          "hwm_kb": 8628
+          "hwm_kb": 8628,
+          "key_image_bytes": 186
         },
         {
           "size": "small",
-          "baseline_kb": 8420,
-          "after_kb": 8624,
-          "hwm_kb": 8624
+          "baseline_kb": 4704,
+          "after_dataset_kb": 5128,
+          "after_keypair_kb": 8388,
+          "after_kb": 8592,
+          "hwm_kb": 8592,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "small",
+          "baseline_kb": 4620,
+          "after_dataset_kb": 5160,
+          "after_keypair_kb": 8408,
+          "after_kb": 8612,
+          "hwm_kb": 8612,
+          "key_image_bytes": 186
         }
       ],
       "deltas_kb": [
-        204,
-        204,
-        204,
-        204,
-        204,
-        204,
-        204
+        4012,
+        3892,
+        4012,
+        3884,
+        3992,
+        3888,
+        3992
       ],
-      "median_kb": 204.0,
-      "q1_kb": 204,
-      "q3_kb": 204,
-      "iqr_kb": 0,
-      "min_kb": 204,
-      "max_kb": 204,
-      "median_bytes": 208896,
-      "min_bytes": 208896,
-      "max_bytes": 208896,
-      "iqr_bytes": 0
+      "median_kb": 3992.0,
+      "q1_kb": 3888,
+      "q3_kb": 4012,
+      "iqr_kb": 124,
+      "min_kb": 3884,
+      "max_kb": 4012,
+      "median_bytes": 4087808,
+      "min_bytes": 3977216,
+      "max_bytes": 4108288,
+      "iqr_bytes": 126976,
+      "stages": {
+        "dataset": {
+          "median_kb": 536.0,
+          "iqr_kb": 128
+        },
+        "keypair": {
+          "median_kb": 3256.0,
+          "iqr_kb": 8
+        },
+        "sign": {
+          "median_kb": 204.0,
+          "iqr_kb": 0
+        },
+        "resident": {
+          "median_kb": 3992.0,
+          "iqr_kb": 124
+        },
+        "peak": {
+          "median_kb": 3992.0,
+          "iqr_kb": 124
+        }
+      },
+      "note": null
     },
     {
       "size": "medium",
@@ -77,66 +121,110 @@
       "samples": [
         {
           "size": "medium",
-          "baseline_kb": 13892,
-          "after_kb": 18264,
-          "hwm_kb": 18756
-        },
-        {
-          "size": "medium",
-          "baseline_kb": 13924,
-          "after_kb": 18296,
-          "hwm_kb": 18720
-        },
-        {
-          "size": "medium",
-          "baseline_kb": 13896,
+          "baseline_kb": 4704,
+          "after_dataset_kb": 10632,
+          "after_keypair_kb": 13896,
           "after_kb": 18268,
-          "hwm_kb": 18696
+          "hwm_kb": 18564,
+          "key_image_bytes": 186
         },
         {
           "size": "medium",
-          "baseline_kb": 14056,
-          "after_kb": 18428,
-          "hwm_kb": 18856
-        },
-        {
-          "size": "medium",
-          "baseline_kb": 13856,
-          "after_kb": 18228,
-          "hwm_kb": 18720
-        },
-        {
-          "size": "medium",
-          "baseline_kb": 13864,
-          "after_kb": 18236,
-          "hwm_kb": 18728
-        },
-        {
-          "size": "medium",
-          "baseline_kb": 13872,
+          "baseline_kb": 4576,
+          "after_dataset_kb": 10620,
+          "after_keypair_kb": 13872,
           "after_kb": 18244,
-          "hwm_kb": 18672
+          "hwm_kb": 18668,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "medium",
+          "baseline_kb": 4640,
+          "after_dataset_kb": 10628,
+          "after_keypair_kb": 13904,
+          "after_kb": 18276,
+          "hwm_kb": 18704,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "medium",
+          "baseline_kb": 4632,
+          "after_dataset_kb": 10688,
+          "after_keypair_kb": 13964,
+          "after_kb": 18336,
+          "hwm_kb": 18760,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "medium",
+          "baseline_kb": 4640,
+          "after_dataset_kb": 10676,
+          "after_keypair_kb": 13928,
+          "after_kb": 18300,
+          "hwm_kb": 18728,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "medium",
+          "baseline_kb": 4572,
+          "after_dataset_kb": 10612,
+          "after_keypair_kb": 13848,
+          "after_kb": 18220,
+          "hwm_kb": 18656,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "medium",
+          "baseline_kb": 4560,
+          "after_dataset_kb": 10600,
+          "after_keypair_kb": 13848,
+          "after_kb": 18220,
+          "hwm_kb": 18644,
+          "key_image_bytes": 186
         }
       ],
       "deltas_kb": [
-        4372,
-        4372,
-        4372,
-        4372,
-        4372,
-        4372,
-        4372
+        13564,
+        13668,
+        13636,
+        13704,
+        13660,
+        13648,
+        13660
       ],
-      "median_kb": 4372.0,
-      "q1_kb": 4372,
-      "q3_kb": 4372,
-      "iqr_kb": 0,
-      "min_kb": 4372,
-      "max_kb": 4372,
-      "median_bytes": 4476928,
-      "min_bytes": 4476928,
-      "max_bytes": 4476928,
-      "iqr_bytes": 0
+      "median_kb": 13660.0,
+      "q1_kb": 13636,
+      "q3_kb": 13668,
+      "iqr_kb": 32,
+      "min_kb": 13564,
+      "max_kb": 13704,
+      "median_bytes": 13987840,
+      "min_bytes": 13889536,
+      "max_bytes": 14032896,
+      "iqr_bytes": 32768,
+      "stages": {
+        "dataset": {
+          "median_kb": 6040.0,
+          "iqr_kb": 56
+        },
+        "keypair": {
+          "median_kb": 3252.0,
+          "iqr_kb": 28
+        },
+        "sign": {
+          "median_kb": 4372.0,
+          "iqr_kb": 0
+        },
+        "resident": {
+          "median_kb": 13660.0,
+          "iqr_kb": 32
+        },
+        "peak": {
+          "median_kb": 14084.0,
+          "iqr_kb": 28
+        }
+      },
+      "note": null
     },
     {
       "size": "large",
@@ -145,38 +233,110 @@
       "samples": [
         {
           "size": "large",
-          "baseline_kb": 563024,
-          "after_kb": 1066188,
-          "hwm_kb": 1120892
-        },
-        {
-          "size": "large",
-          "baseline_kb": 563056,
+          "baseline_kb": 4632,
+          "after_dataset_kb": 559816,
+          "after_keypair_kb": 563056,
           "after_kb": 1066220,
-          "hwm_kb": 1120860
+          "hwm_kb": 1120924,
+          "key_image_bytes": 186
         },
         {
           "size": "large",
-          "baseline_kb": 562996,
-          "after_kb": 1066160,
-          "hwm_kb": 1120800
+          "baseline_kb": 4692,
+          "after_dataset_kb": 559816,
+          "after_keypair_kb": 563060,
+          "after_kb": 1066224,
+          "hwm_kb": 1120992,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "large",
+          "baseline_kb": 4636,
+          "after_dataset_kb": 559832,
+          "after_keypair_kb": 563072,
+          "after_kb": 1066236,
+          "hwm_kb": 1120940,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "large",
+          "baseline_kb": 4636,
+          "after_dataset_kb": 559764,
+          "after_keypair_kb": 563032,
+          "after_kb": 1066196,
+          "hwm_kb": 1120904,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "large",
+          "baseline_kb": 4644,
+          "after_dataset_kb": 559836,
+          "after_keypair_kb": 563100,
+          "after_kb": 1066264,
+          "hwm_kb": 1120836,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "large",
+          "baseline_kb": 4704,
+          "after_dataset_kb": 559896,
+          "after_keypair_kb": 563116,
+          "after_kb": 1066280,
+          "hwm_kb": 1120984,
+          "key_image_bytes": 186
+        },
+        {
+          "size": "large",
+          "baseline_kb": 4640,
+          "after_dataset_kb": 559832,
+          "after_keypair_kb": 563116,
+          "after_kb": 1066280,
+          "hwm_kb": 1120984,
+          "key_image_bytes": 186
         }
       ],
       "deltas_kb": [
-        503164,
-        503164,
-        503164
+        1061588,
+        1061532,
+        1061600,
+        1061560,
+        1061620,
+        1061576,
+        1061640
       ],
-      "median_kb": 503164.0,
-      "q1_kb": 503164,
-      "q3_kb": 503164,
-      "iqr_kb": 0,
-      "min_kb": 503164,
-      "max_kb": 503164,
-      "median_bytes": 515239936,
-      "min_bytes": 515239936,
-      "max_bytes": 515239936,
-      "iqr_bytes": 0
+      "median_kb": 1061588.0,
+      "q1_kb": 1061560,
+      "q3_kb": 1061620,
+      "iqr_kb": 60,
+      "min_kb": 1061532,
+      "max_kb": 1061640,
+      "median_bytes": 1087066112,
+      "min_bytes": 1087008768,
+      "max_bytes": 1087119360,
+      "iqr_bytes": 61440,
+      "stages": {
+        "dataset": {
+          "median_kb": 555192.0,
+          "iqr_kb": 64
+        },
+        "keypair": {
+          "median_kb": 3244.0,
+          "iqr_kb": 28
+        },
+        "sign": {
+          "median_kb": 503164.0,
+          "iqr_kb": 0
+        },
+        "resident": {
+          "median_kb": 1061588.0,
+          "iqr_kb": 60
+        },
+        "peak": {
+          "median_kb": 1116292.0,
+          "iqr_kb": 36
+        }
+      },
+      "note": "large measured with n=7 (one sample took 30.9 s, within the 90 s budget)"
     }
   ]
 }

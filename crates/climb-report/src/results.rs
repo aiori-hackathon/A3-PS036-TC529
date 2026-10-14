@@ -86,6 +86,51 @@ pub struct MemoryResult {
     /// `rss-delta`. Empty for results written before this field existed.
     #[serde(default)]
     pub method: String,
+    /// Analytical dataset message-buffer bytes. Zero for rows written before
+    /// this term was modelled.
+    #[serde(default)]
+    pub dataset_buffers_bytes: u64,
+    /// Analytical keypair (serialized key image) bytes. Zero for rows written
+    /// before this term was modelled.
+    #[serde(default)]
+    pub keypair_bytes: u64,
+    /// Measured peak footprint in bytes (`hwm − baseline`, median over runs):
+    /// the headline footprint metric. Zero when the source reports no
+    /// high-water mark.
+    #[serde(default)]
+    pub measured_peak_bytes: u64,
+    /// Per-stage measured deltas in bytes; `None` for rows written before stage
+    /// attribution was recorded.
+    #[serde(default)]
+    pub stages: Option<MemoryStages>,
+}
+
+/// Per-stage measured deltas for one memory row, all in bytes.
+///
+/// `resident` (after − baseline) and `peak` (hwm − baseline) are whole-run
+/// figures; `dataset`, `keypair` and `sign` are the stage widths.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MemoryStages {
+    /// Dataset generation delta.
+    pub dataset_delta_bytes: u64,
+    /// Keypair generation delta.
+    pub keypair_delta_bytes: u64,
+    /// `sign_batch` delta.
+    pub sign_delta_bytes: u64,
+    /// Whole-run resident delta.
+    pub resident_bytes: u64,
+    /// Whole-run peak delta.
+    pub peak_bytes: u64,
+    /// Interquartile range of the dataset-generation delta.
+    pub dataset_delta_iqr_bytes: u64,
+    /// Interquartile range of the keypair-generation delta.
+    pub keypair_delta_iqr_bytes: u64,
+    /// Interquartile range of the `sign_batch` delta.
+    pub sign_delta_iqr_bytes: u64,
+    /// Interquartile range of the resident delta.
+    pub resident_iqr_bytes: u64,
+    /// Interquartile range of the peak delta.
+    pub peak_iqr_bytes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -596,13 +641,18 @@ struct MeasuredRow {
     min_bytes: u64,
     max_bytes: u64,
     stddev_bytes: f64,
+    peak_bytes: u64,
+    stages: Option<MemoryStages>,
 }
 
-/// The analytical decomposition for one size: the libMTL page model plus the
-/// harness-output buffers implied by the matching wire row.
+/// The analytical decomposition for one size: the libMTL page model, the
+/// harness-output buffers implied by the matching wire row, and the
+/// size-proportional dataset-buffer and keypair terms.
 struct Analytical {
     libmtl_bytes: usize,
     harness_bytes: u64,
+    dataset_buffers_bytes: u64,
+    keypair_bytes: u64,
     total_bytes: u64,
 }
 
@@ -647,10 +697,18 @@ fn analytical_for(
         }
     };
     let harness = climb_analytical::harness_output_estimate(harness_n, condensed_sum, ladder_len);
+    let dataset_buffers_bytes = climb_analytical::dataset_buffers_estimate(message_count) as u64;
+    let keypair_bytes = climb_analytical::KEY_IMAGE_BYTES as u64;
+    let total_bytes = libmtl.total_memory_bytes as u64
+        + harness.estimated_total_bytes as u64
+        + dataset_buffers_bytes
+        + keypair_bytes;
     Analytical {
         libmtl_bytes: libmtl.total_memory_bytes,
         harness_bytes: harness.estimated_total_bytes as u64,
-        total_bytes: libmtl.total_memory_bytes as u64 + harness.estimated_total_bytes as u64,
+        dataset_buffers_bytes,
+        keypair_bytes,
+        total_bytes,
     }
 }
 
@@ -689,6 +747,10 @@ fn memory_row(measured: MeasuredRow, analytical: Analytical) -> MemoryResult {
         iqr_bytes: measured.iqr_bytes,
         samples: measured.samples,
         method: measured.method,
+        dataset_buffers_bytes: analytical.dataset_buffers_bytes,
+        keypair_bytes: analytical.keypair_bytes,
+        measured_peak_bytes: measured.peak_bytes,
+        stages: measured.stages,
     }
 }
 
@@ -707,6 +769,21 @@ fn isolated_memory_row(
                 .map(|&kb| kb as f64)
                 .collect::<Vec<_>>(),
         );
+    // Peak delta is the headline; prefer the artifact's own stage summary and
+    // fall back to the per-sample high-water marks when stages are absent.
+    let peak_kb = run
+        .stages
+        .as_ref()
+        .map(|s| s.peak.median_kb)
+        .unwrap_or_else(|| {
+            let peaks: Vec<u64> = run
+                .samples
+                .iter()
+                .map(|s| s.hwm_kb.saturating_sub(s.baseline_kb))
+                .collect();
+            climb_bench::median_iqr(&peaks).0
+        });
+    let stages = run.stages.as_ref().map(memory_stages_from);
     let analytical = analytical_for(run.message_count, &run.size, wire_size, warnings);
     memory_row(
         MeasuredRow {
@@ -720,9 +797,31 @@ fn isolated_memory_row(
             min_bytes: run.min_bytes,
             max_bytes: run.max_bytes,
             stddev_bytes: stddev,
+            peak_bytes: (peak_kb * 1024.0).round() as u64,
+            stages,
         },
         analytical,
     )
+}
+
+/// Convert an artifact stage breakdown (kilobytes) into a memory row's stage
+/// breakdown (bytes).
+fn memory_stages_from(s: &crate::memory::StageDeltas) -> MemoryStages {
+    fn kb_to_bytes(kb: f64) -> u64 {
+        (kb * 1024.0).round() as u64
+    }
+    MemoryStages {
+        dataset_delta_bytes: kb_to_bytes(s.dataset.median_kb),
+        keypair_delta_bytes: kb_to_bytes(s.keypair.median_kb),
+        sign_delta_bytes: kb_to_bytes(s.sign.median_kb),
+        resident_bytes: kb_to_bytes(s.resident.median_kb),
+        peak_bytes: kb_to_bytes(s.peak.median_kb),
+        dataset_delta_iqr_bytes: s.dataset.iqr_kb * 1024,
+        keypair_delta_iqr_bytes: s.keypair.iqr_kb * 1024,
+        sign_delta_iqr_bytes: s.sign.iqr_kb * 1024,
+        resident_iqr_bytes: s.resident.iqr_kb * 1024,
+        peak_iqr_bytes: s.peak.iqr_kb * 1024,
+    }
 }
 
 /// The legacy in-process delta report: mean, min, max and stddev are computed
@@ -754,6 +853,8 @@ fn legacy_rss_delta_row(
             min_bytes: minv,
             max_bytes: maxv,
             stddev_bytes: stddev,
+            peak_bytes: 0,
+            stages: None,
         },
         analytical,
     )
@@ -791,6 +892,10 @@ fn comparison_memory_row(c: &climb_bench::RssComparison) -> MemoryResult {
         iqr_bytes: 0,
         samples: 0,
         method: "rss-comparison".to_string(),
+        dataset_buffers_bytes: 0,
+        keypair_bytes: 0,
+        measured_peak_bytes: 0,
+        stages: None,
     }
 }
 
@@ -913,6 +1018,10 @@ mod tests {
             iqr_bytes: 0,
             samples: 1,
             method: "isolated-process".to_string(),
+            dataset_buffers_bytes: 0,
+            keypair_bytes: 0,
+            measured_peak_bytes: 4096,
+            stages: None,
         }
     }
 
@@ -1385,34 +1494,42 @@ mod tests {
 
         // The harness payload term is the wire row's condensed sum
         // (with_mtl_total - ladder_len) plus the ladder, plus (n+1) x 32.
-        // Small:  24_424 + 101 x 32         = 27_656;   total = 2_097_152 + 27_656
-        // Medium: 2_743_352 + 10_001 x 32   = 3_063_384; total = 2_097_152 + 3_063_384
-        // Large:  367_067_832 + 1_000_001 x 32 = 399_067_864; total = 49_283_072 + that
+        // Small:  24_424 + 101 x 32         = 27_656;   dataset 100 x 536
+        // Medium: 2_743_352 + 10_001 x 32   = 3_063_384; dataset 10_000 x 536
+        // Large:  367_067_832 + 1_000_001 x 32 = 399_067_864; dataset 1e6 x 536
+        // Each total also adds the fixed key image (186 B).
         let small = memory_of(&results, "small");
         assert_eq!(small.harness_buffers_bytes, 27_656);
-        assert_eq!(small.analytical_total_bytes, 2_124_808);
-        assert_eq!(small.residual_bytes, 851_968 - 2_124_808);
+        assert_eq!(small.dataset_buffers_bytes, 53_600);
+        assert_eq!(small.keypair_bytes, 186);
+        assert_eq!(small.analytical_total_bytes, 2_178_594);
+        assert_eq!(small.residual_bytes, 851_968 - 2_178_594);
         assert_eq!(
             small.measured_analytical_total_ratio,
-            851_968.0 / 2_124_808.0
+            851_968.0 / 2_178_594.0
         );
 
         let medium = memory_of(&results, "medium");
         assert_eq!(medium.harness_buffers_bytes, 3_063_384);
-        assert_eq!(medium.analytical_total_bytes, 5_160_536);
-        assert_eq!(medium.residual_bytes, 2_258_944 - 5_160_536);
+        assert_eq!(medium.dataset_buffers_bytes, 5_360_000);
+        assert_eq!(medium.analytical_total_bytes, 10_520_722);
+        assert_eq!(medium.residual_bytes, 2_258_944 - 10_520_722);
 
         let large = memory_of(&results, "large");
         assert_eq!(large.harness_buffers_bytes, 399_067_864);
-        assert_eq!(large.analytical_total_bytes, 448_350_936);
-        assert_eq!(large.residual_bytes, 320_679_936 - 448_350_936);
+        assert_eq!(large.dataset_buffers_bytes, 536_000_000);
+        assert_eq!(large.analytical_total_bytes, 984_351_122);
+        assert_eq!(large.residual_bytes, 320_679_936 - 984_351_122);
         assert!(large.residual_bytes < 0);
         assert!(large.measured_analytical_total_ratio < 1.0);
 
-        // libMTL pages + harness buffers reconstructs the analytical total.
+        // The four modelled terms reconstruct the analytical total.
         for m in &results.memory.measured {
             assert_eq!(
-                m.libmtl_analytical_bytes as u64 + m.harness_buffers_bytes,
+                m.libmtl_analytical_bytes as u64
+                    + m.harness_buffers_bytes
+                    + m.dataset_buffers_bytes
+                    + m.keypair_bytes,
                 m.analytical_total_bytes,
                 "size {}",
                 m.size
@@ -1437,7 +1554,10 @@ mod tests {
             );
             assert_eq!(
                 m.analytical_total_bytes,
-                m.libmtl_analytical_bytes as u64 + m.harness_buffers_bytes
+                m.libmtl_analytical_bytes as u64
+                    + m.harness_buffers_bytes
+                    + m.dataset_buffers_bytes
+                    + m.keypair_bytes
             );
         }
         let fallbacks = results

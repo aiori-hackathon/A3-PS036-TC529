@@ -267,3 +267,35 @@ fn analytical_memory_model_is_internally_consistent() {
         );
     }
 }
+
+/// The analytical dataset-buffer term must match what the DNS encoder actually
+/// allocates: hickory's `Message::to_vec` starts from a 512-byte buffer, so the
+/// sum of the stored messages' capacities equals `n * DATASET_MESSAGE_BUFFER_BYTES`.
+/// If hickory ever changes that pre-allocation this fails, and the model
+/// constant must be updated rather than the measurement being tuned.
+#[test]
+fn dataset_message_capacity_matches_analytical_buffer_term() {
+    use climb_analytical::DATASET_MESSAGE_BUFFER_BYTES;
+    use climb_dns::{generate_dataset, DatasetSize};
+
+    for size in [DatasetSize::Small, DatasetSize::OneK, DatasetSize::Medium] {
+        let dataset = generate_dataset(size, 0x434C494D425F5636);
+        let capacity_sum: usize = dataset.iter().map(Vec::capacity).sum();
+        assert_eq!(
+            capacity_sum,
+            dataset.len() * DATASET_MESSAGE_BUFFER_BYTES,
+            "{size:?}: message capacity sum {capacity_sum} != n * {DATASET_MESSAGE_BUFFER_BYTES}",
+        );
+    }
+}
+
+/// The analytical keypair term must match the length of a freshly generated key
+/// image; a libMTL serialization change fails this rather than silently
+/// mis-modelling the keypair stage.
+#[test]
+fn keypair_term_matches_generated_key_image_length() {
+    use climb_analytical::KEY_IMAGE_BYTES;
+
+    let keypair = climb_mtl::MtlKeyPair::generate().expect("keygen");
+    assert_eq!(keypair.key_image_len(), KEY_IMAGE_BYTES);
+}

@@ -344,7 +344,9 @@ pub(crate) mod test_support {
         libmtl: usize,
         harness: u64,
     ) -> MemoryResult {
-        let analytical = libmtl as u64 + harness;
+        let dataset = messages as u64 * 536;
+        let keypair = 186u64;
+        let analytical = libmtl as u64 + harness + dataset + keypair;
         MemoryResult {
             size: size.to_string(),
             message_count: messages,
@@ -363,6 +365,10 @@ pub(crate) mod test_support {
             iqr_bytes: measured / 4,
             samples: 3,
             method: "isolated-process".to_string(),
+            dataset_buffers_bytes: dataset,
+            keypair_bytes: keypair,
+            measured_peak_bytes: measured,
+            stages: None,
         }
     }
 
