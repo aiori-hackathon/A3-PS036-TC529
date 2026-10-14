@@ -36,7 +36,7 @@ fn read_leaf_parses_realistic_benchmark_and_estimates() {
     let record = read_leaf(&leaf).unwrap();
 
     assert_eq!(record.group_id, "signing_small_with_mtl");
-    assert_eq!(record.function_id, "sign_batch");
+    assert_eq!(record.function_id.as_deref(), Some("sign_batch"));
     assert_eq!(record.value_str, "100");
     assert_eq!(record.full_id, "signing_small_with_mtl/sign_batch/100");
     assert_eq!(record.elements, Some(100));
@@ -66,6 +66,19 @@ fn read_leaf_throughput_absent() {
 
     let record = read_leaf(&leaf).unwrap();
     assert_eq!(record.elements, None);
+}
+
+#[test]
+fn read_leaf_accepts_null_function_id() {
+    let ben = r#"{"group_id":"signing_small_plain_slh_dsa","function_id":null,"value_str":"sign","throughput":{"Elements":1},"full_id":"signing_small_plain_slh_dsa/sign","directory_name":"signing_small_plain_slh_dsa/sign","title":"signing_small_plain_slh_dsa/sign"}"#;
+    let root = temp_root();
+    let leaf = root.join("new");
+    make_leaf(&leaf, ben, EST_JSON);
+
+    let record = read_leaf(&leaf).unwrap();
+    assert_eq!(record.function_id, None);
+    assert_eq!(record.value_str, "sign");
+    assert_eq!(record.elements, Some(1));
 }
 
 #[test]

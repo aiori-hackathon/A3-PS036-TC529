@@ -18,7 +18,8 @@ use plotters::style::RGBColor;
 
 use crate::error::ReportError;
 use crate::results::{
-    ClimbResults, MemoryResult, SigningBenchmarkResult, VerifyingBenchmarkResult, WireSizeResult,
+    ClimbResults, MemoryResult, PlainTimingResult, SigningBenchmarkResult,
+    VerifyingBenchmarkResult, WireSizeResult,
 };
 
 /// Filenames of the five charts, in generation order.
@@ -36,6 +37,8 @@ pub const COLOR_WITH_MTL: RGBColor = RGBColor(31, 119, 180);
 pub const COLOR_WITHOUT_MTL: RGBColor = RGBColor(214, 94, 0);
 /// Series colour: trust-cached ladder verification.
 pub const COLOR_TRUST_CACHED: RGBColor = RGBColor(44, 160, 44);
+/// Series colour: plain SLH-DSA (configuration A, no ladder).
+pub const COLOR_PLAIN: RGBColor = RGBColor(148, 103, 189);
 /// Series colour: analytical / fitted (non-measured) values.
 pub const COLOR_MODEL: RGBColor = RGBColor(90, 90, 95);
 
@@ -51,9 +54,11 @@ pub fn generate_charts(
         source,
     })?;
 
-    let signing = timing_bar_data(&results.benchmark.signing, false, true);
-    let verifying = timing_bar_data(&results.benchmark.verifying, true, false);
-    let wire = wire_bar_data(&results.wire_size);
+    let mut signing = timing_bar_data(&results.benchmark.signing, false, true);
+    add_plain_timing_series(&mut signing, &results.plain, false, true);
+    let mut verifying = timing_bar_data(&results.benchmark.verifying, true, false);
+    add_plain_timing_series(&mut verifying, &results.plain, true, false);
+    let wire = wire_bar_data(&results.wire_size, &results.plain);
     let amortization = amortization_data(&results.benchmark.signing);
     let memory = memory_data(&results.memory.measured);
 
@@ -441,6 +446,58 @@ pub fn per_msg_mean(rows: &[impl BenchRow], condition: &str) -> Option<f64> {
     }
 }
 
+/// Append the configuration-A (plain SLH-DSA) series to a batch-total timing
+/// chart.
+///
+/// Every plain bar is the `N × per-message` identity from a single-message
+/// measurement (no full-batch plain run exists), so it is always hollow.
+fn add_plain_timing_series(
+    data: &mut BarChartData,
+    plain: &[PlainTimingResult],
+    verifying: bool,
+    annotate: bool,
+) {
+    let mut points = Vec::new();
+    for row in plain {
+        let Some(n) = size_n(&row.size) else {
+            continue;
+        };
+        let mean = if verifying {
+            row.verifying_mean_ns
+        } else {
+            row.signing_mean_ns
+        };
+        let Some(mean) = mean else {
+            continue;
+        };
+        if mean <= 0.0 {
+            continue;
+        }
+        let value = n as f64 * mean;
+        let annotation = if annotate {
+            Some(format!("≈{}", fmt_time_ns(value)))
+        } else {
+            None
+        };
+        points.push(BarPoint {
+            n,
+            value,
+            ci_lower: None,
+            ci_upper: None,
+            annotation,
+        });
+    }
+    if points.is_empty() {
+        return;
+    }
+    data.series.push(BarSeriesData {
+        label: "Plain SLH-DSA (extrapolated)".to_string(),
+        color: COLOR_PLAIN,
+        hollow: true,
+        points,
+    });
+}
+
 /// Build the signing/verifying timing bar chart data.
 ///
 /// Measured rows become solid bars with CI whiskers; dataset sizes without a
@@ -574,7 +631,7 @@ pub fn timing_bar_data<T: BenchRow>(
 ///
 /// Adds one group annotation per dataset size carrying the reduction label
 /// (`−97.0%` style), positioned above the taller bar of the group.
-pub fn wire_bar_data(rows: &[WireSizeResult]) -> BarChartData {
+pub fn wire_bar_data(rows: &[WireSizeResult], _plain: &[PlainTimingResult]) -> BarChartData {
     let mut sorted: Vec<&WireSizeResult> = rows.iter().collect();
     sorted.sort_by_key(|r| r.message_count);
     sorted.dedup_by_key(|r| r.message_count);
@@ -600,33 +657,57 @@ pub fn wire_bar_data(rows: &[WireSizeResult]) -> BarChartData {
         })
         .collect();
 
+    let plain_points: Vec<BarPoint> = sorted
+        .iter()
+        .filter(|r| r.plain_total_bytes > 0)
+        .map(|r| BarPoint {
+            n: r.message_count as u64,
+            value: r.plain_total_bytes as f64,
+            ci_lower: None,
+            ci_upper: None,
+            annotation: None,
+        })
+        .collect();
+
     let group_annotations = sorted
         .iter()
         .map(|r| {
-            let group_max = (r.with_mtl_total_bytes as f64).max(r.without_mtl_total_bytes as f64);
-            let text = format!("−{:.1}%", r.reduction_percent);
+            let group_max = (r.with_mtl_total_bytes as f64)
+                .max(r.without_mtl_total_bytes as f64)
+                .max(r.plain_total_bytes as f64);
+            let text = format!("−{:.1}% (C vs B)", r.reduction_percent);
             (r.message_count as u64, group_max * 3.0, text)
         })
         .collect();
+
+    let mut series = vec![
+        BarSeriesData {
+            label: "MTL amortised (measured)".to_string(),
+            color: COLOR_WITH_MTL,
+            hollow: false,
+            points: with_points,
+        },
+        BarSeriesData {
+            label: "MTL non-amortised (measured)".to_string(),
+            color: COLOR_WITHOUT_MTL,
+            hollow: false,
+            points: without_points,
+        },
+    ];
+    if !plain_points.is_empty() {
+        series.push(BarSeriesData {
+            label: "Plain SLH-DSA (extrapolated)".to_string(),
+            color: COLOR_PLAIN,
+            hollow: true,
+            points: plain_points,
+        });
+    }
 
     BarChartData {
         title: String::new(),
         x_desc: String::new(),
         y_desc: String::new(),
-        series: vec![
-            BarSeriesData {
-                label: "With MTL (measured)".to_string(),
-                color: COLOR_WITH_MTL,
-                hollow: false,
-                points: with_points,
-            },
-            BarSeriesData {
-                label: "Without MTL (measured)".to_string(),
-                color: COLOR_WITHOUT_MTL,
-                hollow: false,
-                points: without_points,
-            },
-        ],
+        series,
         x_fmt: fmt_count,
         y_fmt: fmt_bytes,
         group_annotations,
@@ -863,6 +944,8 @@ mod tests {
                 with_mtl_total_bytes: 24_424,
                 without_mtl_total_bytes: 815_632,
                 reduction_percent: 97.005_512_289_856_2,
+                plain_total_bytes: 0,
+                plain_signature_len_bytes: 0,
             },
             WireSizeResult {
                 size: "medium".to_string(),
@@ -875,6 +958,8 @@ mod tests {
                 with_mtl_total_bytes: 2_743_352,
                 without_mtl_total_bytes: 83_295_296,
                 reduction_percent: 96.706_474_276_770_68,
+                plain_total_bytes: 0,
+                plain_signature_len_bytes: 0,
             },
             WireSizeResult {
                 size: "large".to_string(),
@@ -887,6 +972,62 @@ mod tests {
                 with_mtl_total_bytes: 367_067_832,
                 without_mtl_total_bytes: 8_487_059_712,
                 reduction_percent: 95.674_970_549_800_68,
+                plain_total_bytes: 0,
+                plain_signature_len_bytes: 0,
+            },
+        ]
+    }
+
+    fn plain_fixture() -> Vec<PlainTimingResult> {
+        use crate::results::EvidenceClass;
+        vec![
+            PlainTimingResult {
+                size: "Small".to_string(),
+                messages: 100,
+                signing_mean_ns: Some(737_922_991.4),
+                signing_ci_lower_ns: Some(725_100_000.0),
+                signing_ci_upper_ns: Some(750_000_000.0),
+                verifying_mean_ns: Some(736_473.46),
+                verifying_ci_lower_ns: Some(720_000.0),
+                verifying_ci_upper_ns: Some(750_000.0),
+                class: EvidenceClass::Measured,
+                samples: None,
+            },
+            PlainTimingResult {
+                size: "OneK".to_string(),
+                messages: 1_000,
+                signing_mean_ns: Some(737_922_991.4),
+                signing_ci_lower_ns: None,
+                signing_ci_upper_ns: None,
+                verifying_mean_ns: None,
+                verifying_ci_lower_ns: None,
+                verifying_ci_upper_ns: None,
+                class: EvidenceClass::Extrapolated,
+                samples: Some(2),
+            },
+            PlainTimingResult {
+                size: "Medium".to_string(),
+                messages: 10_000,
+                signing_mean_ns: Some(689_912_358.1),
+                signing_ci_lower_ns: Some(675_000_000.0),
+                signing_ci_upper_ns: Some(705_000_000.0),
+                verifying_mean_ns: Some(750_929.80),
+                verifying_ci_lower_ns: Some(735_000.0),
+                verifying_ci_upper_ns: Some(765_000.0),
+                class: EvidenceClass::Measured,
+                samples: None,
+            },
+            PlainTimingResult {
+                size: "Large".to_string(),
+                messages: 1_000_000,
+                signing_mean_ns: Some(737_922_991.4),
+                signing_ci_lower_ns: None,
+                signing_ci_upper_ns: None,
+                verifying_mean_ns: None,
+                verifying_ci_lower_ns: None,
+                verifying_ci_upper_ns: None,
+                class: EvidenceClass::Extrapolated,
+                samples: Some(2),
             },
         ]
     }
@@ -1079,7 +1220,7 @@ mod tests {
         assert!(data.series.is_empty());
         assert!(data.group_annotations.is_empty());
 
-        let wire = wire_bar_data(&[]);
+        let wire = wire_bar_data(&[], &[]);
         assert!(wire.series.iter().all(|s| s.points.is_empty()));
         assert!(wire.group_annotations.is_empty());
 
@@ -1095,7 +1236,7 @@ mod tests {
     #[test]
     fn wire_reduction_labels_and_series() {
         let rows = wire_rows();
-        let data = wire_bar_data(&rows);
+        let data = wire_bar_data(&rows, &[]);
         assert_eq!(data.series.len(), 2);
         assert_eq!(data.series[0].points.len(), 3);
         assert_eq!(data.series[1].points.len(), 3);
@@ -1105,13 +1246,70 @@ mod tests {
             .iter()
             .map(|a| a.2.as_str())
             .collect();
-        assert_eq!(labels, vec!["−97.0%", "−96.7%", "−95.7%"]);
-        // Annotation sits above the taller (without-MTL) bar.
+        assert_eq!(
+            labels,
+            vec!["−97.0% (C vs B)", "−96.7% (C vs B)", "−95.7% (C vs B)"]
+        );
         for (i, row) in rows.iter().enumerate() {
             let (n, y, _) = data.group_annotations[i];
             assert_eq!(n, row.message_count as u64);
             assert!(y > row.without_mtl_total_bytes as f64);
         }
+    }
+
+    #[test]
+    fn wire_bar_data_adds_plain_series_when_plain_bytes_present() {
+        let rows = vec![
+            WireSizeResult {
+                size: "small".to_string(),
+                message_count: 100,
+                ladder_len: 1,
+                condensed_min: 0,
+                condensed_mean: 0.0,
+                condensed_max: 0,
+                condensed_uniform: true,
+                with_mtl_total_bytes: 24_424,
+                without_mtl_total_bytes: 815_632,
+                reduction_percent: 97.005,
+                plain_total_bytes: 785_600,
+                plain_signature_len_bytes: 7_856,
+            },
+            WireSizeResult {
+                size: "medium".to_string(),
+                message_count: 10_000,
+                ladder_len: 1,
+                condensed_min: 0,
+                condensed_mean: 0.0,
+                condensed_max: 0,
+                condensed_uniform: true,
+                with_mtl_total_bytes: 2_743_352,
+                without_mtl_total_bytes: 83_295_296,
+                reduction_percent: 96.706,
+                plain_total_bytes: 78_560_000,
+                plain_signature_len_bytes: 7_856,
+            },
+        ];
+        let plain = plain_fixture();
+        let data = wire_bar_data(&rows, &plain);
+        assert_eq!(data.series.len(), 3);
+        let plain_series = data
+            .series
+            .iter()
+            .find(|s| s.label.contains("Plain SLH-DSA"))
+            .expect("plain series");
+        assert!(plain_series.hollow);
+        assert_eq!(plain_series.points.len(), 2);
+        assert_eq!(plain_series.points[0].n, 100);
+        assert_eq!(plain_series.points[0].value, 785_600.0);
+        assert_eq!(plain_series.points[1].n, 10_000);
+        assert_eq!(plain_series.points[1].value, 78_560_000.0);
+    }
+
+    #[test]
+    fn plain_fixture_helper_has_expected_sizes() {
+        let plain = plain_fixture();
+        let sizes: Vec<&str> = plain.iter().map(|r| r.size.as_str()).collect();
+        assert_eq!(sizes, vec!["Small", "OneK", "Medium", "Large"]);
     }
 
     #[test]
@@ -1241,6 +1439,8 @@ mod tests {
                 benchmark_runtime: serde_json::json!({}),
             },
             dns_pipeline: None,
+            plain: Vec::new(),
+            comparisons: Vec::new(),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
                 largest_wire_reduction_percent: None,

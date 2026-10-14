@@ -222,6 +222,36 @@ fn parse_verifying_suffix(s: &str, full_id: &str) -> Result<(Size, MtlMode), Rep
     }
 }
 
+/// Suffix shared by every configuration-A (plain SLH-DSA) group id.
+pub const PLAIN_SUFFIX: &str = "plain_slh_dsa";
+
+/// Recognize a configuration-A (`plain_slh_dsa`) group id.
+///
+/// Configuration A signs or verifies a *single* message with a plain SLH-DSA
+/// signature (no ladder), so its Criterion records carry a per-message cost
+/// rather than a batch total. They are kept out of [`summarize`]'s
+/// batch-oriented [`SummaryRow`]s and parsed separately:
+///
+/// ```text
+/// signing_{size}_plain_slh_dsa
+/// verifying_{size}_plain_slh_dsa
+/// ```
+///
+/// Returns `None` for any other id, including the MTL groups handled by
+/// [`parse_group_id`].
+pub fn parse_plain_group_id(id: &str) -> Option<(BenchKind, Size)> {
+    let (kind, rest) = if let Some(rest) = id.strip_prefix("signing_") {
+        (BenchKind::Signing, rest)
+    } else {
+        (BenchKind::Verifying, id.strip_prefix("verifying_")?)
+    };
+    let (size_str, suffix) = split_size_and_suffix(rest)?;
+    if suffix != PLAIN_SUFFIX {
+        return None;
+    }
+    Some((kind, parse_size(size_str)?))
+}
+
 /// Given `"small_with_mtl"`, returns `Some(("small", "with_mtl"))`.
 fn split_size_and_suffix(s: &str) -> Option<(&str, &str)> {
     let first_underscore = s.find('_')?;
@@ -278,7 +308,7 @@ mod tests {
     fn make_record(group_id: &str, mean_ns: f64) -> CriterionRecord {
         CriterionRecord {
             group_id: group_id.to_string(),
-            function_id: "f".to_string(),
+            function_id: Some("f".to_string()),
             value_str: "1".to_string(),
             full_id: format!("{}/f/1", group_id),
             elements: None,
@@ -360,5 +390,39 @@ mod tests {
         assert_eq!(sorted[0].size, Size::Small);
         assert_eq!(sorted[1].size, Size::Medium);
         assert_eq!(sorted[2].size, Size::Large);
+    }
+
+    // -- parse_plain_group_id ---------------------------------------------
+
+    #[test]
+    fn parse_plain_group_id_accepts_measured_sizes() {
+        assert_eq!(
+            parse_plain_group_id("signing_small_plain_slh_dsa"),
+            Some((BenchKind::Signing, Size::Small))
+        );
+        assert_eq!(
+            parse_plain_group_id("signing_medium_plain_slh_dsa"),
+            Some((BenchKind::Signing, Size::Medium))
+        );
+        assert_eq!(
+            parse_plain_group_id("verifying_small_plain_slh_dsa"),
+            Some((BenchKind::Verifying, Size::Small))
+        );
+        assert_eq!(
+            parse_plain_group_id("verifying_medium_plain_slh_dsa"),
+            Some((BenchKind::Verifying, Size::Medium))
+        );
+    }
+
+    #[test]
+    fn parse_plain_group_id_rejects_mtl_and_malformed_ids() {
+        assert_eq!(parse_plain_group_id("signing_small_with_mtl"), None);
+        assert_eq!(
+            parse_plain_group_id("verifying_small_with_mtl_trust_true"),
+            None
+        );
+        assert_eq!(parse_plain_group_id("signing_small_plain"), None);
+        assert_eq!(parse_plain_group_id("signing_giga_plain_slh_dsa"), None);
+        assert_eq!(parse_plain_group_id("garbage"), None);
     }
 }

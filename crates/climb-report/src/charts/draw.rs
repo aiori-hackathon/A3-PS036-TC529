@@ -28,16 +28,16 @@ use crate::summary::condition_label;
 
 /// Footnotes for the signing-time chart.
 pub const SIGNING_FOOTNOTES: [&str; 3] = [
-    "Source: target/climb-results.json → benchmark.signing (consolidated from target/criterion/).",
-    "Solid bars = Criterion-measured mean with 95% CI whiskers; hollow bars = extrapolated.",
-    "Extrapolation is N × that condition's mean measured per-message cost — descriptive, not measured.",
+    "Source: target/climb-results.json → benchmark.signing and .plain (consolidated from target/criterion/).",
+    "Solid bars = Criterion-measured batch mean with 95% CI whiskers; hollow bars = N × a measured per-message cost (plain SLH-DSA, and MTL conditions not measured at that size).",
+    "These extrapolations are descriptive summaries of the benchmarked runs, not measurements of the full batch.",
 ];
 
 /// Footnotes for the verification-time chart.
 pub const VERIFYING_FOOTNOTES: [&str; 3] = [
-    "Source: target/climb-results.json → benchmark.verifying (consolidated from target/criterion/).",
-    "Solid bars = Criterion-measured mean with 95% CI whiskers; hollow bars = extrapolated.",
-    "Trust-cached ladder rows are measured-only; extrapolated rows are N × mean per-message cost.",
+    "Source: target/climb-results.json → benchmark.verifying and .plain (consolidated from target/criterion/).",
+    "Solid bars = Criterion-measured batch mean with 95% CI whiskers; hollow bars = N × a measured per-message cost (plain SLH-DSA, and MTL conditions not measured at that size).",
+    "Trust-cached ladder rows are measured-only; plain SLH-DSA is size-independent, measured on one message per size.",
 ];
 
 /// Rewrite a series legend label into the descriptive condition form while
@@ -58,8 +58,8 @@ fn legend_label(label: &str) -> String {
 /// Footnotes for the transmitted-bytes chart.
 pub const WIRE_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → wire_size (from target/wire-report.json, `cargo xtask wire-report`).",
-    "Both series are measured: MTL file-level totals vs one-signature-per-message totals.",
-    "−% labels compare the two totals for that dataset size; no value on this chart is modelled.",
+    "MTL totals are measured file-level bytes; the plain SLH-DSA total is N × one plain signature (hollow: no full-batch plain run was taken).",
+    "−% labels compare the MTL amortised (C) and MTL non-amortised (B) totals for that dataset size; no value on this chart is modelled.",
 ];
 
 /// Footnotes for the amortization-curve chart.

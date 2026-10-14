@@ -139,6 +139,36 @@ impl ResultsView {
         ))
     }
 
+    // --- KPI 5: C vs A (plain) three-way hero metric -----------------------
+
+    /// Configuration C (MTL amortised) vs A (plain SLH-DSA) per-message
+    /// signing speed-up at the Medium size — the "hero" three-way metric.
+    /// Reads from the consolidated `comparisons` array (Derived, never typed).
+    pub fn c_vs_a_signing_speedup(&self) -> Option<Kpi> {
+        let comp = self
+            .results
+            .comparisons
+            .iter()
+            .find(|c| c.size.eq_ignore_ascii_case("Medium"))?;
+        let speedup = comp.signing_speedup_c_vs_a?;
+        let class = comp.class;
+        let kind = if class == climb_report::results::EvidenceClass::Measured {
+            KpiKind::Measured
+        } else {
+            KpiKind::Extrapolated
+        };
+        let prefix = if kind == KpiKind::Extrapolated {
+            "≈"
+        } else {
+            ""
+        };
+        Some(Kpi {
+            value: format!("{}{}x", prefix, fmt_count(speedup)),
+            caption: "C vs A signing (Medium)".to_string(),
+            kind,
+        })
+    }
+
     // --- Environment --------------------------------------------------------
 
     pub fn cpu_model(&self) -> Option<String> {

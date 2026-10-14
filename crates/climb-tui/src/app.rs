@@ -115,6 +115,8 @@ pub enum Action {
     ToggleBanner,
     /// Toggle automatic leaf advance (Ladder tab).
     ToggleAutoplay,
+    /// Cycle the baseline shown on Wire/Signing tabs (A=plain, B=MTL non-amortised, C=MTL amortised).
+    CycleBaseline,
     Resize {
         width: u16,
         height: u16,
@@ -148,6 +150,8 @@ pub struct App {
     pub selected_size: usize,
     /// Whether Signing/Verifying show batch totals or per-message costs.
     pub value_mode: ValueMode,
+    /// Active baseline on Wire/Signing tabs: 0=A (plain), 1=B (MTL non-amortised), 2=C (MTL amortised).
+    pub baseline: usize,
     /// Leaves (messages) modelled on the Ladder tab.
     pub ladder_n: u64,
     /// Selected leaf (message) on the Ladder tab.
@@ -182,6 +186,7 @@ impl App {
             data: LoadState::NotLoaded,
             selected_size: 0,
             value_mode: ValueMode::Total,
+            baseline: 0,
             ladder_n: 8,
             ladder_leaf: 0,
             ladder_banner: false,
@@ -232,6 +237,7 @@ impl App {
                 }
             }
             Action::ToggleValueMode => self.value_mode = self.value_mode.toggled(),
+            Action::CycleBaseline => self.baseline = (self.baseline + 1) % 3,
             Action::Tick => {
                 self.tick = self.tick.wrapping_add(1);
                 if self.tab == Tab::Ladder && self.ladder_autoplay {
@@ -300,6 +306,11 @@ impl App {
     /// The currently selected value mode (totals vs per-message).
     pub fn value_mode(&self) -> ValueMode {
         self.value_mode
+    }
+
+    /// The active baseline on Wire/Signing tabs (0=A, 1=B, 2=C).
+    pub fn baseline(&self) -> usize {
+        self.baseline
     }
 
     /// Leaves (messages) modelled on the Ladder tab.
@@ -373,6 +384,7 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char(' ') => Some(Action::ToggleBanner),
         KeyCode::Enter => Some(Action::ToggleAutoplay),
         KeyCode::Char('v') => Some(Action::ToggleValueMode),
+        KeyCode::Char('b') => Some(Action::CycleBaseline),
         _ => None,
     }
 }
@@ -442,6 +454,8 @@ mod tests {
                     benchmark_runtime: serde_json::json!({}),
                 },
                 dns_pipeline: None,
+                plain: Vec::new(),
+                comparisons: Vec::new(),
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
                     largest_wire_reduction_percent: None,

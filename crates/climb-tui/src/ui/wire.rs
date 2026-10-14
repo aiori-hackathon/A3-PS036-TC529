@@ -8,6 +8,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::Frame;
 
+use crate::app::App;
 use crate::data::{ResultsView, UdpGaugeData};
 use crate::theme::{Glyphs, Theme};
 use crate::widgets::stacked_bars::{SegmentStyle, StackGroup, StackedBars};
@@ -22,11 +23,12 @@ const GAUGE_STACK_HEIGHT: u16 = 9;
 pub fn render_wire(
     frame: &mut Frame,
     area: Rect,
+    app: &App,
     view: &ResultsView,
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let stacks = view.wire_stacks();
+    let stacks = view.wire_stacks(app.baseline());
     let gauge = view.udp_gauge_data();
     render_panels(frame, area, &stacks, &gauge, theme, glyphs);
 }

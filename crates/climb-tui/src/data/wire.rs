@@ -26,9 +26,11 @@ impl ResultsView {
     ///
     /// Each size gets an `MTL amortised` bar split into the shared ladder and
     /// the per-message condensed bytes, and a `No amortisation` bar of full
-    /// signatures. Bars normalise per size on the no-amortisation total, so the
-    /// amortisation reads directly as bar length.
-    pub fn wire_stacks(&self) -> Vec<StackGroup> {
+    /// signatures. When baseline == 0, a `Plain SLH-DSA` bar (N × plain
+    /// signature length) is added as the leftmost bar. Bars normalise per size
+    /// on the rightmost bar's total, so the amortisation reads directly as bar
+    /// length.
+    pub fn wire_stacks(&self, baseline: usize) -> Vec<StackGroup> {
         let mut rows: Vec<_> = self.results.wire_size.iter().collect();
         rows.sort_by_key(|row| row.message_count);
         rows.into_iter()
@@ -48,47 +50,63 @@ impl ResultsView {
                     fmt_count(row.condensed_max as f64),
                     uniform,
                 );
+                let mut bars = Vec::new();
+                if baseline == 0 {
+                    // Config A: Plain SLH-DSA (N × plain signature length)
+                    if row.plain_total_bytes > 0 {
+                        bars.push(StackBar {
+                            name: "Plain SLH-DSA".to_string(),
+                            segments: vec![StackSegment {
+                                label: format!(
+                                    "{} \u{00d7} plain",
+                                    fmt_count(row.message_count as f64)
+                                ),
+                                bytes: row.plain_total_bytes,
+                                style: SegmentStyle::Solid,
+                            }],
+                            note: format!("{} B", fmt_count(row.plain_total_bytes as f64)),
+                        });
+                    }
+                }
+                // Config C: MTL amortised
+                bars.push(StackBar {
+                    name: condition_short_label("With MTL").to_string(),
+                    segments: vec![
+                        StackSegment {
+                            label: "shared ladder".to_string(),
+                            bytes: row.ladder_len as u64,
+                            style: SegmentStyle::Hatched,
+                        },
+                        StackSegment {
+                            label: format!(
+                                "{} \u{00d7} condensed",
+                                fmt_count(row.message_count as f64)
+                            ),
+                            bytes: condensed_total,
+                            style: SegmentStyle::Dotted,
+                        },
+                    ],
+                    note: format!(
+                        "{} B \u{00b7} \u{2212}{:.1}%",
+                        fmt_count(row.with_mtl_total_bytes as f64),
+                        row.reduction_percent,
+                    ),
+                });
+                // Config B: MTL non-amortised (baseline 1 or 2)
+                bars.push(StackBar {
+                    name: condition_short_label("Without MTL").to_string(),
+                    segments: vec![StackSegment {
+                        label: format!("{} \u{00d7} full", fmt_count(row.message_count as f64)),
+                        bytes: row.without_mtl_total_bytes,
+                        style: SegmentStyle::Solid,
+                    }],
+                    note: format!("{} B", fmt_count(row.without_mtl_total_bytes as f64)),
+                });
                 StackGroup {
                     label: title_size(&row.size),
                     scale_max: row.without_mtl_total_bytes.max(1),
                     caption: Some(caption),
-                    bars: vec![
-                        StackBar {
-                            name: condition_short_label("With MTL").to_string(),
-                            segments: vec![
-                                StackSegment {
-                                    label: "shared ladder".to_string(),
-                                    bytes: row.ladder_len as u64,
-                                    style: SegmentStyle::Hatched,
-                                },
-                                StackSegment {
-                                    label: format!(
-                                        "{} \u{00d7} condensed",
-                                        fmt_count(row.message_count as f64)
-                                    ),
-                                    bytes: condensed_total,
-                                    style: SegmentStyle::Dotted,
-                                },
-                            ],
-                            note: format!(
-                                "{} B \u{00b7} \u{2212}{:.1}%",
-                                fmt_count(row.with_mtl_total_bytes as f64),
-                                row.reduction_percent,
-                            ),
-                        },
-                        StackBar {
-                            name: condition_short_label("Without MTL").to_string(),
-                            segments: vec![StackSegment {
-                                label: format!(
-                                    "{} \u{00d7} full",
-                                    fmt_count(row.message_count as f64)
-                                ),
-                                bytes: row.without_mtl_total_bytes,
-                                style: SegmentStyle::Solid,
-                            }],
-                            note: format!("{} B", fmt_count(row.without_mtl_total_bytes as f64)),
-                        },
-                    ],
+                    bars,
                 }
             })
             .collect()
@@ -204,7 +222,7 @@ mod tests {
             None,
             empty_derived(),
         );
-        let stacks = view.wire_stacks();
+        let stacks = view.wire_stacks(1);
         assert_eq!(stacks.len(), 2);
         assert_eq!(stacks[0].label, "Small", "sizes sort ascending by messages");
         assert_eq!(stacks[1].label, "Large");
@@ -236,7 +254,7 @@ mod tests {
     #[test]
     fn wire_stacks_is_empty_without_wire_rows() {
         let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
-        assert!(view.wire_stacks().is_empty());
+        assert!(view.wire_stacks(1).is_empty());
     }
 
     #[test]

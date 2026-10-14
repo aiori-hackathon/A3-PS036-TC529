@@ -49,6 +49,98 @@ pub struct WireSizeResult {
     pub with_mtl_total_bytes: u64,
     pub without_mtl_total_bytes: u64,
     pub reduction_percent: f64,
+    /// Configuration A wire total: `message_count × plain_signature_len_bytes`,
+    /// one full SLH-DSA signature per message with no ladder. Zero for results
+    /// written before configuration A was measured.
+    #[serde(default)]
+    pub plain_total_bytes: u64,
+    /// Per-message plain SLH-DSA signature length in bytes, read from liboqs.
+    /// Zero for results written before configuration A was measured.
+    #[serde(default)]
+    pub plain_signature_len_bytes: u64,
+}
+
+/// How a displayed number was obtained, so a reader can tell a measurement
+/// apart from an identity-based extrapolation or a model estimate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EvidenceClass {
+    /// Read directly from a measurement artifact.
+    Measured,
+    /// Produced by the `N × per-message` identity from a measured per-message
+    /// cost, rather than measured over the whole batch.
+    Extrapolated,
+    /// Produced by an analytical model rather than a measurement.
+    Analytical,
+    /// Computed as a ratio or summary of other values.
+    Derived,
+}
+
+impl EvidenceClass {
+    /// Artifact-stable lower-case name, matching the serde representation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            EvidenceClass::Measured => "measured",
+            EvidenceClass::Extrapolated => "extrapolated",
+            EvidenceClass::Analytical => "analytical",
+            EvidenceClass::Derived => "derived",
+        }
+    }
+
+    /// Upper-case label for tables and chart legends.
+    pub fn label(self) -> &'static str {
+        match self {
+            EvidenceClass::Measured => "MEASURED",
+            EvidenceClass::Extrapolated => "EXTRAPOLATED",
+            EvidenceClass::Analytical => "ANALYTICAL",
+            EvidenceClass::Derived => "DERIVED",
+        }
+    }
+}
+
+/// Configuration A (plain SLH-DSA) per-message timings for one dataset size.
+///
+/// A plain signature carries no ladder, so its cost is size-independent: a size
+/// is measured by signing/verifying a single message of that size's seeded
+/// dataset. Sizes without their own measurement carry the mean of the measured
+/// samples, marked [`EvidenceClass::Extrapolated`] with the sample count `k`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PlainTimingResult {
+    pub size: String,
+    pub messages: u64,
+    pub signing_mean_ns: Option<f64>,
+    pub signing_ci_lower_ns: Option<f64>,
+    pub signing_ci_upper_ns: Option<f64>,
+    pub verifying_mean_ns: Option<f64>,
+    pub verifying_ci_lower_ns: Option<f64>,
+    pub verifying_ci_upper_ns: Option<f64>,
+    pub class: EvidenceClass,
+    /// Number of measured per-message samples averaged into a row (`k`); `None`
+    /// for a directly measured single-message row.
+    #[serde(default)]
+    pub samples: Option<u32>,
+}
+
+/// Three-way configuration comparison for one dataset size, derived from the
+/// consolidated artifacts: A plain SLH-DSA, B MTL non-amortised, C MTL
+/// amortised.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConfigComparison {
+    pub size: String,
+    /// `(A − C) / A × 100`: amortised MTL's wire reduction against plain SLH-DSA.
+    pub wire_reduction_c_vs_a_percent: Option<f64>,
+    /// `(B − C) / B × 100`: amortised MTL's wire reduction against non-amortised MTL.
+    pub wire_reduction_c_vs_b_percent: Option<f64>,
+    /// Per-message signing speed-up `A / C`.
+    pub signing_speedup_c_vs_a: Option<f64>,
+    /// Per-message signing speed-up `B / C`.
+    pub signing_speedup_c_vs_b: Option<f64>,
+    /// Per-message verification speed-up `A / C` with a trust-cached ladder.
+    pub verifying_speedup_cached_vs_a: Option<f64>,
+    /// Per-message verification speed-up `A / C` with the ladder re-validated.
+    pub verifying_speedup_cold_vs_a: Option<f64>,
+    /// Weakest evidence class among the row's inputs.
+    pub class: EvidenceClass,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -264,6 +356,14 @@ pub struct ClimbResults {
     /// DNS pipeline headline, or `None` when no capture (live or recorded
     /// fixture) is available.
     pub dns_pipeline: Option<DnsPipelineHeadline>,
+    /// Configuration A (plain SLH-DSA) per-message timings, one row per dataset
+    /// size. Empty for results written before configuration A was routed here.
+    #[serde(default)]
+    pub plain: Vec<PlainTimingResult>,
+    /// Three-way configuration comparisons (C vs A, C vs B). Empty for results
+    /// written before the comparison was derived.
+    #[serde(default)]
+    pub comparisons: Vec<ConfigComparison>,
     pub derived: DerivedSummary,
     /// Non-fatal consolidation warnings (missing or stale optional inputs).
     ///
@@ -332,13 +432,22 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ReportErr
 
 /// Scans from the criterion root (same traversal as `cargo xtask report`);
 /// unrecognized group ids from stale layouts are dropped instead of failing.
-fn read_summary_rows(criterion_dir: &Path, baseline: &str) -> Result<Vec<SummaryRow>, ReportError> {
+///
+/// Returns the batch-oriented summary rows plus the configuration-A plain
+/// records, which are parsed separately because they carry a per-message cost.
+fn read_summary_rows(
+    criterion_dir: &Path,
+    baseline: &str,
+) -> Result<(Vec<SummaryRow>, Vec<CriterionRecord>), ReportError> {
     let records = scan_criterion(criterion_dir, baseline)?;
-    let known: Vec<CriterionRecord> = records
+    let (plain, mtl): (Vec<CriterionRecord>, Vec<CriterionRecord>) = records
+        .into_iter()
+        .partition(|rec| crate::summary::parse_plain_group_id(&rec.group_id).is_some());
+    let known: Vec<CriterionRecord> = mtl
         .into_iter()
         .filter(|rec| crate::summary::parse_group_id(&rec.group_id).is_ok())
         .collect();
-    summarize(&known)
+    Ok((summarize(&known)?, plain))
 }
 
 /// Pure derivation of the headline metrics from the collected sections; every
@@ -392,6 +501,201 @@ fn derive_summary(
         overall_verifying_trust_cached_speedup_avg: trust_cached_avg,
         headline: dns_pipeline.and_then(headline_from_dns),
     }
+}
+
+/// Dataset sizes and message counts used for configuration A and the
+/// three-way comparison, in ascending order.
+const COMPARISON_SIZES: [(crate::summary::Size, &str, u64); 4] = [
+    (crate::summary::Size::Small, "Small", 100),
+    (crate::summary::Size::OneK, "OneK", 1_000),
+    (crate::summary::Size::Medium, "Medium", 10_000),
+    (crate::summary::Size::Large, "Large", 1_000_000),
+];
+
+/// Per-message cost for one condition: measured for its own size when a row
+/// exists, otherwise the mean of the condition's measured per-message costs.
+struct PerMessage {
+    value: Option<f64>,
+    extrapolated: bool,
+}
+
+fn average(values: impl Iterator<Item = f64>) -> Option<f64> {
+    let (sum, count) = values.fold((0.0_f64, 0u32), |(s, n), v| (s + v, n + 1));
+    if count == 0 {
+        None
+    } else {
+        Some(sum / f64::from(count))
+    }
+}
+
+/// `(from − to) / from × 100`, or `None` when `from` is zero.
+fn percent_reduction(from: u64, to: u64) -> Option<f64> {
+    if from == 0 {
+        None
+    } else {
+        Some((from as f64 - to as f64) / from as f64 * 100.0)
+    }
+}
+
+/// `a / c`, or `None` unless both are present and `c` is positive.
+fn ratio(a: Option<f64>, c: Option<f64>) -> Option<f64> {
+    match (a, c) {
+        (Some(a), Some(c)) if c > 0.0 => Some(a / c),
+        _ => None,
+    }
+}
+
+/// Per-message cost for one condition of one dataset size, falling back to the
+/// mean over the condition's measured sizes when the size itself was not run.
+fn per_message<'a>(
+    rows: impl Iterator<Item = (&'a str, &'a str, u64, f64)>,
+    size: &str,
+    condition: &str,
+) -> PerMessage {
+    let rows: Vec<(&str, &str, u64, f64)> = rows
+        .filter(|(_, c, m, mean)| *c == condition && *m > 0 && *mean > 0.0)
+        .collect();
+    if let Some((_, _, messages, mean)) = rows
+        .iter()
+        .find(|(s, _, _, _)| s.eq_ignore_ascii_case(size))
+    {
+        return PerMessage {
+            value: Some(mean / *messages as f64),
+            extrapolated: false,
+        };
+    }
+    let value = average(rows.iter().map(|(_, _, m, mean)| mean / *m as f64));
+    PerMessage {
+        extrapolated: value.is_some(),
+        value,
+    }
+}
+
+fn signing_per_message(rows: &[SigningBenchmarkResult], size: &str, condition: &str) -> PerMessage {
+    per_message(
+        rows.iter()
+            .map(|r| (r.size.as_str(), r.condition.as_str(), r.messages, r.mean_ns)),
+        size,
+        condition,
+    )
+}
+
+fn verifying_per_message(
+    rows: &[VerifyingBenchmarkResult],
+    size: &str,
+    condition: &str,
+) -> PerMessage {
+    per_message(
+        rows.iter()
+            .map(|r| (r.size.as_str(), r.condition.as_str(), r.messages, r.mean_ns)),
+        size,
+        condition,
+    )
+}
+
+/// Configuration A per-message timings, one row per dataset size. Sizes with a
+/// measured plain group are reported as measured; the rest carry the mean of
+/// the measured samples, marked extrapolated with the sample count `k`.
+fn plain_timings(records: &[CriterionRecord]) -> Vec<PlainTimingResult> {
+    use std::collections::BTreeMap;
+    let mut signing: BTreeMap<crate::summary::Size, (f64, f64, f64)> = BTreeMap::new();
+    let mut verifying: BTreeMap<crate::summary::Size, (f64, f64, f64)> = BTreeMap::new();
+    for rec in records {
+        let Some((kind, size)) = crate::summary::parse_plain_group_id(&rec.group_id) else {
+            continue;
+        };
+        let entry = (rec.mean_ns, rec.mean_ci_lower_ns, rec.mean_ci_upper_ns);
+        match kind {
+            crate::summary::BenchKind::Signing => {
+                let _ = signing.insert(size, entry);
+            }
+            crate::summary::BenchKind::Verifying => {
+                let _ = verifying.insert(size, entry);
+            }
+        }
+    }
+    if signing.is_empty() && verifying.is_empty() {
+        return Vec::new();
+    }
+    let sign_avg = average(signing.values().map(|e| e.0));
+    let verif_avg = average(verifying.values().map(|e| e.0));
+    let samples = signing.len().max(verifying.len()) as u32;
+
+    COMPARISON_SIZES
+        .iter()
+        .filter_map(|(size, label, messages)| {
+            let measured_sign = signing.get(size).copied();
+            let measured_verif = verifying.get(size).copied();
+            let measured = measured_sign.is_some() || measured_verif.is_some();
+            let signing_mean_ns = measured_sign.map(|e| e.0).or(sign_avg);
+            let verifying_mean_ns = measured_verif.map(|e| e.0).or(verif_avg);
+            if signing_mean_ns.is_none() && verifying_mean_ns.is_none() {
+                return None;
+            }
+            Some(PlainTimingResult {
+                size: (*label).to_string(),
+                messages: *messages,
+                signing_mean_ns,
+                signing_ci_lower_ns: measured_sign.map(|e| e.1),
+                signing_ci_upper_ns: measured_sign.map(|e| e.2),
+                verifying_mean_ns,
+                verifying_ci_lower_ns: measured_verif.map(|e| e.1),
+                verifying_ci_upper_ns: measured_verif.map(|e| e.2),
+                class: if measured {
+                    EvidenceClass::Measured
+                } else {
+                    EvidenceClass::Extrapolated
+                },
+                samples: if measured { None } else { Some(samples) },
+            })
+        })
+        .collect()
+}
+
+/// Three-way comparisons for every size that has a configuration-A timing row.
+/// A row is marked `extrapolated` when any input (A's per-message timing, or B's
+/// per-message cost) was itself not measured for that size.
+fn build_comparisons(
+    wire_size: &[WireSizeResult],
+    signing: &[SigningBenchmarkResult],
+    verifying: &[VerifyingBenchmarkResult],
+    plain: &[PlainTimingResult],
+) -> Vec<ConfigComparison> {
+    plain
+        .iter()
+        .map(|p| {
+            let size = p.size.as_str();
+            let wire = wire_size.iter().find(|w| w.size.eq_ignore_ascii_case(size));
+            let wire_c_vs_b = wire.map(|w| w.reduction_percent);
+            let wire_c_vs_a =
+                wire.and_then(|w| percent_reduction(w.plain_total_bytes, w.with_mtl_total_bytes));
+
+            let c_sign = signing_per_message(signing, size, "With MTL");
+            let b_sign = signing_per_message(signing, size, "Without MTL");
+            let c_cached = verifying_per_message(verifying, size, "MTL (trust cached)");
+            let c_cold = verifying_per_message(verifying, size, "With MTL");
+
+            let extrapolated = p.class == EvidenceClass::Extrapolated
+                || b_sign.extrapolated
+                || c_sign.extrapolated
+                || c_cached.extrapolated
+                || c_cold.extrapolated;
+            ConfigComparison {
+                size: p.size.clone(),
+                wire_reduction_c_vs_a_percent: wire_c_vs_a,
+                wire_reduction_c_vs_b_percent: wire_c_vs_b,
+                signing_speedup_c_vs_a: ratio(p.signing_mean_ns, c_sign.value),
+                signing_speedup_c_vs_b: ratio(b_sign.value, c_sign.value),
+                verifying_speedup_cached_vs_a: ratio(p.verifying_mean_ns, c_cached.value),
+                verifying_speedup_cold_vs_a: ratio(p.verifying_mean_ns, c_cold.value),
+                class: if extrapolated {
+                    EvidenceClass::Extrapolated
+                } else {
+                    EvidenceClass::Derived
+                },
+            }
+        })
+        .collect()
 }
 
 /// Derive the one-line headline from captured DNS numbers; `None` when the
@@ -475,7 +779,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         .to_string_lossy()
         .to_string();
 
-    let summary_rows = read_summary_rows(&opts.criterion_dir, &opts.baseline)?;
+    let (summary_rows, plain_records) = read_summary_rows(&opts.criterion_dir, &opts.baseline)?;
 
     let mut signing: Vec<SigningBenchmarkResult> = Vec::new();
     let mut verifying: Vec<VerifyingBenchmarkResult> = Vec::new();
@@ -540,6 +844,8 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
                     with_mtl_total_bytes: r.with_mtl_total,
                     without_mtl_total_bytes: r.without_mtl_total,
                     reduction_percent: r.reduction_percent,
+                    plain_total_bytes: r.plain.total,
+                    plain_signature_len_bytes: r.plain.signature_len as u64,
                 });
             }
         }
@@ -601,6 +907,9 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
 
     let dns_pipeline = load_dns_capture(&opts.dns_capture_path, &opts.dns_fixture_path)?;
 
+    let plain = plain_timings(&plain_records);
+    let comparisons = build_comparisons(&wire_size, &signing, &verifying, &plain);
+
     let derived = derive_summary(&wire_size, &signing, &verifying, dns_pipeline.as_ref());
 
     let results = ClimbResults {
@@ -612,6 +921,8 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         memory: memory_results,
         environment,
         dns_pipeline,
+        plain,
+        comparisons,
         derived,
         warnings,
     };
@@ -996,6 +1307,37 @@ mod tests {
             with_mtl_total_bytes: 658,
             without_mtl_total_bytes: 24438,
             reduction_percent,
+            plain_total_bytes: 0,
+            plain_signature_len_bytes: 0,
+        }
+    }
+
+    fn plain_row(size: &str) -> PlainTimingResult {
+        PlainTimingResult {
+            size: size.to_string(),
+            messages: 100,
+            signing_mean_ns: Some(737_922_991.4),
+            signing_ci_lower_ns: Some(698_016_512.78),
+            signing_ci_upper_ns: Some(771_913_495.5),
+            verifying_mean_ns: Some(736_473.46),
+            verifying_ci_lower_ns: Some(715_353.3),
+            verifying_ci_upper_ns: Some(756_882.23),
+            class: EvidenceClass::Measured,
+            samples: None,
+        }
+    }
+
+    fn make_plain_record(group_id: &str, mean_ns: f64) -> crate::record::CriterionRecord {
+        crate::record::CriterionRecord {
+            group_id: group_id.to_string(),
+            function_id: Some("f".to_string()),
+            value_str: "1".to_string(),
+            full_id: format!("{}/f/1", group_id),
+            elements: None,
+            mean_ns,
+            mean_ci_lower_ns: mean_ns * 0.9,
+            mean_ci_upper_ns: mean_ns * 1.1,
+            confidence_level: 0.95,
         }
     }
 
@@ -1060,6 +1402,8 @@ mod tests {
             recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
             algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
         };
+        let plain = vec![plain_row("Small")];
+        let comparisons = build_comparisons(&wire, &signing, &verifying, &plain);
         let derived = derive_summary(&wire, &signing, &verifying, Some(&dns));
         ClimbResults {
             version: "1.0".to_string(),
@@ -1077,6 +1421,8 @@ mod tests {
                 ..environment_fingerprint()
             },
             dns_pipeline: Some(dns),
+            plain,
+            comparisons,
             derived,
             warnings: vec!["wire report missing: /x".to_string()],
         }
@@ -1107,6 +1453,8 @@ mod tests {
             },
             environment: environment_fingerprint(),
             dns_pipeline: None,
+            plain: Vec::new(),
+            comparisons: Vec::new(),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
                 largest_wire_reduction_percent: None,
@@ -1200,7 +1548,7 @@ mod tests {
             1,
         );
 
-        let rows = read_summary_rows(&root, "new").unwrap();
+        let (rows, _plain) = read_summary_rows(&root, "new").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Signing);
         assert_eq!(rows[0].size, crate::summary::Size::Small);
@@ -1233,7 +1581,7 @@ mod tests {
         )
         .unwrap();
 
-        let rows = read_summary_rows(&root, "new").unwrap();
+        let (rows, _plain) = read_summary_rows(&root, "new").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Verifying);
         assert_eq!(rows[0].size, crate::summary::Size::Medium);
@@ -1245,7 +1593,7 @@ mod tests {
         // a strict call would fail on the same stale layout.
         let record = CriterionRecord {
             group_id: "signing_small".to_string(),
-            function_id: "with_mtl".to_string(),
+            function_id: Some("with_mtl".to_string()),
             value_str: "1".to_string(),
             full_id: "signing_small/with_mtl/1".to_string(),
             elements: Some(1),
@@ -1772,5 +2120,139 @@ mod tests {
         let headline =
             load_dns_capture(&root.join("no-live.json"), &root.join("no-fixture.json")).unwrap();
         assert_eq!(headline, None);
+    }
+
+    // -- configuration A timings and three-way comparison -------------------
+
+    #[test]
+    fn plain_timings_mark_measured_and_extrapolated_sizes() {
+        let records = vec![
+            make_plain_record("signing_small_plain_slh_dsa", 738_000_000.0),
+            make_plain_record("signing_medium_plain_slh_dsa", 736_000_000.0),
+            make_plain_record("verifying_small_plain_slh_dsa", 736_473.46),
+        ];
+
+        let rows = plain_timings(&records);
+        assert_eq!(rows.len(), 4);
+
+        let small = &rows[0];
+        assert_eq!(small.size, "Small");
+        assert_eq!(small.class, EvidenceClass::Measured);
+        assert_eq!(small.samples, None);
+        assert_eq!(small.signing_mean_ns, Some(738_000_000.0));
+        assert_eq!(small.verifying_mean_ns, Some(736_473.46));
+
+        let onek = &rows[1];
+        assert_eq!(onek.size, "OneK");
+        assert_eq!(onek.class, EvidenceClass::Extrapolated);
+        assert_eq!(onek.samples, Some(2));
+        assert_eq!(onek.signing_mean_ns, Some(737_000_000.0));
+        assert_eq!(onek.signing_ci_lower_ns, None);
+        assert_eq!(onek.verifying_mean_ns, Some(736_473.46));
+
+        let medium = &rows[2];
+        assert_eq!(medium.size, "Medium");
+        assert_eq!(medium.class, EvidenceClass::Measured);
+        assert_eq!(medium.signing_mean_ns, Some(736_000_000.0));
+
+        let large = &rows[3];
+        assert_eq!(large.size, "Large");
+        assert_eq!(large.class, EvidenceClass::Extrapolated);
+    }
+
+    #[test]
+    fn plain_timings_is_empty_without_plain_records() {
+        assert!(plain_timings(&[]).is_empty());
+    }
+
+    #[test]
+    fn build_comparisons_matches_wire_size_case_insensitively() {
+        let wire = vec![WireSizeResult {
+            size: "small".to_string(),
+            message_count: 100,
+            ladder_len: 8,
+            condensed_min: 650,
+            condensed_mean: 658.0,
+            condensed_max: 660,
+            condensed_uniform: true,
+            with_mtl_total_bytes: 10_000,
+            without_mtl_total_bytes: 815_632,
+            reduction_percent: 99.0,
+            plain_total_bytes: 1_000_000,
+            plain_signature_len_bytes: 10_000,
+        }];
+        let signing = vec![
+            signing_row("Small", "With MTL", 1_000_000.0),
+            signing_row("Small", "Without MTL", 100_000_000.0),
+        ];
+        let verifying = vec![
+            verifying_row("Small", "MTL (trust cached)", 100_000.0),
+            verifying_row("Small", "With MTL", 500_000.0),
+        ];
+        let plain = vec![PlainTimingResult {
+            size: "Small".to_string(),
+            messages: 100,
+            signing_mean_ns: Some(20_000.0),
+            signing_ci_lower_ns: Some(19_000.0),
+            signing_ci_upper_ns: Some(21_000.0),
+            verifying_mean_ns: Some(50_000.0),
+            verifying_ci_lower_ns: Some(49_000.0),
+            verifying_ci_upper_ns: Some(51_000.0),
+            class: EvidenceClass::Measured,
+            samples: None,
+        }];
+
+        let comparisons = build_comparisons(&wire, &signing, &verifying, &plain);
+        assert_eq!(comparisons.len(), 1);
+        let c = &comparisons[0];
+        assert_eq!(c.class, EvidenceClass::Derived);
+        assert_eq!(c.wire_reduction_c_vs_a_percent, Some(99.0));
+        assert_eq!(c.wire_reduction_c_vs_b_percent, Some(99.0));
+        assert_eq!(c.signing_speedup_c_vs_a, Some(2.0));
+        assert_eq!(c.signing_speedup_c_vs_b, Some(100.0));
+        assert_eq!(c.verifying_speedup_cached_vs_a, Some(50.0));
+        assert_eq!(c.verifying_speedup_cold_vs_a, Some(10.0));
+    }
+
+    #[test]
+    fn build_comparisons_marks_extrapolated_when_mtl_cost_is_missing() {
+        let plain = vec![PlainTimingResult {
+            size: "Large".to_string(),
+            messages: 1_000_000,
+            signing_mean_ns: Some(737_000_000.0),
+            signing_ci_lower_ns: None,
+            signing_ci_upper_ns: None,
+            verifying_mean_ns: Some(736_473.46),
+            verifying_ci_lower_ns: None,
+            verifying_ci_upper_ns: None,
+            class: EvidenceClass::Extrapolated,
+            samples: Some(2),
+        }];
+
+        let comparisons = build_comparisons(&[], &[], &[], &plain);
+        assert_eq!(comparisons.len(), 1);
+        let c = &comparisons[0];
+        assert_eq!(c.class, EvidenceClass::Extrapolated);
+        assert_eq!(c.signing_speedup_c_vs_a, None);
+        assert_eq!(c.wire_reduction_c_vs_a_percent, None);
+    }
+
+    #[test]
+    fn percent_and_ratio_helpers_guard_zero_denominators() {
+        assert_eq!(percent_reduction(100, 25), Some(75.0));
+        assert_eq!(percent_reduction(0, 25), None);
+        assert_eq!(ratio(Some(10.0), Some(2.0)), Some(5.0));
+        assert_eq!(ratio(Some(10.0), Some(0.0)), None);
+        assert_eq!(ratio(None, Some(2.0)), None);
+    }
+
+    #[test]
+    fn evidence_class_serde_and_labels_are_stable() {
+        assert_eq!(
+            serde_json::to_string(&EvidenceClass::Extrapolated).unwrap(),
+            "\"extrapolated\""
+        );
+        assert_eq!(EvidenceClass::Measured.as_str(), "measured");
+        assert_eq!(EvidenceClass::Analytical.label(), "ANALYTICAL");
     }
 }

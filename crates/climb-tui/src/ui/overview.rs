@@ -136,14 +136,15 @@ fn render_kpis(frame: &mut Frame, area: Rect, view: &ResultsView, theme: &Theme,
     let [cards_row, footnote_area] =
         Layout::vertical([Constraint::Length(4), Constraint::Length(1)]).areas(area);
 
-    let cards: [(&str, Option<Kpi>); 4] = [
+    let cards: [(&str, Option<Kpi>); 5] = [
         ("DNS", view.dns_reduction()),
         ("Wire", view.wire_reduction_largest()),
         ("Signing", view.signing_speedup_at("Medium")),
         ("Verify", view.cached_verify_speedup()),
+        ("C vs A", view.c_vs_a_signing_speedup()),
     ];
 
-    let card_areas: [Rect; 4] = Layout::horizontal([Constraint::Ratio(1, 4); 4]).areas(cards_row);
+    let card_areas: [Rect; 5] = Layout::horizontal([Constraint::Ratio(1, 5); 5]).areas(cards_row);
     let any_extrapolated = cards
         .iter()
         .any(|(_, kpi)| matches!(kpi, Some(k) if k.kind == KpiKind::Extrapolated));

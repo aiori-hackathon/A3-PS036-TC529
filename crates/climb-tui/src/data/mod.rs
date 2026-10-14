@@ -279,6 +279,8 @@ pub(crate) mod test_support {
                 },
                 environment: environment(),
                 dns_pipeline: dns,
+                plain: Vec::new(),
+                comparisons: Vec::new(),
                 derived,
                 warnings: Vec::new(),
             },
@@ -311,6 +313,8 @@ pub(crate) mod test_support {
             with_mtl_total_bytes: 100,
             without_mtl_total_bytes: 1000,
             reduction_percent: reduction,
+            plain_total_bytes: 0,
+            plain_signature_len_bytes: 0,
         }
     }
 
@@ -334,6 +338,8 @@ pub(crate) mod test_support {
             with_mtl_total_bytes: with_mtl,
             without_mtl_total_bytes: without_mtl,
             reduction_percent: reduction,
+            plain_total_bytes: 0,
+            plain_signature_len_bytes: 0,
         }
     }
 

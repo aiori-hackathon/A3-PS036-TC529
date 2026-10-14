@@ -45,7 +45,7 @@ pub struct Claim {
 
 /// Summary-grid rows: display label → claim id. Claims whose id has no
 /// value in the results document render as an em dash.
-const SUMMARY_ROWS: [(&str, &str); 7] = [
+const SUMMARY_ROWS: [(&str, &str); 10] = [
     ("Overall wire reduction", "overall-wire-reduction"),
     ("Largest wire reduction", "largest-wire-reduction"),
     ("Trust-cached verify speedup (avg)", "trust-cached-speedup"),
@@ -53,6 +53,12 @@ const SUMMARY_ROWS: [(&str, &str); 7] = [
     ("www.a condensed MTL proof", "dns-condensed-proof"),
     ("www.a wire reduction", "dns-wire-reduction"),
     ("www.a capture provenance", "dns-provenance"),
+    ("Wire C vs B (Medium)", "comparison-1-wire-c-vs-b"),
+    ("Sign C vs A (Medium)", "comparison-1-signing-c-vs-a"),
+    (
+        "Verify cached C vs A (Medium)",
+        "comparison-1-verifying-cached-c-vs-a",
+    ),
 ];
 
 /// Figure captions, index-aligned with [`CHART_FILES`].
@@ -222,6 +228,69 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         "/derived/headline",
         results.derived.headline.clone(),
     );
+    for (idx, comp) in results.comparisons.iter().enumerate() {
+        let base = format!("/comparisons/{idx}");
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-size", idx),
+            &format!("{base}/size"),
+            Some(comp.size.clone()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-wire-c-vs-a", idx),
+            &format!("{base}/wire_reduction_c_vs_a_percent"),
+            comp.wire_reduction_c_vs_a_percent
+                .map(|v| format!("{v:.1}%")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-wire-c-vs-b", idx),
+            &format!("{base}/wire_reduction_c_vs_b_percent"),
+            comp.wire_reduction_c_vs_b_percent
+                .map(|v| format!("{v:.1}%")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-signing-c-vs-a", idx),
+            &format!("{base}/signing_speedup_c_vs_a"),
+            comp.signing_speedup_c_vs_a.map(|v| format!("{v:.1}\u{d7}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-signing-c-vs-b", idx),
+            &format!("{base}/signing_speedup_c_vs_b"),
+            comp.signing_speedup_c_vs_b.map(|v| format!("{v:.1}\u{d7}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-verifying-cached-c-vs-a", idx),
+            &format!("{base}/verifying_speedup_cached_vs_a"),
+            comp.verifying_speedup_cached_vs_a
+                .map(|v| format!("{v:.1}\u{d7}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-verifying-cold-c-vs-a", idx),
+            &format!("{base}/verifying_speedup_cold_vs_a"),
+            comp.verifying_speedup_cold_vs_a
+                .map(|v| format!("{v:.1}\u{d7}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("comparison-{}-class", idx),
+            &format!("{base}/class"),
+            Some(comp.class.label().to_string()),
+        );
+    }
     // Memory claims: per-size decomposition and residuals
     for m in &results.memory.measured {
         let idx = results
@@ -359,6 +428,68 @@ fn render_memory_section(results: &ClimbResults, claims: &[Claim]) -> String {
     )
 }
 
+/// Render the three-way wire-size comparison table (A/B/C).
+fn render_wire_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    if results.comparisons.is_empty() {
+        return String::new();
+    }
+    let cell = |idx: usize, suffix: &str| -> String {
+        let id = format!("comparison-{idx}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for (idx, comp) in results.comparisons.iter().enumerate() {
+        let c_vs_b = cell(idx, "wire-c-vs-b");
+        let c_vs_a = cell(idx, "wire-c-vs-a");
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&comp.size),
+            escape_html(&c_vs_b),
+            escape_html(&c_vs_a),
+            escape_html(&cell(idx, "class")),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"wire-comparison-h\">\n<h2 id=\"wire-comparison-h\">Wire-size three-way comparison</h2>\n<p class=\"note\">Config A = plain SLH-DSA (one full signature per message, no ladder); Config B = MTL non-amortised (full MTL signature per message); Config C = MTL amortised (one shared ladder + condensed paths). Reductions are (base − C) / base × 100. Evidence class: MEASURED = direct artifact value; EXTRAPOLATED = N × per-message identity; DERIVED = ratio of other values.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>C vs B reduction</th><th>C vs A reduction</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
+/// Render the three-way timing comparison table (A/B/C).
+fn render_timing_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    if results.comparisons.is_empty() {
+        return String::new();
+    }
+    let cell = |idx: usize, suffix: &str| -> String {
+        let id = format!("comparison-{idx}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for (idx, comp) in results.comparisons.iter().enumerate() {
+        let sign_c_vs_b = cell(idx, "signing-c-vs-b");
+        let sign_c_vs_a = cell(idx, "signing-c-vs-a");
+        let ver_cached_c_vs_a = cell(idx, "verifying-cached-c-vs-a");
+        let ver_cold_c_vs_a = cell(idx, "verifying-cold-c-vs-a");
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&comp.size),
+            escape_html(&sign_c_vs_b),
+            escape_html(&sign_c_vs_a),
+            escape_html(&ver_cached_c_vs_a),
+            escape_html(&ver_cold_c_vs_a),
+            escape_html(&cell(idx, "class")),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"timing-comparison-h\">\n<h2 id=\"timing-comparison-h\">Timing three-way comparison</h2>\n<p class=\"note\">Config A = plain SLH-DSA (per-message mean from Criterion); Config B = MTL non-amortised; Config C = MTL amortised. Speedups are A/C or B/C per-message ratios. Verifying cached uses trust-cached ladder; cold re-validates the ladder. Evidence class: MEASURED = direct artifact value; EXTRAPOLATED = N × per-message identity; DERIVED = ratio of other values.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>Sign C vs B (×)</th><th>Sign C vs A (×)</th><th>Verify cached C vs A (×)</th><th>Verify cold C vs A (×)</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
 /// Render the full HTML report.
 ///
 /// `charts_dir` must contain the five files named in
@@ -429,6 +560,8 @@ pub fn render_html(
     // the tag early; '<' is only valid inside JSON strings here.
     let claims_json = claims_json.replace('<', "\\u003c");
     let memory_html = render_memory_section(results, &claims);
+    let wire_comparison_html = render_wire_comparison_section(results, &claims);
+    let timing_comparison_html = render_timing_comparison_section(results, &claims);
 
     Ok(format!(
         r#"<!DOCTYPE html>
@@ -497,7 +630,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{memory_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{memory_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -521,6 +654,8 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         env_json = escape_html(&env_json),
         claims_json = claims_json,
         memory_html = memory_html,
+        wire_comparison_html = wire_comparison_html,
+        timing_comparison_html = timing_comparison_html,
     ))
 }
 
@@ -675,8 +810,9 @@ pub fn relative_href(from_dir: &Path, to: &Path) -> String {
 mod tests {
     use super::*;
     use crate::results::{
-        AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, DnsCaptureSource,
-        DnsPipelineHeadline, EnvironmentFingerprint, MemoryResult, MemoryResults,
+        AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
+        DnsCaptureSource, DnsPipelineHeadline, EnvironmentFingerprint, EvidenceClass, MemoryResult,
+        MemoryResults,
     };
 
     fn synthetic_results() -> ClimbResults {
@@ -717,6 +853,17 @@ mod tests {
                 recorded_at: Some("2026-10-08T12:00:00Z".to_string()),
                 algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
             }),
+            plain: Vec::new(),
+            comparisons: vec![ConfigComparison {
+                size: "Medium".to_string(),
+                wire_reduction_c_vs_a_percent: Some(97.0),
+                wire_reduction_c_vs_b_percent: Some(96.7),
+                signing_speedup_c_vs_a: Some(100.0),
+                signing_speedup_c_vs_b: Some(9800.0),
+                verifying_speedup_cached_vs_a: Some(50.0),
+                verifying_speedup_cold_vs_a: Some(10.0),
+                class: EvidenceClass::Derived,
+            }],
             derived: DerivedSummary {
                 overall_wire_reduction_percent: Some(96.45),
                 largest_wire_reduction_percent: Some(97.0),

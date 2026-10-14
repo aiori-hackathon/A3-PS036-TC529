@@ -16,7 +16,8 @@ use crate::error::ReportError;
 #[derive(Debug, Deserialize)]
 struct BenchmarkJson {
     group_id: String,
-    function_id: String,
+    #[serde(default)]
+    function_id: Option<String>,
     value_str: String,
     #[serde(default)]
     throughput: Option<Throughput>,
@@ -79,8 +80,9 @@ struct ConfidenceInterval {
 pub struct CriterionRecord {
     /// Criterion benchmark group id (e.g. `"signing_small_with_mtl"`).
     pub group_id: String,
-    /// Criterion benchmark function id (e.g. `"sign_batch"`).
-    pub function_id: String,
+    /// Criterion benchmark function id (e.g. `"sign_batch"`). Absent for a
+    /// single benchmarks-per-group layout, where Criterion writes `null`.
+    pub function_id: Option<String>,
     /// The parameter-string value (e.g. `"100"`).
     pub value_str: String,
     /// Fully-qualified Criterion benchmark id.

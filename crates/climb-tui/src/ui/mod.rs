@@ -90,7 +90,7 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
             verifying::render_verifying(frame, area, app, view, theme, glyphs);
         }
         LoadState::Loaded(view) if app.tab == Tab::Wire => {
-            wire::render_wire(frame, area, view, theme, glyphs);
+            wire::render_wire(frame, area, app, view, theme, glyphs);
         }
         LoadState::Loaded(view) if app.tab == Tab::Memory => {
             memory::render_memory(frame, area, view, theme, glyphs);
@@ -412,6 +412,8 @@ mod tests {
             with_mtl_total_bytes: 1000,
             without_mtl_total_bytes: 100_000,
             reduction_percent: reduction,
+            plain_total_bytes: 0,
+            plain_signature_len_bytes: 0,
         }
     }
 
@@ -465,6 +467,8 @@ mod tests {
                     benchmark_runtime: serde_json::json!({ "cpu_governor": "powersave", "pin_cpu": 2 }),
                 },
                 dns_pipeline: dns,
+                plain: Vec::new(),
+                comparisons: Vec::new(),
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
                     largest_wire_reduction_percent: None,
@@ -716,6 +720,8 @@ mod tests {
                     benchmark_runtime: serde_json::json!({}),
                 },
                 dns_pipeline: None,
+                plain: Vec::new(),
+                comparisons: Vec::new(),
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
                     largest_wire_reduction_percent: None,
