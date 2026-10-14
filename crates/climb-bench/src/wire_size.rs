@@ -33,6 +33,12 @@
 //! | **Without MTL total** | `sum(condensed_i) + N × ladder_len` — N full signatures, each `condensed_i \|\| ladder` |
 //! | **Reduction** | `(without - with) / without × 100%` |
 //!
+//! Here *without MTL* means the MTL wrapper's non-amortised mode: every
+//! message carries a **complete MTL signature** (`condensed_i || ladder`).  It
+//! is not a plain SLH-DSA RRSIG (a single full SLH-DSA signature per RRset,
+//! with no ladder at all), which is a different baseline; `docs/BASELINES.md`
+//! records the wire-byte formula of each configuration.
+//!
 //! The identity `without - with == (N - 1) × ladder_len` holds by construction
 //! because the only difference between the two totals is that *without-MTL*
 //! includes the ladder N times (once per full signature), while *with-MTL*
@@ -83,8 +89,9 @@ pub struct WireSizeReport {
     pub condensed: CondensedStats,
     /// Total wire bytes with MTL amortisation: `ladder_len + condensed.total`.
     pub with_mtl_total: u64,
-    /// Estimated total wire bytes without MTL:
-    /// `condensed.total + message_count × ladder_len`.
+    /// Estimated total wire bytes for the non-amortised mode, in which every
+    /// message carries a complete MTL signature (a condensed path concatenated
+    /// with the shared ladder): `condensed.total + message_count × ladder_len`.
     pub without_mtl_total: u64,
     /// Relative wire-size reduction, in percent:
     /// `(without_mtl_total - with_mtl_total) / without_mtl_total × 100`.

@@ -177,8 +177,27 @@ fn deterministic_for_same_seed() {
 }
 
 // ---------------------------------------------------------------------------
-// Test 5 — larger batches have longer ladders
+// Test 6 — without - with == (N - 1) ladders (measured row, no literals)
 // ---------------------------------------------------------------------------
+
+/// The two totals differ only in how many times the shared ladder is counted:
+/// *without-MTL* includes it once per message, *with-MTL* once for the batch.
+/// Proves `without_mtl_total - with_mtl_total == (N - 1) × ladder_len` using
+/// only values read back from the measured report — no literals.
+#[test]
+fn without_minus_with_equals_n_minus_one_ladders() {
+    let report =
+        measure_wire_sizes(DatasetSize::Small, DEFAULT_WIRE_SEED).expect("measure_wire_sizes");
+
+    let n = report.message_count as u64;
+    let l = report.ladder_len as u64;
+
+    assert_eq!(
+        report.without_mtl_total - report.with_mtl_total,
+        (n - 1) * l,
+        "without - with must equal (N - 1) ladders"
+    );
+}
 
 /// ladder_len(Small) < ladder_len(Medium) — empirical monotonicity
 /// cross-check.  More messages → deeper tree → longer ladder.

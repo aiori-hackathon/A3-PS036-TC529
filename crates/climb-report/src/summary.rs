@@ -60,6 +60,60 @@ impl fmt::Display for MtlMode {
     }
 }
 
+impl MtlMode {
+    /// Space-constrained descriptive label for plain-text tables.
+    ///
+    /// [`Self::Display`] keeps the canonical, artifact-stable names; this form
+    /// names *what the condition signs* and is used where the full sentence
+    /// would not fit.
+    pub fn short_label(self) -> &'static str {
+        match self {
+            MtlMode::WithMtlTrustCached => "MTL (trust cached)",
+            MtlMode::WithMtlFullVerify => SHORT_LABEL_WITH_MTL,
+            MtlMode::WithoutMtl => SHORT_LABEL_WITHOUT_MTL,
+        }
+    }
+}
+
+/// Descriptive label for the amortised condition: one signed ladder is shared
+/// across the batch and each message carries only a condensed proof.
+pub const LABEL_WITH_MTL: &str = "MTL amortised (condensed signature + one signed ladder)";
+
+/// Descriptive label for the non-amortised condition: every message carries a
+/// complete MTL signature (a condensed proof concatenated with the ladder).
+///
+/// This is the MTL-aware full-signature mode, *not* a plain SLH-DSA RRSIG.
+pub const LABEL_WITHOUT_MTL: &str = "No amortisation (full MTL signature on every message)";
+
+/// Short form of [`LABEL_WITH_MTL`] for space-constrained surfaces.
+pub const SHORT_LABEL_WITH_MTL: &str = "MTL amortised";
+
+/// Short form of [`LABEL_WITHOUT_MTL`] for space-constrained surfaces.
+pub const SHORT_LABEL_WITHOUT_MTL: &str = "No amortisation";
+
+/// Map a canonical results condition name to its descriptive label.
+///
+/// The results artifact stores the canonical names (`"With MTL"`,
+/// `"Without MTL"`); every user-facing surface maps them here at render time
+/// so the artifact schema stays stable. Conditions with no descriptive form
+/// (e.g. `"MTL (trust cached)"`) pass through unchanged.
+pub fn condition_label(condition: &str) -> &str {
+    match condition {
+        "With MTL" => LABEL_WITH_MTL,
+        "Without MTL" => LABEL_WITHOUT_MTL,
+        other => other,
+    }
+}
+
+/// Short form of [`condition_label`] for space-constrained surfaces.
+pub fn condition_short_label(condition: &str) -> &str {
+    match condition {
+        "With MTL" => SHORT_LABEL_WITH_MTL,
+        "Without MTL" => SHORT_LABEL_WITHOUT_MTL,
+        other => other,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // SummaryRow
 // ---------------------------------------------------------------------------

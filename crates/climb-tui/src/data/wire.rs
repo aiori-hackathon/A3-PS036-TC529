@@ -4,6 +4,7 @@
 //! [`crate::data::ResultsView`]; nothing here hardcodes a result.
 
 use climb_report::charts::fmt_count;
+use climb_report::condition_short_label;
 
 use crate::widgets::stacked_bars::{SegmentStyle, StackBar, StackGroup, StackSegment};
 use crate::widgets::udp_gauge::{nice_axis_max, GaugeMarker, MarkerKind, REFERENCE_SIZES};
@@ -23,9 +24,9 @@ pub struct UdpGaugeData {
 impl ResultsView {
     /// Per-size wire breakdown for the stacked bars.
     ///
-    /// Each size gets a `With MTL` bar split into the shared ladder and the
-    /// per-message condensed bytes, and a `Without MTL` bar of full
-    /// signatures. Bars normalise per size on the without-MTL total, so the
+    /// Each size gets an `MTL amortised` bar split into the shared ladder and
+    /// the per-message condensed bytes, and a `No amortisation` bar of full
+    /// signatures. Bars normalise per size on the no-amortisation total, so the
     /// amortisation reads directly as bar length.
     pub fn wire_stacks(&self) -> Vec<StackGroup> {
         let mut rows: Vec<_> = self.results.wire_size.iter().collect();
@@ -53,7 +54,7 @@ impl ResultsView {
                     caption: Some(caption),
                     bars: vec![
                         StackBar {
-                            name: "With MTL".to_string(),
+                            name: condition_short_label("With MTL").to_string(),
                             segments: vec![
                                 StackSegment {
                                     label: "shared ladder".to_string(),
@@ -76,7 +77,7 @@ impl ResultsView {
                             ),
                         },
                         StackBar {
-                            name: "Without MTL".to_string(),
+                            name: condition_short_label("Without MTL").to_string(),
                             segments: vec![StackSegment {
                                 label: format!(
                                     "{} \u{00d7} full",

@@ -92,8 +92,8 @@ fn signing_table_contains_speedup() {
 
     assert!(text.contains("=== Signing ==="));
     assert!(text.contains("Small"));
-    assert!(text.contains("With MTL"));
-    assert!(text.contains("Without MTL"));
+    assert!(text.contains("MTL amortised"));
+    assert!(text.contains("No amortisation"));
     assert!(text.contains("682.9 ms"));
     assert!(text.contains("1.09 min"));
     assert!(text.contains("95.53x"));
@@ -135,8 +135,8 @@ fn verifying_table_all_three_modes() {
 
     assert!(text.contains("=== Verifying ==="));
     assert!(text.contains("MTL (trust cached)"));
-    assert!(text.contains("With MTL"));
-    assert!(text.contains("Without MTL"));
+    assert!(text.contains("MTL amortised"));
+    assert!(text.contains("No amortisation"));
     assert!(text.contains("599.0 us"));
     assert!(text.contains("70.4 ms"));
     assert!(text.contains("62.6 ms"));

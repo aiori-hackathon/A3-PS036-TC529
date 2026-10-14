@@ -3,6 +3,7 @@
 use climb_report::charts::{
     amortization_data, fmt_count, fmt_time_ns, per_msg_mean, size_n, timing_bar_data, BenchRow,
 };
+use climb_report::condition_short_label;
 
 use crate::widgets::log_bars::{Bar, BarGroup, BarKind};
 
@@ -302,7 +303,9 @@ impl ResultsView {
     /// costs), measured and extrapolated exactly as the report chart draws.
     pub fn signing_groups(&self, mode: ValueMode) -> Vec<BarGroup> {
         let (entries, labels) = signing_entries(self, mode);
-        group_bars(&entries, &labels, |series| series.to_string())
+        group_bars(&entries, &labels, |series| {
+            condition_short_label(series).to_string()
+        })
     }
 
     /// One bar group per size: trust-cached / full-ladder / without-MTL.
@@ -497,11 +500,11 @@ mod tests {
         );
 
         let small = &groups[0];
-        assert_eq!(small.bars[0].name, "With MTL");
+        assert_eq!(small.bars[0].name, "MTL amortised");
         assert_eq!(small.bars[0].value_ns, 1000.0);
         assert_eq!(small.bars[0].kind, BarKind::Measured);
         assert_eq!(small.bars[0].ci, Some((900.0, 1100.0)));
-        assert_eq!(small.bars[1].name, "Without MTL");
+        assert_eq!(small.bars[1].name, "No amortisation");
         assert_eq!(small.bars[1].value_ns, 100_000.0);
 
         let medium = &groups[2];

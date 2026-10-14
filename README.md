@@ -4,6 +4,21 @@
 DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
 
 
+## Baselines
+
+Two signing settings are compared throughout, and the labels are used
+consistently across the report, charts, TUI and this README:
+
+- **MTL amortised** — one signed Merkle tree ladder is shared across the
+  whole batch; each message carries only a condensed authentication path.
+- **No amortisation** — every message carries a complete MTL signature (its
+  condensed path concatenated with the ladder).
+
+"No amortisation" is the MTL wrapper's non-amortised mode, **not** a plain
+SLH-DSA RRSIG (one full SLH-DSA signature per RRset, with no ladder), which is
+a different baseline. See [`docs/BASELINES.md`](docs/BASELINES.md) for the
+wire-byte formula of each configuration.
+
 ## Build
 
 ```bash

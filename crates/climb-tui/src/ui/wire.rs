@@ -64,7 +64,7 @@ fn render_panels(
             "Wire{} by size",
             if theme.ascii { " -" } else { " \u{00b7}" }
         ),
-        name_width: 14,
+        name_width: 16,
         note_width: 24,
         legend: vec![
             ("ladder".to_string(), SegmentStyle::Hatched),
@@ -105,7 +105,7 @@ mod tests {
             caption: Some("condensed signature: min 108 B / mean 164 B / max 172 B".to_string()),
             bars: vec![
                 StackBar {
-                    name: "With MTL".to_string(),
+                    name: "MTL amortised".to_string(),
                     segments: vec![
                         StackSegment {
                             label: "ladder".to_string(),
@@ -121,7 +121,7 @@ mod tests {
                     note: "24,424 B \u{00b7} \u{2212}97.0%".to_string(),
                 },
                 StackBar {
-                    name: "Without MTL".to_string(),
+                    name: "No amortisation".to_string(),
                     segments: vec![StackSegment {
                         label: "full".to_string(),
                         bytes: 815_632,
@@ -206,8 +206,8 @@ mod tests {
         let out = render_to_string(&stacks(), &gauge(), 120, 40);
         for needle in [
             "Wire",
-            "With MTL",
-            "Without MTL",
+            "MTL amortised",
+            "No amortisation",
             "Single-answer UDP fit",
             "full signature",
             "condensed proof",

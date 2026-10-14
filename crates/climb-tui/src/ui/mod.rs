@@ -547,8 +547,8 @@ mod tests {
         let out = render_to_string(&app, 120, 40);
         for needle in [
             "Wire",
-            "With MTL",
-            "Without MTL",
+            "MTL amortised",
+            "No amortisation",
             "Single-answer UDP fit",
             "normalised per size",
         ] {
@@ -588,8 +588,8 @@ mod tests {
         for needle in [
             "Signing",
             "total time",
-            "With MTL",
-            "Without MTL",
+            "MTL amortised",
+            "No amortisation",
             "Speed-up",
             "40x",
             "Amortization",

@@ -11,6 +11,7 @@ use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use climb_report::charts::fmt_time_ns;
+use climb_report::condition_short_label;
 
 use super::amortization;
 use crate::app::App;
@@ -46,7 +47,7 @@ pub fn render_signing(
             if theme.ascii { " - " } else { " \u{00b7} " },
             mode.label()
         ),
-        name_width: 14,
+        name_width: 16,
         value_width: 24,
         show_legend: true,
     };
@@ -75,7 +76,7 @@ fn render_table(
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let header = ["Size", "With MTL", "Without MTL", "Speed-up"]
+    let header = ["Size", "MTL amortised", "No amortisation", "Speed-up"]
         .into_iter()
         .map(|text| {
             Cell::from(Span::styled(
@@ -147,7 +148,10 @@ fn detail_lines(detail: &[DetailLine], theme: &Theme) -> Vec<Line<'static>> {
             };
             Line::from(vec![
                 Span::styled(
-                    format!(" {:<14}", truncated(&line.condition, 14)),
+                    format!(
+                        " {:<16}",
+                        truncated(condition_short_label(&line.condition), 16)
+                    ),
                     Style::new().fg(theme.accent),
                 ),
                 Span::styled(format!("{}{ci}", fmt_time_ns(line.mean_ns)), theme.measured),
@@ -207,7 +211,7 @@ mod tests {
     #[test]
     fn truncated_keeps_leftmost_chars() {
         assert_eq!(truncated("Trust-cached ladder", 7), "Trust-c");
-        assert_eq!(truncated("With MTL", 20), "With MTL");
+        assert_eq!(truncated("MTL amortised", 20), "MTL amortised");
     }
 
     #[test]

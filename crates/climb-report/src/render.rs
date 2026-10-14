@@ -117,7 +117,7 @@ fn render_table(kind: BenchKind, rows: &[&SummaryRow]) -> String {
 
         table.push([
             row.size.to_string(),
-            row.mode.to_string(),
+            row.mode.short_label().to_string(),
             messages,
             mean,
             ci,

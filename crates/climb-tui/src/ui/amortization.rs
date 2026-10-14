@@ -13,6 +13,7 @@ use ratatui::Frame;
 
 use crate::data::AmortizationView;
 use crate::theme::{Glyphs, Theme};
+use climb_report::{SHORT_LABEL_WITHOUT_MTL, SHORT_LABEL_WITH_MTL};
 
 /// Render the amortization panel into `area`.
 pub fn render_amortization(
@@ -43,13 +44,13 @@ pub fn render_amortization(
     }
 
     let with = Dataset::default()
-        .name("with MTL")
+        .name(SHORT_LABEL_WITH_MTL)
         .marker(Marker::Dot)
         .graph_type(GraphType::Scatter)
         .style(theme.measured)
         .data(&amort.with_points);
     let without = Dataset::default()
-        .name("without MTL")
+        .name(SHORT_LABEL_WITHOUT_MTL)
         .marker(Marker::Dot)
         .graph_type(GraphType::Scatter)
         .style(Style::new().fg(theme.warn))

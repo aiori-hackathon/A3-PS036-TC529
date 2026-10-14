@@ -29,6 +29,9 @@ pub use results::{
     consolidate_results, ClimbResults, ConsolidateOptions, DnsCapture, DnsCaptureFlags,
     DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery, DnsCaptureSource, DnsPipelineHeadline,
 };
-pub use summary::{parse_group_id, summarize, BenchKind, MtlMode, Size, SummaryRow};
+pub use summary::{
+    condition_label, condition_short_label, parse_group_id, summarize, BenchKind, MtlMode, Size,
+    SummaryRow, LABEL_WITHOUT_MTL, LABEL_WITH_MTL, SHORT_LABEL_WITHOUT_MTL, SHORT_LABEL_WITH_MTL,
+};
 
 pub use climb_bench::{LadderRow, LadderRung};

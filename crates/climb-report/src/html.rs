@@ -59,8 +59,8 @@ const SUMMARY_ROWS: [(&str, &str); 7] = [
 const CHART_CAPTIONS: [&str; 5] = [
     "Batch signing time per dataset size — solid bars are Criterion-measured means with 95% CI whiskers; hollow bars are extrapolated.",
     "Batch verification time per dataset size, including trust-cached ladder rows (measured only).",
-    "Transmitted bytes with MTL vs without MTL — both series measured from real output, no modelling.",
-    "With-MTL signing: measured per-message cost and the OLS fit of the batch total.",
+    "Transmitted bytes — MTL amortised (condensed signature + one signed ladder) vs no amortisation (full MTL signature on every message); both series measured from real output, no modelling.",
+    "MTL-amortised signing: measured per-message cost and the OLS fit of the batch total.",
     "Measured peak and resident RSS deltas against the itemised analytical model (libMTL pages + harness buffers + dataset buffers + keypair), with recomputed ratios and residual.",
 ];
 
@@ -488,9 +488,18 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 <section aria-labelledby="charts-h">
 <h2 id="charts-h">Charts</h2>
 {figures}</section>
+<section aria-labelledby="baselines-h">
+<h2 id="baselines-h">Signing baselines</h2>
+<p class="note">Both signing series sign the same deterministic message set; they differ only in what is put on the wire and what has to be signed.</p>
+<ul class="note">
+<li><strong>MTL amortised (condensed signature + one signed ladder)</strong> — one signed Merkle tree ladder is shared across the whole batch and every message carries only a condensed authentication path. Wire bytes = <code>ladder + Σ&nbsp;condensed<sub>i</sub></code>.</li>
+<li><strong>No amortisation (full MTL signature on every message)</strong> — every message carries a complete MTL signature: its condensed path concatenated with the ladder. Wire bytes = <code>Σ&nbsp;condensed<sub>i</sub> + N &times; ladder</code>.</li>
+</ul>
+<p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
+</section>
 {memory_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
-<p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the with-MTL batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
+<p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
 <details>
 <summary>Environment fingerprint</summary>

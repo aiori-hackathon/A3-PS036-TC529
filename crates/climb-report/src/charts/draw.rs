@@ -24,6 +24,7 @@ use super::{
     AmortizationData, BarChartData, MemoryData, COLOR_MODEL, COLOR_WITHOUT_MTL, COLOR_WITH_MTL,
 };
 use crate::error::ReportError;
+use crate::summary::condition_label;
 
 /// Footnotes for the signing-time chart.
 pub const SIGNING_FOOTNOTES: [&str; 3] = [
@@ -39,6 +40,21 @@ pub const VERIFYING_FOOTNOTES: [&str; 3] = [
     "Trust-cached ladder rows are measured-only; extrapolated rows are N × mean per-message cost.",
 ];
 
+/// Rewrite a series legend label into the descriptive condition form while
+/// preserving a trailing `(measured)`/`(extrapolated)` qualifier, so a label
+/// such as `"With MTL (extrapolated)"` reads
+/// `"MTL amortised (condensed signature + one signed ladder) — extrapolated"`.
+/// Labels that name no known condition pass through unchanged.
+fn legend_label(label: &str) -> String {
+    if let Some(base) = label.strip_suffix(" (measured)") {
+        format!("{} — measured", condition_label(base))
+    } else if let Some(base) = label.strip_suffix(" (extrapolated)") {
+        format!("{} — extrapolated", condition_label(base))
+    } else {
+        condition_label(label).to_string()
+    }
+}
+
 /// Footnotes for the transmitted-bytes chart.
 pub const WIRE_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → wire_size (from target/wire-report.json, `cargo xtask wire-report`).",
@@ -49,8 +65,8 @@ pub const WIRE_FOOTNOTES: [&str; 3] = [
 /// Footnotes for the amortization-curve chart.
 pub const AMORTIZATION_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → benchmark.signing (Criterion, pinned taskset -c 2).",
-    "Points = measured per-message time; dashed line = OLS fit of the with-MTL batch total.",
-    "The fit (slope + intercept/N) extrapolates only along the measured with-MTL shape.",
+    "Points = measured per-message time; dashed line = OLS fit of the MTL-amortised batch total.",
+    "The fit (slope + intercept/N) extrapolates only along the measured MTL-amortised shape.",
 ];
 
 /// Footnotes for the measured-vs-analytical memory chart.
@@ -230,7 +246,7 @@ pub fn draw_bar_chart(
         }
         let color = series.color;
         let hollow = series.hollow;
-        let label = series.label.clone();
+        let label = legend_label(&series.label);
         let drawings = chart.draw_series(rects).map_err(|e| chart_err(path, e))?;
         drawings.label(label).legend(move |(x, y)| {
             Rectangle::new([(x, y), (x + 16, y + 11)], {
@@ -452,7 +468,10 @@ pub fn draw_amortization(
             )
             .map_err(|e| chart_err(path, e))?;
         drawings
-            .label("With MTL — measured per-message")
+            .label(format!(
+                "{} — measured per-message",
+                condition_label("With MTL")
+            ))
             .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.filled()));
         any_label = true;
     }
@@ -465,7 +484,10 @@ pub fn draw_amortization(
             )
             .map_err(|e| chart_err(path, e))?;
         drawings
-            .label("Without MTL — measured per-message")
+            .label(format!(
+                "{} — measured per-message",
+                condition_label("Without MTL")
+            ))
             .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITHOUT_MTL.filled()));
         any_label = true;
     }
@@ -480,7 +502,7 @@ pub fn draw_amortization(
             ))
             .map_err(|e| chart_err(path, e))?;
         drawings
-            .label("OLS fit of with-MTL batch total (extrapolated)")
+            .label("OLS fit of MTL-amortised batch total (extrapolated)")
             .legend(|(x, y)| {
                 Rectangle::new(
                     [(x, y + 4), (x + 20, y + 7)],

@@ -84,7 +84,7 @@ pub fn generate_charts(
     written.push(path);
 
     let mut data = amortization;
-    data.title = "With MTL signing: amortization curve".to_string();
+    data.title = "MTL amortised signing: amortization curve".to_string();
     data.x_desc = "dataset size (messages)".to_string();
     data.y_desc = "per-message signing time".to_string();
     let path = out_dir.join(CHART_FILES[3]);

@@ -80,8 +80,8 @@ fn render_text_summary_contains_expected_substrings() {
 
     // Signing table
     assert!(text.contains("=== Signing ==="));
-    assert!(text.contains("With MTL"));
-    assert!(text.contains("Without MTL"));
+    assert!(text.contains("MTL amortised"));
+    assert!(text.contains("No amortisation"));
     assert!(text.contains("682.9 ms"));
     assert!(text.contains("1.09 min"));
     // Speedup: 65238500000 / 682919952.51 ≈ 95.5
@@ -110,20 +110,20 @@ fn render_text_summary_speedup_formatting() {
 
     let signing_with_line = lines
         .iter()
-        .find(|l| l.contains("With MTL") && l.contains("682.9"))
+        .find(|l| l.contains("MTL amortised") && l.contains("682.9"))
         .unwrap();
     let signing_wo_line = lines
         .iter()
-        .find(|l| l.contains("Without MTL") && l.contains("1.09"))
+        .find(|l| l.contains("No amortisation") && l.contains("1.09"))
         .unwrap();
 
-    // With MTL line has speedup (95.5x)
+    // MTL-amortised line has speedup (95.5x)
     assert!(
         signing_with_line.contains("95.53x"),
         "expected speedup in: {signing_with_line}"
     );
 
-    // Without MTL line should have dash for speedup
+    // Non-amortised line should have dash for speedup
     assert!(
         signing_wo_line.contains('–') || signing_wo_line.contains('-'),
         "expected no speedup in: {signing_wo_line}"
