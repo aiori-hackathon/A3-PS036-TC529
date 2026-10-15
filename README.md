@@ -1,6 +1,10 @@
 # CLIMB — Cryptographic Ladder Impact Measurement Benchmark
 
-**Team**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) (Faculty Mentor)
+**Team Name**: CLIMB
+
+**Team Code**: A3-PS036-TC529
+
+**Team Members**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) (Faculty Mentor)
 
 **Team CLIMB Presentation deck in pdf format**: check [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)
 
