@@ -2,6 +2,8 @@
 
 **Team**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) (Faculty Mentor)
 
+**Team CLIMB Presentation deck in pdf format**: check [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)
+
 **YouTube Video Link**: [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)
 
 **AIORI-3 Hackathon PS-036**: Benchmarking Merkle Tree Ladder (MTL) mode for post-quantum
