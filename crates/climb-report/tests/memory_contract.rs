@@ -32,6 +32,8 @@ fn consolidate_memory(
         memory_report_path,
         dns_capture_path: root.join("no-capture.json"),
         dns_fixture_path: root.join("no-fixture.json"),
+        ladder_verification_path: root.join("no-ladder-live.json"),
+        ladder_fixture_path: root.join("no-ladder-fixture.json"),
         environment_path: root.join("no-env.json"),
         baseline: "new".to_string(),
         output_path: root.join("out.json"),

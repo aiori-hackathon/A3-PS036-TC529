@@ -12,7 +12,10 @@ mod overview;
 mod signing;
 mod wire;
 
-pub use ladder::{badge as ladder_badge, load_ladder, BadgeKind, LadderBadge, LadderLoadState};
+pub use ladder::{
+    badge as ladder_badge, load_ladder, load_ladder_auto, BadgeKind, LadderBadge, LadderLoadState,
+    LadderSource,
+};
 pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
 pub use signing::{
     per_message, AmortizationView, DetailLine, PerfCell, SigningRow, ValueMode, VerifyingRow,
@@ -279,6 +282,7 @@ pub(crate) mod test_support {
                 },
                 environment: environment(),
                 dns_pipeline: dns,
+                ladder: None,
                 plain: Vec::new(),
                 comparisons: Vec::new(),
                 derived,
@@ -523,5 +527,71 @@ mod tests {
             artifact_state(Some(now), Some(now), Some(2)),
             ReportHealth::Drift(2)
         );
+    }
+
+    /// Consolidate the committed ladder fixture and read the result back
+    /// through the TUI's own loader, so the consumer of the new `ladder`
+    /// section is exercised end to end.
+    #[test]
+    fn consolidated_ladder_section_parses_through_the_tui_loader() {
+        let root = std::env::temp_dir().join(format!(
+            "climb-tui-ladder-contract-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(root.join("criterion")).expect("temp dir");
+        let results_path = root.join("climb-results.json");
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/ladder-verification.recorded.json");
+
+        climb_report::consolidate_results(climb_report::ConsolidateOptions {
+            force: true,
+            criterion_dir: root.join("criterion"),
+            wire_report_path: None,
+            memory_report_path: None,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-live.json"),
+            ladder_fixture_path: fixture,
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            output_path: results_path.clone(),
+        })
+        .expect("consolidate from the committed ladder fixture");
+
+        let state = load(&results_path);
+        let LoadState::Loaded(view) = state else {
+            panic!("expected the TUI to load the consolidated results, got {state:?}");
+        };
+        let ladder = view
+            .results()
+            .ladder
+            .as_ref()
+            .expect("consolidated results carry the ladder section");
+        assert_eq!(ladder.source, climb_report::LadderSource::RecordedFixture);
+        assert!(ladder.all_match, "the model must reproduce every size");
+        assert!(!ladder.sizes.is_empty());
+        assert!(
+            ladder.sizes.iter().all(|row| row.model_matches),
+            "every measured size must agree with the closed-form model"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A results document written before the ladder section existed must still
+    /// parse (§7e backward compatibility).
+    #[test]
+    fn results_without_a_ladder_section_still_load_in_the_tui() {
+        let mut results = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived())
+            .results
+            .clone();
+        results.ladder = None;
+        let json = serde_json::to_string(&results).expect("serialize");
+        let parsed: ClimbResults = serde_json::from_str(&json).expect("parse without ladder");
+        assert_eq!(parsed.ladder, None);
     }
 }

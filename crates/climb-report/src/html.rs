@@ -45,7 +45,7 @@ pub struct Claim {
 
 /// Summary-grid rows: display label → claim id. Claims whose id has no
 /// value in the results document render as an em dash.
-const SUMMARY_ROWS: [(&str, &str); 10] = [
+const SUMMARY_ROWS: [(&str, &str); 11] = [
     ("Overall wire reduction", "overall-wire-reduction"),
     ("Largest wire reduction", "largest-wire-reduction"),
     ("Trust-cached verify speedup (avg)", "trust-cached-speedup"),
@@ -53,6 +53,7 @@ const SUMMARY_ROWS: [(&str, &str); 10] = [
     ("www.a condensed MTL proof", "dns-condensed-proof"),
     ("www.a wire reduction", "dns-wire-reduction"),
     ("www.a capture provenance", "dns-provenance"),
+    ("Ladder: model vs libMTL", "ladder-all-match"),
     ("Wire C vs B (Medium)", "comparison-1-wire-c-vs-b"),
     ("Sign C vs A (Medium)", "comparison-1-signing-c-vs-a"),
     (
@@ -385,6 +386,110 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             Some(m.iqr_bytes.to_string()),
         );
     }
+
+    // Ladder: model vs libMTL.  Claims are registered only when the section is
+    // actually rendered, so the registry and the body stay in lockstep.
+    if let Some(ladder) = results
+        .ladder
+        .as_ref()
+        .filter(|ladder| !ladder.sizes.is_empty())
+    {
+        let date = ladder.recorded_at.get(..10).unwrap_or(&ladder.recorded_at);
+        let source_label = match ladder.source {
+            crate::ladder::LadderSource::Live => "live run",
+            crate::ladder::LadderSource::RecordedFixture => "recorded fixture",
+        };
+        push_claim(
+            &mut claims,
+            &root,
+            "ladder-provenance",
+            "/ladder/source",
+            Some(format!("{source_label} {date}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            "ladder-recorded-at",
+            "/ladder/recorded_at",
+            Some(ladder.recorded_at.clone()),
+        );
+        let agreement = if ladder.all_match {
+            format!("all {} sizes match", ladder.sizes.len())
+        } else {
+            let mismatched = ladder.sizes.iter().filter(|r| !r.model_matches).count();
+            format!("{mismatched} of {} sizes mismatch", ladder.sizes.len())
+        };
+        push_claim(
+            &mut claims,
+            &root,
+            "ladder-all-match",
+            "/ladder/all_match",
+            Some(agreement),
+        );
+        for (idx, size) in ladder.sizes.iter().enumerate() {
+            let base = format!("/ladder/sizes/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-leaf"),
+                &format!("{base}/leaf_count"),
+                Some(size.leaf_count.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-rungs"),
+                &format!("{base}/rung_count"),
+                Some(size.rung_count.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-ladder-buffer"),
+                &format!("{base}/ladder_buffer_len"),
+                Some(format!("{} B", fmt_count(size.ladder_buffer_len as f64))),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-signed-ladder"),
+                &format!("{base}/signed_ladder_len"),
+                Some(format!("{} B", fmt_count(size.signed_ladder_len as f64))),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-condensed-min"),
+                &format!("{base}/condensed_min"),
+                Some(format!("{} B", size.condensed_min)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-condensed-mean"),
+                &format!("{base}/condensed_mean"),
+                Some(format!("{:.1} B", size.condensed_mean)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-condensed-max"),
+                &format!("{base}/condensed_max"),
+                Some(format!("{} B", size.condensed_max)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-{idx}-model"),
+                &format!("{base}/model_matches"),
+                Some(if size.model_matches {
+                    "match".to_string()
+                } else {
+                    "MISMATCH".to_string()
+                }),
+            );
+        }
+    }
     Ok(claims)
 }
 
@@ -425,6 +530,55 @@ fn render_memory_section(results: &ClimbResults, claims: &[Claim]) -> String {
     }
     format!(
         "<section aria-labelledby=\"memory-h\">\n<h2 id=\"memory-h\">Memory model vs measurement</h2>\n<p class=\"note\">Analytical total = libMTL page model + harness-output buffers + dataset message buffers + keypair key image (an ESTIMATE, not a measurement). Measured resident = median RSS delta over n isolated-process runs, with the run-to-run IQR shown; measured peak = median high-water-mark delta (hwm &minus; baseline), the headline footprint metric. residual = measured resident &minus; analytical total; ratio convention throughout = measured resident &divide; analytical total. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>libMTL pages (B)</th><th>harness buffers (B)</th><th>dataset buffers (B)</th><th>keypair (B)</th><th>analytical total (B)</th><th>measured peak (B)</th><th>measured resident (B)</th><th>n runs</th><th>resident IQR (B)</th><th>residual (B)</th><th>residual %</th><th>measured/analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
+/// Render the per-size ladder section (model vs libMTL).
+///
+/// Every displayed cell is pulled from the claims registry by id, so the body
+/// contains each registered ladder value verbatim — the property
+/// [`check_claims`] enforces, and therefore the property `report --check`
+/// re-validates. Returns an empty string when no ladder artifact was folded
+/// into the results.
+fn render_ladder_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    let Some(ladder) = results.ladder.as_ref() else {
+        return String::new();
+    };
+    if ladder.sizes.is_empty() {
+        return String::new();
+    }
+    let cell = |idx: usize, suffix: &str| -> String {
+        let id = format!("ladder-{idx}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let value = |id: &str| -> String {
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for idx in 0..ladder.sizes.len() {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&cell(idx, "leaf")),
+            escape_html(&cell(idx, "rungs")),
+            escape_html(&cell(idx, "ladder-buffer")),
+            escape_html(&cell(idx, "signed-ladder")),
+            escape_html(&cell(idx, "condensed-min")),
+            escape_html(&cell(idx, "condensed-mean")),
+            escape_html(&cell(idx, "condensed-max")),
+            escape_html(&cell(idx, "model")),
+        ));
+    }
+    let agreement = value("ladder-all-match");
+    let provenance = value("ladder-provenance");
+    let recorded_at = value("ladder-recorded-at");
+    format!(
+        "<section aria-labelledby=\"ladder-h\">\n<h2 id=\"ladder-h\">Ladder: model vs libMTL</h2>\n<p class=\"note\">The closed-form ladder model predicts the ladder-buffer length and every leaf's condensed authentication-path length; the recorded artifact carries what libMTL actually emitted at each leaf count. Agreement: <strong>{agreement}</strong>. Provenance: {provenance} (recorded at {recorded_at}). Every value is read from the results artifact; the section states what was measured, not what is proven.</p>\n<table class=\"memtable\">\n<thead><tr><th>N (leaves)</th><th>rungs</th><th>ladder buffer</th><th>signed ladder</th><th>condensed min</th><th>condensed mean</th><th>condensed max</th><th>model</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
     )
 }
 
@@ -560,6 +714,7 @@ pub fn render_html(
     // the tag early; '<' is only valid inside JSON strings here.
     let claims_json = claims_json.replace('<', "\\u003c");
     let memory_html = render_memory_section(results, &claims);
+    let ladder_html = render_ladder_section(results, &claims);
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
 
@@ -630,7 +785,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{memory_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -654,6 +809,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         env_json = escape_html(&env_json),
         claims_json = claims_json,
         memory_html = memory_html,
+        ladder_html = ladder_html,
         wire_comparison_html = wire_comparison_html,
         timing_comparison_html = timing_comparison_html,
     ))
@@ -815,6 +971,38 @@ mod tests {
         MemoryResults,
     };
 
+    fn synthetic_ladder_section() -> crate::ladder::LadderSection {
+        use crate::ladder::{LadderSection, LadderSizeRow, LadderSource};
+        LadderSection {
+            source: LadderSource::RecordedFixture,
+            recorded_at: "2026-10-14T00:16:11+05:30".to_string(),
+            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+            all_match: true,
+            sizes: vec![
+                LadderSizeRow {
+                    leaf_count: 8,
+                    rung_count: 2,
+                    ladder_buffer_len: 104,
+                    signed_ladder_len: 7_964,
+                    condensed_min: 108,
+                    condensed_max: 108,
+                    condensed_mean: 108.0,
+                    model_matches: true,
+                },
+                LadderSizeRow {
+                    leaf_count: 13,
+                    rung_count: 3,
+                    ladder_buffer_len: 132,
+                    signed_ladder_len: 7_988,
+                    condensed_min: 124,
+                    condensed_max: 124,
+                    condensed_mean: 124.0,
+                    model_matches: true,
+                },
+            ],
+        }
+    }
+
     fn synthetic_results() -> ClimbResults {
         ClimbResults {
             version: "1.0".to_string(),
@@ -853,6 +1041,7 @@ mod tests {
                 recorded_at: Some("2026-10-08T12:00:00Z".to_string()),
                 algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
             }),
+            ladder: Some(synthetic_ladder_section()),
             plain: Vec::new(),
             comparisons: vec![ConfigComparison {
                 size: "Medium".to_string(),
@@ -1173,6 +1362,81 @@ mod tests {
             "expected memory residual drift, got {failures:?}"
         );
         assert!(failures.iter().any(|f| f.contains("value drift")));
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn ladder_section_renders_the_model_vs_libmtl_table_and_checks_clean() {
+        let (results, html) = render_fixture();
+        assert!(html.contains("Ladder: model vs libMTL"));
+        assert!(html.contains("all 2 sizes match"));
+        assert!(html.contains("recorded fixture 2026-10-14"));
+        let claims = build_claims(&results).expect("claims");
+        for id in [
+            "ladder-provenance",
+            "ladder-all-match",
+            "ladder-0-leaf",
+            "ladder-0-rungs",
+            "ladder-0-ladder-buffer",
+            "ladder-0-signed-ladder",
+            "ladder-0-condensed-min",
+            "ladder-0-condensed-mean",
+            "ladder-0-condensed-max",
+            "ladder-0-model",
+            "ladder-1-condensed-mean",
+            "ladder-1-model",
+        ] {
+            let claim = claims
+                .iter()
+                .find(|c| c.id == id)
+                .unwrap_or_else(|| panic!("missing claim {id}"));
+            assert!(
+                html.contains(&claim.formatted) || html.contains(&escape_html(&claim.formatted)),
+                "missing rendered string for claim {id} = {}",
+                claim.formatted
+            );
+        }
+        let model = claims
+            .iter()
+            .find(|c| c.id == "ladder-1-model")
+            .expect("model claim");
+        assert_eq!(model.formatted, "match");
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn check_detects_tampered_ladder_row() {
+        let (results, html) = render_fixture();
+        let mut tampered = synthetic_results();
+        tampered.ladder.as_mut().expect("ladder").sizes[1].ladder_buffer_len += 4;
+        let failures = check_report(&html, &tampered);
+        assert!(
+            failures
+                .iter()
+                .any(|f| f.contains("ladder-1-ladder-buffer")),
+            "expected ladder drift, got {failures:?}"
+        );
+        assert!(failures.iter().any(|f| f.contains("value drift")));
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn report_without_a_ladder_artifact_renders_no_ladder_section() {
+        let mut results = synthetic_results();
+        results.ladder = None;
+        let dir = unique_temp_dir("html-no-ladder");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        // The summary label itself is always present; what must be absent is
+        // the per-size section and its registered claim.
+        assert!(!html.contains("<h2 id=\"ladder-h\">"), "no ladder section");
+        assert!(!build_claims(&results)
+            .expect("claims")
+            .iter()
+            .any(|c| c.id == "ladder-all-match"));
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 }

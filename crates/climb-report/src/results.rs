@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime};
 use serde::{Deserialize, Serialize};
 
 use crate::error::ReportError;
+use crate::ladder::{LadderSection, LadderSource, LadderVerification};
 use crate::memory::{parse_memory_artifact, MemoryArtifact};
 use crate::record::{scan_criterion, CriterionRecord};
 use crate::summary::{summarize, SummaryRow};
@@ -356,6 +357,12 @@ pub struct ClimbResults {
     /// DNS pipeline headline, or `None` when no capture (live or recorded
     /// fixture) is available.
     pub dns_pipeline: Option<DnsPipelineHeadline>,
+    /// Recorded ladder-verification section: measured ladder shape per size
+    /// plus the model-agreement verdict, or `None` when neither a live run nor
+    /// the committed fixture is available. `#[serde(default)]` keeps results
+    /// written before this section existed parseable.
+    #[serde(default)]
+    pub ladder: Option<LadderSection>,
     /// Configuration A (plain SLH-DSA) per-message timings, one row per dataset
     /// size. Empty for results written before configuration A was routed here.
     #[serde(default)]
@@ -384,6 +391,12 @@ pub struct ConsolidateOptions {
     pub dns_capture_path: PathBuf,
     /// Committed recorded fixture used when no live capture exists.
     pub dns_fixture_path: PathBuf,
+    /// Live ladder-verification artifact written by `cargo xtask ladder-verify`
+    /// (preferred when present).
+    pub ladder_verification_path: PathBuf,
+    /// Committed recorded ladder-verification fixture used when no live run
+    /// artifact exists.
+    pub ladder_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
     pub output_path: PathBuf,
@@ -770,6 +783,21 @@ fn load_dns_capture(
     Ok(Some(headline_from_capture(&capture, source)))
 }
 
+/// Load the recorded ladder-verification artifact, preferring a live run over
+/// the committed fixture; `None` when neither exists. A present-but-unparseable
+/// artifact is a hard error naming the path, never a silently empty section.
+fn load_ladder_section(live: &Path, fixture: &Path) -> Result<Option<LadderSection>, ReportError> {
+    let (path, source) = if live.exists() {
+        (live, LadderSource::Live)
+    } else if fixture.exists() {
+        (fixture, LadderSource::RecordedFixture)
+    } else {
+        return Ok(None);
+    };
+    let document: LadderVerification = read_json(path)?;
+    Ok(Some(LadderSection::from_document(&document, source)))
+}
+
 pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, ReportError> {
     let max_age = Duration::from_secs(24 * 3600);
     let mut warnings: Vec<String> = Vec::new();
@@ -906,6 +934,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     };
 
     let dns_pipeline = load_dns_capture(&opts.dns_capture_path, &opts.dns_fixture_path)?;
+    let ladder = load_ladder_section(&opts.ladder_verification_path, &opts.ladder_fixture_path)?;
 
     let plain = plain_timings(&plain_records);
     let comparisons = build_comparisons(&wire_size, &signing, &verifying, &plain);
@@ -921,6 +950,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         memory: memory_results,
         environment,
         dns_pipeline,
+        ladder,
         plain,
         comparisons,
         derived,
@@ -1389,6 +1419,68 @@ mod tests {
         }
     }
 
+    /// A [`LadderVerification`] whose single row is reproduced by the model, so
+    /// the loader tests exercise real `model_matches` logic, not a stub.
+    fn ladder_document_fixture(recorded_at: &str) -> LadderVerification {
+        let n = 8usize;
+        let lengths: Vec<usize> = (0..n)
+            .map(|index| {
+                climb_analytical::predicted_condensed_len(n as u64, index as u64).unwrap_or(0)
+            })
+            .collect();
+        let min = lengths.iter().copied().min().unwrap_or(0);
+        let max = lengths.iter().copied().max().unwrap_or(0);
+        let total: u64 = lengths.iter().map(|&length| length as u64).sum();
+        LadderVerification {
+            schema_version: crate::ladder::LADDER_VERIFICATION_SCHEMA_VERSION,
+            recorded_at: recorded_at.to_string(),
+            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+            hash_size: 16,
+            seed: 1,
+            provenance: crate::ladder::LadderProvenance {
+                submodules: Vec::new(),
+            },
+            sizes: vec![climb_bench::LadderRow {
+                leaf_count: n,
+                rung_count: climb_analytical::rungs(n as u64).len(),
+                rungs: Vec::new(),
+                ladder_buffer_len: climb_analytical::predicted_ladder_len(n as u64),
+                signed_ladder_len: climb_analytical::predicted_ladder_len(n as u64) + 4 + 7856,
+                signature_len: 7856,
+                condensed: climb_bench::CondensedStats {
+                    min,
+                    max,
+                    mean: total as f64 / n as f64,
+                    total,
+                    uniform: min == max,
+                },
+                full_len_min: 0,
+                full_len_max: 0,
+                with_mtl_signatures: 1,
+                without_mtl_signatures: n,
+            }],
+        }
+    }
+
+    fn sample_ladder_section() -> LadderSection {
+        LadderSection {
+            source: LadderSource::RecordedFixture,
+            recorded_at: "2026-10-14T00:16:11+05:30".to_string(),
+            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+            all_match: true,
+            sizes: vec![crate::ladder::LadderSizeRow {
+                leaf_count: 8,
+                rung_count: 2,
+                ladder_buffer_len: 104,
+                signed_ladder_len: 7964,
+                condensed_min: 108,
+                condensed_max: 108,
+                condensed_mean: 108.0,
+                model_matches: true,
+            }],
+        }
+    }
+
     fn full_fixture() -> ClimbResults {
         let signing = vec![signing_row("Small", "With MTL", 1000.0)];
         let verifying = vec![verifying_row("Small", "MTL (trust cached)", 100.0)];
@@ -1421,6 +1513,7 @@ mod tests {
                 ..environment_fingerprint()
             },
             dns_pipeline: Some(dns),
+            ladder: Some(sample_ladder_section()),
             plain,
             comparisons,
             derived,
@@ -1453,6 +1546,7 @@ mod tests {
             },
             environment: environment_fingerprint(),
             dns_pipeline: None,
+            ladder: None,
             plain: Vec::new(),
             comparisons: Vec::new(),
             derived: DerivedSummary {
@@ -1687,6 +1781,8 @@ mod tests {
             memory_report_path: Some(root.join("nonexistent-memory.json")),
             dns_capture_path: root.join("nonexistent-dns-capture.json"),
             dns_fixture_path: root.join("nonexistent-dns-fixture.json"),
+            ladder_verification_path: root.join("nonexistent-ladder-live.json"),
+            ladder_fixture_path: root.join("nonexistent-ladder-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             output_path: root.join("out.json"),
@@ -1697,6 +1793,7 @@ mod tests {
         assert_eq!(results.derived.overall_wire_reduction_percent, None);
         assert_eq!(results.derived.largest_wire_reduction_percent, None);
         assert_eq!(results.dns_pipeline, None);
+        assert_eq!(results.ladder, None);
         assert_eq!(results.benchmark.signing.len(), 1);
         assert!(
             results
@@ -1746,6 +1843,8 @@ mod tests {
             memory_report_path: None,
             dns_capture_path: root.join("dns-capture.json"),
             dns_fixture_path: root.join("dns-fixture.json"),
+            ladder_verification_path: root.join("ladder-live.json"),
+            ladder_fixture_path: root.join("ladder-fixture.json"),
             environment_path: root.join("environment.json"),
             baseline: "new".to_string(),
             output_path: output.clone(),
@@ -1755,6 +1854,7 @@ mod tests {
         assert_eq!(results.version, "1.0");
         assert_eq!(results.benchmark.verifying.len(), 1);
         assert!(results.warnings.is_empty());
+        assert_eq!(results.ladder, None, "no ladder artifact was supplied");
 
         let json = fs::read_to_string(&output).unwrap();
         let parsed: ClimbResults = serde_json::from_str(&json).unwrap();
@@ -1829,6 +1929,8 @@ mod tests {
             memory_report_path: memory,
             dns_capture_path: root.join("no-capture.json"),
             dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-ladder-live.json"),
+            ladder_fixture_path: root.join("no-ladder-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             output_path: root.join("out.json"),
@@ -2120,6 +2222,115 @@ mod tests {
         let headline =
             load_dns_capture(&root.join("no-live.json"), &root.join("no-fixture.json")).unwrap();
         assert_eq!(headline, None);
+    }
+
+    #[test]
+    fn load_ladder_section_prefers_live_run_over_fixture() {
+        let root = temp_root("ladder-live-preference");
+        let live = root.join("live.json");
+        let fixture = root.join("fixture.json");
+        fs::write(
+            &live,
+            serde_json::to_string(&ladder_document_fixture("2026-10-15T00:00:00+05:30")).unwrap(),
+        )
+        .unwrap();
+        fs::write(
+            &fixture,
+            serde_json::to_string(&ladder_document_fixture("2026-10-14T00:16:11+05:30")).unwrap(),
+        )
+        .unwrap();
+        let section = load_ladder_section(&live, &fixture).unwrap().expect("some");
+        assert_eq!(section.source, LadderSource::Live);
+        assert_eq!(section.recorded_at, "2026-10-15T00:00:00+05:30");
+        assert_eq!(section.sizes.len(), 1);
+        assert!(section.all_match);
+    }
+
+    #[test]
+    fn load_ladder_section_falls_back_to_recorded_fixture() {
+        let root = temp_root("ladder-fixture-fallback");
+        let live = root.join("missing-live.json");
+        let fixture = root.join("fixture.json");
+        fs::write(
+            &fixture,
+            serde_json::to_string(&ladder_document_fixture("2026-10-14T00:16:11+05:30")).unwrap(),
+        )
+        .unwrap();
+        let section = load_ladder_section(&live, &fixture).unwrap().expect("some");
+        assert_eq!(section.source, LadderSource::RecordedFixture);
+        assert_eq!(section.recorded_at, "2026-10-14T00:16:11+05:30");
+    }
+
+    #[test]
+    fn load_ladder_section_returns_none_when_neither_exists() {
+        let root = temp_root("ladder-none");
+        let section =
+            load_ladder_section(&root.join("no-live.json"), &root.join("no-fixture.json")).unwrap();
+        assert_eq!(section, None);
+    }
+
+    #[test]
+    fn load_ladder_section_is_a_hard_error_for_a_present_invalid_artifact() {
+        let root = temp_root("ladder-invalid");
+        let live = root.join("live.json");
+        fs::write(&live, "{ not json").unwrap();
+        let err = load_ladder_section(&live, &root.join("no-fixture.json")).unwrap_err();
+        let message = err.to_string();
+        assert!(
+            message.contains("live.json"),
+            "error must name the path: {message}"
+        );
+    }
+
+    #[test]
+    fn consolidate_reports_ladder_source_and_model_verdict() {
+        let root = temp_root("ladder-consolidate");
+        std::fs::create_dir_all(root.join("criterion")).unwrap();
+        let fixture = root.join("ladder-fixture.json");
+        fs::write(
+            &fixture,
+            serde_json::to_string(&ladder_document_fixture("2026-10-14T00:16:11+05:30")).unwrap(),
+        )
+        .unwrap();
+        let results = consolidate_results(ConsolidateOptions {
+            force: true,
+            criterion_dir: root.join("criterion"),
+            wire_report_path: None,
+            memory_report_path: None,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-live.json"),
+            ladder_fixture_path: fixture,
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            output_path: root.join("out.json"),
+        })
+        .unwrap();
+
+        let section = results.ladder.as_ref().expect("ladder section");
+        assert_eq!(section.source, LadderSource::RecordedFixture);
+        assert_eq!(section.sizes.len(), 1);
+        let row = &section.sizes[0];
+        assert_eq!(row.leaf_count, 8);
+        assert!(row.model_matches);
+        assert!(section.all_match);
+    }
+
+    #[test]
+    fn results_without_a_ladder_section_still_deserialize() {
+        // Backward compatibility: climb-results.json written before the ladder
+        // section existed must still parse (§7e).
+        let results = full_fixture();
+        let mut without = results.clone();
+        without.ladder = None;
+        let json = serde_json::to_string(&without).unwrap();
+        let restored: ClimbResults = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.ladder, None);
+
+        let mut with_section = results;
+        let json = serde_json::to_string(&with_section).unwrap();
+        let restored: ClimbResults = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.ladder, with_section.ladder.take());
     }
 
     // -- configuration A timings and three-way comparison -------------------

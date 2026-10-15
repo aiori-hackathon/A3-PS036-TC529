@@ -1439,6 +1439,7 @@ mod tests {
                 benchmark_runtime: serde_json::json!({}),
             },
             dns_pipeline: None,
+            ladder: None,
             plain: Vec::new(),
             comparisons: Vec::new(),
             derived: DerivedSummary {

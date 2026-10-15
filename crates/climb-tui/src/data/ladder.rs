@@ -12,13 +12,25 @@ use std::path::{Path, PathBuf};
 use climb_analytical::{predicted_condensed_len, predicted_ladder_len};
 use climb_report::LadderVerification;
 
+/// Which source the loaded ladder-verification artifact came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LadderSource {
+    /// A live `cargo xtask ladder-verify` run wrote this file.
+    LiveRun,
+    /// The committed `data/ladder-verification.recorded.json` fixture.
+    RecordedFixture,
+}
+
 /// How the recorded ladder-verification artifact looks at load time.
 #[derive(Debug, Clone, PartialEq)]
 pub enum LadderLoadState {
     /// No artifact path is configured (the model still renders alone).
     Absent,
     /// The artifact parsed; the document holds the measured rows.
-    Loaded(Box<LadderVerification>),
+    Loaded {
+        document: Box<LadderVerification>,
+        source: LadderSource,
+    },
     /// The file does not exist.
     Missing { path: PathBuf },
     /// The file exists but could not be read or parsed.
@@ -30,7 +42,16 @@ impl LadderLoadState {
     #[must_use]
     pub fn verification(&self) -> Option<&LadderVerification> {
         match self {
-            LadderLoadState::Loaded(document) => Some(document),
+            LadderLoadState::Loaded { document, .. } => Some(document),
+            _ => None,
+        }
+    }
+
+    /// The source of the loaded artifact, when one loaded.
+    #[must_use]
+    pub fn source(&self) -> Option<LadderSource> {
+        match self {
+            LadderLoadState::Loaded { source, .. } => Some(*source),
             _ => None,
         }
     }
@@ -40,8 +61,8 @@ impl LadderLoadState {
     pub fn summary(&self) -> String {
         match self {
             LadderLoadState::Absent => "absent".to_string(),
-            LadderLoadState::Loaded(document) => {
-                format!("loaded: {} sizes", document.sizes.len())
+            LadderLoadState::Loaded { document, source } => {
+                format!("loaded: {} sizes ({source:?})", document.sizes.len())
             }
             LadderLoadState::Missing { path } => format!("missing: {}", path.display()),
             LadderLoadState::Invalid { path, .. } => format!("invalid: {}", path.display()),
@@ -49,15 +70,25 @@ impl LadderLoadState {
     }
 }
 
-/// Load the recorded ladder-verification artifact, never panicking.
+/// Default path for a live `ladder-verify` run artifact.
+pub const LIVE_LADDER_PATH: &str = "target/ladder-verification.json";
+/// Default path for the committed recorded fixture.
+pub const RECORDED_LADDER_PATH: &str = "data/ladder-verification.recorded.json";
+
+/// Load the recorded ladder-verification artifact from a specific path, never panicking.
 pub fn load_ladder(path: &Path) -> LadderLoadState {
+    load_ladder_from(path, LadderSource::LiveRun)
+}
+
+/// Load the recorded ladder-verification artifact from a specific path with a given source label.
+fn load_ladder_from(path: &Path, source: LadderSource) -> LadderLoadState {
     if std::fs::metadata(path).is_err() {
         return LadderLoadState::Missing {
             path: path.to_path_buf(),
         };
     }
-    let source = match std::fs::read_to_string(path) {
-        Ok(source) => source,
+    let source_str = match std::fs::read_to_string(path) {
+        Ok(source_str) => source_str,
         Err(error) => {
             return LadderLoadState::Invalid {
                 path: path.to_path_buf(),
@@ -65,12 +96,39 @@ pub fn load_ladder(path: &Path) -> LadderLoadState {
             };
         }
     };
-    match serde_json::from_str::<LadderVerification>(&source) {
-        Ok(document) => LadderLoadState::Loaded(Box::new(document)),
+    match serde_json::from_str::<LadderVerification>(&source_str) {
+        Ok(document) => LadderLoadState::Loaded {
+            document: Box::new(document),
+            source,
+        },
         Err(error) => LadderLoadState::Invalid {
             path: path.to_path_buf(),
             error: error.to_string(),
         },
+    }
+}
+
+/// Load the ladder-verification artifact, trying the standard paths in order:
+/// 1. `target/ladder-verification.json` (live run)
+/// 2. `data/ladder-verification.recorded.json` (committed fixture)
+///
+/// The first one that exists wins. A present-but-unparseable artifact is a hard
+/// [`LadderLoadState::Invalid`] naming its path, never silently skipped in
+/// favour of the next candidate; only a genuinely absent file falls through.
+pub fn load_ladder_auto() -> LadderLoadState {
+    load_ladder_auto_from(Path::new(LIVE_LADDER_PATH), Path::new(RECORDED_LADDER_PATH))
+}
+
+/// [`load_ladder_auto`] with explicit candidate paths, so the precedence is
+/// unit-testable without touching the working directory.
+pub fn load_ladder_auto_from(live: &Path, recorded: &Path) -> LadderLoadState {
+    match load_ladder_from(live, LadderSource::LiveRun) {
+        LadderLoadState::Missing { .. } => {}
+        other => return other,
+    }
+    match load_ladder_from(recorded, LadderSource::RecordedFixture) {
+        LadderLoadState::Missing { .. } => LadderLoadState::Absent,
+        other => other,
     }
 }
 
@@ -94,6 +152,15 @@ pub struct LadderBadge {
     pub kind: BadgeKind,
     /// The rendered text.
     pub text: String,
+}
+
+/// Source label for the badge text.
+fn source_label(source: LadderSource, recorded_at: &str) -> String {
+    let date = recorded_date(recorded_at);
+    match source {
+        LadderSource::LiveRun => format!("(live run {date})"),
+        LadderSource::RecordedFixture => format!("(recorded fixture {date})"),
+    }
 }
 
 /// Compare the closed-form model against the recorded artifact for one ladder.
@@ -120,26 +187,19 @@ pub fn badge(state: &LadderLoadState, leaf_count: u64, selected: u64, ascii: boo
         };
     };
 
-    let model: Vec<usize> = (0..n)
-        .map(|index| predicted_condensed_len(n, index).unwrap_or(0))
-        .collect();
-    let model_min = model.iter().copied().min().unwrap_or(0);
-    let model_max = model.iter().copied().max().unwrap_or(0);
-    let model_total: u64 = model.iter().map(|&length| length as u64).sum();
-    let agrees = model_ladder == row.ladder_buffer_len
-        && model_min == row.condensed.min
-        && model_max == row.condensed.max
-        && model_total == row.condensed.total
-        && (model_min == model_max) == row.condensed.uniform;
+    // One shared comparison, also used by consolidation, so the badge and the
+    // consolidated section can never disagree about model agreement.
+    let agrees = climb_report::model_matches(row);
 
+    let source = state.source().unwrap_or(LadderSource::RecordedFixture);
+    let source_label = source_label(source, &document.recorded_at);
     let condensed = predicted_condensed_len(n, selected).unwrap_or(0);
     if agrees {
         let mark = if ascii { "[ok]" } else { "✔" };
-        let date = recorded_date(&document.recorded_at);
         LadderBadge {
             kind: BadgeKind::Match,
             text: format!(
-                "{mark} matches libMTL: condensed {condensed} B, ladder {model_ladder} B (recorded {date})"
+                "{mark} matches libMTL: condensed {condensed} B, ladder {model_ladder} B {source_label}"
             ),
         }
     } else {
@@ -147,7 +207,7 @@ pub fn badge(state: &LadderLoadState, leaf_count: u64, selected: u64, ascii: boo
         LadderBadge {
             kind: BadgeKind::Mismatch,
             text: format!(
-                "{mark} model {model_ladder} B, library {} B",
+                "{mark} model {model_ladder} B, library {} B {source_label}",
                 row.ladder_buffer_len
             ),
         }
@@ -201,18 +261,21 @@ mod tests {
         }
     }
 
-    fn document(rows: Vec<LadderRow>) -> LadderLoadState {
-        LadderLoadState::Loaded(Box::new(LadderVerification {
-            schema_version: 1,
-            recorded_at: "2026-10-14T00:16:11+05:30".to_string(),
-            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
-            hash_size: 16,
-            seed: 1,
-            provenance: LadderProvenance {
-                submodules: Vec::new(),
-            },
-            sizes: rows,
-        }))
+    fn document(rows: Vec<LadderRow>, source: LadderSource) -> LadderLoadState {
+        LadderLoadState::Loaded {
+            document: Box::new(LadderVerification {
+                schema_version: 1,
+                recorded_at: "2026-10-14T00:16:11+05:30".to_string(),
+                algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+                hash_size: 16,
+                seed: 1,
+                provenance: LadderProvenance {
+                    submodules: Vec::new(),
+                },
+                sizes: rows,
+            }),
+            source,
+        }
     }
 
     #[test]
@@ -244,11 +307,15 @@ mod tests {
 
     #[test]
     fn badge_reports_a_match_against_an_agreeing_row() {
-        let state = document(vec![row_for(13)]);
+        let state = document(vec![row_for(13)], LadderSource::RecordedFixture);
         let badge = badge(&state, 13, 5, false);
         assert_eq!(badge.kind, BadgeKind::Match);
         assert!(badge.text.contains("matches libMTL"), "{}", badge.text);
-        assert!(badge.text.contains("recorded 2026-10-14"), "{}", badge.text);
+        assert!(
+            badge.text.contains("(recorded fixture 2026-10-14)"),
+            "{}",
+            badge.text
+        );
         // predicted condensed for leaf 5 of N=13 (rung [0..7], depth 3) = 76 + 3*16.
         assert!(badge.text.contains("condensed 124 B"), "{}", badge.text);
         assert!(badge.text.contains("ladder 132 B"), "{}", badge.text);
@@ -258,7 +325,7 @@ mod tests {
     fn badge_reports_a_mismatch_when_the_ladder_length_differs() {
         let mut row = row_for(8);
         row.ladder_buffer_len += 4;
-        let state = document(vec![row]);
+        let state = document(vec![row], LadderSource::RecordedFixture);
         let badge = badge(&state, 8, 0, false);
         assert_eq!(badge.kind, BadgeKind::Mismatch);
         assert!(badge.text.contains("library"), "{}", badge.text);
@@ -267,7 +334,7 @@ mod tests {
 
     #[test]
     fn badge_reports_model_only_when_the_size_is_missing() {
-        let state = document(vec![row_for(8)]);
+        let state = document(vec![row_for(8)], LadderSource::RecordedFixture);
         let badge = badge(&state, 13, 0, false);
         assert_eq!(badge.kind, BadgeKind::ModelOnly);
         assert!(badge.text.contains("N=13"), "{}", badge.text);
@@ -275,7 +342,7 @@ mod tests {
 
     #[test]
     fn badge_uses_ascii_marks_in_ascii_mode() {
-        let state = document(vec![row_for(8)]);
+        let state = document(vec![row_for(8)], LadderSource::RecordedFixture);
         let badge = badge(&state, 8, 0, true);
         assert_eq!(badge.kind, BadgeKind::Match);
         assert!(badge.text.starts_with("[ok]"), "{}", badge.text);
@@ -284,7 +351,7 @@ mod tests {
 
     #[test]
     fn badge_clamps_leaf_count_and_selection() {
-        let state = document(vec![row_for(13)]);
+        let state = document(vec![row_for(13)], LadderSource::RecordedFixture);
         let low = badge(&state, 0, 0, false);
         let high = badge(&state, 13, 999, false);
         assert_eq!(
@@ -293,5 +360,110 @@ mod tests {
             "N=0 clamps to 1, not measured"
         );
         assert_eq!(high.kind, BadgeKind::Match, "leaf index clamps into range");
+    }
+
+    #[test]
+    fn badge_shows_live_run_source_when_loaded_from_live() {
+        let state = document(vec![row_for(13)], LadderSource::LiveRun);
+        let badge = badge(&state, 13, 5, false);
+        assert_eq!(badge.kind, BadgeKind::Match);
+        assert!(
+            badge.text.contains("(live run 2026-10-14)"),
+            "{}",
+            badge.text
+        );
+    }
+
+    fn sample_json() -> String {
+        let doc = LadderVerification {
+            schema_version: 1,
+            recorded_at: "2026-10-14T00:16:11+05:30".to_string(),
+            algorithm: "SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string(),
+            hash_size: 16,
+            seed: 1,
+            provenance: LadderProvenance {
+                submodules: Vec::new(),
+            },
+            sizes: vec![row_for(13)],
+        };
+        serde_json::to_string(&doc).expect("serialize")
+    }
+
+    fn auto_root(tag: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-tui-auto-{tag}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0),
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn load_ladder_auto_prefers_live_over_recorded() {
+        let root = auto_root("prefer-live");
+        let live = root.join("target/ladder-verification.json");
+        let recorded = root.join("data/ladder-verification.recorded.json");
+        std::fs::create_dir_all(live.parent().unwrap()).expect("live parent");
+        std::fs::create_dir_all(recorded.parent().unwrap()).expect("recorded parent");
+        std::fs::write(&live, sample_json()).expect("write live");
+        std::fs::write(&recorded, sample_json()).expect("write recorded");
+
+        let state = load_ladder_auto_from(&live, &recorded);
+        assert_eq!(state.source(), Some(LadderSource::LiveRun));
+        assert!(matches!(state, LadderLoadState::Loaded { .. }));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_ladder_auto_falls_back_to_recorded_when_live_missing() {
+        let root = auto_root("fallback");
+        let live = root.join("target/ladder-verification.json");
+        let recorded = root.join("data/ladder-verification.recorded.json");
+        std::fs::create_dir_all(recorded.parent().unwrap()).expect("recorded parent");
+        std::fs::write(&recorded, sample_json()).expect("write recorded");
+
+        let state = load_ladder_auto_from(&live, &recorded);
+        assert_eq!(state.source(), Some(LadderSource::RecordedFixture));
+        assert!(matches!(state, LadderLoadState::Loaded { .. }));
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_ladder_auto_is_absent_when_neither_exists() {
+        let root = auto_root("absent");
+        let state = load_ladder_auto_from(
+            &root.join("target/ladder-verification.json"),
+            &root.join("data/ladder-verification.recorded.json"),
+        );
+        assert_eq!(state, LadderLoadState::Absent);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_ladder_auto_treats_a_present_but_invalid_live_artifact_as_an_error() {
+        let root = auto_root("invalid-live");
+        let live = root.join("target/ladder-verification.json");
+        let recorded = root.join("data/ladder-verification.recorded.json");
+        std::fs::create_dir_all(live.parent().unwrap()).expect("live parent");
+        std::fs::create_dir_all(recorded.parent().unwrap()).expect("recorded parent");
+        // The live artifact is corrupt while the fixture is valid: the loader
+        // must surface the live error, not silently fall back.
+        std::fs::write(&live, "{ not json").expect("write garbage");
+        std::fs::write(&recorded, sample_json()).expect("write recorded");
+
+        let state = load_ladder_auto_from(&live, &recorded);
+        match state {
+            LadderLoadState::Invalid { path, .. } => assert_eq!(path, live),
+            other => panic!("expected Invalid naming the live path, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

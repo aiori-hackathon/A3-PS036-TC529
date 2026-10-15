@@ -4,10 +4,11 @@
 //! The individual subcommands are each correct in isolation, but the
 //! consolidated results only agree with the rendered report when they are run
 //! in one specific order — pin the environment, measure wire sizes, measure
-//! memory, (optionally) re-run the benchmarks, capture the DNS pipeline, then
-//! consolidate, chart, render and self-check.  Run them by hand and it is easy
-//! to skip a measurement or consolidate without its inputs, which leaves the
-//! report claiming numbers the results no longer carry (or vice versa).
+//! memory, (optionally) re-run the benchmarks, verify the ladder shape, capture
+//! the DNS pipeline, then consolidate, chart, render and self-check.  Run them
+//! by hand and it is easy to skip a measurement or consolidate without its
+//! inputs, which leaves the report claiming numbers the results no longer carry
+//! (or vice versa).
 //!
 //! ```text
 //! cargo xtask reproduce
@@ -46,11 +47,17 @@ const CHARTS_DIR: &str = "target/climb-report/charts";
 /// Live DNS capture written by `dns-demo --record`; `consolidate` prefers it
 /// and falls back to the committed recorded fixture when it is absent.
 const DNS_LIVE: &str = "target/dns-capture.json";
+/// Ladder verification artifact written by `ladder-verify`; consumed by `consolidate`.
+const LADDER_VERIFICATION: &str = "target/ladder-verification.json";
 
 /// Blueprint experiment sizes, in canonical order.
 const SIZES_FULL: &str = "small,medium,large";
 /// Scope for `--quick`: the two sizes that finish in seconds.
 const SIZES_QUICK: &str = "small,medium";
+/// Leaf counts for `--quick` ladder verification: a short sweep that still
+/// covers a single leaf, exact powers of two, and a non-power of two.  The full
+/// run omits `--sizes` and measures the command's default 17-size sweep.
+const LADDER_SIZES_QUICK: &str = "1,2,4,5,13";
 
 // ---------------------------------------------------------------------------
 // CLI arguments
@@ -92,6 +99,7 @@ pub(crate) enum StepId {
     WireReport,
     MemoryReport,
     BenchAll,
+    LadderVerify,
     DnsDemo,
     Consolidate,
     VerifyConsolidated,
@@ -109,6 +117,7 @@ impl StepId {
             StepId::WireReport => "wire-report",
             StepId::MemoryReport => "memory-report",
             StepId::BenchAll => "bench-all",
+            StepId::LadderVerify => "ladder-verify",
             StepId::DnsDemo => "dns-demo",
             StepId::Consolidate => "consolidate",
             StepId::VerifyConsolidated => "verify-consolidated",
@@ -185,7 +194,7 @@ pub(crate) struct ReproduceOpts {
 /// Build the ordered step list for `opts`.  Pure: no I/O, no subprocesses.
 pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
     let sizes = if opts.quick { SIZES_QUICK } else { SIZES_FULL };
-    let mut steps = Vec::with_capacity(10);
+    let mut steps = Vec::with_capacity(11);
 
     steps.push(Step::run(StepId::PinEnv, &["pin-env"]));
 
@@ -208,6 +217,23 @@ pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
         bench.skipped(SkipReason::ReuseCriterion)
     });
 
+    // Ladder verification is a fast measurement and always runs.  `consolidate`
+    // folds the artifact into the results, so it must precede `consolidate`.
+    // `--quick` measures a short size sweep; the full run omits `--sizes` and
+    // uses the command's default 17-size sweep.
+    let mut ladder = vec!["ladder-verify".to_string()];
+    if opts.quick {
+        ladder.push("--sizes".to_string());
+        ladder.push(LADDER_SIZES_QUICK.to_string());
+    }
+    ladder.push("--out".to_string());
+    ladder.push(LADDER_VERIFICATION.to_string());
+    steps.push(Step {
+        id: StepId::LadderVerify,
+        argv: ladder,
+        skip: None,
+    });
+
     // The live DNS pipeline requires Docker; either gate falls back to the
     // committed recorded fixture, which `consolidate` picks up by default.
     let dns = Step::run(StepId::DnsDemo, &["dns-demo", "--record", DNS_LIVE]);
@@ -225,6 +251,8 @@ pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
         WIRE_REPORT.to_string(),
         "--memory-report".to_string(),
         MEMORY_REPORT.to_string(),
+        "--ladder-verification".to_string(),
+        LADDER_VERIFICATION.to_string(),
         "--output".to_string(),
         RESULTS.to_string(),
     ];
@@ -469,6 +497,7 @@ mod tests {
                 StepId::WireReport,
                 StepId::MemoryReport,
                 StepId::BenchAll,
+                StepId::LadderVerify,
                 StepId::DnsDemo,
                 StepId::Consolidate,
                 StepId::VerifyConsolidated,
@@ -561,6 +590,59 @@ mod tests {
     }
 
     #[test]
+    fn ladder_verify_runs_immediately_before_dns_and_before_consolidate() {
+        let steps = plan(&base());
+        let order = kinds(&steps);
+        let ladder = order
+            .iter()
+            .position(|&id| id == StepId::LadderVerify)
+            .expect("ladder-verify present");
+        let dns = order
+            .iter()
+            .position(|&id| id == StepId::DnsDemo)
+            .expect("dns-demo present");
+        let consolidate = order
+            .iter()
+            .position(|&id| id == StepId::Consolidate)
+            .expect("consolidate present");
+        assert_eq!(dns, ladder + 1, "ladder-verify precedes dns-demo");
+        assert!(ladder < consolidate, "ladder-verify precedes consolidate");
+    }
+
+    #[test]
+    fn ladder_verify_writes_the_canonical_artifact_path() {
+        let steps = plan(&base());
+        let ladder = find(&steps, StepId::LadderVerify);
+        assert_eq!(value_of(ladder, "--out"), LADDER_VERIFICATION);
+        assert_eq!(ladder.skip, None);
+    }
+
+    #[test]
+    fn full_ladder_verify_omits_sizes_for_the_default_sweep() {
+        let steps = plan(&base());
+        let ladder = find(&steps, StepId::LadderVerify);
+        assert!(
+            !has_flag(ladder, "--sizes"),
+            "full run uses the command's default 17-size sweep"
+        );
+    }
+
+    #[test]
+    fn quick_ladder_verify_uses_a_short_size_list() {
+        let steps = plan(&ReproduceOpts {
+            quick: true,
+            ..base()
+        });
+        let ladder = find(&steps, StepId::LadderVerify);
+        assert_eq!(value_of(ladder, "--sizes"), LADDER_SIZES_QUICK);
+        let sizes = value_of(ladder, "--sizes");
+        assert!(
+            sizes.split(',').count() < 17,
+            "quick sweep must be shorter than the default 17-size sweep"
+        );
+    }
+
+    #[test]
     fn force_is_forwarded_to_consolidate() {
         let steps = plan(&ReproduceOpts {
             force: true,
@@ -581,6 +663,10 @@ mod tests {
         let consolidate = find(&steps, StepId::Consolidate);
         assert_eq!(value_of(consolidate, "--wire-report"), WIRE_REPORT);
         assert_eq!(value_of(consolidate, "--memory-report"), MEMORY_REPORT);
+        assert_eq!(
+            value_of(consolidate, "--ladder-verification"),
+            LADDER_VERIFICATION
+        );
         assert_eq!(value_of(consolidate, "--output"), RESULTS);
     }
 
@@ -632,6 +718,7 @@ mod tests {
             StepId::WireReport,
             StepId::MemoryReport,
             StepId::BenchAll,
+            StepId::LadderVerify,
             StepId::DnsDemo,
             StepId::Consolidate,
             StepId::VerifyConsolidated,

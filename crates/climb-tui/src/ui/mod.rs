@@ -467,6 +467,7 @@ mod tests {
                     benchmark_runtime: serde_json::json!({ "cpu_governor": "powersave", "pin_cpu": 2 }),
                 },
                 dns_pipeline: dns,
+                ladder: None,
                 plain: Vec::new(),
                 comparisons: Vec::new(),
                 derived: DerivedSummary {
@@ -720,6 +721,7 @@ mod tests {
                     benchmark_runtime: serde_json::json!({}),
                 },
                 dns_pipeline: None,
+                ladder: None,
                 plain: Vec::new(),
                 comparisons: Vec::new(),
                 derived: DerivedSummary {

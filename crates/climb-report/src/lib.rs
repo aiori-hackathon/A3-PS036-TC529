@@ -17,7 +17,8 @@ pub mod summary;
 pub use error::ReportError;
 pub use html::check_report;
 pub use ladder::{
-    LadderProvenance, LadderVerification, SubmoduleRef, LADDER_VERIFICATION_SCHEMA_VERSION,
+    model_matches, LadderProvenance, LadderSection, LadderSizeRow, LadderSource,
+    LadderVerification, SubmoduleRef, LADDER_VERIFICATION_SCHEMA_VERSION,
 };
 pub use memory::{
     parse_memory_artifact, MemoryArtifact, MemoryParseError, MemoryReportJson, ProbeLine,

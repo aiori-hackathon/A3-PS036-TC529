@@ -18,14 +18,6 @@ pub struct Cli {
     #[arg(long, value_name = "PATH", default_value = "target/climb-results.json")]
     pub results: PathBuf,
 
-    /// Path to the recorded ladder-verification artifact (Ladder tab badge).
-    #[arg(
-        long,
-        value_name = "PATH",
-        default_value = "target/ladder-verification.json"
-    )]
-    pub ladder: PathBuf,
-
     /// Colour theme.
     #[arg(long, value_enum, default_value_t = ThemeId::Dark)]
     pub theme: ThemeId,
@@ -51,7 +43,6 @@ mod tests {
     fn defaults_are_documented_values() {
         let cli = Cli::parse_from(["climb-tui"]);
         assert_eq!(cli.results, PathBuf::from("target/climb-results.json"));
-        assert_eq!(cli.ladder, PathBuf::from("target/ladder-verification.json"));
         assert_eq!(cli.theme, ThemeId::Dark);
         assert!(!cli.ascii);
         assert!(!cli.replay);
@@ -64,8 +55,6 @@ mod tests {
             "climb-tui",
             "--results",
             "/tmp/r.json",
-            "--ladder",
-            "/tmp/l.json",
             "--theme",
             "contrast",
             "--ascii",
@@ -73,7 +62,6 @@ mod tests {
             "--tour",
         ]);
         assert_eq!(cli.results, PathBuf::from("/tmp/r.json"));
-        assert_eq!(cli.ladder, PathBuf::from("/tmp/l.json"));
         assert_eq!(cli.theme, ThemeId::Contrast);
         assert!(cli.ascii);
         assert!(cli.replay);

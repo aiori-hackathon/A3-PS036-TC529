@@ -160,8 +160,6 @@ pub struct App {
     pub ladder_banner: bool,
     /// Whether the Ladder tab advances the selected leaf each tick.
     pub ladder_autoplay: bool,
-    /// Path to the ladder-verification artifact backing the badge.
-    pub ladder_path: PathBuf,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
     /// Wall clock at startup, driving the Overview ladder animation.
@@ -191,7 +189,6 @@ impl App {
             ladder_leaf: 0,
             ladder_banner: false,
             ladder_autoplay: false,
-            ladder_path: cli.ladder.clone(),
             ladder: LadderLoadState::Absent,
             started_at: Instant::now(),
         }
@@ -454,6 +451,7 @@ mod tests {
                     benchmark_runtime: serde_json::json!({}),
                 },
                 dns_pipeline: None,
+                ladder: None,
                 plain: Vec::new(),
                 comparisons: Vec::new(),
                 derived: DerivedSummary {

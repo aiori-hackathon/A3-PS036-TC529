@@ -36,7 +36,7 @@ fn main() -> Result<()> {
     let cli = Cli::parse_from(["climb-tui", "--results", &results]);
     let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
     app.set_data(data::load(Path::new(&results)));
-    let ladder = data::load_ladder(&app.ladder_path);
+    let ladder = data::load_ladder_auto();
     app.set_ladder(ladder);
     app.ladder_n = ladder_n;
 

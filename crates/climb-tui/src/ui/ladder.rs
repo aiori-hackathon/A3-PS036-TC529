@@ -7,7 +7,7 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Wrap};
+use ratatui::widgets::{Block, Padding, Paragraph, Wrap};
 use ratatui::Frame;
 
 use climb_analytical::{auth_path_len, predicted_condensed_len, predicted_ladder_len};
@@ -81,16 +81,16 @@ fn render_facts(
         Line::from(Span::styled(text, Style::new().fg(theme.fg)))
     };
     let mut lines = vec![
-        label(format!(" N = {n} leaves (messages)")),
-        label(format!(" rungs: {rungs}")),
+        label(format!("N = {n} leaves (messages)")),
+        label(format!("rungs: {rungs}")),
         label(format!(
-            " selected leaf {leaf} {sep} auth path {path} siblings"
+            "selected leaf {leaf} {sep} auth path {path} siblings"
         )),
         label(format!(
-            " condensed signature: {}",
+            "condensed signature: {}",
             fmt_bytes(condensed as f64)
         )),
-        label(format!(" ladder buffer: {}", fmt_bytes(ladder as f64))),
+        label(format!("ladder buffer: {}", fmt_bytes(ladder as f64))),
     ];
 
     let badge = ladder_badge(app.ladder(), n, leaf, theme.ascii);
@@ -100,7 +100,7 @@ fn render_facts(
         BadgeKind::ModelOnly | BadgeKind::NoArtifact => Style::new().fg(theme.muted),
     };
     lines.push(Line::from(Span::styled(
-        format!(" {}", badge.text),
+        badge.text.clone(),
         badge_style.add_modifier(Modifier::BOLD),
     )));
 
@@ -112,7 +112,7 @@ fn render_facts(
             .map_or(ladder, |row| row.ladder_buffer_len);
         lines.push(Line::from(Span::styled(
             format!(
-                " \u{2605} one big post-quantum signature covers the whole ladder ({})",
+                "\u{2605} one big post-quantum signature covers the whole ladder ({})",
                 fmt_bytes(measured as f64)
             ),
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
@@ -121,17 +121,13 @@ fn render_facts(
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        " The big signature is paid once; each message carries",
-        Style::new().fg(theme.muted),
-    )));
-    lines.push(Line::from(Span::styled(
-        " only its own short path.",
+        "The big signature is paid once; each message carries only its own short path.",
         Style::new().fg(theme.muted),
     )));
 
     if theme.ascii {
         lines.push(Line::from(Span::styled(
-            " keys: up/down size  left/right leaf  space banner  enter autoplay",
+            "keys: up/down size  left/right leaf  space banner  enter autoplay",
             Style::new().fg(theme.accent2),
         )));
     }
@@ -141,11 +137,15 @@ fn render_facts(
     } else {
         " Ladder facts "
     };
+    // The left padding is what indents wrapped continuation lines: ratatui's
+    // word wrapper keeps the block's inner column, whereas a literal leading
+    // space on each line would be lost the moment that line wraps.
     let facts = Paragraph::new(lines)
         .block(
             Block::bordered()
                 .border_set(glyphs.border)
                 .border_style(Style::new().fg(theme.border))
+                .padding(Padding::left(1))
                 .title(Span::styled(
                     title,
                     Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
@@ -164,7 +164,7 @@ mod tests {
     use ratatui::Terminal;
 
     use crate::cli::Cli;
-    use crate::data::LadderLoadState;
+    use crate::data::{LadderLoadState, LadderSource};
     use crate::theme::ColorDepth;
 
     fn app() -> App {
@@ -173,13 +173,43 @@ mod tests {
     }
 
     fn loaded_document() -> LadderLoadState {
+        // Read the committed fixture, not `target/`: the badge fallback must be
+        // exercisable on a fresh clone with no local run artifacts.
         let json = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../target/ladder-verification.json"
+            "/../../data/ladder-verification.recorded.json"
         ));
         let document: LadderVerification =
             serde_json::from_str(json).expect("the recorded artifact parses");
-        LadderLoadState::Loaded(Box::new(document))
+        LadderLoadState::Loaded {
+            document: Box::new(document),
+            source: LadderSource::RecordedFixture,
+        }
+    }
+
+    /// The facts-panel interior rows, left/right borders removed, so indent is
+    /// observable independently of the surrounding tree panel.
+    fn facts_lines(app: &App, width: u16, height: u16) -> Vec<String> {
+        let theme = app.theme();
+        let glyphs = theme.glyphs();
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| render_ladder(frame, frame.area(), app, &theme, &glyphs))
+            .expect("rendering never fails on TestBackend");
+        let buffer = terminal.backend().buffer();
+        let (_, facts) = regions(Rect::new(0, 0, width, height));
+        let mut lines = Vec::new();
+        for y in (facts.y + 1)..facts.bottom().saturating_sub(1) {
+            let mut line = String::new();
+            for x in (facts.x + 1)..facts.right().saturating_sub(1) {
+                if let Some(cell) = buffer.cell((x, y)) {
+                    line.push_str(cell.symbol());
+                }
+            }
+            lines.push(line);
+        }
+        lines
     }
 
     fn render_to_string(app: &App, width: u16, height: u16) -> String {
@@ -259,7 +289,10 @@ mod tests {
         app.ladder_leaf = 5;
         let out = render_to_string(&app, 120, 40);
         assert!(out.contains("matches libMTL"), "match badge:\n{out}");
-        assert!(out.contains("recorded 2026-10-14"), "recorded date:\n{out}");
+        assert!(
+            out.contains("(recorded fixture 2026-10-14)"),
+            "recorded date:\n{out}"
+        );
     }
 
     #[test]
@@ -285,5 +318,62 @@ mod tests {
         let out = render_to_string(&app, 80, 24);
         assert!(out.contains("space banner"), "key hint:\n{out}");
         assert!(!out.contains('●'), "ascii must stay ascii:\n{out}");
+    }
+
+    #[test]
+    fn wrapped_facts_lines_keep_the_left_indent_at_100x30() {
+        let mut app = app();
+        app.set_ladder(loaded_document());
+        app.ladder_n = 13;
+        app.ladder_leaf = 5;
+        let lines = facts_lines(&app, 100, 30);
+
+        // The selected-leaf and signature-note lines both wrap at this width.
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.trim_start().starts_with("selected leaf 5")),
+            "first wrapped segment missing:\n{lines:#?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.trim() == "siblings"),
+            "continuation segment missing:\n{lines:#?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.trim_start().starts_with("each message carries")),
+            "note continuation missing:\n{lines:#?}"
+        );
+
+        // Every continuation line must keep the one-space left indent.
+        for line in lines.iter().filter(|l| !l.trim().is_empty()) {
+            assert!(
+                line.starts_with(' '),
+                "facts line lost its left indent: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn facts_lines_keep_the_left_indent_at_80x24() {
+        let mut app = app();
+        app.set_ladder(loaded_document());
+        app.ladder_n = 13;
+        app.ladder_leaf = 5;
+        let lines = facts_lines(&app, 80, 24);
+
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.trim_start().starts_with("N = 13 leaves")),
+            "facts panel missing:\n{lines:#?}"
+        );
+        for line in lines.iter().filter(|l| !l.trim().is_empty()) {
+            assert!(
+                line.starts_with(' '),
+                "facts line lost its left indent at 80x24: {line:?}"
+            );
+        }
     }
 }

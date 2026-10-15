@@ -34,6 +34,16 @@ pub(crate) struct ConsolidateArgs {
     #[arg(long, default_value = "data/dns-capture.recorded.json")]
     dns_fixture: PathBuf,
 
+    /// Live ladder-verification artifact (from `cargo xtask ladder-verify`);
+    /// preferred when present
+    #[arg(long, default_value = "target/ladder-verification.json")]
+    ladder_verification: PathBuf,
+
+    /// Committed recorded ladder-verification fixture (fallback when no live
+    /// run artifact exists)
+    #[arg(long, default_value = "data/ladder-verification.recorded.json")]
+    ladder_fixture: PathBuf,
+
     /// Path to environment JSON (from `cargo xtask pin-env`)
     #[arg(long, default_value = "environment.json")]
     environment: PathBuf,
@@ -51,6 +61,8 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         memory_report_path: args.memory_report,
         dns_capture_path: args.dns_capture,
         dns_fixture_path: args.dns_fixture,
+        ladder_verification_path: args.ladder_verification,
+        ladder_fixture_path: args.ladder_fixture,
         environment_path: args.environment,
         baseline: args.baseline,
         output_path: args.output.clone(),

@@ -85,9 +85,8 @@ fn apply(app: &mut App, effect: Effect) {
             tracing::info!(path = %path.display(), loaded = %state.summary(), "results loaded");
             app.set_data(state);
 
-            let ladder = climb_tui::data::load_ladder(&app.ladder_path);
+            let ladder = climb_tui::data::load_ladder_auto();
             tracing::info!(
-                path = %app.ladder_path.display(),
                 loaded = %ladder.summary(),
                 "ladder verification loaded"
             );
