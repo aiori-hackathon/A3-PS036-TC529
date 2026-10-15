@@ -1,6 +1,8 @@
 # CLIMB — Cryptographic Ladder Impact Measurement Benchmark
 
-**Team**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), Dr. Maibam Devi (Faculty Mentor)
+**Team**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) (Faculty Mentor)
+
+**YouTube Video Link**: [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)
 
 **AIORI-3 Hackathon PS-036**: Benchmarking Merkle Tree Ladder (MTL) mode for post-quantum
 DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
