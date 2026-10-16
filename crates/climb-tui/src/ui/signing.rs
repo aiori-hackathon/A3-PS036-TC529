@@ -17,6 +17,7 @@ use super::amortization;
 use crate::app::App;
 use crate::data::{DetailLine, PerfCell, ResultsView, ValueMode};
 use crate::theme::{Glyphs, Theme};
+use crate::widgets::ellipsize;
 use crate::widgets::log_bars::{BarKind, LogBars};
 
 /// Render the Signing tab into `area`.
@@ -37,6 +38,9 @@ pub fn render_signing(
         .get(selected)
         .map(|size| view.signing_detail(size))
         .unwrap_or_default();
+    // The detail panel is a plain block-less paragraph, so its available width
+    // is the area it is given.
+    let detail_width = area.width as usize;
 
     let chart = LogBars {
         groups: &groups,
@@ -61,11 +65,17 @@ pub fn render_signing(
     .areas(area);
     frame.render_widget(chart, chart_area);
     if !detail.is_empty() {
-        frame.render_widget(Paragraph::new(detail_lines(&detail, theme)), detail_area);
+        frame.render_widget(
+            Paragraph::new(detail_lines(&detail, detail_width, theme)),
+            detail_area,
+        );
     }
     amortization::render_amortization(frame, amort_area, &view.amortization_view(), theme, glyphs);
     render_table(frame, table_area, &rows, selected, mode, theme, glyphs);
 }
+
+/// Columns reserved for the dataset-size column of the numbers table.
+const SIZE_COLUMN_WIDTH: u16 = 12;
 
 fn render_table(
     frame: &mut Frame,
@@ -89,7 +99,7 @@ fn render_table(
     let body = rows.iter().enumerate().map(|(i, row)| {
         let cells = [
             Cell::from(Span::styled(
-                row.size.clone(),
+                ellipsize(&row.size, SIZE_COLUMN_WIDTH as usize, theme.ascii),
                 Style::new().fg(theme.accent2),
             )),
             Cell::from(cell_text(row.with.as_ref(), theme)),
@@ -110,7 +120,7 @@ fn render_table(
     let table = Table::new(
         body,
         [
-            Constraint::Length(12),
+            Constraint::Length(SIZE_COLUMN_WIDTH),
             Constraint::Min(12),
             Constraint::Min(12),
             Constraint::Length(10),
@@ -135,7 +145,12 @@ fn render_table(
 }
 
 /// One detail line per condition for the selected size.
-fn detail_lines(detail: &[DetailLine], theme: &Theme) -> Vec<Line<'static>> {
+///
+/// `width` is the columns the paragraph has available: the line is composed of
+/// a padded condition label, the timing with its CI span and the source note,
+/// and the source is shortened with a marker when the whole line would run past
+/// `width`, so the panel clips nothing mid-word.
+fn detail_lines(detail: &[DetailLine], width: usize, theme: &Theme) -> Vec<Line<'static>> {
     detail
         .iter()
         .map(|line| {
@@ -146,16 +161,15 @@ fn detail_lines(detail: &[DetailLine], theme: &Theme) -> Vec<Line<'static>> {
                 }
                 _ => String::new(),
             };
+            let label = ellipsize(condition_short_label(&line.condition), 16, theme.ascii);
+            let head = format!(" {label:<16}");
+            let timing = format!("{}{ci}", fmt_time_ns(line.mean_ns));
+            let used = head.chars().count() + timing.chars().count() + 2;
+            let source = ellipsize(&line.source, width.saturating_sub(used), theme.ascii);
             Line::from(vec![
-                Span::styled(
-                    format!(
-                        " {:<16}",
-                        truncated(condition_short_label(&line.condition), 16)
-                    ),
-                    Style::new().fg(theme.accent),
-                ),
-                Span::styled(format!("{}{ci}", fmt_time_ns(line.mean_ns)), theme.measured),
-                Span::styled(format!("  {}", line.source), Style::new().fg(theme.muted)),
+                Span::styled(head, Style::new().fg(theme.accent)),
+                Span::styled(timing, theme.measured),
+                Span::styled(format!("  {source}"), Style::new().fg(theme.muted)),
             ])
         })
         .collect()
@@ -188,14 +202,6 @@ fn speedup_text(row: &crate::data::SigningRow) -> Option<String> {
     row.speedup.clone().map(|kpi| kpi.value)
 }
 
-fn truncated(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_string()
-    } else {
-        text.chars().take(max).collect()
-    }
-}
-
 fn dash(theme: &Theme) -> &'static str {
     if theme.ascii {
         "-"
@@ -208,10 +214,122 @@ fn dash(theme: &Theme) -> &'static str {
 mod tests {
     use super::*;
 
+    /// The composed detail line the paragraph would draw, so its width and its
+    /// marker can be asserted directly.
+    fn plain(line: &Line) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect()
+    }
+
     #[test]
-    fn truncated_keeps_leftmost_chars() {
-        assert_eq!(truncated("Trust-cached ladder", 7), "Trust-c");
-        assert_eq!(truncated("MTL amortised", 20), "MTL amortised");
+    fn detail_line_shortens_the_source_before_the_panel_edge_at_80x24() {
+        let theme = Theme::new(
+            crate::theme::ThemeId::Dark,
+            crate::theme::ColorDepth::TrueColor,
+            false,
+        );
+        // At 80x24 the detail paragraph spans the whole tab body, so its width
+        // is the full terminal width. The source note below is deliberately far
+        // longer than the columns left after the label and the timing.
+        let width = 80;
+        let detail = vec![DetailLine {
+            condition: "Without MTL".to_string(),
+            mean_ns: 1.0e9,
+            ci: None,
+            per_message_ns: 1.0,
+            samples: 1,
+            source: "extrapolated: 18,446,744,073,709,551,616 \u{00d7} measured per-message cost"
+                .to_string(),
+        }];
+        let text = plain(&detail_lines(&detail, width, &theme)[0]);
+        assert!(
+            text.chars().count() <= width,
+            "the detail line overruns the panel: {text:?}"
+        );
+        assert!(
+            text.ends_with('\u{2026}'),
+            "the dropped tail must be marked: {text:?}"
+        );
+        assert!(
+            !text.contains("per-message cost"),
+            "the source tail must be dropped rather than clipped: {text:?}"
+        );
+    }
+
+    #[test]
+    fn detail_line_stays_intact_when_it_fits() {
+        let theme = Theme::new(
+            crate::theme::ThemeId::Dark,
+            crate::theme::ColorDepth::TrueColor,
+            false,
+        );
+        let detail = vec![DetailLine {
+            condition: "With MTL".to_string(),
+            mean_ns: 1.0e9,
+            ci: None,
+            per_message_ns: 1.0,
+            samples: 100,
+            source: "measured, 100 messages".to_string(),
+        }];
+        let text = plain(&detail_lines(&detail, 80, &theme)[0]);
+        assert!(
+            text.contains("measured, 100 messages"),
+            "a fitting line must be untouched: {text:?}"
+        );
+        assert!(!text.contains('\u{2026}'), "no marker needed: {text:?}");
+    }
+
+    #[test]
+    fn size_column_ellipsizes_a_long_label_at_80x24() {
+        let theme = Theme::new(
+            crate::theme::ThemeId::Dark,
+            crate::theme::ColorDepth::TrueColor,
+            false,
+        );
+        let glyphs = theme.glyphs();
+        let rows = vec![crate::data::SigningRow {
+            size: "a size label far longer than the column".to_string(),
+            n: 100,
+            with: None,
+            without: None,
+            speedup: None,
+        }];
+
+        let backend = ratatui::backend::TestBackend::new(80, 24);
+        let mut terminal = ratatui::Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| {
+                render_table(
+                    frame,
+                    frame.area(),
+                    &rows,
+                    0,
+                    ValueMode::Total,
+                    &theme,
+                    &glyphs,
+                )
+            })
+            .expect("rendering never fails on TestBackend");
+        let buffer = terminal.backend().buffer();
+        let mut out = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                if let Some(cell) = buffer.cell((x, y)) {
+                    out.push_str(cell.symbol());
+                }
+            }
+            out.push('\n');
+        }
+        assert!(
+            out.contains('\u{2026}'),
+            "the size cell must be ellipsized:\n{out}"
+        );
+        assert!(
+            !out.contains("far longer than"),
+            "the size label must be cut, not wrapped:\n{out}"
+        );
     }
 
     #[test]

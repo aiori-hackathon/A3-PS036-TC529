@@ -17,6 +17,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use climb_report::charts::fmt_time_ns;
 
+use super::ellipsize;
 use crate::theme::{Glyphs, Theme};
 
 /// Where a bar's value came from; drives its glyph and style.
@@ -154,10 +155,14 @@ impl LogBars<'_> {
         let min = values.iter().copied().fold(f64::INFINITY, f64::min);
         let max = values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
 
+        let ascii = self.theme.ascii;
         let mut lines = Vec::new();
         for group in self.groups {
+            // The header carries a leading indent, so its text may occupy one
+            // column less than the panel.
+            let label = ellipsize(&group.label, width.saturating_sub(1) as usize, ascii);
             lines.push(Line::from(Span::styled(
-                format!(" {}", group.label),
+                format!(" {label}"),
                 Style::new()
                     .fg(self.theme.accent2)
                     .add_modifier(Modifier::BOLD),
@@ -168,16 +173,24 @@ impl LogBars<'_> {
                 let bar_cells: String = std::iter::repeat_n(glyph, len as usize).collect();
                 let name = format!(
                     " {:<pad$}",
-                    truncate(&bar.name, (name_width.saturating_sub(1)) as usize),
+                    ellipsize(&bar.name, name_width.saturating_sub(1) as usize, ascii),
                     pad = (name_width.saturating_sub(1)) as usize
                 );
                 let style = self.bar_style(bar.kind);
+                // The value sits after the name column, the bar column and one
+                // separating space, so it may occupy one column less than its
+                // reserved width without overflowing the panel.
+                let value = ellipsize(
+                    &value_text(bar),
+                    self.value_width.saturating_sub(1) as usize,
+                    ascii,
+                );
                 lines.push(Line::from(vec![
                     Span::styled(name, Style::new().fg(self.theme.fg)),
                     Span::styled(bar_cells, style),
                     Span::raw(" ".repeat((bar_width - len) as usize)),
                     Span::raw(" "),
-                    Span::styled(value_text(bar), style),
+                    Span::styled(value, style),
                 ]));
             }
         }
@@ -258,14 +271,6 @@ fn ruler_line(
         Span::raw(" ".repeat(name_width as usize)),
         Span::styled(ruler, Style::new().fg(theme.muted)),
     ])
-}
-
-fn truncate(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_string()
-    } else {
-        text.chars().take(max).collect()
-    }
 }
 
 impl Widget for LogBars<'_> {
@@ -417,5 +422,52 @@ mod tests {
     fn empty_groups_render_a_placeholder_line() {
         let out = render_text(&[], 60, 4, false);
         assert!(out.contains("no rows recorded"), "empty:\n{out}");
+    }
+
+    #[test]
+    fn over_long_labels_are_ellipsized_rather_than_split() {
+        let groups = vec![BarGroup {
+            label: "An extremely long dataset label that cannot fit".to_string(),
+            bars: vec![Bar {
+                name: "a name that is far too long for the column".to_string(),
+                value_ns: 100.0,
+                kind: BarKind::Measured,
+                ci: None,
+            }],
+        }];
+        let out = render_text(&groups, 40, 4, false);
+        assert!(
+            out.contains('\u{2026}'),
+            "an over-long label must end in an ellipsis:\n{out}"
+        );
+        assert!(
+            !out.contains("far too long"),
+            "the name must be truncated, not wrapped:\n{out}"
+        );
+        for line in out.lines() {
+            assert!(
+                line.chars().count() <= 40,
+                "a line exceeded the panel width: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ascii_mode_uses_an_ascii_ellipsis_marker() {
+        let groups = vec![BarGroup {
+            label: "An extremely long dataset label that cannot fit".to_string(),
+            bars: vec![Bar {
+                name: "With MTL".to_string(),
+                value_ns: 100.0,
+                kind: BarKind::Measured,
+                ci: None,
+            }],
+        }];
+        let out = render_text(&groups, 24, 3, true);
+        assert!(out.contains('~'), "ascii truncation marker:\n{out}");
+        assert!(
+            !out.contains('\u{2026}'),
+            "no unicode marker in ascii:\n{out}"
+        );
     }
 }

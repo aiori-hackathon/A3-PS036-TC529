@@ -45,6 +45,13 @@ pub struct Claim {
 
 /// Summary-grid rows: display label → claim id. Claims whose id has no
 /// value in the results document render as an em dash.
+///
+/// The three comparison rows use the `comparison@<size>-<metric>` form:
+/// the summary shows the Medium dataset, but comparison claims are indexed
+/// by declaration order in `results.json`, and that order is not fixed.
+/// [`resolve_summary_id`] turns the size-qualified form into the indexed
+/// claim id of whichever comparison declares that size, so reordering or
+/// dropping a dataset can never silently repoint the grid at another row.
 const SUMMARY_ROWS: [(&str, &str); 11] = [
     ("Overall wire reduction", "overall-wire-reduction"),
     ("Largest wire reduction", "largest-wire-reduction"),
@@ -54,13 +61,30 @@ const SUMMARY_ROWS: [(&str, &str); 11] = [
     ("www.a wire reduction", "dns-wire-reduction"),
     ("www.a capture provenance", "dns-provenance"),
     ("Ladder: model vs libMTL", "ladder-all-match"),
-    ("Wire C vs B (Medium)", "comparison-1-wire-c-vs-b"),
-    ("Sign C vs A (Medium)", "comparison-1-signing-c-vs-a"),
+    ("Wire C vs B (Medium)", "comparison@Medium-wire-c-vs-b"),
+    ("Sign C vs A (Medium)", "comparison@Medium-signing-c-vs-a"),
     (
         "Verify cached C vs A (Medium)",
-        "comparison-1-verifying-cached-c-vs-a",
+        "comparison@Medium-verifying-cached-c-vs-a",
     ),
 ];
+
+/// Resolve a [`SUMMARY_ROWS`] id against the built claims.
+///
+/// Plain ids pass through unchanged; `comparison@<size>-<metric>` is
+/// resolved by finding the comparison whose size claim matches, and yields
+/// `None` when no such comparison exists (the row renders as an em dash).
+fn resolve_summary_id(id: &str, claims: &[Claim]) -> Option<String> {
+    let Some(rest) = id.strip_prefix("comparison@") else {
+        return Some(id.to_string());
+    };
+    let (size, metric) = rest.split_once('-')?;
+    let index = claims.iter().find_map(|c| {
+        let declared = c.id.strip_prefix("comparison-")?.strip_suffix("-size")?;
+        (c.formatted == size).then_some(declared)
+    })?;
+    Some(format!("comparison-{index}-{metric}"))
+}
 
 /// Figure captions, index-aligned with [`CHART_FILES`].
 const CHART_CAPTIONS: [&str; 5] = [
@@ -681,14 +705,18 @@ pub fn render_html(
 
     let mut summary = String::new();
     for (label, id) in SUMMARY_ROWS {
-        let value = claims
-            .iter()
-            .find(|c| c.id == id)
-            .map_or("\u{2014}", |c| c.formatted.as_str());
+        let value = resolve_summary_id(id, &claims)
+            .and_then(|resolved| {
+                claims
+                    .iter()
+                    .find(|c| c.id == resolved)
+                    .map(|c| c.formatted.clone())
+            })
+            .unwrap_or_else(|| "\u{2014}".to_string());
         summary.push_str(&format!(
             "<div><dt>{}</dt><dd>{}</dd></div>\n",
             escape_html(label),
-            escape_html(value),
+            escape_html(&value),
         ));
     }
 
@@ -1201,6 +1229,88 @@ mod tests {
         assert!(!payload.contains("</script"));
         assert!(payload.contains("\\u003c/script>"));
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn summary_grid_rows_follow_the_size_not_the_declaration_order() {
+        let mut results = synthetic_results();
+        results.comparisons = ["Small", "OneK", "Medium", "Large"]
+            .iter()
+            .map(|size| ConfigComparison {
+                size: (*size).to_string(),
+                wire_reduction_c_vs_a_percent: Some(10.0),
+                wire_reduction_c_vs_b_percent: Some(20.0),
+                signing_speedup_c_vs_a: Some(2.0),
+                signing_speedup_c_vs_b: Some(3.0),
+                verifying_speedup_cached_vs_a: Some(4.0),
+                verifying_speedup_cold_vs_a: Some(5.0),
+                class: EvidenceClass::Derived,
+            })
+            .collect();
+        // Give the Medium row values no other size carries, so the rendered
+        // grid can only match it by size rather than by declaration index.
+        results.comparisons[2].wire_reduction_c_vs_b_percent = Some(42.5);
+        results.comparisons[2].signing_speedup_c_vs_a = Some(7.0);
+        results.comparisons[2].verifying_speedup_cached_vs_a = Some(9.0);
+        let dir = unique_temp_dir("html-medium");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        for needle in ["42.5%", "7.0\u{d7}", "9.0\u{d7}"] {
+            assert!(
+                html.contains(needle),
+                "summary grid missed the Medium value {needle:?}"
+            );
+        }
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn summary_grid_missing_comparison_renders_an_em_dash() {
+        let mut results = synthetic_results();
+        results.comparisons = vec![ConfigComparison {
+            size: "Small".to_string(),
+            wire_reduction_c_vs_a_percent: Some(10.0),
+            wire_reduction_c_vs_b_percent: Some(20.0),
+            signing_speedup_c_vs_a: Some(2.0),
+            signing_speedup_c_vs_b: Some(3.0),
+            verifying_speedup_cached_vs_a: Some(4.0),
+            verifying_speedup_cold_vs_a: Some(5.0),
+            class: EvidenceClass::Derived,
+        }];
+        let dir = unique_temp_dir("html-no-medium");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        // With no Medium comparison declared, the "(Medium)" rows fall back
+        // to the placeholder instead of borrowing another size's numbers.
+        let grid = html
+            .split("<dl class=\"summary\">")
+            .nth(1)
+            .expect("summary grid")
+            .split("</dl>")
+            .next()
+            .expect("grid end");
+        let medium_rows = [
+            "Wire C vs B (Medium)",
+            "Sign C vs A (Medium)",
+            "Verify cached C vs A (Medium)",
+        ];
+        let mut seen = 0;
+        for line in grid.lines() {
+            if medium_rows.iter().any(|r| line.contains(r)) {
+                assert!(
+                    line.contains("\u{2014}"),
+                    "row without a Medium comparison must be an em dash: {line}"
+                );
+                seen += 1;
+            }
+        }
+        assert_eq!(seen, 3, "expected three (Medium) rows in the grid");
     }
 
     #[test]

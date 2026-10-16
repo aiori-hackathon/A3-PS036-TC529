@@ -240,6 +240,24 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
     let mode = if app.replay { "replay" } else { "live" };
     let tour = if app.tour { "on" } else { "off" };
     let ascii = if app.ascii { "on" } else { "off" };
+    // The source path is the only field of unbounded width; every other span is
+    // fixed, so the path is shortened with a marker until the trailing help key
+    // hint stays visible even at the minimum supported width.
+    let fixed: usize = format!(" {spinner} ").chars().count()
+        + format!("theme: {} ", app.theme.label()).chars().count()
+        + format!("({}) ", app.color_depth.label()).chars().count()
+        + format!("ascii: {ascii} ").chars().count()
+        + format!("mode: {mode} ").chars().count()
+        + format!("tour: {tour} ").chars().count()
+        + "source: ".len()
+        + " ".len()
+        + "· ? help".len();
+    let path_budget = (area.width as usize).saturating_sub(fixed);
+    let path = crate::widgets::ellipsize(
+        &app.results_path.display().to_string(),
+        path_budget,
+        theme.ascii,
+    );
     let line = Line::from(vec![
         Span::styled(format!(" {spinner} "), Style::new().fg(theme.accent)),
         Span::styled(
@@ -253,10 +271,7 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
         Span::styled(format!("ascii: {ascii} "), Style::new().fg(theme.fg)),
         Span::styled(format!("mode: {mode} "), Style::new().fg(theme.fg)),
         Span::styled(format!("tour: {tour} "), Style::new().fg(theme.fg)),
-        Span::styled(
-            format!("source: {} ", app.results_path.display()),
-            Style::new().fg(theme.muted),
-        ),
+        Span::styled(format!("source: {path} "), Style::new().fg(theme.muted)),
         Span::styled("· ? help", Style::new().fg(theme.accent)),
     ]);
     frame.render_widget(
@@ -524,6 +539,20 @@ mod tests {
         assert!(out.contains("ascii: off"));
         assert!(out.contains("source: target/climb-results.json"));
         assert!(out.contains("? help"));
+    }
+
+    #[test]
+    fn status_bar_keeps_help_and_ellipsizes_the_path_at_80x24() {
+        let app = app_with(false, ThemeId::Dark, false);
+        let out = render_to_string(&app, 80, 24);
+        let status = out.lines().last().expect("the status bar is the last row");
+        assert!(status.contains("source: "), "status bar:\n{status}");
+        assert!(status.contains("\u{2026}"), "path not shortened:\n{status}");
+        assert!(
+            !status.contains("target/climb-results.json"),
+            "full path does not fit at 80 columns:\n{status}"
+        );
+        assert!(status.contains("? help"), "help clipped:\n{status}");
     }
 
     #[test]

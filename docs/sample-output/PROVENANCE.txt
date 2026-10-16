@@ -1,4 +1,4 @@
-commit SHA: 5e7e09fd508973dbcee86175ddeb422a6c342e38
+commit SHA: 7d0df65ca70319ba84d2a38b02ae0a8c23ef72b8
 rustc: rustc 1.98.1 (48a229cea 2026-09-01)
 submodule SHAs: third_party/MTL=53ce25dcc35c15e051c5263e41aaeaede18a8aa7, third_party/liboqs=5a1a854b0dc9f2141bdc771c555ee60c37950183
-date: 2026-10-16T16:39:42+05:30
+date: 2026-10-16T19:44:09+05:30

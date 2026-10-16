@@ -6,20 +6,20 @@
 //! [`ClimbResults`] through `climb_report::charts::fmt_*` — no result number
 //! appears as a literal anywhere in this crate.
 
+mod amortization;
 mod ladder;
 mod memory;
 mod overview;
 mod signing;
 mod wire;
 
+pub use amortization::{per_message, AmortizationView, ValueMode};
 pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, BadgeKind, LadderBadge, LadderLoadState,
     LadderSource,
 };
 pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
-pub use signing::{
-    per_message, AmortizationView, DetailLine, PerfCell, SigningRow, ValueMode, VerifyingRow,
-};
+pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
 pub use wire::UdpGaugeData;
 
 use std::path::{Path, PathBuf};

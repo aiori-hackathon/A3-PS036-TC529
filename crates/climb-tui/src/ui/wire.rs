@@ -231,6 +231,29 @@ mod tests {
     }
 
     #[test]
+    fn over_long_labels_are_ellipsized_rather_than_split_at_80x24() {
+        let filler = " that could never show up in a real benchmark run and only exists";
+        let long_name = format!("an extremely long bar name{filler}{filler}");
+        let long_group = format!("an extremely long group label{filler}{filler}");
+        let long_note = format!("an extremely long note{filler}{filler}");
+        let mut group = stacks().remove(0);
+        group.label = long_group.clone();
+        group.caption = Some(long_note.clone());
+        group.bars[0].name = long_name.clone();
+        group.bars[0].note = long_note.clone();
+        let out = render_to_string(&[group], &gauge(), 80, 24);
+        for needle in [&long_name, &long_group, &long_note] {
+            assert!(
+                !out.contains(needle.as_str()),
+                "a long label was rendered unshortened:\n{out}"
+            );
+        }
+        assert!(out.contains('\u{2026}'), "no ellipsis marker:\n{out}");
+        // Short labels must survive untouched next to the shortened ones.
+        assert!(out.contains("No amortisation"), "bars:\n{out}");
+    }
+
+    #[test]
     fn empty_data_renders_both_placeholders() {
         let empty = UdpGaugeData {
             axis_min: 0,

@@ -15,6 +15,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
+use super::ellipsize;
 use crate::theme::{Glyphs, Theme};
 
 /// The visual role of a stacked segment; drives its glyph and style.
@@ -172,10 +173,12 @@ impl StackedBars<'_> {
             .saturating_sub(self.note_width)
             .max(1);
 
+        let ascii = self.theme.ascii;
         let mut lines = Vec::new();
         for group in self.groups {
+            let label = ellipsize(&group.label, width.saturating_sub(1) as usize, ascii);
             lines.push(Line::from(Span::styled(
-                format!(" {}", group.label),
+                format!(" {label}"),
                 Style::new()
                     .fg(self.theme.accent2)
                     .add_modifier(Modifier::BOLD),
@@ -188,7 +191,7 @@ impl StackedBars<'_> {
                 let mut spans = vec![Span::styled(
                     format!(
                         " {:<pad$}",
-                        truncate(&bar.name, name_width.saturating_sub(1) as usize),
+                        ellipsize(&bar.name, name_width.saturating_sub(1) as usize, ascii),
                         pad = name_width.saturating_sub(1) as usize
                     ),
                     Style::new().fg(self.theme.fg),
@@ -206,13 +209,17 @@ impl StackedBars<'_> {
                 }
                 spans.push(Span::raw(" ".repeat((bar_width - drawn) as usize)));
                 spans.push(Span::raw(" "));
+                // The note follows the name column, the bar column and one
+                // separating space, so it may occupy one column less than its
+                // reserved width.
                 spans.push(Span::styled(
-                    bar.note.clone(),
+                    ellipsize(&bar.note, self.note_width.saturating_sub(1) as usize, ascii),
                     Style::new().fg(self.theme.muted),
                 ));
                 lines.push(Line::from(spans));
             }
             if let Some(caption) = &group.caption {
+                let caption = ellipsize(caption, width.saturating_sub(3) as usize, ascii);
                 lines.push(Line::from(Span::styled(
                     format!("   {caption}"),
                     Style::new().fg(self.theme.muted),
@@ -221,6 +228,7 @@ impl StackedBars<'_> {
         }
 
         if let Some(note) = &self.scale_note {
+            let note = ellipsize(note, width.saturating_sub(1) as usize, ascii);
             lines.push(Line::from(Span::styled(
                 format!(" {note}"),
                 Style::new().fg(self.theme.muted),
@@ -242,14 +250,6 @@ impl StackedBars<'_> {
             lines.push(Line::from(spans));
         }
         lines
-    }
-}
-
-fn truncate(text: &str, max: usize) -> String {
-    if text.chars().count() <= max {
-        text.to_string()
-    } else {
-        text.chars().take(max).collect()
     }
 }
 
@@ -412,5 +412,64 @@ mod tests {
     fn empty_groups_render_a_placeholder_line() {
         let out = render_text(&[], 60, 4, false);
         assert!(out.contains("no rows recorded"), "empty:\n{out}");
+    }
+
+    #[test]
+    fn over_long_labels_are_ellipsized_rather_than_split() {
+        let groups = vec![StackGroup {
+            label: "An extremely long dataset label that cannot fit".to_string(),
+            scale_max: 1000,
+            caption: Some("a caption far longer than the panel could ever show".to_string()),
+            bars: vec![StackBar {
+                name: "a name that is far too long for the column".to_string(),
+                segments: vec![StackSegment {
+                    label: "full".to_string(),
+                    bytes: 1000,
+                    style: SegmentStyle::Solid,
+                }],
+                note: "a trailing note far too long for its reserved column".to_string(),
+            }],
+        }];
+        let out = render_text(&groups, 44, 6, false);
+        assert!(
+            out.contains('\u{2026}'),
+            "over-long text must end in an ellipsis:\n{out}"
+        );
+        for needle in ["far too long", "could ever show", "reserved column"] {
+            assert!(
+                !out.contains(needle),
+                "{needle:?} must be truncated, not wrapped:\n{out}"
+            );
+        }
+        for line in out.lines() {
+            assert!(
+                line.chars().count() <= 44,
+                "a line exceeded the panel width: {line:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn ascii_mode_uses_an_ascii_ellipsis_marker() {
+        let groups = vec![StackGroup {
+            label: "An extremely long dataset label that cannot fit".to_string(),
+            scale_max: 1000,
+            caption: None,
+            bars: vec![StackBar {
+                name: "With MTL".to_string(),
+                segments: vec![StackSegment {
+                    label: "full".to_string(),
+                    bytes: 1000,
+                    style: SegmentStyle::Solid,
+                }],
+                note: "1,000 B".to_string(),
+            }],
+        }];
+        let out = render_text(&groups, 24, 4, true);
+        assert!(out.contains('~'), "ascii truncation marker:\n{out}");
+        assert!(
+            !out.contains('\u{2026}'),
+            "no unicode marker in ascii:\n{out}"
+        );
     }
 }

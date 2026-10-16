@@ -77,8 +77,16 @@ fn render_facts(
         .join(" ");
     let sep = if theme.ascii { "-" } else { "·" };
 
+    // The block's inner column is one left padding inside the borders. A token
+    // longer than that is the one case ratatui's word wrapper cannot break at a
+    // space and would split mid-word, so such tokens are shortened with a marker
+    // before the paragraph ever sees them.
+    let inner = area.width.saturating_sub(3) as usize;
+    let fit =
+        |text: String| -> String { crate::widgets::ellipsize_tokens(&text, inner, theme.ascii) };
+
     let label = |text: String| -> Line<'static> {
-        Line::from(Span::styled(text, Style::new().fg(theme.fg)))
+        Line::from(Span::styled(fit(text), Style::new().fg(theme.fg)))
     };
     let mut lines = vec![
         label(format!("N = {n} leaves (messages)")),
@@ -100,7 +108,7 @@ fn render_facts(
         BadgeKind::ModelOnly | BadgeKind::NoArtifact => Style::new().fg(theme.muted),
     };
     lines.push(Line::from(Span::styled(
-        badge.text.clone(),
+        fit(badge.text.clone()),
         badge_style.add_modifier(Modifier::BOLD),
     )));
 
@@ -111,23 +119,26 @@ fn render_facts(
             .and_then(|document| document.row(n as usize))
             .map_or(ladder, |row| row.ladder_buffer_len);
         lines.push(Line::from(Span::styled(
-            format!(
+            fit(format!(
                 "\u{2605} one big post-quantum signature covers the whole ladder ({})",
                 fmt_bytes(measured as f64)
-            ),
+            )),
             Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
         )));
     }
 
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
-        "The big signature is paid once; each message carries only its own short path.",
+        fit(
+            "The big signature is paid once; each message carries only its own short path."
+                .to_string(),
+        ),
         Style::new().fg(theme.muted),
     )));
 
     if theme.ascii {
         lines.push(Line::from(Span::styled(
-            "keys: up/down size  left/right leaf  space banner  enter autoplay",
+            fit("keys: up/down size  left/right leaf  space banner  enter autoplay".to_string()),
             Style::new().fg(theme.accent2),
         )));
     }
@@ -373,6 +384,35 @@ mod tests {
             assert!(
                 line.starts_with(' '),
                 "facts line lost its left indent at 80x24: {line:?}"
+            );
+        }
+    }
+
+    /// Guard: every facts-panel line must fit the panel interior (77 columns
+    /// at 80 wide) without wrapping, so nothing can be split mid-word. No
+    /// recorded data path produces an over-long token today; this pins that.
+    #[test]
+    fn facts_lines_fit_the_panel_interior_at_80x24() {
+        let mut app = app();
+        app.set_ladder(loaded_document());
+        app.ladder_n = 13;
+        app.ladder_leaf = 5;
+        app.ladder_banner = true;
+        let lines = facts_lines(&app, 80, 24);
+        // `facts_lines` already strips the borders; the left padding column is
+        // part of the returned line, so the budget is the interior plus one.
+        let interior = 80 - 2;
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("one big post-quantum signature")),
+            "banner line missing:\n{lines:#?}"
+        );
+        for line in lines.iter().filter(|l| !l.trim().is_empty()) {
+            let visible = line.trim_end().chars().count();
+            assert!(
+                visible <= interior as usize,
+                "facts line wider than the panel interior at 80x24: {line:?}"
             );
         }
     }
