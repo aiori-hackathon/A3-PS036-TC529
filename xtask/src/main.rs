@@ -9,6 +9,7 @@ use climb_report::{parse_group_id, render_text_summary, scan_criterion, summariz
 
 mod charts;
 mod consolidate;
+mod deck_facts;
 mod dns_demo;
 mod groups;
 mod ladder_verify;
@@ -19,6 +20,7 @@ mod verify_consolidated;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
+use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
@@ -94,6 +96,12 @@ enum Commands {
     /// Reads `target/climb-results.json` (Phase 15) and writes
     /// `target/climb-report/charts/*.svg` (Phase 16).
     Charts(ChartsArgs),
+    /// Render the deck quote sheet: every number a slide deck or README may
+    /// quote, with its evidence class, baseline, JSON pointer and source file.
+    ///
+    /// Reads the recorded artifacts only. Two artifacts that disagree about the
+    /// same number are reported in the footer and fail the command.
+    DeckFacts(DeckFactsArgs),
     /// Run the whole artifact chain in order, from one command.
     ///
     /// Pins the environment, measures wire sizes and memory, optionally
@@ -184,6 +192,7 @@ fn main() -> Result<()> {
         Commands::Consolidate(args) => cmd_consolidate(args),
         Commands::VerifyConsolidated(args) => cmd_verify_consolidated(args),
         Commands::Charts(args) => cmd_charts(args),
+        Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
     }
 }
@@ -493,5 +502,17 @@ mod tests {
     #[test]
     fn binary_on_path_returns_false_for_nonexistent() {
         assert!(!binary_on_path("__nonexistent_command_xyzzy__"));
+    }
+
+    #[test]
+    fn deck_facts_defaults_to_the_recorded_artifact_paths() {
+        let cli = Cli::try_parse_from(["xtask", "deck-facts"]).expect("deck-facts parses");
+        match cli.command {
+            Commands::DeckFacts(args) => {
+                assert_eq!(args.results, PathBuf::from("target/climb-results.json"));
+                assert_eq!(args.out, PathBuf::from("docs/deck-facts.md"));
+            }
+            _ => panic!("expected the deck-facts subcommand"),
+        }
     }
 }

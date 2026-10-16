@@ -5,6 +5,7 @@
 //! produces a human-readable two-table summary (signing + verifying).
 
 pub mod charts;
+pub mod deck_facts;
 pub mod error;
 pub mod html;
 pub mod ladder;
