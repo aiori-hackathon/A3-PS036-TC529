@@ -1,0 +1,214 @@
+<svg width="960" height="600" viewBox="0 0 960 600" xmlns="http://www.w3.org/2000/svg">
+<rect x="0" y="0" width="960" height="600" opacity="1" fill="#FFFFFF" stroke="none"/>
+<text x="480" y="11" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="13.709677419354838" opacity="1" fill="#000000">
+Peak RSS: measured vs analytical model
+</text>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="219" y1="499" x2="219" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="311" y1="499" x2="311" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="365" y1="499" x2="365" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="403" y1="499" x2="403" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="433" y1="499" x2="433" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="457" y1="499" x2="457" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="478" y1="499" x2="478" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="495" y1="499" x2="495" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="511" y1="499" x2="511" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="525" y1="499" x2="525" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="525" y1="499" x2="525" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="617" y1="499" x2="617" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="671" y1="499" x2="671" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="709" y1="499" x2="709" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="739" y1="499" x2="739" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="763" y1="499" x2="763" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="783" y1="499" x2="783" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="801" y1="499" x2="801" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="817" y1="499" x2="817" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="831" y1="499" x2="831" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="831" y1="499" x2="831" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="923" y1="499" x2="923" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="499" x2="953" y2="499"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="476" x2="953" y2="476"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="462" x2="953" y2="462"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="452" x2="953" y2="452"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="445" x2="953" y2="445"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="439" x2="953" y2="439"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="433" x2="953" y2="433"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="429" x2="953" y2="429"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="425" x2="953" y2="425"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="421" x2="953" y2="421"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="421" x2="953" y2="421"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="398" x2="953" y2="398"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="384" x2="953" y2="384"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="374" x2="953" y2="374"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="366" x2="953" y2="366"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="360" x2="953" y2="360"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="355" x2="953" y2="355"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="350" x2="953" y2="350"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="346" x2="953" y2="346"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="343" x2="953" y2="343"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="343" x2="953" y2="343"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="319" x2="953" y2="319"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="305" x2="953" y2="305"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="296" x2="953" y2="296"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="288" x2="953" y2="288"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="282" x2="953" y2="282"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="277" x2="953" y2="277"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="272" x2="953" y2="272"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="268" x2="953" y2="268"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="264" x2="953" y2="264"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="264" x2="953" y2="264"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="241" x2="953" y2="241"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="227" x2="953" y2="227"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="217" x2="953" y2="217"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="210" x2="953" y2="210"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="204" x2="953" y2="204"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="198" x2="953" y2="198"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="194" x2="953" y2="194"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="190" x2="953" y2="190"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="186" x2="953" y2="186"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="186" x2="953" y2="186"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="163" x2="953" y2="163"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="149" x2="953" y2="149"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="139" x2="953" y2="139"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="131" x2="953" y2="131"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="125" x2="953" y2="125"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="120" x2="953" y2="120"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="115" x2="953" y2="115"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="111" x2="953" y2="111"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="108" x2="953" y2="108"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="108" x2="953" y2="108"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="84" x2="953" y2="84"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="70" x2="953" y2="70"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="61" x2="953" y2="61"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="53" x2="953" y2="53"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="47" x2="953" y2="47"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="42" x2="953" y2="42"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="37" x2="953" y2="37"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="33" x2="953" y2="33"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="29" x2="953" y2="29"/>
+<line opacity="0.1" stroke="#000000" stroke-width="1" x1="98" y1="29" x2="953" y2="29"/>
+<text x="6" y="264" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000" transform="rotate(270, 6, 264)">
+peak RSS
+</text>
+<text x="526" y="546" dy="-0.5ex" text-anchor="middle" font-family="sans-serif" font-size="9.67741935483871" opacity="1" fill="#000000">
+dataset size (messages)
+</text>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="219" y1="499" x2="219" y2="29"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="525" y1="499" x2="525" y2="29"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="831" y1="499" x2="831" y2="29"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="499" x2="953" y2="499"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="421" x2="953" y2="421"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="343" x2="953" y2="343"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="264" x2="953" y2="264"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="186" x2="953" y2="186"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="108" x2="953" y2="108"/>
+<line opacity="0.2" stroke="#000000" stroke-width="1" x1="98" y1="29" x2="953" y2="29"/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="97,29 97,499 "/>
+<text x="88" y="499" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+100 B
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,499 97,499 "/>
+<text x="88" y="421" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+1000 B
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,421 97,421 "/>
+<text x="88" y="343" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+9.77 KiB
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,343 97,343 "/>
+<text x="88" y="264" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+97.7 KiB
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,264 97,264 "/>
+<text x="88" y="186" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+977 KiB
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,186 97,186 "/>
+<text x="88" y="108" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+9.54 MiB
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,108 97,108 "/>
+<text x="88" y="29" dy="0.5ex" text-anchor="end" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+95.4 MiB
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="92,29 97,29 "/>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="98,500 953,500 "/>
+<text x="219" y="510" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+100
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="219,500 219,505 "/>
+<text x="525" y="510" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+1,000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="525,500 525,505 "/>
+<text x="831" y="510" dy="0.76em" text-anchor="middle" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+10,000
+</text>
+<polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="831,500 831,505 "/>
+<circle cx="219" cy="137" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
+<circle cx="831" cy="96" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
+<polygon opacity="1" fill="#5A5A5F" points="219,130 213,141 226,141 "/>
+<polygon opacity="1" fill="#5A5A5F" points="831,88 825,99 838,99 "/>
+<rect x="173" y="161" width="92" height="338" opacity="1" fill="#D65E00" stroke="none"/>
+<rect x="785" y="161" width="92" height="338" opacity="1" fill="#D65E00" stroke="none"/>
+<rect x="173" y="161" width="92" height="0" opacity="1" fill="#2CA02C" stroke="none"/>
+<rect x="785" y="130" width="92" height="31" opacity="1" fill="#2CA02C" stroke="none"/>
+<rect x="173" y="160" width="92" height="1" opacity="1" fill="#E69F00" stroke="none"/>
+<rect x="785" y="106" width="92" height="24" opacity="1" fill="#E69F00" stroke="none"/>
+<rect x="173" y="160" width="92" height="0" opacity="1" fill="#9467BD" stroke="none"/>
+<rect x="785" y="106" width="92" height="0" opacity="1" fill="#9467BD" stroke="none"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="216" y1="138" x2="222" y2="138"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="216" y1="137" x2="222" y2="137"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="219" y1="138" x2="219" y2="137"/>
+<circle cx="219" cy="137" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="828" y1="96" x2="834" y2="96"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="828" y1="96" x2="834" y2="96"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="831" y1="96" x2="831" y2="96"/>
+<circle cx="831" cy="96" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
+<text x="204" y="115" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
+1.93x
+</text>
+<text x="816" y="74" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
+1.34x
+</text>
+<text x="141" y="115" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
+residual: +2027998 B (+93.1%)
+</text>
+<text x="753" y="74" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
+residual: +3598190 B (+34.2%)
+</text>
+<rect x="103" y="34" width="274" height="97" opacity="0.85" fill="#FFFFFF" stroke="none"/>
+<rect x="103" y="34" width="274" height="97" opacity="1" fill="none" stroke="#000000"/>
+<text x="143" y="44" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+Measured resident RSS (median, min–max whiskers)
+</text>
+<text x="143" y="58" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+Measured peak RSS (median, hwm − baseline): headline
+</text>
+<text x="143" y="72" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+libMTL pages only
+</text>
+<text x="143" y="85" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+harness buffers (ESTIMATE)
+</text>
+<text x="143" y="99" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+dataset buffers (ESTIMATE)
+</text>
+<text x="143" y="113" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
+keypair image (ESTIMATE)
+</text>
+<circle cx="120" cy="53" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
+<polygon opacity="1" fill="#5A5A5F" points="120,60 114,71 127,71 "/>
+<rect x="113" y="76" width="16" height="11" opacity="1" fill="#D65E00" stroke="none"/>
+<rect x="113" y="89" width="16" height="11" opacity="1" fill="#2CA02C" stroke="none"/>
+<rect x="113" y="103" width="16" height="11" opacity="1" fill="#E69F00" stroke="none"/>
+<rect x="113" y="117" width="16" height="11" opacity="1" fill="#9467BD" stroke="none"/>
+<text x="6" y="557" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#5F5F64">
+Source: target/climb-results.json → memory (from target/memory-report.json; model: climb-analytical).
+</text>
+<text x="6" y="572" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#5F5F64">
+Triangles = measured peak RSS (median hwm − baseline, headline); circles + whiskers = measured resident RSS (median, min–max); stacked bars = analytical ESTIMATE (libMTL pages + harness buffers + dataset buffers + keypair image).
+</text>
+<text x="6" y="587" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#5F5F64">
+Ratio and residual use measured resident ÷ analytical total (measured − analytical); every measured value is a median over its isolated-process runs.
+</text>
+</svg>
