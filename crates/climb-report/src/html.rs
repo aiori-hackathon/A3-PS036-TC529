@@ -1,6 +1,6 @@
 //! Self-contained HTML report rendering (Phase 17).
 //!
-//! Builds `report.html` from [`ClimbResults`] plus the five Phase 16 SVG
+//! Builds `report.html` from [`ClimbResults`] plus the six Phase 16 SVG
 //! charts, embedding each chart as a base64 data URI so the file stands
 //! alone. Every headline number rendered into the page is registered in a
 //! claims registry — JSON objects with an RFC 6901 JSON Pointer into
@@ -22,7 +22,7 @@ use serde_json::Value;
 
 use crate::charts::{fmt_count, CHART_FILES};
 use crate::error::ReportError;
-use crate::results::{ClimbResults, DnsCaptureSource};
+use crate::results::{size_display, ClimbResults, DnsCaptureSource};
 
 /// Opening tag of the embedded claims registry; [`check_report`] locates
 /// the payload by searching for this exact marker.
@@ -87,12 +87,13 @@ fn resolve_summary_id(id: &str, claims: &[Claim]) -> Option<String> {
 }
 
 /// Figure captions, index-aligned with [`CHART_FILES`].
-const CHART_CAPTIONS: [&str; 5] = [
+const CHART_CAPTIONS: [&str; 6] = [
     "Batch signing time per dataset size — solid bars are Criterion-measured means with 95% CI whiskers; hollow bars are extrapolated.",
     "Batch verification time per dataset size, including trust-cached ladder rows (measured only).",
     "Transmitted bytes — MTL amortised (condensed signature + one signed ladder) vs no amortisation (full MTL signature on every message); both series measured from real output, no modelling.",
     "MTL-amortised signing: measured per-message cost and the OLS fit of the batch total.",
     "Measured peak and resident RSS deltas against the itemised analytical model (libMTL pages + harness buffers + dataset buffers + keypair), with recomputed ratios and residual.",
+    "Ladder reuse model: effective per-message time and bytes as a fraction of the unamortised baseline, against reuse count r (log–log). The flat line at 1.0× is parity; a curve crossing it marks the break-even reuse r*.",
 ];
 
 /// Escape text for HTML body/attribute context.
@@ -411,6 +412,41 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         );
     }
 
+    // Reuse model: one claim group per rendered size. Registered only when the
+    // section will render (non-empty `derived.reuse`), so registry and body
+    // stay in lockstep.
+    for (idx, reuse) in results.derived.reuse.iter().enumerate() {
+        let base = format!("/derived/reuse/{idx}");
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("reuse-{idx}-size"),
+            &format!("{base}/size"),
+            Some(size_display(&reuse.size)),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("reuse-{idx}-time-r"),
+            &format!("{base}/breakeven_reuse_time"),
+            reuse.breakeven_reuse_time.map(|r| format!("r={r}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("reuse-{idx}-bytes-r"),
+            &format!("{base}/breakeven_reuse_bytes"),
+            reuse.breakeven_reuse_bytes.map(|r| format!("r={r}")),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            &format!("reuse-{idx}-class"),
+            &format!("{base}/class"),
+            Some(reuse.class.label().to_string()),
+        );
+    }
+
     // Ladder: model vs libMTL.  Claims are registered only when the section is
     // actually rendered, so the registry and the body stay in lockstep.
     if let Some(ladder) = results
@@ -606,6 +642,40 @@ fn render_ladder_section(results: &ClimbResults, claims: &[Claim]) -> String {
     )
 }
 
+/// Render the cold/warm ladder-reuse section.
+///
+/// Reports, per dataset size, the smallest candidate reuse count at which the
+/// effective per-message time and bytes fall to or below the unamortised
+/// baseline. Every displayed cell is pulled from the claims registry by id, so
+/// the body contains each registered value verbatim — the property
+/// [`check_claims`] enforces. Returns an empty string when no reuse model was
+/// folded into the results.
+fn render_reuse_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    if results.derived.reuse.is_empty() {
+        return String::new();
+    }
+    let value = |idx: usize, suffix: &str| -> String {
+        let id = format!("reuse-{idx}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for idx in 0..results.derived.reuse.len() {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&value(idx, "size")),
+            escape_html(&value(idx, "time-r")),
+            escape_html(&value(idx, "bytes-r")),
+            escape_html(&value(idx, "class")),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"reuse-h\">\n<h2 id=\"reuse-h\">Ladder reuse: cold vs warm</h2>\n<p class=\"note\">Effective per-message time = (t_cold + (r &minus; 1) &times; t_warm) &divide; r and effective bytes = condensed + ladder &divide; r, both against the unamortised per-message baseline (plain SLH-DSA verify time, full MTL signature bytes). t_cold is one full ladder validation per message; t_warm reuses a trust-cached ladder. r* is the smallest candidate reuse count whose effective per-message time or bytes is at or below the baseline; an em dash means no candidate in range reached parity. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>Time r*</th><th>Bytes r*</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
 /// Render the three-way wire-size comparison table (A/B/C).
 fn render_wire_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
     if results.comparisons.is_empty() {
@@ -670,7 +740,7 @@ fn render_timing_comparison_section(results: &ClimbResults, claims: &[Claim]) ->
 
 /// Render the full HTML report.
 ///
-/// `charts_dir` must contain the five files named in
+/// `charts_dir` must contain the six files named in
 /// [`crate::charts::CHART_FILES`]; `results_href` is the link placed in the
 /// header pointing at the external `results.json` (typically a relative
 /// path such as `../climb-results.json`).
@@ -743,6 +813,7 @@ pub fn render_html(
     let claims_json = claims_json.replace('<', "\\u003c");
     let memory_html = render_memory_section(results, &claims);
     let ladder_html = render_ladder_section(results, &claims);
+    let reuse_html = render_reuse_section(results, &claims);
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
 
@@ -813,7 +884,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}{reuse_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -838,6 +909,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         claims_json = claims_json,
         memory_html = memory_html,
         ladder_html = ladder_html,
+        reuse_html = reuse_html,
         wire_comparison_html = wire_comparison_html,
         timing_comparison_html = timing_comparison_html,
     ))
@@ -996,7 +1068,7 @@ mod tests {
     use crate::results::{
         AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
         DnsCaptureSource, DnsPipelineHeadline, EnvironmentFingerprint, EvidenceClass, MemoryResult,
-        MemoryResults,
+        MemoryResults, ReuseCurvePoint, ReuseResult,
     };
 
     fn synthetic_ladder_section() -> crate::ladder::LadderSection {
@@ -1086,6 +1158,7 @@ mod tests {
                 largest_wire_reduction_percent: Some(97.0),
                 overall_verifying_trust_cached_speedup_avg: Some(10.125),
                 headline: Some("MTL cuts www.a wire bytes by 97.3%.".to_string()),
+                reuse: Vec::new(),
             },
             warnings: Vec::new(),
         }
@@ -1321,6 +1394,7 @@ mod tests {
             largest_wire_reduction_percent: None,
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
+            reuse: Vec::new(),
         };
         results.dns_pipeline = None;
         let dir = unique_temp_dir("html-empty");
@@ -1547,6 +1621,80 @@ mod tests {
             .expect("claims")
             .iter()
             .any(|c| c.id == "ladder-all-match"));
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    fn reuse_fixture() -> (ClimbResults, String) {
+        let mut results = synthetic_results();
+        results.derived.reuse = vec![ReuseResult {
+            size: "small".to_string(),
+            batch_size: 100,
+            curve: vec![
+                ReuseCurvePoint {
+                    reuse: 1,
+                    effective_time_ns: 900.0,
+                    effective_bytes: 8000.0,
+                },
+                ReuseCurvePoint {
+                    reuse: 2,
+                    effective_time_ns: 500.0,
+                    effective_bytes: 4000.0,
+                },
+            ],
+            breakeven_reuse_time: Some(1),
+            breakeven_reuse_bytes: Some(2),
+            r_star_time: Some(1),
+            r_star_bytes: Some(2),
+            baseline_time_ns: 1000.0,
+            baseline_bytes: 7856.0,
+            class: EvidenceClass::Derived,
+        }];
+        let dir = unique_temp_dir("html-reuse");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        (results, html)
+    }
+
+    #[test]
+    fn reuse_section_title_cases_the_size_and_registers_matching_claims() {
+        let (results, html) = reuse_fixture();
+        assert!(
+            html.contains("Ladder reuse: cold vs warm"),
+            "section present"
+        );
+        // The wire/reuse artifacts carry the label lowercase; the report spells
+        // it like every other size cell.
+        assert!(
+            html.contains("<td>Small</td>"),
+            "size cell is title-cased: {html}"
+        );
+        assert!(html.contains("<td>r=1</td>") && html.contains("<td>r=2</td>"));
+        let claims = build_claims(&results).expect("claims");
+        let size = claims
+            .iter()
+            .find(|c| c.id == "reuse-0-size")
+            .expect("size claim");
+        assert_eq!(size.formatted, "Small");
+        assert_eq!(
+            size.value,
+            serde_json::json!("small"),
+            "pointer value is raw"
+        );
+        assert_eq!(check_claims(&html, &results), Vec::<String>::new());
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn report_without_a_reuse_model_renders_no_reuse_section() {
+        let (results, html) = render_fixture();
+        assert!(!html.contains("<h2 id=\"reuse-h\">"), "no reuse section");
+        assert!(!build_claims(&results)
+            .expect("claims")
+            .iter()
+            .any(|c| c.id.starts_with("reuse-")));
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 }

@@ -5,10 +5,15 @@
 //! index formula in `third_party/MTL/src/mtl_node_set.c`.
 
 pub mod ladder;
+pub mod reuse;
 
 pub use ladder::{
     auth_path_len, predicted_condensed_len, predicted_ladder_len, rung_for_leaf, rungs, Rung,
     CONDENSED_FIXED_LEN, MTL_INDEX_LEN,
+};
+pub use reuse::{
+    effective_bytes, effective_time_ns, reuse_candidates, reuse_model, ReuseInput, ReuseModel,
+    ReusePoint, REUSE_CANDIDATES_MEDIUM, REUSE_CANDIDATES_SMALL,
 };
 
 /// The actual `MTL_TREE_PAGE_SIZE` from `third_party/MTL/src/mtl_node_set.h:57`.

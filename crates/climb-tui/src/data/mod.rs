@@ -10,6 +10,7 @@ mod amortization;
 mod ladder;
 mod memory;
 mod overview;
+mod reuse;
 mod signing;
 mod wire;
 
@@ -19,6 +20,7 @@ pub use ladder::{
     LadderSource,
 };
 pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
+pub use reuse::ReuseRow;
 pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
 pub use wire::UdpGaugeData;
 
@@ -122,7 +124,7 @@ impl ResultsView {
 
 /// Title-case a section's size label so the Wire/Memory tabs (which store it
 /// lowercase) match the Signing/Verifying tabs' spelling.
-fn title_size(size: &str) -> String {
+pub(crate) fn title_size(size: &str) -> String {
     let mut chars = size.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
@@ -394,6 +396,7 @@ pub(crate) mod test_support {
             largest_wire_reduction_percent: None,
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
+            reuse: Vec::new(),
         }
     }
 
@@ -580,6 +583,33 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The committed sample results document must load through the TUI loader
+    /// and expose a reuse row per artifact entry, cross-checked against the
+    /// parsed artifact itself (§7c: the TUI is one of the artifact's consumers).
+    #[test]
+    fn committed_sample_results_expose_reuse_rows_to_the_tui() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let state = load(&path);
+        let LoadState::Loaded(view) = state else {
+            panic!("expected the TUI to load the committed sample artifact, got {state:?}");
+        };
+
+        let rows = view.reuse_rows();
+        let expected = &view.results().derived.reuse;
+        assert!(
+            !expected.is_empty(),
+            "the committed sample artifact must carry a reuse section"
+        );
+        assert_eq!(rows.len(), expected.len());
+        for (row, raw) in rows.iter().zip(expected) {
+            assert_eq!(row.size, title_size(&raw.size));
+            assert_eq!(row.time_r, raw.breakeven_reuse_time.or(raw.r_star_time));
+            assert_eq!(row.bytes_r, raw.breakeven_reuse_bytes.or(raw.r_star_bytes));
+            assert_eq!(row.class, raw.class.label());
+        }
     }
 
     /// A results document written before the ladder section existed must still

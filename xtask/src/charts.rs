@@ -10,7 +10,7 @@ pub(crate) struct ChartsArgs {
     #[arg(long, default_value = "target/climb-results.json")]
     results: PathBuf,
 
-    /// Directory to write the five SVG charts into.
+    /// Directory to write the six SVG charts into.
     #[arg(long, default_value = "target/climb-report/charts")]
     out: PathBuf,
 }

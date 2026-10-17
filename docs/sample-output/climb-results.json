@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-10-15T22:26:16+05:30",
+  "generated_at": "2026-10-17T00:13:38+05:30",
   "workspace_root": "/home/pratyay/Documents/My Codes/climb",
   "benchmark": {
     "signing": [
@@ -491,7 +491,95 @@
     "overall_wire_reduction_percent": 96.85599328331344,
     "largest_wire_reduction_percent": 97.0055122898562,
     "overall_verifying_trust_cached_speedup_avg": 388.16296931568064,
-    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)"
+    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)",
+    "reuse": [
+      {
+        "size": "small",
+        "batch_size": 100,
+        "curve": [
+          {
+            "reuse": 1,
+            "effective_time_ns": 629867.6127,
+            "effective_bytes": 8156.32
+          },
+          {
+            "reuse": 2,
+            "effective_time_ns": 317511.35683681915,
+            "effective_bytes": 4160.32
+          },
+          {
+            "reuse": 5,
+            "effective_time_ns": 130097.60331891058,
+            "effective_bytes": 1762.72
+          },
+          {
+            "reuse": 10,
+            "effective_time_ns": 67626.3521462744,
+            "effective_bytes": 963.52
+          },
+          {
+            "reuse": 100,
+            "effective_time_ns": 11402.226090901831,
+            "effective_bytes": 244.24
+          }
+        ],
+        "breakeven_reuse_time": 1,
+        "breakeven_reuse_bytes": 2,
+        "r_star_time": 1,
+        "r_star_bytes": 2,
+        "baseline_time_ns": 736473.4552875111,
+        "baseline_bytes": 7856.0,
+        "class": "derived"
+      },
+      {
+        "size": "medium",
+        "batch_size": 10000,
+        "curve": [
+          {
+            "reuse": 1,
+            "effective_time_ns": 605896.30342,
+            "effective_bytes": 8329.5296
+          },
+          {
+            "reuse": 2,
+            "effective_time_ns": 307295.1632825,
+            "effective_bytes": 4301.5296
+          },
+          {
+            "reuse": 5,
+            "effective_time_ns": 128134.47920000002,
+            "effective_bytes": 1884.7296000000001
+          },
+          {
+            "reuse": 10,
+            "effective_time_ns": 68414.2511725,
+            "effective_bytes": 1079.1296
+          },
+          {
+            "reuse": 100,
+            "effective_time_ns": 14666.04594775,
+            "effective_bytes": 354.0896
+          },
+          {
+            "reuse": 1000,
+            "effective_time_ns": 9291.225425275,
+            "effective_bytes": 281.5856
+          },
+          {
+            "reuse": 10000,
+            "effective_time_ns": 8753.743373027502,
+            "effective_bytes": 274.33520000000004
+          }
+        ],
+        "breakeven_reuse_time": 1,
+        "breakeven_reuse_bytes": 2,
+        "r_star_time": 1,
+        "r_star_bytes": 2,
+        "baseline_time_ns": 750929.8032377714,
+        "baseline_bytes": 7856.0,
+        "class": "derived"
+      }
+    ]
   },
   "warnings": []
 }

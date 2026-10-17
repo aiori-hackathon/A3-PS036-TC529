@@ -99,6 +99,21 @@ impl EvidenceClass {
     }
 }
 
+/// Title-case a dataset size label for display (`"small"` → `"Small"`).
+///
+/// The wire and reuse sections of the results artifact carry the label
+/// lowercase while the comparison section stores it title-cased; every
+/// user-visible surface (report table, chart legend, TUI) spells it the same
+/// way, so this normalises the label at display time without touching the
+/// artifact value.
+pub fn size_display(label: &str) -> String {
+    let mut chars = label.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+        None => String::new(),
+    }
+}
+
 /// Configuration A (plain SLH-DSA) per-message timings for one dataset size.
 ///
 /// A plain signature carries no ladder, so its cost is size-independent: a size
@@ -338,11 +353,34 @@ pub struct DnsPipelineHeadline {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReuseCurvePoint {
+    pub reuse: u64,
+    pub effective_time_ns: f64,
+    pub effective_bytes: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReuseResult {
+    pub size: String,
+    pub batch_size: u64,
+    pub curve: Vec<ReuseCurvePoint>,
+    pub breakeven_reuse_time: Option<u64>,
+    pub breakeven_reuse_bytes: Option<u64>,
+    pub r_star_time: Option<u64>,
+    pub r_star_bytes: Option<u64>,
+    pub baseline_time_ns: f64,
+    pub baseline_bytes: f64,
+    pub class: EvidenceClass,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DerivedSummary {
     pub overall_wire_reduction_percent: Option<f64>,
     pub largest_wire_reduction_percent: Option<f64>,
     pub overall_verifying_trust_cached_speedup_avg: Option<f64>,
     pub headline: Option<String>,
+    #[serde(default)]
+    pub reuse: Vec<ReuseResult>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -469,6 +507,7 @@ fn derive_summary(
     wire_size: &[WireSizeResult],
     signing: &[SigningBenchmarkResult],
     verifying: &[VerifyingBenchmarkResult],
+    plain: &[PlainTimingResult],
     dns_pipeline: Option<&DnsPipelineHeadline>,
 ) -> DerivedSummary {
     let mut overall_wire_reduction: Option<f64> = None;
@@ -508,12 +547,88 @@ fn derive_summary(
         Some(cached.iter().sum::<f64>() / cached.len() as f64)
     };
 
+    let reuse = build_reuse(wire_size, verifying, plain);
+
     DerivedSummary {
         overall_wire_reduction_percent: overall_wire_reduction,
         largest_wire_reduction_percent: largest_wire_reduction,
         overall_verifying_trust_cached_speedup_avg: trust_cached_avg,
         headline: dns_pipeline.and_then(headline_from_dns),
+        reuse,
     }
+}
+
+/// Cold/warm ladder-reuse curve for every size that has a wire row, a pair of
+/// verifying conditions, and a plain per-message baseline.
+///
+/// `t_cold` is the per-message verify cost with a fresh ladder and `t_warm` the
+/// cost when the ladder is trusted from cache; reusing one ladder across `r`
+/// messages amortizes the cold verify over the batch, and the shared ladder
+/// replaces one ladder per message. Every input is measured (or explicitly
+/// extrapolated), so a size whose inputs are not all measured carries the
+/// `Extrapolated` class rather than a fabricated precision.
+fn build_reuse(
+    wire_size: &[WireSizeResult],
+    verifying: &[VerifyingBenchmarkResult],
+    plain: &[PlainTimingResult],
+) -> Vec<ReuseResult> {
+    wire_size
+        .iter()
+        .filter_map(|w| {
+            let cold = verifying_per_message(verifying, &w.size, "With MTL");
+            let warm = verifying_per_message(verifying, &w.size, "MTL (trust cached)");
+            let (Some(t_cold), Some(t_warm)) = (cold.value, warm.value) else {
+                return None;
+            };
+            let baseline_time_ns = plain
+                .iter()
+                .find(|p| p.size.eq_ignore_ascii_case(&w.size))
+                .and_then(|p| p.verifying_mean_ns)?;
+            let baseline_bytes = w.plain_signature_len_bytes as f64;
+            if baseline_bytes <= 0.0 {
+                return None;
+            }
+            let model = climb_analytical::reuse_model(climb_analytical::ReuseInput {
+                t_cold,
+                t_warm,
+                s_cond: w.condensed_mean,
+                s_ladder: w.ladder_len as f64,
+                batch_size: w.message_count as f64,
+                baseline_time_ns,
+                baseline_bytes,
+            });
+            let extrapolated = cold.extrapolated
+                || warm.extrapolated
+                || plain
+                    .iter()
+                    .find(|p| p.size.eq_ignore_ascii_case(&w.size))
+                    .is_some_and(|p| p.class == EvidenceClass::Extrapolated);
+            Some(ReuseResult {
+                size: w.size.clone(),
+                batch_size: model.batch_size,
+                curve: model
+                    .points
+                    .iter()
+                    .map(|p| ReuseCurvePoint {
+                        reuse: p.reuse,
+                        effective_time_ns: p.effective_time_ns,
+                        effective_bytes: p.effective_bytes,
+                    })
+                    .collect(),
+                breakeven_reuse_time: model.breakeven_reuse_time,
+                breakeven_reuse_bytes: model.breakeven_reuse_bytes,
+                r_star_time: model.r_star_time,
+                r_star_bytes: model.r_star_bytes,
+                baseline_time_ns,
+                baseline_bytes,
+                class: if extrapolated {
+                    EvidenceClass::Extrapolated
+                } else {
+                    EvidenceClass::Derived
+                },
+            })
+        })
+        .collect()
 }
 
 /// Dataset sizes and message counts used for configuration A and the
@@ -939,7 +1054,13 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let plain = plain_timings(&plain_records);
     let comparisons = build_comparisons(&wire_size, &signing, &verifying, &plain);
 
-    let derived = derive_summary(&wire_size, &signing, &verifying, dns_pipeline.as_ref());
+    let derived = derive_summary(
+        &wire_size,
+        &signing,
+        &verifying,
+        &plain,
+        dns_pipeline.as_ref(),
+    );
 
     let results = ClimbResults {
         version: "1.0".to_string(),
@@ -1278,6 +1399,15 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
+    #[test]
+    fn size_display_title_cases_only_the_first_letter() {
+        assert_eq!(size_display("small"), "Small");
+        assert_eq!(size_display("medium"), "Medium");
+        assert_eq!(size_display("Small"), "Small", "already title-cased");
+        assert_eq!(size_display("oneK"), "OneK");
+        assert_eq!(size_display(""), "");
+    }
+
     const EST_JSON: &str = r#"{"mean":{"confidence_interval":{"confidence_level":0.95,"lower_bound":90.0,"upper_bound":110.0},"point_estimate":100.0,"standard_error":5.0}}"#;
 
     fn temp_root(tag: &str) -> PathBuf {
@@ -1496,7 +1626,7 @@ mod tests {
         };
         let plain = vec![plain_row("Small")];
         let comparisons = build_comparisons(&wire, &signing, &verifying, &plain);
-        let derived = derive_summary(&wire, &signing, &verifying, Some(&dns));
+        let derived = derive_summary(&wire, &signing, &verifying, &plain, Some(&dns));
         ClimbResults {
             version: "1.0".to_string(),
             generated_at: "2026-10-12T00:00:00Z".to_string(),
@@ -1554,6 +1684,7 @@ mod tests {
                 largest_wire_reduction_percent: None,
                 overall_verifying_trust_cached_speedup_avg: None,
                 headline: None,
+                reuse: Vec::new(),
             },
             warnings: Vec::new(),
         };
@@ -1570,7 +1701,7 @@ mod tests {
             wire_row("medium", 96.7),
             wire_row("large", 95.7),
         ];
-        let derived = derive_summary(&wire, &[], &[], None);
+        let derived = derive_summary(&wire, &[], &[], &[], None);
         let overall = derived.overall_wire_reduction_percent.expect("some");
         assert!(
             (overall - 96.466_666_666_666_67).abs() < 1e-9,
@@ -1582,7 +1713,7 @@ mod tests {
 
     #[test]
     fn derive_wire_reduction_is_none_without_wire_data() {
-        let derived = derive_summary(&[], &[], &[], None);
+        let derived = derive_summary(&[], &[], &[], &[], None);
         assert_eq!(derived.overall_wire_reduction_percent, None);
         assert_eq!(derived.largest_wire_reduction_percent, None);
         assert_eq!(derived.overall_verifying_trust_cached_speedup_avg, None);
@@ -1601,7 +1732,7 @@ mod tests {
             verifying_row("Small", "MTL (trust cached)", 100.0),
             verifying_row("Medium", "MTL (trust cached)", 400.0),
         ];
-        let derived = derive_summary(&[], &signing, &verifying, None);
+        let derived = derive_summary(&[], &signing, &verifying, &[], None);
         let avg = derived
             .overall_verifying_trust_cached_speedup_avg
             .expect("some");
@@ -1612,7 +1743,7 @@ mod tests {
     fn derive_trust_cached_speedup_is_none_without_cached_rows() {
         let signing = vec![signing_row("Small", "With MTL", 1000.0)];
         let verifying = vec![verifying_row("Small", "With MTL", 100.0)];
-        let derived = derive_summary(&[], &signing, &verifying, None);
+        let derived = derive_summary(&[], &signing, &verifying, &[], None);
         assert_eq!(derived.overall_verifying_trust_cached_speedup_avg, None);
     }
 
@@ -2177,7 +2308,7 @@ mod tests {
 
     #[test]
     fn derive_summary_headline_is_none_without_dns_capture() {
-        let derived = derive_summary(&[], &[], &[], None);
+        let derived = derive_summary(&[], &[], &[], &[], None);
         assert_eq!(derived.headline, None);
     }
 
@@ -2465,5 +2596,156 @@ mod tests {
         );
         assert_eq!(EvidenceClass::Measured.as_str(), "measured");
         assert_eq!(EvidenceClass::Analytical.label(), "ANALYTICAL");
+    }
+
+    // -- cold/warm ladder-reuse model ----------------------------------------
+
+    /// A wire row carrying the configuration-A plain signature length, which is
+    /// what the byte axis of the reuse model is normalised against.
+    fn reuse_wire_row(
+        size: &str,
+        message_count: usize,
+        ladder_len: usize,
+        sig_len: u64,
+    ) -> WireSizeResult {
+        WireSizeResult {
+            size: size.to_string(),
+            message_count,
+            ladder_len,
+            condensed_min: 100,
+            condensed_mean: 164.32,
+            condensed_max: 172,
+            condensed_uniform: false,
+            with_mtl_total_bytes: 24_424,
+            without_mtl_total_bytes: 815_632,
+            reduction_percent: 97.0,
+            plain_total_bytes: sig_len * message_count as u64,
+            plain_signature_len_bytes: sig_len,
+        }
+    }
+
+    fn reuse_verifying_rows(size: &str, messages: u64) -> Vec<VerifyingBenchmarkResult> {
+        // Cold verify is far more expensive than warm verify, so the time axis
+        // breaks even at r = 1; the ladder alone is larger than one plain
+        // signature, so the byte axis needs at least r = 2.
+        vec![
+            VerifyingBenchmarkResult {
+                size: size.to_string(),
+                condition: "With MTL".to_string(),
+                messages,
+                mean_ns: 6_000_000.0,
+                ci_lower_ns: 5_900_000.0,
+                ci_upper_ns: 6_100_000.0,
+                speedup: None,
+            },
+            VerifyingBenchmarkResult {
+                size: size.to_string(),
+                condition: "MTL (trust cached)".to_string(),
+                messages,
+                mean_ns: 500_000.0,
+                ci_lower_ns: 490_000.0,
+                ci_upper_ns: 510_000.0,
+                speedup: None,
+            },
+        ]
+    }
+
+    #[test]
+    fn build_reuse_emits_curve_and_breakevens_for_a_measured_size() {
+        let wire = vec![reuse_wire_row("small", 100, 7_992, 7_856)];
+        let verifying = reuse_verifying_rows("Small", 100);
+        let plain = vec![plain_row("Small")];
+
+        let reuse = build_reuse(&wire, &verifying, &plain);
+        assert_eq!(reuse.len(), 1);
+        let r = &reuse[0];
+        assert_eq!(r.size, "small");
+        assert_eq!(r.batch_size, 100);
+        assert_eq!(r.class, EvidenceClass::Derived);
+        assert_eq!(r.baseline_bytes, 7_856.0);
+        assert_eq!(r.baseline_time_ns, 736_473.46);
+
+        // r = 1 is the cold verify (60_000 ns per message) which already beats
+        // the 736_473.46 ns plain baseline, so the time axis breaks even first.
+        assert_eq!(r.r_star_time, Some(1));
+        assert_eq!(r.breakeven_reuse_time, Some(1));
+        // r = 1 bytes = condensed (164.32) + ladder (7_992) > 7_856, so the byte
+        // axis only breaks even at r = 2: 164.32 + 3_996 = 4_160.32.
+        assert_eq!(r.r_star_bytes, Some(2));
+        assert_eq!(r.breakeven_reuse_bytes, Some(2));
+
+        // The candidates are the clipped, deduplicated ascending set including
+        // the batch size itself.
+        assert_eq!(
+            r.curve.iter().map(|p| p.reuse).collect::<Vec<_>>(),
+            vec![1, 2, 5, 10, 100]
+        );
+        let first = &r.curve[0];
+        assert!((first.effective_time_ns - 60_000.0).abs() < 1e-9);
+        assert!((first.effective_bytes - (164.32 + 7_992.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn build_reuse_marks_extrapolated_when_any_input_is_extrapolated() {
+        let wire = vec![reuse_wire_row("small", 100, 7_992, 7_856)];
+        let verifying = reuse_verifying_rows("Small", 100);
+        let mut plain = vec![plain_row("Small")];
+        plain[0].class = EvidenceClass::Extrapolated;
+
+        let reuse = build_reuse(&wire, &verifying, &plain);
+        assert_eq!(reuse.len(), 1);
+        assert_eq!(reuse[0].class, EvidenceClass::Extrapolated);
+    }
+
+    #[test]
+    fn build_reuse_skips_sizes_without_wire_or_verifying_inputs() {
+        // No wire row -> no model.
+        let verifying = reuse_verifying_rows("Small", 100);
+        let plain = vec![plain_row("Small")];
+        assert!(build_reuse(&[], &verifying, &plain).is_empty());
+
+        // Wire row but no verifying conditions -> no cold/warm pair.
+        let wire = vec![reuse_wire_row("small", 100, 7_992, 7_856)];
+        assert!(build_reuse(&wire, &[], &plain).is_empty());
+
+        // Wire row but no plain baseline -> no reference to break even against.
+        assert!(build_reuse(&wire, &verifying, &[]).is_empty());
+    }
+
+    #[test]
+    fn build_reuse_handles_a_reuse_count_of_one_short_circuiting_the_ratio() {
+        let wire = vec![reuse_wire_row("tiny", 1, 100, 7_856)];
+        let verifying = reuse_verifying_rows("Tiny", 1);
+        let plain = vec![plain_row("Tiny")];
+        let reuse = build_reuse(&wire, &verifying, &plain);
+        assert_eq!(reuse.len(), 1);
+        // With a batch of one the only candidate is r = 1.
+        assert_eq!(reuse[0].batch_size, 1);
+        assert_eq!(reuse[0].curve.len(), 1);
+        assert_eq!(reuse[0].curve[0].reuse, 1);
+    }
+
+    #[test]
+    fn results_without_a_reuse_block_still_deserialize() {
+        // Backward compatibility: a derived summary written before the reuse
+        // block existed must still parse (§7e).
+        let results = full_fixture();
+        let value = serde_json::to_value(&results).unwrap();
+        let mut object = value.as_object().unwrap().clone();
+        let derived = object
+            .get_mut("derived")
+            .unwrap()
+            .as_object_mut()
+            .unwrap()
+            .clone();
+        let mut derived_without = derived;
+        derived_without.remove("reuse");
+        object.insert(
+            "derived".to_string(),
+            serde_json::Value::Object(derived_without),
+        );
+        let restored: ClimbResults =
+            serde_json::from_value(serde_json::Value::Object(object)).unwrap();
+        assert!(restored.derived.reuse.is_empty());
     }
 }

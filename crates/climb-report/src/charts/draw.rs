@@ -1,6 +1,6 @@
 //! SVG rendering for the Phase 16 report charts.
 //!
-//! Turns the prepared series from [`super`] into five self-contained SVG
+//! Turns the prepared series from [`super`] into six self-contained SVG
 //! files. The measured-vs-modelled distinction is a rendering rule applied to
 //! every chart, not a per-chart choice:
 //!
@@ -74,6 +74,13 @@ pub const MEMORY_FOOTNOTES: [&str; 3] = [
     "Source: target/climb-results.json → memory (from target/memory-report.json; model: climb-analytical).",
     "Triangles = measured peak RSS (median hwm − baseline, headline); circles + whiskers = measured resident RSS (median, min–max); stacked bars = analytical ESTIMATE (libMTL pages + harness buffers + dataset buffers + keypair image).",
     "Ratio and residual use measured resident ÷ analytical total (measured − analytical); every measured value is a median over its isolated-process runs.",
+];
+
+/// Footnotes for the reuse curve chart.
+pub const REUSE_FOOTNOTES: [&str; 3] = [
+    "Source: target/climb-results.json → derived.reuse (from cold/warm ladder-verifying per-message times and wire/plain bytes).",
+    "Dashed horizontal line at 1.0 is the baseline (plain per-message). Time shows effective time per message as ladder reuse amortises the cold verify; bytes show effective bytes per message as a shared ladder replaces one ladder per message.",
+    "Both series normalised to baseline (per-message): values < 1.0 mean the reused/amortised path beats the baseline for that r.",
 ];
 
 /// Canvas width for every chart, in pixels.
@@ -819,6 +826,113 @@ pub fn draw_memory(
         chart
             .draw_series(residuals)
             .map_err(|e| chart_err(path, e))?;
+    }
+
+    if any_label {
+        chart
+            .configure_series_labels()
+            .position(SeriesLabelPosition::UpperLeft)
+            .background_style(WHITE.mix(0.85))
+            .border_style(BLACK)
+            .label_font(("sans-serif", 11))
+            .draw()
+            .map_err(|e| chart_err(path, e))?;
+    }
+
+    draw_footnotes(&foot, footnotes).map_err(|e| chart_err(path, e))?;
+    root.present().map_err(|e| chart_err(path, e))?;
+    Ok(())
+}
+
+/// Draw the ladder-reuse curve: log-log axes with r on x, ratio vs baseline on y.
+pub fn draw_reuse(
+    path: &Path,
+    data: &super::ReuseData,
+    footnotes: &[&str; 3],
+) -> Result<(), ReportError> {
+    let root = SVGBackend::new(path, (CHART_W, CURVE_H)).into_drawing_area();
+    root.fill(&WHITE).map_err(|e| chart_err(path, e))?;
+    let (plot, foot) = root.split_vertically(CURVE_H - FOOT_H);
+
+    // Ratio axis: fixed r span, but the ratio range is derived from the data
+    // so no point is clipped (the ratio falls by orders of magnitude as r
+    // grows). The 1.0 break-even line is always kept inside the range.
+    let (mut y_lo, mut y_hi) = (f64::INFINITY, 0.0f64);
+    for series in &data.series {
+        for metric in &series.metrics {
+            for (_, y) in &metric.points {
+                if y.is_finite() && *y > 0.0 {
+                    y_lo = y_lo.min(*y);
+                    y_hi = y_hi.max(*y);
+                }
+            }
+        }
+    }
+    y_lo = y_lo.min(1.0);
+    y_hi = y_hi.max(1.0);
+    if !y_lo.is_finite() || y_hi <= 0.0 {
+        (y_lo, y_hi) = (0.1, 10.0);
+    }
+    let (y_lo, y_hi) = decade_bounds(y_lo, y_hi);
+
+    let mut chart = ChartBuilder::on(&plot)
+        .margin(MARGIN)
+        .caption(data.title.as_str(), ("sans-serif", 17))
+        .x_label_area_size(46)
+        .y_label_area_size(Y_LABEL_AREA)
+        .build_cartesian_2d((1.0f64..10000.0f64).log_scale(), (y_lo..y_hi).log_scale())
+        .map_err(|e| chart_err(path, e))?;
+
+    chart
+        .configure_mesh()
+        .x_desc(data.x_desc.as_str())
+        .y_desc(data.y_desc.as_str())
+        .x_label_formatter(&|v: &f64| format!("{:.0}", *v))
+        .y_label_formatter(&|v: &f64| format!("{:.2}", *v))
+        .label_style(("sans-serif", 11))
+        .axis_desc_style(("sans-serif", 12))
+        .draw()
+        .map_err(|e| chart_err(path, e))?;
+
+    // Horizontal break-even reference line at y = 1.0 (ratio parity).
+    chart
+        .draw_series(LineSeries::new(
+            [(1.0, 1.0), (10000.0, 1.0)],
+            RGBAColor(0, 0, 0, 0.7).stroke_width(1),
+        ))
+        .map_err(|e| chart_err(path, e))?;
+
+    let mut any_label = false;
+    for (i, series) in data.series.iter().enumerate() {
+        let color = if i % 2 == 0 {
+            COLOR_WITH_MTL
+        } else {
+            COLOR_WITHOUT_MTL
+        };
+        for metric in &series.metrics {
+            any_label = true;
+            let pts: Vec<(f64, f64)> = metric
+                .points
+                .iter()
+                .copied()
+                .filter(|(x, y)| *x >= 1.0 && y.is_finite() && *y > 0.0)
+                .collect();
+            if pts.is_empty() {
+                continue;
+            }
+            let label = legend_label(&metric.label);
+            chart
+                .draw_series(LineSeries::new(pts.clone(), color.stroke_width(2)))
+                .map_err(|e| chart_err(path, e))?
+                .label(label)
+                .legend(move |(x, y)| {
+                    Rectangle::new([(x, y - 5), (x + 10, y + 5)], color.filled())
+                });
+            // Mark the individual candidate points.
+            chart
+                .draw_series(pts.iter().map(|p| Circle::new(*p, 3, color.filled())))
+                .map_err(|e| chart_err(path, e))?;
+        }
     }
 
     if any_label {

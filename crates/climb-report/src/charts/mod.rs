@@ -1,7 +1,7 @@
 //! Chart data preparation for the Phase 16 report charts.
 //!
 //! Builds plotters-friendly series from [`ClimbResults`] (the single source of
-//! truth consolidated in Phase 15) and renders five SVGs under
+//! truth consolidated in Phase 15) and renders six SVGs under
 //! `target/climb-report/charts/`. Measured Criterion rows are visually
 //! distinguished from values extrapolated from them (hollow bars, dashed fit),
 //! and every chart carries a three-line footnote naming its source file.
@@ -18,17 +18,18 @@ use plotters::style::RGBColor;
 
 use crate::error::ReportError;
 use crate::results::{
-    ClimbResults, MemoryResult, PlainTimingResult, SigningBenchmarkResult,
-    VerifyingBenchmarkResult, WireSizeResult,
+    size_display, ClimbResults, MemoryResult, PlainTimingResult, ReuseResult,
+    SigningBenchmarkResult, VerifyingBenchmarkResult, WireSizeResult,
 };
 
-/// Filenames of the five charts, in generation order.
-pub const CHART_FILES: [&str; 5] = [
+/// Filenames of the six charts, in generation order.
+pub const CHART_FILES: [&str; 6] = [
     "signing_time.svg",
     "verifying_time.svg",
     "transmitted_bytes.svg",
     "amortization_curve.svg",
     "memory_measured_vs_analytical.svg",
+    "reuse_curve.svg",
 ];
 
 /// Series colour: with MTL.
@@ -42,7 +43,7 @@ pub const COLOR_PLAIN: RGBColor = RGBColor(148, 103, 189);
 /// Series colour: analytical / fitted (non-measured) values.
 pub const COLOR_MODEL: RGBColor = RGBColor(90, 90, 95);
 
-/// Generate all five SVG charts into `out_dir` from `results`.
+/// Generate all six SVG charts into `out_dir` from `results`.
 ///
 /// Returns the paths written, in [`CHART_FILES`] order.
 pub fn generate_charts(
@@ -61,6 +62,7 @@ pub fn generate_charts(
     let wire = wire_bar_data(&results.wire_size, &results.plain);
     let amortization = amortization_data(&results.benchmark.signing);
     let memory = memory_data(&results.memory.measured);
+    let reuse = reuse_data(&results.derived.reuse);
 
     let mut written = Vec::with_capacity(CHART_FILES.len());
 
@@ -104,10 +106,114 @@ pub fn generate_charts(
     draw::draw_memory(&path, &data, &draw::MEMORY_FOOTNOTES)?;
     written.push(path);
 
+    let mut data = reuse;
+    data.title = "Ladder reuse vs reuse count (time & bytes, normalized)".to_string();
+    data.x_desc = "reuse count r".to_string();
+    data.y_desc = "ratio vs baseline (per-message)".to_string();
+    let path = out_dir.join(CHART_FILES[5]);
+    draw::draw_reuse(&path, &data, &draw::REUSE_FOOTNOTES)?;
+    written.push(path);
+
     Ok(written)
 }
 
-/// Uniform access to the Criterion signing/verifying row shapes.
+/// Build reuse curve data: one line per metric (time ratio, bytes ratio) for
+/// each size present.
+#[derive(Debug, Clone)]
+pub struct ReuseMetric {
+    pub label: String,
+    pub points: Vec<(f64, f64)>, // (r, ratio)
+    pub extrapolated: bool,
+}
+
+impl ReuseMetric {
+    pub fn label(&self) -> &str {
+        &self.label
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ReuseSeries {
+    pub size_label: String,
+    pub metrics: Vec<ReuseMetric>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReuseData {
+    pub series: Vec<ReuseSeries>,
+    pub title: String,
+    pub x_desc: String,
+    pub y_desc: String,
+    pub extrapolated_any: bool,
+}
+
+/// Break-even reuse count as a chart-legend token: `1`, `1000`, or an em dash
+/// when no candidate reached parity.
+fn r_star_label(r: Option<u64>) -> String {
+    match r {
+        Some(r) => r.to_string(),
+        None => "\u{2014}".to_string(),
+    }
+}
+
+pub fn reuse_data(results: &[ReuseResult]) -> ReuseData {
+    let mut series = Vec::new();
+    let mut extrapolated_any = false;
+    for res in results {
+        if res.curve.is_empty() {
+            continue;
+        }
+        extrapolated_any |= res.class == crate::results::EvidenceClass::Extrapolated;
+        let mut metrics = Vec::with_capacity(2);
+        let bt = res.baseline_time_ns;
+        if bt > 0.0 {
+            let mut t_pts = Vec::with_capacity(res.curve.len());
+            for p in &res.curve {
+                t_pts.push((p.reuse as f64, p.effective_time_ns / bt));
+            }
+            metrics.push(ReuseMetric {
+                label: format!(
+                    "{} · time (r*={})",
+                    size_display(&res.size),
+                    r_star_label(res.r_star_time)
+                ),
+                points: t_pts,
+                extrapolated: res.class == crate::results::EvidenceClass::Extrapolated,
+            });
+        }
+        let bb = res.baseline_bytes;
+        if bb > 0.0 {
+            let mut b_pts = Vec::with_capacity(res.curve.len());
+            for p in &res.curve {
+                b_pts.push((p.reuse as f64, p.effective_bytes / bb));
+            }
+            metrics.push(ReuseMetric {
+                label: format!(
+                    "{} · bytes (r*={})",
+                    size_display(&res.size),
+                    r_star_label(res.r_star_bytes)
+                ),
+                points: b_pts,
+                extrapolated: res.class == crate::results::EvidenceClass::Extrapolated,
+            });
+        }
+        if metrics.is_empty() {
+            continue;
+        }
+        series.push(ReuseSeries {
+            size_label: size_display(&res.size),
+            metrics,
+        });
+    }
+    ReuseData {
+        series,
+        title: String::new(),
+        x_desc: "reuse count r".to_string(),
+        y_desc: "ratio vs baseline (per-message)".to_string(),
+        extrapolated_any,
+    }
+}
+
 pub trait BenchRow {
     /// Dataset size label as stored in the results JSON (e.g. `"Small"`).
     fn size(&self) -> &str;
@@ -1362,7 +1468,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_charts_writes_five_svgs_for_synthetic_results() {
+    fn generate_charts_writes_six_svgs_for_synthetic_results() {
         let results = synthetic_results();
         let dir = std::env::temp_dir().join(format!(
             "climb-report-charts-synth-{}-{}",
@@ -1371,7 +1477,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let paths = generate_charts(&results, &dir).expect("generate");
-        assert_eq!(paths.len(), 5);
+        assert_eq!(paths.len(), 6);
         for (i, path) in paths.iter().enumerate() {
             assert_eq!(
                 path.file_name().and_then(|f| f.to_str()),
@@ -1387,6 +1493,49 @@ mod tests {
     }
 
     #[test]
+    fn reuse_data_labels_break_evens_without_rust_option_debug() {
+        use crate::results::{EvidenceClass, ReuseCurvePoint};
+        let rows = vec![ReuseResult {
+            size: "small".to_string(),
+            batch_size: 100,
+            curve: vec![
+                ReuseCurvePoint {
+                    reuse: 1,
+                    effective_time_ns: 900.0,
+                    effective_bytes: 8000.0,
+                },
+                ReuseCurvePoint {
+                    reuse: 2,
+                    effective_time_ns: 500.0,
+                    effective_bytes: 4000.0,
+                },
+            ],
+            breakeven_reuse_time: Some(1),
+            breakeven_reuse_bytes: None,
+            r_star_time: Some(1),
+            r_star_bytes: None,
+            baseline_time_ns: 1000.0,
+            baseline_bytes: 7856.0,
+            class: EvidenceClass::Derived,
+        }];
+        let data = reuse_data(&rows);
+        assert_eq!(data.series.len(), 1);
+        let labels: Vec<&str> = data.series[0]
+            .metrics
+            .iter()
+            .map(ReuseMetric::label)
+            .collect();
+        assert_eq!(
+            labels,
+            vec!["Small · time (r*=1)", "Small · bytes (r*=\u{2014})"],
+            "legend tokens must be plain r* values, never `Some(..)`"
+        );
+        // Ratios are normalised to the per-message baseline.
+        assert_eq!(data.series[0].metrics[0].points[0], (1.0, 0.9));
+        assert_eq!(data.series[0].metrics[1].points[0], (1.0, 8000.0 / 7856.0));
+    }
+
+    #[test]
     fn generate_charts_handles_empty_results_without_panic() {
         let results = empty_results();
         let dir = std::env::temp_dir().join(format!(
@@ -1396,7 +1545,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let paths = generate_charts(&results, &dir).expect("generate");
-        assert_eq!(paths.len(), 5);
+        assert_eq!(paths.len(), 6);
         for path in &paths {
             let svg = std::fs::read_to_string(path).expect("read svg");
             assert!(svg.contains("<svg"), "missing <svg in {path:?}");
@@ -1447,6 +1596,7 @@ mod tests {
                 largest_wire_reduction_percent: None,
                 overall_verifying_trust_cached_speedup_avg: None,
                 headline: None,
+                reuse: Vec::new(),
             },
             warnings: Vec::new(),
         }

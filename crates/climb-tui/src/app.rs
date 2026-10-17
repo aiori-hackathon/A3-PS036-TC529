@@ -459,6 +459,7 @@ mod tests {
                     largest_wire_reduction_percent: None,
                     overall_verifying_trust_cached_speedup_avg: None,
                     headline: None,
+                    reuse: Vec::new(),
                 },
                 warnings: Vec::new(),
             },

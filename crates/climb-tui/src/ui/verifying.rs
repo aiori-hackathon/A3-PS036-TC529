@@ -5,13 +5,13 @@
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Span;
-use ratatui::widgets::{Block, Cell, Row, Table};
+use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use climb_report::charts::fmt_time_ns;
 
 use crate::app::App;
-use crate::data::{PerfCell, ResultsView, ValueMode, VerifyingRow};
+use crate::data::{PerfCell, ResultsView, ReuseRow, ValueMode, VerifyingRow};
 use crate::theme::{Glyphs, Theme};
 use crate::widgets::log_bars::{BarKind, LogBars};
 
@@ -27,6 +27,7 @@ pub fn render_verifying(
     let mode = app.value_mode();
     let groups = view.verifying_groups(mode);
     let rows = view.verifying_rows(mode);
+    let reuse = view.reuse_rows();
     let sizes = view.verifying_sizes();
     let selected = app.selected_size().min(sizes.len().saturating_sub(1));
 
@@ -44,10 +45,91 @@ pub fn render_verifying(
         show_legend: true,
     };
 
-    let [chart_area, table_area] =
-        Layout::vertical([Constraint::Min(7), Constraint::Min(4)]).areas(area);
+    let [chart_area, table_area, reuse_area] = Layout::vertical([
+        Constraint::Min(7),
+        Constraint::Min(4),
+        Constraint::Length(6),
+    ])
+    .areas(area);
     frame.render_widget(chart, chart_area);
     render_table(frame, table_area, &rows, selected, mode, theme, glyphs);
+    render_reuse(frame, reuse_area, &reuse, theme, glyphs);
+}
+
+/// The cold/warm reuse panel: smallest break-even reuse count per size.
+fn render_reuse(frame: &mut Frame, area: Rect, rows: &[ReuseRow], theme: &Theme, glyphs: &Glyphs) {
+    if rows.is_empty() {
+        let placeholder = Paragraph::new(Span::styled(
+            " no reuse rows recorded",
+            Style::new().fg(theme.muted),
+        ))
+        .block(
+            Block::bordered()
+                .border_set(glyphs.border)
+                .border_style(Style::new().fg(theme.border))
+                .title(Span::styled(
+                    " Reuse ",
+                    Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
+                )),
+        );
+        frame.render_widget(placeholder, area);
+        return;
+    }
+
+    let header = ["Size", "Time r*", "Bytes r*", "Class"]
+        .into_iter()
+        .map(|text| {
+            Cell::from(Span::styled(
+                text,
+                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+            ))
+        });
+    let header_row = Row::new(header);
+
+    let body = rows.iter().map(|row| {
+        Row::new([
+            Cell::from(Span::styled(
+                row.size.clone(),
+                Style::new().fg(theme.accent2),
+            )),
+            Cell::from(reuse_r(row.time_r, theme)),
+            Cell::from(reuse_r(row.bytes_r, theme)),
+            Cell::from(Span::styled(
+                row.class.clone(),
+                Style::new().fg(theme.muted),
+            )),
+        ])
+    });
+
+    let table = Table::new(
+        body,
+        [
+            Constraint::Length(12),
+            Constraint::Min(10),
+            Constraint::Min(10),
+            Constraint::Min(12),
+        ],
+    )
+    .column_spacing(1)
+    .header(header_row)
+    .block(
+        Block::bordered()
+            .border_set(glyphs.border)
+            .border_style(Style::new().fg(theme.border))
+            .title(Span::styled(
+                " Reuse \u{00b7} cold vs warm ",
+                Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
+            )),
+    );
+    frame.render_widget(table, area);
+}
+
+/// Render a break-even reuse count, or an em dash when none was reached.
+fn reuse_r(r: Option<u64>, theme: &Theme) -> Span<'static> {
+    match r {
+        None => Span::styled(dash(theme), Style::new().fg(theme.muted)),
+        Some(r) => Span::styled(format!("r={r}"), theme.measured),
+    }
 }
 
 fn render_table(
@@ -191,5 +273,80 @@ mod tests {
             ext.content
         );
         assert_eq!(cell_text(None, &theme).content, "\u{2014}");
+    }
+
+    fn theme() -> Theme {
+        Theme::new(
+            crate::theme::ThemeId::Dark,
+            crate::theme::ColorDepth::TrueColor,
+            false,
+        )
+    }
+
+    fn render_reuse_to_string(rows: &[ReuseRow]) -> String {
+        use ratatui::backend::TestBackend;
+        use ratatui::Terminal;
+        let theme = theme();
+        let glyphs = theme.glyphs();
+        let backend = TestBackend::new(80, 8);
+        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| render_reuse(frame, frame.area(), rows, &theme, &glyphs))
+            .expect("rendering never fails on TestBackend");
+        let buffer = terminal.backend().buffer();
+        let mut out = String::new();
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                if let Some(cell) = buffer.cell((x, y)) {
+                    out.push_str(cell.symbol());
+                }
+            }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn reuse_panel_renders_break_evens_and_class() {
+        let rows = vec![ReuseRow {
+            size: "Small".to_string(),
+            time_r: Some(1),
+            bytes_r: Some(2),
+            class: "DERIVED".to_string(),
+        }];
+        let out = render_reuse_to_string(&rows);
+        for needle in [
+            "Reuse", "Time r*", "Bytes r*", "Small", "r=1", "r=2", "DERIVED",
+        ] {
+            assert!(
+                out.contains(needle),
+                "reuse panel misses {needle:?}:\n{out}"
+            );
+        }
+    }
+
+    #[test]
+    fn reuse_panel_marks_missing_break_even_with_a_dash() {
+        let rows = vec![ReuseRow {
+            size: "Large".to_string(),
+            time_r: None,
+            bytes_r: None,
+            class: "EXTRAPOLATED".to_string(),
+        }];
+        let out = render_reuse_to_string(&rows);
+        assert!(
+            out.contains('\u{2014}'),
+            "missing r* renders an em dash:\n{out}"
+        );
+        assert!(out.contains("EXTRAPOLATED"), "class present:\n{out}");
+    }
+
+    #[test]
+    fn reuse_panel_without_rows_shows_a_placeholder() {
+        let out = render_reuse_to_string(&[]);
+        assert!(
+            out.contains("no reuse rows recorded"),
+            "empty reuse panel placeholder:\n{out}"
+        );
     }
 }

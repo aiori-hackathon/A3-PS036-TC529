@@ -378,13 +378,15 @@ mod tests {
     use clap::Parser;
     use climb_report::results::{
         AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
-        MemoryResults, SigningBenchmarkResult, WireSizeResult,
+        EvidenceClass, MemoryResults, ReuseCurvePoint, ReuseResult, SigningBenchmarkResult,
+        WireSizeResult,
     };
     use climb_report::{ClimbResults, DnsCaptureSource, DnsPipelineHeadline};
     use ratatui::backend::TestBackend;
     use ratatui::Terminal;
 
     use crate::cli::Cli;
+    use crate::data::test_support::{empty_derived, view_with};
     use crate::data::{LoadState, ReportHealth, ResultsView};
     use crate::theme::{ColorDepth, ThemeId};
 
@@ -490,6 +492,7 @@ mod tests {
                     largest_wire_reduction_percent: None,
                     overall_verifying_trust_cached_speedup_avg: Some(388.162),
                     headline: None,
+                    reuse: Vec::new(),
                 },
                 warnings: Vec::new(),
             },
@@ -661,6 +664,39 @@ mod tests {
     }
 
     #[test]
+    fn verifying_tab_renders_the_reuse_panel_at_120x40() {
+        let mut derived = empty_derived();
+        derived.reuse = vec![ReuseResult {
+            size: "small".to_string(),
+            batch_size: 100,
+            curve: vec![ReuseCurvePoint {
+                reuse: 1,
+                effective_time_ns: 900.0,
+                effective_bytes: 8000.0,
+            }],
+            breakeven_reuse_time: Some(1),
+            breakeven_reuse_bytes: Some(2),
+            r_star_time: Some(1),
+            r_star_bytes: Some(2),
+            baseline_time_ns: 1000.0,
+            baseline_bytes: 7856.0,
+            class: EvidenceClass::Derived,
+        }];
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, derived);
+        let mut app = app_loaded_with(view);
+        app.update(crate::app::Action::SelectTab(Tab::Verifying.index()));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Reuse", "Time r*", "Bytes r*", "Small", "r=1", "r=2", "DERIVED",
+        ] {
+            assert!(
+                out.contains(needle),
+                "verifying tab misses reuse {needle:?} at 120x40:\n{out}"
+            );
+        }
+    }
+
+    #[test]
     fn value_mode_v_toggles_the_signing_titles() {
         let mut app = app_loaded_with(story_view(None));
         app.update(crate::app::Action::SelectTab(Tab::Signing.index()));
@@ -758,6 +794,7 @@ mod tests {
                     largest_wire_reduction_percent: None,
                     overall_verifying_trust_cached_speedup_avg: None,
                     headline: None,
+                    reuse: Vec::new(),
                 },
                 warnings: Vec::new(),
             },
