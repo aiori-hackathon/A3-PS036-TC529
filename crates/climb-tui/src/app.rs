@@ -431,6 +431,7 @@ mod tests {
                     verifying: Vec::new(),
                 },
                 wire_size: Vec::new(),
+                dns_anatomy: None,
                 memory: MemoryResults {
                     measured: Vec::new(),
                     analytical_model: AnalyticalMemoryModel {

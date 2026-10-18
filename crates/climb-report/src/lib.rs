@@ -28,8 +28,9 @@ pub use memory::{
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};
 pub use results::{
-    consolidate_results, ClimbResults, ConsolidateOptions, DnsCapture, DnsCaptureFlags,
-    DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery, DnsCaptureSource, DnsPipelineHeadline,
+    consolidate_results, ClimbResults, ConsolidateOptions, DnsAnatomyRecord, DnsAnatomySection,
+    DnsCapture, DnsCaptureFlags, DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery,
+    DnsCaptureSource, DnsPipelineHeadline,
 };
 pub use summary::{
     condition_label, condition_short_label, parse_group_id, summarize, BenchKind, MtlMode, Size,

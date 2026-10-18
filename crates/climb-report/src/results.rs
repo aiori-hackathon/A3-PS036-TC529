@@ -302,6 +302,14 @@ pub struct DnsCaptureQuery {
     pub transport: String,
     pub edns_udp_size: Option<u16>,
     pub elapsed_ms: Option<f64>,
+    /// Raw response wire bytes as lowercase hex, when the recording captured
+    /// them. This is what lets `climb-dns` parse a [`ResponseAnatomy`] offline.
+    /// `#[serde(default)]` keeps older results files that predate this field
+    /// parseable.
+    ///
+    /// [`ResponseAnatomy`]: climb_dns::ResponseAnatomy
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire_hex: Option<String>,
 }
 
 /// Host summary for a recorded capture.
@@ -333,6 +341,46 @@ pub struct DnsCapture {
     pub algorithm: String,
     pub zone: String,
     pub queries: Vec<DnsCaptureQuery>,
+}
+
+/// Byte-accounting summary of one recorded DNS response, parsed from its raw
+/// wire bytes by `climb-dns`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DnsAnatomyRecord {
+    /// The `www.climb.example. A` capture pass this describes (`full` or
+    /// `condensed`).
+    pub label: String,
+    /// Total captured response length in bytes.
+    pub wire_length: usize,
+    /// Fixed DNS header length (12 B).
+    pub header_bytes: usize,
+    /// Question section total bytes.
+    pub question_bytes: usize,
+    /// Answer-section RRSIG count.
+    pub rrsig_count: usize,
+    /// Per-RRSIG signature field length, in wire order.
+    pub rrsig_signature_lengths: Vec<u32>,
+    /// Count of full-signature (MTL-Type 0x01) RRSIGs.
+    pub full_rrsig_count: usize,
+    /// Count of condensed-proof (MTL-Type 0x02) RRSIGs.
+    pub condensed_rrsig_count: usize,
+    /// Sum of every part; equals `wire_length` for a well-formed response.
+    pub parts_sum: usize,
+}
+
+/// The `dns.anatomy` section: byte decomposition of the headline
+/// `www.climb.example. A` response pair (with and without MTL). `None` when no
+/// capture with embedded wire bytes is available.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DnsAnatomySection {
+    /// Provenance of the parsed bytes.
+    pub source: DnsCaptureSource,
+    /// RFC 3339 timestamp of the recording.
+    pub recorded_at: String,
+    /// Full-signature (no MTL) response anatomy.
+    pub full: Option<DnsAnatomyRecord>,
+    /// Condensed-proof (with MTL) response anatomy.
+    pub condensed: Option<DnsAnatomyRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -395,6 +443,12 @@ pub struct ClimbResults {
     /// DNS pipeline headline, or `None` when no capture (live or recorded
     /// fixture) is available.
     pub dns_pipeline: Option<DnsPipelineHeadline>,
+    /// Per-byte anatomy of the headline `www.climb.example. A` response pair,
+    /// parsed from the capture's embedded wire bytes. `None` when no capture
+    /// carries wire bytes (older recordings only store counts). `#[serde(default)]`
+    /// keeps results written before this section existed parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_anatomy: Option<DnsAnatomySection>,
     /// Recorded ladder-verification section: measured ladder shape per size
     /// plus the model-agreement verdict, or `None` when neither a live run nor
     /// the committed fixture is available. `#[serde(default)]` keeps results
@@ -881,6 +935,75 @@ fn headline_from_capture(capture: &DnsCapture, source: DnsCaptureSource) -> DnsP
     }
 }
 
+/// Decode a hex string into bytes; `None` on any malformed input.
+fn decode_hex(s: &str) -> Option<Vec<u8>> {
+    let b = s.as_bytes();
+    if !b.len().is_multiple_of(2) {
+        return None;
+    }
+    b.chunks(2)
+        .map(|pair| {
+            let hi = (pair[0] as char).to_digit(16)?;
+            let lo = (pair[1] as char).to_digit(16)?;
+            Some(((hi << 4) | lo) as u8)
+        })
+        .collect()
+}
+
+/// Parse the byte anatomy of one capture query's embedded wire bytes. Returns
+/// `None` when the query carries no wire bytes or the bytes fail to parse.
+fn anatomy_record_from_query(q: &DnsCaptureQuery) -> Option<DnsAnatomyRecord> {
+    let hex = q.wire_hex.as_ref()?;
+    let bytes = decode_hex(hex)?;
+    let anatomy = climb_dns::parse_response_anatomy(&bytes, Some(q.transport.as_str())).ok()?;
+    Some(DnsAnatomyRecord {
+        label: q.label.clone(),
+        wire_length: anatomy.wire_length,
+        header_bytes: anatomy.header_bytes,
+        question_bytes: anatomy.question.total_bytes,
+        rrsig_count: anatomy.rrsig_count,
+        rrsig_signature_lengths: anatomy
+            .rrsig_entries
+            .iter()
+            .map(|e| e.signature_len)
+            .collect(),
+        full_rrsig_count: anatomy.full_rrsig_count,
+        condensed_rrsig_count: anatomy.condensed_rrsig_count,
+        parts_sum: anatomy.parts_sum,
+    })
+}
+
+/// Derive the headline anatomy section from the capture's embedded wire bytes
+/// for the `www.climb.example. A` full and condensed passes. `None` when neither
+/// pass carries wire bytes.
+fn anatomy_from_capture(
+    capture: &DnsCapture,
+    source: DnsCaptureSource,
+) -> Option<DnsAnatomySection> {
+    let find = |label: &str| {
+        capture
+            .queries
+            .iter()
+            .find(|q| {
+                q.label.eq_ignore_ascii_case(label)
+                    && q.qname.eq_ignore_ascii_case(HEADLINE_QNAME)
+                    && q.qtype.eq_ignore_ascii_case(HEADLINE_QTYPE)
+            })
+            .and_then(anatomy_record_from_query)
+    };
+    let full = find("full");
+    let condensed = find("condensed");
+    if full.is_none() && condensed.is_none() {
+        return None;
+    }
+    Some(DnsAnatomySection {
+        source,
+        recorded_at: capture.recorded_at.clone(),
+        full,
+        condensed,
+    })
+}
+
 /// Load the DNS capture, preferring a live recording over the committed
 /// fixture; `None` when neither exists.
 fn load_dns_capture(
@@ -896,6 +1019,22 @@ fn load_dns_capture(
     };
     let capture: DnsCapture = read_json(path)?;
     Ok(Some(headline_from_capture(&capture, source)))
+}
+
+/// Load the DNS anatomy section from the same capture that feeds the headline,
+/// preferring a live recording over the committed fixture. `None` when no
+/// capture exists or neither headline pass carries embedded wire bytes. A
+/// present-but-unparseable capture is a hard error naming the path.
+fn load_dns_anatomy(live: &Path, fixture: &Path) -> Result<Option<DnsAnatomySection>, ReportError> {
+    let (path, source) = if live.exists() {
+        (live, DnsCaptureSource::Live)
+    } else if fixture.exists() {
+        (fixture, DnsCaptureSource::RecordedFixture)
+    } else {
+        return Ok(None);
+    };
+    let capture: DnsCapture = read_json(path)?;
+    Ok(anatomy_from_capture(&capture, source))
 }
 
 /// Load the recorded ladder-verification artifact, preferring a live run over
@@ -1049,6 +1188,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     };
 
     let dns_pipeline = load_dns_capture(&opts.dns_capture_path, &opts.dns_fixture_path)?;
+    let dns_anatomy = load_dns_anatomy(&opts.dns_capture_path, &opts.dns_fixture_path)?;
     let ladder = load_ladder_section(&opts.ladder_verification_path, &opts.ladder_fixture_path)?;
 
     let plain = plain_timings(&plain_records);
@@ -1071,6 +1211,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         memory: memory_results,
         environment,
         dns_pipeline,
+        dns_anatomy,
         ladder,
         plain,
         comparisons,
@@ -1643,6 +1784,7 @@ mod tests {
                 ..environment_fingerprint()
             },
             dns_pipeline: Some(dns),
+            dns_anatomy: None,
             ladder: Some(sample_ladder_section()),
             plain,
             comparisons,
@@ -1676,6 +1818,7 @@ mod tests {
             },
             environment: environment_fingerprint(),
             dns_pipeline: None,
+            dns_anatomy: None,
             ladder: None,
             plain: Vec::new(),
             comparisons: Vec::new(),
@@ -2237,6 +2380,7 @@ mod tests {
             transport: "tcp".to_string(),
             edns_udp_size: None,
             elapsed_ms: None,
+            wire_hex: None,
         }
     }
 

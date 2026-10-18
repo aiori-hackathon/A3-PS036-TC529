@@ -461,6 +461,7 @@ mod tests {
                     verifying: Vec::new(),
                 },
                 wire_size: vec![wire_row(97.0)],
+                dns_anatomy: None,
                 memory: MemoryResults {
                     measured: Vec::new(),
                     analytical_model: AnalyticalMemoryModel {
@@ -786,6 +787,7 @@ mod tests {
                     benchmark_runtime: serde_json::json!({}),
                 },
                 dns_pipeline: None,
+                dns_anatomy: None,
                 ladder: None,
                 plain: Vec::new(),
                 comparisons: Vec::new(),

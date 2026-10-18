@@ -333,6 +333,7 @@ version = "0.1.0"
 dependencies = [
  "climb-analytical",
  "climb-bench",
+ "climb-dns",
  "plotters",
  "serde",
  "serde_json",

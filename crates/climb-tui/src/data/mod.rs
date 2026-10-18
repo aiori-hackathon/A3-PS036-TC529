@@ -288,6 +288,7 @@ pub(crate) mod test_support {
                 plain: Vec::new(),
                 comparisons: Vec::new(),
                 derived,
+                dns_anatomy: None,
                 warnings: Vec::new(),
             },
             Some(Duration::from_secs(60)),
@@ -387,6 +388,7 @@ pub(crate) mod test_support {
     pub(crate) fn view_with_memory(measured: Vec<MemoryResult>) -> ResultsView {
         let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
         view.results.memory.measured = measured;
+        view.results.dns_anatomy = None;
         view
     }
 

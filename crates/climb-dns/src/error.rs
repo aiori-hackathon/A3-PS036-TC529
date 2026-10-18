@@ -8,7 +8,7 @@
 
 use hickory_proto::ProtoError;
 
-/// Errors from synthetic DNS generation / wire encoding.
+/// Errors from synthetic DNS generation / wire encoding and parsing.
 #[derive(Debug, thiserror::Error)]
 pub enum DnsError {
     /// hickory-proto failed to encode a constructed [`Message`].
@@ -26,4 +26,8 @@ pub enum DnsError {
     /// For the small record shapes we generate this is also a construction bug.
     #[error("generated message length {len} exceeds MAX_MESSAGE_LEN ({max})")]
     MessageTooLong { len: usize, max: usize },
+
+    /// Truncated DNS message at offset
+    #[error("truncated DNS message at offset {offset} (need {need} bytes)")]
+    Truncated { offset: usize, need: usize },
 }

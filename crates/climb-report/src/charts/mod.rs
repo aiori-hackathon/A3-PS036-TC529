@@ -1588,6 +1588,7 @@ mod tests {
                 benchmark_runtime: serde_json::json!({}),
             },
             dns_pipeline: None,
+            dns_anatomy: None,
             ladder: None,
             plain: Vec::new(),
             comparisons: Vec::new(),

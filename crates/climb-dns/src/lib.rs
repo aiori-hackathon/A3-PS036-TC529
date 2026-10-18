@@ -14,10 +14,15 @@
 //! assert_eq!(dataset.len(), 100);
 //! ```
 
+pub mod anatomy;
 pub mod dataset;
 pub mod error;
 mod synthetic;
 
+pub use anatomy::{
+    parse_response_anatomy, OptRecord, QuestionSection, ResponseAnatomy, RrEntry, RrsigEntry,
+    EDNS_MTL_SIGTAG_CODE, HEADER_LEN, MTL_TYPE_CONDENSED, MTL_TYPE_FULL,
+};
 pub use dataset::{generate_dataset, generate_dataset_count, DatasetSize, MAX_MESSAGE_LEN};
 pub use error::DnsError;
 pub use synthetic::SyntheticRecord;

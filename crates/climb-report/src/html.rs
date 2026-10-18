@@ -1141,6 +1141,7 @@ mod tests {
                 recorded_at: Some("2026-10-08T12:00:00Z".to_string()),
                 algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
             }),
+            dns_anatomy: None,
             ladder: Some(synthetic_ladder_section()),
             plain: Vec::new(),
             comparisons: vec![ConfigComparison {

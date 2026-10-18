@@ -385,6 +385,10 @@ struct CaptureRow {
     rrsig_lead_byte: Option<u8>,
     rrsig_len: Option<u64>,
     rrsig_kind: Option<String>, // "full", "condensed"
+    /// Basename of the raw wire capture (e.g. `01-a-full.bin`), used to embed
+    /// the response bytes into the recorded artifact for offline anatomy
+    /// parsing.
+    filename: Option<String>,
 }
 
 /// Run the capture script, print its stdout verbatim, and return parsed rows.
@@ -594,6 +598,15 @@ fn parse_capture_output(stdout: &str, label: &str) -> Vec<CaptureRow> {
                 }
             };
 
+        // The capture table's last column is the written wire-capture filename
+        // (`NN-<type>-<mode>.bin`); take the last whitespace token when it looks
+        // like a capture file, else `None`.
+        let filename = line
+            .split_whitespace()
+            .last()
+            .filter(|tok| tok.ends_with(".bin"))
+            .map(str::to_string);
+
         rows.push(CaptureRow {
             label: label.to_string(),
             qname,
@@ -603,6 +616,7 @@ fn parse_capture_output(stdout: &str, label: &str) -> Vec<CaptureRow> {
             rrsig_lead_byte,
             rrsig_len,
             rrsig_kind,
+            filename,
         });
     }
 
@@ -614,14 +628,30 @@ fn parse_capture_output(stdout: &str, label: &str) -> Vec<CaptureRow> {
 // ---------------------------------------------------------------------------
 
 /// Build the shared [`DnsCapture`] document from the parsed capture rows.
+///
+/// `capture_dirs` maps a pass label (`full` / `condensed` / `unbound`) to the
+/// directory that pass's raw wire `.bin` files were written to. When a row's
+/// capture file is found there, its bytes are embedded as `wire_hex` so the
+/// anatomy can be parsed offline; when absent, the field is `None`.
 fn build_dns_capture(
     baseline: &[CaptureRow],
     condensed: &[CaptureRow],
     unbound: &[CaptureRow],
+    capture_dirs: &[(&str, &Path)],
 ) -> DnsCapture {
     let mut queries = Vec::new();
     for rows in [baseline, condensed, unbound] {
         for row in rows {
+            let wire_hex = row
+                .filename
+                .as_ref()
+                .and_then(|fname| {
+                    capture_dirs
+                        .iter()
+                        .find(|(label, _)| *label == row.label)
+                        .and_then(|(_, dir)| fs::read(dir.join(fname)).ok())
+                })
+                .map(hex_encode);
             queries.push(DnsCaptureQuery {
                 label: row.label.clone(),
                 qname: row.qname.clone(),
@@ -636,6 +666,7 @@ fn build_dns_capture(
                 transport: CAPTURE_TRANSPORT.to_string(),
                 edns_udp_size: None,
                 elapsed_ms: None,
+                wire_hex,
             });
         }
     }
@@ -658,6 +689,15 @@ fn build_dns_capture(
         zone: ZONE_NAME.to_string(),
         queries,
     }
+}
+
+/// Encode bytes as lowercase hex for embedding in the recorded artifact.
+fn hex_encode(bytes: Vec<u8>) -> String {
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push_str(&format!("{b:02x}"));
+    }
+    out
 }
 
 fn iso8601_now() -> String {
@@ -948,7 +988,16 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
 
     // ── Record the capture (F7.3) ───────────────────────────────────
     if args.record.is_some() || args.json {
-        let capture = build_dns_capture(&baseline_rows, &condensed_rows, &unbound_rows);
+        let capture = build_dns_capture(
+            &baseline_rows,
+            &condensed_rows,
+            &unbound_rows,
+            &[
+                ("full", base_dir.as_path()),
+                ("condensed", cond_dir.as_path()),
+                ("unbound", ub_dir.as_path()),
+            ],
+        );
         let json =
             serde_json::to_string_pretty(&capture).context("failed to serialize DNS capture")?;
         if let Some(path) = &args.record {
@@ -1134,7 +1183,7 @@ mod tests {
         let baseline = parse_capture_output(&sample_capture_full(), "full");
         let condensed = parse_capture_output(&sample_capture_condensed(), "condensed");
         let unbound = parse_capture_output(&sample_capture_full(), "unbound");
-        let capture = build_dns_capture(&baseline, &condensed, &unbound);
+        let capture = build_dns_capture(&baseline, &condensed, &unbound, &[]);
         assert_eq!(capture.schema_version, 1);
         assert_eq!(capture.queries.len(), 9);
         assert_eq!(

@@ -11,18 +11,16 @@ echo "=== CLONE ==="
 git clone --recurse-submodules "file://$PWD" "$WORKTREE"
 echo "--- cloned to $WORKTREE"
 
-# Ensure prebuilt libMTL/liboqs/OpenSSL artifacts are present
+# Ensure prebuilt artifacts exist if present in source (for local runs)
 if [ -d "$PWD/.mtl-install" ]; then
   cp -a "$PWD/.mtl-install" "$WORKTREE/.mtl-install"
 fi
 
 cd "$WORKTREE"
 
-# Copy required build artifacts and recorded data from source to satisfy reproduce --quick
+# Copy required build artifacts and recorded data if available
 mkdir -p target
-if [ -d "/home/pratyay/Documents/My Codes/climb/target/criterion" ]; then
-  cp -a "/home/pratyay/Documents/My Codes/climb/target/criterion" target/
-fi
+[ -d "/home/pratyay/Documents/My Codes/climb/target/criterion" ] && cp -a "/home/pratyay/Documents/My Codes/climb/target/criterion" target/
 [ -f "/home/pratyay/Documents/My Codes/climb/target/climb-results.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/climb-results.json" target/
 [ -f "/home/pratyay/Documents/My Codes/climb/target/wire-report.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/wire-report.json" target/
 [ -f "/home/pratyay/Documents/My Codes/climb/target/memory-report.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/memory-report.json" target/
@@ -30,29 +28,29 @@ fi
 [ -d "/home/pratyay/Documents/My Codes/climb/data" ] && cp -a "/home/pratyay/Documents/My Codes/climb/data" .
 
 echo ""
-echo "=== CARGO BUILD --WORKSPACE ==="
+echo "=== STEP 1: cargo build --workspace ==="
 cargo build --workspace
-echo "--- build ok"
+echo "--- ok"
 
 echo ""
-echo "=== CARGO FMT --CHECK ==="
+echo "=== STEP 2: cargo fmt --check ==="
 cargo fmt --check
-echo "--- fmt ok"
+echo "--- ok"
 
 echo ""
-echo "=== CARGO CLIPPY -D WARNINGS ==="
+echo "=== STEP 3: cargo clippy -D warnings ==="
 cargo clippy --all-targets --all-features -- -D warnings
-echo "--- clippy ok"
+echo "--- ok"
 
 echo ""
-echo "=== CARGO TEST --WORKSPACE ==="
+echo "=== STEP 4: cargo test --workspace ==="
 cargo test --workspace
-echo "--- tests ok"
+echo "--- ok"
 
 echo ""
-echo "=== CARGO XTASK REPRODUCE --QUICK --SKIP-DNS ==="
+echo "=== STEP 5: cargo xtask reproduce --quick --skip-dns ==="
 cargo xtask reproduce --quick --skip-dns
-echo "--- reproduce ok"
+echo "--- ok"
 
 echo ""
 echo "=== ALL STEPS PASSED ==="
