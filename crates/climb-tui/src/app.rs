@@ -461,6 +461,7 @@ mod tests {
                     overall_verifying_trust_cached_speedup_avg: None,
                     headline: None,
                     reuse: Vec::new(),
+                    udp_fit: None,
                 },
                 warnings: Vec::new(),
             },

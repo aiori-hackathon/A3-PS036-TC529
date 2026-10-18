@@ -22,14 +22,15 @@ use crate::results::{
     SigningBenchmarkResult, VerifyingBenchmarkResult, WireSizeResult,
 };
 
-/// Filenames of the six charts, in generation order.
-pub const CHART_FILES: [&str; 6] = [
+/// Filenames of the seven charts, in generation order.
+pub const CHART_FILES: [&str; 7] = [
     "signing_time.svg",
     "verifying_time.svg",
     "transmitted_bytes.svg",
     "amortization_curve.svg",
     "memory_measured_vs_analytical.svg",
     "reuse_curve.svg",
+    "udp_fit.svg",
 ];
 
 /// Series colour: with MTL.
@@ -112,6 +113,14 @@ pub fn generate_charts(
     data.y_desc = "ratio vs baseline (per-message)".to_string();
     let path = out_dir.join(CHART_FILES[5]);
     draw::draw_reuse(&path, &data, &draw::REUSE_FOOTNOTES)?;
+    written.push(path);
+
+    let mut data = udp_fit(results.derived.udp_fit.as_ref());
+    data.title = "Modelled DNS response size over UDP vs dataset size".to_string();
+    data.x_desc = "dataset size (messages, one ladder per batch)".to_string();
+    data.y_desc = "modelled max response bytes".to_string();
+    let path = out_dir.join(CHART_FILES[6]);
+    draw::draw_udp_fit(&path, &data, &draw::UDP_FIT_FOOTNOTES)?;
     written.push(path);
 
     Ok(written)
@@ -906,6 +915,102 @@ pub fn memory_data(rows: &[MemoryResult]) -> MemoryData {
     }
 }
 
+/// One panel of the UDP-fit chart: a single response profile's modelled
+/// response sizes, one series per signature configuration.
+#[derive(Debug, Clone)]
+pub struct UdpFitPanel {
+    /// Human profile label (e.g. "Positive A with NS").
+    pub profile_label: String,
+    /// Provenance qualifier appended to the label: "captured" or "parameter".
+    pub profile_source: String,
+    /// One hollow series per configuration (A, B, C), in legend order.
+    pub series: Vec<BarSeriesData>,
+}
+
+/// Fully prepared data for the UDP-fit chart (three stacked profile panels,
+/// each with threshold lines drawn at the EDNS and TCP-fallback sizes).
+#[derive(Debug, Clone)]
+pub struct UdpFitData {
+    /// Chart title (set by [`generate_charts`]).
+    pub title: String,
+    /// x-axis description.
+    pub x_desc: String,
+    /// y-axis description.
+    pub y_desc: String,
+    /// One panel per response profile, in profile-data order.
+    pub panels: Vec<UdpFitPanel>,
+}
+
+/// Build the UDP-fit chart data from the analytical section.
+///
+/// Every bar is modelled, so every series is hollow; a missing section yields
+/// empty panels rather than an error (the chart renders its own placeholder).
+pub fn udp_fit(section: Option<&crate::results::UdpFitSection>) -> UdpFitData {
+    let configs: [(&str, &str, RGBColor); 3] = [
+        ("plain", "A (plain SLH-DSA, modelled)", COLOR_PLAIN),
+        (
+            "mtl-full",
+            "B (MTL non-amortised, modelled)",
+            COLOR_WITHOUT_MTL,
+        ),
+        (
+            "mtl-amortised",
+            "C (MTL amortised, modelled)",
+            COLOR_WITH_MTL,
+        ),
+    ];
+    let Some(section) = section else {
+        return UdpFitData {
+            title: String::new(),
+            x_desc: String::new(),
+            y_desc: String::new(),
+            panels: Vec::new(),
+        };
+    };
+    let mut panels: Vec<UdpFitPanel> = Vec::new();
+    for row in &section.rows {
+        if panels.iter().any(|p| p.profile_label == row.profile_label) {
+            continue;
+        }
+        let mut series = Vec::new();
+        for (config_id, label, color) in configs {
+            let mut points: Vec<BarPoint> = section
+                .rows
+                .iter()
+                .filter(|r| r.profile == row.profile && r.config == config_id)
+                .map(|r| BarPoint {
+                    n: r.messages,
+                    value: r.max_response_bytes as f64,
+                    ci_lower: None,
+                    ci_upper: None,
+                    annotation: None,
+                })
+                .collect();
+            points.sort_by_key(|p| p.n);
+            if points.is_empty() {
+                continue;
+            }
+            series.push(BarSeriesData {
+                label: label.to_string(),
+                color,
+                hollow: true,
+                points,
+            });
+        }
+        panels.push(UdpFitPanel {
+            profile_label: row.profile_label.clone(),
+            profile_source: row.profile_source.clone(),
+            series,
+        });
+    }
+    UdpFitData {
+        title: String::new(),
+        x_desc: String::new(),
+        y_desc: String::new(),
+        panels,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1468,7 +1573,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_charts_writes_six_svgs_for_synthetic_results() {
+    fn generate_charts_writes_seven_svgs_for_synthetic_results() {
         let results = synthetic_results();
         let dir = std::env::temp_dir().join(format!(
             "climb-report-charts-synth-{}-{}",
@@ -1477,7 +1582,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let paths = generate_charts(&results, &dir).expect("generate");
-        assert_eq!(paths.len(), 6);
+        assert_eq!(paths.len(), 7);
         for (i, path) in paths.iter().enumerate() {
             assert_eq!(
                 path.file_name().and_then(|f| f.to_str()),
@@ -1545,7 +1650,7 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&dir);
         let paths = generate_charts(&results, &dir).expect("generate");
-        assert_eq!(paths.len(), 6);
+        assert_eq!(paths.len(), 7);
         for path in &paths {
             let svg = std::fs::read_to_string(path).expect("read svg");
             assert!(svg.contains("<svg"), "missing <svg in {path:?}");
@@ -1598,6 +1703,7 @@ mod tests {
                 overall_verifying_trust_cached_speedup_avg: None,
                 headline: None,
                 reuse: Vec::new(),
+                udp_fit: None,
             },
             warnings: Vec::new(),
         }

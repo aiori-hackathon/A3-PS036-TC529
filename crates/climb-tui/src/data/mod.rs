@@ -22,7 +22,7 @@ pub use ladder::{
 pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
 pub use reuse::ReuseRow;
 pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
-pub use wire::UdpGaugeData;
+pub use wire::{UdpFitTableData, UdpFitTableRow, UdpGaugeData};
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
@@ -350,6 +350,67 @@ pub(crate) mod test_support {
         }
     }
 
+    /// A modelled UDP-fit section as test data: two response profiles x
+    /// three signature configurations x two dataset sizes, with a
+    /// zero-tolerance cross-check that matches exactly. The numbers here are
+    /// fixtures for the view-model, not model output.
+    pub(crate) fn udp_fit_section(rtt_ms: Option<f64>) -> climb_report::results::UdpFitSection {
+        use climb_report::results::{UdpFitRowArtifact, UdpFitSection, UdpFitValidation};
+        let profiles = [
+            ("positive_a", "Positive A (www)", "captured"),
+            ("nxdomain_nsec3", "NXDOMAIN/NSEC3 (parameter)", "parameter"),
+        ];
+        let configs = [
+            ("plain", "A (plain SLH-DSA)"),
+            ("mtl-full", "B (MTL non-amortised)"),
+            ("mtl-amortised", "C (MTL amortised)"),
+        ];
+        let sizes = [100u64, 1_000_000];
+        let mut rows = Vec::new();
+        for (profile, label, source) in profiles {
+            for (col, (config, config_label)) in configs.into_iter().enumerate() {
+                for (size_idx, &messages) in sizes.iter().enumerate() {
+                    let fit = 100.0 - 25.0 * col as f64 - 10.0 * size_idx as f64;
+                    rows.push(UdpFitRowArtifact {
+                        profile: profile.to_string(),
+                        profile_label: label.to_string(),
+                        profile_source: source.to_string(),
+                        config: config.to_string(),
+                        config_label: config_label.to_string(),
+                        zone_leaves: 16,
+                        messages,
+                        max_response_bytes: 658 + 1_000 * col as u64 + size_idx as u64,
+                        fit_1232_count: messages,
+                        fit_1232_percent: fit,
+                        tc_band_count: 0,
+                        tc_band_percent: 0.0,
+                        over_4096_count: 0,
+                        needs_tcp_percent: 100.0 - fit,
+                        tcp_round_trips: 3,
+                        tcp_query_bytes: 46,
+                        tcp_payload_bytes: 700,
+                        tcp_modeled_ms: rtt_ms,
+                        class: climb_report::results::EvidenceClass::Analytical,
+                    });
+                }
+            }
+        }
+        UdpFitSection {
+            rows,
+            validation: Some(UdpFitValidation {
+                zone_leaves: 16,
+                plain_signature_len_bytes: 7856,
+                recorded_full_response_bytes: 24_438,
+                modeled_full_response_bytes: 24_438,
+                recorded_condensed_response_bytes: 658,
+                modeled_condensed_response_bytes: 658,
+                tolerance_bytes: 0,
+                matches: true,
+            }),
+            rtt_ms,
+        }
+    }
+
     pub(crate) fn memory_result(
         size: &str,
         messages: usize,
@@ -399,6 +460,7 @@ pub(crate) mod test_support {
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
             reuse: Vec::new(),
+            udp_fit: None,
         }
     }
 
@@ -563,6 +625,7 @@ mod tests {
             ladder_fixture_path: fixture,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
+            rtt_ms: None,
             output_path: results_path.clone(),
         })
         .expect("consolidate from the committed ladder fixture");
@@ -612,6 +675,64 @@ mod tests {
             assert_eq!(row.bytes_r, raw.breakeven_reuse_bytes.or(raw.r_star_bytes));
             assert_eq!(row.class, raw.class.label());
         }
+    }
+
+    /// The committed sample results document must load through the TUI loader
+    /// and expose the modelled UDP-fit table — headers, row order and every
+    /// cell cross-checked against the parsed artifact itself (the TUI is one
+    /// of the artifact's consumers).
+    #[test]
+    fn committed_sample_results_expose_udp_fit_rows_to_the_tui() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let state = load(&path);
+        let LoadState::Loaded(view) = state else {
+            panic!("expected the TUI to load the committed sample artifact, got {state:?}");
+        };
+
+        let section = view
+            .results()
+            .derived
+            .udp_fit
+            .as_ref()
+            .expect("the committed sample artifact must carry a UDP-fit section");
+        assert!(!section.rows.is_empty());
+
+        let table = view.udp_fit_table();
+        let mut sizes: Vec<u64> = section.rows.iter().map(|row| row.messages).collect();
+        sizes.sort_unstable();
+        sizes.dedup();
+        let expected_headers: Vec<String> = sizes
+            .iter()
+            .map(|&n| climb_report::charts::fmt_count(n as f64))
+            .collect();
+        assert_eq!(table.size_headers, expected_headers);
+
+        let mut pairs: Vec<(String, String)> = Vec::new();
+        for row in &section.rows {
+            let key = (row.profile.clone(), row.config.clone());
+            if !pairs.contains(&key) {
+                pairs.push(key);
+            }
+        }
+        assert_eq!(table.rows.len(), pairs.len());
+        for (table_row, (profile, config)) in table.rows.iter().zip(&pairs) {
+            let expected: Vec<String> = sizes
+                .iter()
+                .map(|&size| {
+                    section
+                        .rows
+                        .iter()
+                        .find(|r| {
+                            r.profile == *profile && r.config == *config && r.messages == size
+                        })
+                        .map(|r| format!("{:.1}%", r.fit_1232_percent))
+                        .expect("every column size has a row for this pair")
+                })
+                .collect();
+            assert_eq!(table_row.cells, expected, "{profile} / {config}");
+        }
+        assert!(!table.note.is_empty(), "the note must state provenance");
     }
 
     /// A results document written before the ladder section existed must still

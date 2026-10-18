@@ -51,6 +51,12 @@ pub(crate) struct ConsolidateArgs {
     /// Output path for consolidated results
     #[arg(long, default_value = "target/climb-results.json")]
     output: PathBuf,
+
+    /// Assumed network round-trip time in milliseconds, used only to model
+    /// the TCP fallback delay for truncated responses; omitted, the model
+    /// reports round trips and bytes but no latency
+    #[arg(long)]
+    rtt_ms: Option<f64>,
 }
 
 pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
@@ -65,6 +71,7 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         ladder_fixture_path: args.ladder_fixture,
         environment_path: args.environment,
         baseline: args.baseline,
+        rtt_ms: args.rtt_ms,
         output_path: args.output.clone(),
     };
     let _results = consolidate_results(opts).context("failed to consolidate results")?;

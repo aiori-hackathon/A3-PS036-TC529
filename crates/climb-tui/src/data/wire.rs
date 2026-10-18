@@ -3,6 +3,7 @@
 //! Every number comes from the parsed results carried by
 //! [`crate::data::ResultsView`]; nothing here hardcodes a result.
 
+use climb_analytical::UDP_MTU_1232;
 use climb_report::charts::fmt_count;
 use climb_report::condition_short_label;
 
@@ -19,6 +20,33 @@ pub struct UdpGaugeData {
     pub markers: Vec<GaugeMarker>,
     /// Where the numbers came from: the DNS capture or the wire fallback.
     pub source_note: String,
+}
+
+/// One row of the modelled UDP-fit table: a (response profile,
+/// signature configuration) pair with its fit share at every dataset size
+/// present in the artifact.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UdpFitTableRow {
+    /// Response-profile label, straight from the artifact.
+    pub profile: String,
+    /// Configuration letter (A/B/C), taken from the artifact's config label.
+    pub config: String,
+    /// Share of responses fitting 1,232 bytes, one cell per dataset-size
+    /// column in ascending size order (em dash when the artifact has no row
+    /// for that combination).
+    pub cells: Vec<String>,
+}
+
+/// Render-ready payload for the modelled UDP-fit table on the Wire tab.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UdpFitTableData {
+    /// Dataset-size column headers, ascending, formatted as counts.
+    pub size_headers: Vec<String>,
+    /// One row per (profile, configuration) pair, in artifact order.
+    pub rows: Vec<UdpFitTableRow>,
+    /// Provenance, capture cross-check and RTT note — or the empty-state
+    /// text when the artifact carries no UDP-fit model.
+    pub note: String,
 }
 
 impl ResultsView {
@@ -196,11 +224,94 @@ impl ResultsView {
             source_note,
         }
     }
+
+    /// Rows, column headers and note for the modelled UDP-fit table.
+    ///
+    /// One row per (response profile, signature configuration) pair and one
+    /// column per dataset size carried by the artifact; every number is read
+    /// from `derived.udp_fit`, never recomputed here. An artifact without the
+    /// section yields the empty-state note and no rows.
+    pub fn udp_fit_table(&self) -> UdpFitTableData {
+        let Some(section) = self
+            .results
+            .derived
+            .udp_fit
+            .as_ref()
+            .filter(|section| !section.rows.is_empty())
+        else {
+            return UdpFitTableData {
+                size_headers: Vec::new(),
+                rows: Vec::new(),
+                note: "no UDP-fit model in this artifact".to_string(),
+            };
+        };
+
+        // Distinct dataset sizes, ascending, straight from the artifact rows.
+        let mut sizes: Vec<u64> = section.rows.iter().map(|row| row.messages).collect();
+        sizes.sort_unstable();
+        sizes.dedup();
+        let size_headers = sizes.iter().map(|&n| fmt_count(n as f64)).collect();
+
+        let mut seen: Vec<(&str, &str)> = Vec::new();
+        let mut rows = Vec::new();
+        for row in &section.rows {
+            let key = (row.profile.as_str(), row.config.as_str());
+            if seen.contains(&key) {
+                continue;
+            }
+            seen.push(key);
+            let cells = sizes
+                .iter()
+                .map(|&size| {
+                    section
+                        .rows
+                        .iter()
+                        .find(|r| {
+                            r.profile == row.profile && r.config == row.config && r.messages == size
+                        })
+                        .map(|r| format!("{:.1}%", r.fit_1232_percent))
+                        .unwrap_or_else(|| "\u{2014}".to_string())
+                })
+                .collect();
+            rows.push(UdpFitTableRow {
+                profile: row.profile_label.clone(),
+                config: row
+                    .config_label
+                    .chars()
+                    .next()
+                    .map(String::from)
+                    .unwrap_or_default(),
+                cells,
+            });
+        }
+
+        let mut parts = vec![
+            format!("share fitting {UDP_MTU_1232} B"),
+            "analytical".to_string(),
+        ];
+        if let Some(v) = section.validation.as_ref() {
+            parts.push(if v.matches {
+                format!("cross-check exact at {} B", v.tolerance_bytes)
+            } else {
+                "cross-check MISMATCH".to_string()
+            });
+        }
+        if let Some(rtt) = section.rtt_ms {
+            parts.push(format!("delay MODELED @ RTT {rtt:.1} ms"));
+        }
+        UdpFitTableData {
+            size_headers,
+            rows,
+            note: parts.join(" \u{b7} "),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::data::test_support::{dns_headline, empty_derived, view_with, wire_size_row};
+    use crate::data::test_support::{
+        dns_headline, empty_derived, udp_fit_section, view_with, wire_size_row,
+    };
 
     #[test]
     fn wire_stacks_split_ladder_and_condensed_with_per_size_scale() {
@@ -307,5 +418,89 @@ mod tests {
         let gauge = view.udp_gauge_data();
         assert!(gauge.markers.is_empty());
         assert_eq!(gauge.axis_max, 0);
+    }
+
+    #[test]
+    fn udp_fit_table_reads_every_number_from_the_artifact() {
+        let mut derived = empty_derived();
+        derived.udp_fit = Some(udp_fit_section(Some(15.0)));
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, derived);
+        let table = view.udp_fit_table();
+
+        assert_eq!(table.size_headers, ["100", "1,000,000"]);
+        assert_eq!(
+            table.rows.len(),
+            6,
+            "two response profiles x three configurations"
+        );
+        assert_eq!(table.rows[0].profile, "Positive A (www)");
+        assert_eq!(table.rows[0].config, "A", "letter from the config label");
+        assert_eq!(
+            table.rows[0].cells,
+            ["100.0%", "90.0%"],
+            "fit share per size column"
+        );
+        assert_eq!(table.rows[2].config, "C");
+        assert_eq!(table.rows[2].cells, ["50.0%", "40.0%"]);
+        assert_eq!(table.rows[3].profile, "NXDOMAIN/NSEC3 (parameter)");
+
+        assert!(
+            table.note.contains(&format!(
+                "share fitting {} B",
+                climb_analytical::UDP_MTU_1232
+            )),
+            "note: {}",
+            table.note
+        );
+        assert!(table.note.contains("analytical"), "note: {}", table.note);
+        assert!(
+            table.note.contains("cross-check exact at 0 B"),
+            "note: {}",
+            table.note
+        );
+        assert!(
+            table.note.contains("delay MODELED @ RTT 15.0 ms"),
+            "note: {}",
+            table.note
+        );
+    }
+
+    #[test]
+    fn udp_fit_table_states_the_missing_section_instead_of_blank_cells() {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        let table = view.udp_fit_table();
+        assert!(table.rows.is_empty());
+        assert!(table.size_headers.is_empty());
+        assert_eq!(table.note, "no UDP-fit model in this artifact");
+    }
+
+    #[test]
+    fn udp_fit_table_omits_cross_check_and_delay_when_the_artifact_has_neither() {
+        let mut section = udp_fit_section(None);
+        section.validation = None;
+        let mut derived = empty_derived();
+        derived.udp_fit = Some(section);
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, derived);
+        let table = view.udp_fit_table();
+        assert!(!table.note.contains("cross-check"), "note: {}", table.note);
+        assert!(!table.note.contains("MODELED"), "note: {}", table.note);
+        assert!(table.rows.iter().all(|r| r.cells.len() == 2));
+    }
+
+    #[test]
+    fn udp_fit_table_reports_a_mismatching_cross_check() {
+        let mut section = udp_fit_section(None);
+        if let Some(v) = section.validation.as_mut() {
+            v.matches = false;
+        }
+        let mut derived = empty_derived();
+        derived.udp_fit = Some(section);
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, derived);
+        let table = view.udp_fit_table();
+        assert!(
+            table.note.contains("cross-check MISMATCH"),
+            "note: {}",
+            table.note
+        );
     }
 }

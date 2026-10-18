@@ -1,0 +1,34 @@
+{
+  "profiles": [
+    {
+      "name": "positive_a",
+      "label": "Positive A (www)",
+      "source": "Captured",
+      "rrsig_count": 1,
+      "overhead_bytes": 107,
+      "overhead_bytes_sigttag": 111,
+      "question_bytes": 23,
+      "note": "Unbound response composition: recorded total 8176, ladder sig field 8069; overhead 107 (SigTag variant gives 111 where applicable)."
+    },
+    {
+      "name": "positive_a_with_ns",
+      "label": "Positive A with NS",
+      "source": "Captured",
+      "rrsig_count": 3,
+      "overhead_bytes": 231,
+      "overhead_bytes_sigttag": 235,
+      "question_bytes": 23,
+      "note": "Full/captured with-NS: overhead includes OPT rdlen 0 and additional section layout; 3 RRSIGs per pass. TC band 0."
+    },
+    {
+      "name": "nxdomain_nsec3",
+      "label": "NXDOMAIN/NSEC3 (parameter)",
+      "source": "Parameter",
+      "rrsig_count": 2,
+      "overhead_bytes": 231,
+      "overhead_bytes_sigttag": 235,
+      "question_bytes": 23,
+      "note": "Parameter, not captured. Reuses captured 231/235 overheads; NSEC3 record bytes are NOT modelled by this analytical fit. RRSIG count parameter only."
+    }
+  ]
+}

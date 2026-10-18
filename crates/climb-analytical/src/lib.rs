@@ -6,6 +6,7 @@
 
 pub mod ladder;
 pub mod reuse;
+pub mod udp_fit;
 
 pub use ladder::{
     auth_path_len, predicted_condensed_len, predicted_ladder_len, rung_for_leaf, rungs, Rung,
@@ -14,6 +15,12 @@ pub use ladder::{
 pub use reuse::{
     effective_bytes, effective_time_ns, reuse_candidates, reuse_model, ReuseInput, ReuseModel,
     ReusePoint, REUSE_CANDIDATES_MEDIUM, REUSE_CANDIDATES_SMALL,
+};
+pub use udp_fit::{
+    builtin_profiles, condensed_histogram, convolve_rrsigs, infer_zone_leaf_count,
+    load_profiles_from_file, tcp_fallback_cost, udp_fit_for_size, udp_query_bytes, ProfileData,
+    ProfileSource, ResponseLengthHistogram, ResponseProfile, SignatureConfig, TcpFallbackCost,
+    UdpFitError, UdpFitRow, COMPARISON_SIZES, UDP_MTU_1232, UDP_MTU_4096,
 };
 
 /// The actual `MTL_TREE_PAGE_SIZE` from `third_party/MTL/src/mtl_node_set.h:57`.

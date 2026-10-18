@@ -429,6 +429,94 @@ pub struct DerivedSummary {
     pub headline: Option<String>,
     #[serde(default)]
     pub reuse: Vec<ReuseResult>,
+    /// Analytical DNS-over-UDP fit and TCP-fallback model, or `None` when no
+    /// plain signature length was available to model with. `#[serde(default)]`
+    /// keeps results written before this section existed parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp_fit: Option<UdpFitSection>,
+}
+
+/// One modelled UDP-fit row: a (profile, config, dataset size) triple.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UdpFitRowArtifact {
+    /// Response-profile name (stable id from the profile data).
+    pub profile: String,
+    /// Human label of the response profile.
+    pub profile_label: String,
+    /// Where the profile's overheads came from: `captured` or `parameter`.
+    pub profile_source: String,
+    /// Signature configuration id: `plain`, `mtl-full`, or `mtl-amortised`.
+    pub config: String,
+    /// Human label of the signature configuration.
+    pub config_label: String,
+    /// Zone leaf count (one batch signs one ladder).
+    pub zone_leaves: u64,
+    /// Messages the band counts are distributed over.
+    pub messages: u64,
+    /// Modelled largest response length in bytes.
+    pub max_response_bytes: u64,
+    /// Messages whose response fits 1,232 bytes.
+    pub fit_1232_count: u64,
+    /// Percentage of messages fitting 1,232 bytes.
+    pub fit_1232_percent: f64,
+    /// Messages in the 1,232 < x ≤ 4,096 TC band.
+    pub tc_band_count: u64,
+    /// Percentage of messages in the TC band.
+    pub tc_band_percent: f64,
+    /// Messages whose response exceeds 4,096 bytes.
+    pub over_4096_count: u64,
+    /// Percentage of messages whose response needs TCP.
+    pub needs_tcp_percent: f64,
+    /// TCP fallback round trips (UDP query + TC, handshake, TCP exchange).
+    pub tcp_round_trips: usize,
+    /// Bytes of the original UDP query.
+    pub tcp_query_bytes: usize,
+    /// TCP payload bytes (response + 4-byte length framing).
+    pub tcp_payload_bytes: usize,
+    /// Modelled fallback delay, only present when an RTT was supplied.
+    pub tcp_modeled_ms: Option<f64>,
+    /// Evidence class: always `analytical` for this section.
+    pub class: EvidenceClass,
+}
+
+/// Cross-check of the model against the recorded capture, at zero tolerance.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UdpFitValidation {
+    /// Zone leaf count inferred from the capture's own signature fields.
+    pub zone_leaves: u64,
+    /// Plain SLH-DSA signature length the model was fed (from the artifact).
+    pub plain_signature_len_bytes: u64,
+    /// Full-response wire length recorded in the capture.
+    pub recorded_full_response_bytes: u64,
+    /// Full-response length produced by the model at the inferred zone size.
+    pub modeled_full_response_bytes: u64,
+    /// Condensed-response wire length recorded in the capture.
+    pub recorded_condensed_response_bytes: u64,
+    /// Condensed-response length produced by the model at the inferred zone
+    /// size.
+    pub modeled_condensed_response_bytes: u64,
+    /// Allowed difference in bytes; always 0 — a mismatch is reported, never
+    /// rounded away.
+    pub tolerance_bytes: u64,
+    /// Whether both modelled lengths equal the recorded ones exactly.
+    pub matches: bool,
+}
+
+/// The analytical UDP-fit section: one row per (profile, config, size) plus
+/// the capture cross-check.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UdpFitSection {
+    /// Modelled rows, in (profile, config, size) order.
+    pub rows: Vec<UdpFitRowArtifact>,
+    /// Model-vs-capture cross-check, when the capture carried signature
+    /// fields to check against.
+    pub validation: Option<UdpFitValidation>,
+    /// RTT assumption (ms) the modelled TCP-fallback delay was computed
+    /// with, or `None` when no RTT was supplied (and so no delay modelled).
+    /// `#[serde(default)]` keeps results written before this field existed
+    /// parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rtt_ms: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -491,6 +579,9 @@ pub struct ConsolidateOptions {
     pub ladder_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
+    /// Assumed round-trip time in milliseconds for the modelled TCP fallback
+    /// cost; without it the fallback delay stays unmodelled.
+    pub rtt_ms: Option<f64>,
     pub output_path: PathBuf,
 }
 
@@ -609,6 +700,9 @@ fn derive_summary(
         overall_verifying_trust_cached_speedup_avg: trust_cached_avg,
         headline: dns_pipeline.and_then(headline_from_dns),
         reuse,
+        // Attached by `consolidate_results` once the plain signature length is
+        // known; the pure derivation has no input for it.
+        udp_fit: None,
     }
 }
 
@@ -683,6 +777,221 @@ fn build_reuse(
             })
         })
         .collect()
+}
+
+/// Artifact-stable configuration id for a signature config.
+const fn config_id(config: climb_analytical::SignatureConfig) -> &'static str {
+    match config {
+        climb_analytical::SignatureConfig::Plain => "plain",
+        climb_analytical::SignatureConfig::MtlFull => "mtl-full",
+        climb_analytical::SignatureConfig::MtlAmortised => "mtl-amortised",
+    }
+}
+
+/// Build the analytical UDP-fit section: one row per (profile, config,
+/// dataset size), plus the cross-check against the recorded capture.
+///
+/// The plain SLH-DSA signature length is read from the first wire row that
+/// carries one; rows that disagree on it produce a warning and the first
+/// value is used. With no plain length at all there is nothing to model
+/// configurations A and B with, so the whole section is `None` and a warning
+/// says why — an absent section, never a fabricated one.
+///
+/// The capture cross-check feeds the model the capture's own inferred zone
+/// size and profile and compares the modelled response lengths against the
+/// recorded wire lengths at zero tolerance. A mismatch is a warning, not a
+/// hard error: the plain length may legitimately have drifted from the
+/// capture's algorithm parameter set since the fixture was recorded.
+fn build_udp_fit(
+    wire_size: &[WireSizeResult],
+    rtt_ms: Option<f64>,
+    warnings: &mut Vec<String>,
+) -> Option<UdpFitSection> {
+    if wire_size.is_empty() {
+        // No wire report at all (never supplied or its absence already
+        // reported): nothing to model with, so the section is simply absent.
+        return None;
+    }
+    let mut plain_len: Option<u64> = None;
+    for w in wire_size {
+        if w.plain_signature_len_bytes == 0 {
+            continue;
+        }
+        match plain_len {
+            None => plain_len = Some(w.plain_signature_len_bytes),
+            Some(known) if known != w.plain_signature_len_bytes => {
+                warnings.push(format!(
+                    "udp fit: wire rows disagree on the plain signature length ({known} vs {}); using the first",
+                    w.plain_signature_len_bytes
+                ));
+            }
+            Some(_) => {}
+        }
+    }
+    let Some(plain_len) = plain_len else {
+        warnings.push(
+            "udp fit: no wire row carries a plain signature length; section omitted".to_string(),
+        );
+        return None;
+    };
+    let Ok(plain_usize) = usize::try_from(plain_len) else {
+        warnings.push(format!(
+            "udp fit: plain signature length {plain_len} is out of range; section omitted"
+        ));
+        return None;
+    };
+
+    let configs = [
+        climb_analytical::SignatureConfig::Plain,
+        climb_analytical::SignatureConfig::MtlFull,
+        climb_analytical::SignatureConfig::MtlAmortised,
+    ];
+    let mut rows = Vec::new();
+    for profile in climb_analytical::builtin_profiles() {
+        for &config in &configs {
+            for size in climb_analytical::COMPARISON_SIZES {
+                match climb_analytical::udp_fit_for_size(config, &profile, size, size, plain_usize)
+                {
+                    Ok(row) => {
+                        let tcp = climb_analytical::tcp_fallback_cost(
+                            row.max_bytes,
+                            profile.question_bytes,
+                            rtt_ms,
+                        );
+                        rows.push(UdpFitRowArtifact {
+                            profile: profile.name.clone(),
+                            profile_label: profile.label.clone(),
+                            profile_source: match profile.source {
+                                climb_analytical::ProfileSource::Captured => "captured",
+                                climb_analytical::ProfileSource::Parameter => "parameter",
+                            }
+                            .to_string(),
+                            config: config_id(config).to_string(),
+                            config_label: config.label().to_string(),
+                            zone_leaves: row.size_n,
+                            messages: row.total_messages,
+                            max_response_bytes: row.max_bytes as u64,
+                            fit_1232_count: row.fit_1232_count,
+                            fit_1232_percent: row.fit_1232_percent,
+                            tc_band_count: row.tc_band_count,
+                            tc_band_percent: row.tc_band_percent,
+                            over_4096_count: row.over_4096_count,
+                            needs_tcp_percent: row.needs_tcp_percent,
+                            tcp_round_trips: tcp.round_trips,
+                            tcp_query_bytes: tcp.udp_query_bytes,
+                            tcp_payload_bytes: tcp.tcp_payload_bytes,
+                            tcp_modeled_ms: tcp.ms_modeled,
+                            class: EvidenceClass::Analytical,
+                        });
+                    }
+                    Err(e) => {
+                        warnings.push(format!(
+                            "udp fit: profile {} / config {} / size {size} failed: {e}",
+                            profile.name,
+                            config_id(config)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    let validation = validate_udp_fit_against_capture(plain_len, plain_usize, warnings);
+
+    Some(UdpFitSection {
+        rows,
+        validation,
+        rtt_ms,
+    })
+}
+
+/// Cross-check the model against the recorded capture's headline responses.
+///
+/// The capture's full and condensed passes each carry `rrsig_count` matching
+/// signature fields; their lengths plus the plain signature length pin the
+/// zone size (a single-rung ladder). The model is then run at that zone size
+/// with the captured with-NS profile and its response lengths compared
+/// against the capture's recorded wire lengths, at zero tolerance.
+fn validate_udp_fit_against_capture(
+    plain_len: u64,
+    plain_usize: usize,
+    warnings: &mut Vec<String>,
+) -> Option<UdpFitValidation> {
+    let (full, condensed) = climb_dns::recorded_headline_anatomies();
+    let (Some(full_field), Some(cond_field)) = (
+        full.rrsig_entries.first().map(|e| e.signature_len),
+        condensed.rrsig_entries.first().map(|e| e.signature_len),
+    ) else {
+        warnings.push(
+            "udp fit: recorded capture carries no signature fields; validation omitted".to_string(),
+        );
+        return None;
+    };
+    let (Ok(full_usize), Ok(cond_usize)) =
+        (usize::try_from(full_field), usize::try_from(cond_field))
+    else {
+        warnings.push(
+            "udp fit: recorded signature fields are out of range; validation omitted".to_string(),
+        );
+        return None;
+    };
+    let Some(zone_leaves) =
+        climb_analytical::infer_zone_leaf_count(full_usize, cond_usize, plain_usize)
+    else {
+        warnings.push(format!(
+            "udp fit: cannot infer the capture's zone size from full={full_field} condensed={cond_field} plain={plain_len}; validation omitted"
+        ));
+        return None;
+    };
+    let Some(profile) = climb_analytical::builtin_profiles()
+        .into_iter()
+        .find(|p| p.name == "positive_a_with_ns")
+    else {
+        warnings.push(
+            "udp fit: captured with-NS profile missing from the profile data; validation omitted"
+                .to_string(),
+        );
+        return None;
+    };
+    let full_row = climb_analytical::udp_fit_for_size(
+        climb_analytical::SignatureConfig::MtlFull,
+        &profile,
+        zone_leaves,
+        zone_leaves,
+        plain_usize,
+    );
+    let cond_row = climb_analytical::udp_fit_for_size(
+        climb_analytical::SignatureConfig::MtlAmortised,
+        &profile,
+        zone_leaves,
+        zone_leaves,
+        plain_usize,
+    );
+    let (Ok(full_row), Ok(cond_row)) = (full_row, cond_row) else {
+        warnings.push(
+            "udp fit: model failed at the capture's inferred zone size; validation omitted"
+                .to_string(),
+        );
+        return None;
+    };
+    let matches =
+        full_row.max_bytes == full.wire_length && cond_row.max_bytes == condensed.wire_length;
+    if !matches {
+        warnings.push(format!(
+            "udp fit: model does not reproduce the recorded wire lengths (full {} vs recorded {}, condensed {} vs recorded {}); the plain signature length may have drifted since the capture",
+            full_row.max_bytes, full.wire_length, cond_row.max_bytes, condensed.wire_length
+        ));
+    }
+    Some(UdpFitValidation {
+        zone_leaves,
+        plain_signature_len_bytes: plain_len,
+        recorded_full_response_bytes: full.wire_length as u64,
+        modeled_full_response_bytes: full_row.max_bytes as u64,
+        recorded_condensed_response_bytes: condensed.wire_length as u64,
+        modeled_condensed_response_bytes: cond_row.max_bytes as u64,
+        tolerance_bytes: 0,
+        matches,
+    })
 }
 
 /// Dataset sizes and message counts used for configuration A and the
@@ -1194,13 +1503,14 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let plain = plain_timings(&plain_records);
     let comparisons = build_comparisons(&wire_size, &signing, &verifying, &plain);
 
-    let derived = derive_summary(
+    let mut derived = derive_summary(
         &wire_size,
         &signing,
         &verifying,
         &plain,
         dns_pipeline.as_ref(),
     );
+    derived.udp_fit = build_udp_fit(&wire_size, opts.rtt_ms, &mut warnings);
 
     let results = ClimbResults {
         version: "1.0".to_string(),
@@ -1828,6 +2138,7 @@ mod tests {
                 overall_verifying_trust_cached_speedup_avg: None,
                 headline: None,
                 reuse: Vec::new(),
+                udp_fit: None,
             },
             warnings: Vec::new(),
         };
@@ -2059,6 +2370,7 @@ mod tests {
             ladder_fixture_path: root.join("nonexistent-ladder-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
+            rtt_ms: None,
             output_path: root.join("out.json"),
         };
 
@@ -2120,6 +2432,7 @@ mod tests {
             ladder_verification_path: root.join("ladder-live.json"),
             ladder_fixture_path: root.join("ladder-fixture.json"),
             environment_path: root.join("environment.json"),
+            rtt_ms: None,
             baseline: "new".to_string(),
             output_path: output.clone(),
         };
@@ -2205,6 +2518,7 @@ mod tests {
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-ladder-live.json"),
             ladder_fixture_path: root.join("no-ladder-fixture.json"),
+            rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             output_path: root.join("out.json"),
@@ -2228,11 +2542,15 @@ mod tests {
         let results = consolidate_with(&root, Some(wire), Some(memory));
 
         assert_eq!(results.memory.measured.len(), 3);
-        assert!(
-            results.warnings.is_empty(),
+        // The legacy wire fixture carries no plain signature length, so the
+        // UDP-fit section is omitted and the omission is reported.
+        assert_eq!(
+            results.warnings,
+            ["udp fit: no wire row carries a plain signature length; section omitted"],
             "warnings={:?}",
             results.warnings
         );
+        assert!(results.derived.udp_fit.is_none());
 
         // The harness payload term is the wire row's condensed sum
         // (with_mtl_total - ladder_len) plus the ladder, plus (n+1) x 32.
@@ -2314,12 +2632,80 @@ mod tests {
         fs::write(&memory, MEMORY_REPORT_JSON).unwrap();
 
         let results = consolidate_with(&root, Some(wire), Some(memory));
+        // The legacy rows still parse; only the UDP-fit section is missing,
+        // and that gap is reported rather than silently ignored.
+        assert_eq!(
+            results.warnings,
+            ["udp fit: no wire row carries a plain signature length; section omitted"],
+            "warnings={:?}",
+            results.warnings
+        );
+        assert_eq!(results.wire_size.len(), 3);
+        assert!(results.derived.udp_fit.is_none());
+    }
+
+    #[test]
+    fn consolidate_builds_udp_fit_rows_from_plain_wire_rows() {
+        let root = temp_root("udp-fit");
+        let wire = root.join("wire.json");
+        let memory = root.join("memory.json");
+        fs::write(&wire, WIRE_REPORT_JSON_WITH_PLAIN).unwrap();
+        fs::write(&memory, MEMORY_REPORT_JSON).unwrap();
+
+        let results = consolidate_with(&root, Some(wire), Some(memory));
         assert!(
             results.warnings.is_empty(),
             "warnings={:?}",
             results.warnings
         );
-        assert_eq!(results.wire_size.len(), 3);
+        let section = results
+            .derived
+            .udp_fit
+            .as_ref()
+            .expect("udp-fit section from plain wire rows");
+        // Three response profiles x three signature configurations x four
+        // comparison sizes.
+        assert_eq!(section.rows.len(), 36);
+        assert!(section.rows.iter().all(|r| r.messages > 0));
+        assert_eq!(section.rtt_ms, None, "no RTT was supplied");
+        let validation = section.validation.as_ref().expect("capture cross-check");
+        assert_eq!(validation.tolerance_bytes, 0);
+        assert!(
+            validation.matches,
+            "modelled {} vs recorded {} (full), {} vs {} (condensed)",
+            validation.modeled_full_response_bytes,
+            validation.recorded_full_response_bytes,
+            validation.modeled_condensed_response_bytes,
+            validation.recorded_condensed_response_bytes
+        );
+    }
+
+    #[test]
+    fn consolidate_without_wire_report_omits_udp_fit_silently() {
+        let root = temp_root("udp-fit-no-wire");
+        let criterion = root.join("criterion");
+        fs::create_dir_all(&criterion).unwrap();
+        let opts = ConsolidateOptions {
+            force: true,
+            criterion_dir: criterion,
+            wire_report_path: None,
+            memory_report_path: None,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-ladder-live.json"),
+            ladder_fixture_path: root.join("no-ladder-fixture.json"),
+            rtt_ms: None,
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            output_path: root.join("out.json"),
+        };
+        let results = consolidate_results(opts).unwrap();
+        assert!(
+            results.warnings.is_empty(),
+            "warnings={:?}",
+            results.warnings
+        );
+        assert!(results.derived.udp_fit.is_none());
     }
 
     #[test]
@@ -2575,6 +2961,7 @@ mod tests {
             dns_capture_path: root.join("no-capture.json"),
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-live.json"),
+            rtt_ms: None,
             ladder_fixture_path: fixture,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),

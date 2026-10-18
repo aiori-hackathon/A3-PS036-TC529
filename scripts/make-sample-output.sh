@@ -13,12 +13,13 @@ cp target/climb-report/charts/transmitted_bytes.svg "$OUT/" 2>/dev/null || cp "$
 cp target/climb-report/charts/amortization_curve.svg "$OUT/" 2>/dev/null || cp "$REPRO_OUT/target/climb-report/charts/amortization_curve.svg" "$OUT/" 2>/dev/null || true
 cp target/climb-report/charts/memory_measured_vs_analytical.svg "$OUT/" 2>/dev/null || cp "$REPRO_OUT/target/climb-report/charts/memory_measured_vs_analytical.svg" "$OUT/" 2>/dev/null || true
 cp target/climb-report/charts/reuse_curve.svg "$OUT/" 2>/dev/null || cp "$REPRO_OUT/target/climb-report/charts/reuse_curve.svg" "$OUT/" 2>/dev/null || true
+cp target/climb-report/charts/udp_fit.svg "$OUT/" 2>/dev/null || cp "$REPRO_OUT/target/climb-report/charts/udp_fit.svg" "$OUT/" 2>/dev/null || true
 cp target/climb-results.json "$OUT/" 2>/dev/null || cp "$REPRO_OUT/target/climb-results.json" "$OUT/" 2>/dev/null || true
 cp data/dns-capture.recorded.json "$OUT/" 2>/dev/null || cp "$REPRO_OUT/data/dns-capture.recorded.json" "$OUT/" 2>/dev/null || true
 cp data/ladder-verification.recorded.json "$OUT/" 2>/dev/null || cp "$REPRO_OUT/data/ladder-verification.recorded.json" "$OUT/" 2>/dev/null || true
 
 cd "$OUT"
-sha256sum report.html signing_time.svg verifying_time.svg transmitted_bytes.svg amortization_curve.svg memory_measured_vs_analytical.svg reuse_curve.svg climb-results.json dns-capture.recorded.json ladder-verification.recorded.json > SHA256SUMS 2>&1 || true
+sha256sum report.html signing_time.svg verifying_time.svg transmitted_bytes.svg amortization_curve.svg memory_measured_vs_analytical.svg reuse_curve.svg udp_fit.svg climb-results.json dns-capture.recorded.json ladder-verification.recorded.json > SHA256SUMS 2>&1 || true
 
 COMMIT=$(git rev-parse HEAD)
 RUSTC=$(rustc --version)

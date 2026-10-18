@@ -1,6 +1,6 @@
 //! SVG rendering for the Phase 16 report charts.
 //!
-//! Turns the prepared series from [`super`] into six self-contained SVG
+//! Turns the prepared series from [`super`] into seven self-contained SVG
 //! files. The measured-vs-modelled distinction is a rendering rule applied to
 //! every chart, not a per-chart choice:
 //!
@@ -19,9 +19,11 @@ use std::path::Path;
 use plotters::coord::Shift;
 use plotters::element::ErrorBarOrientV;
 use plotters::prelude::*;
+use plotters::style::text_anchor::{HPos, Pos, VPos};
 
 use super::{
-    AmortizationData, BarChartData, MemoryData, COLOR_MODEL, COLOR_WITHOUT_MTL, COLOR_WITH_MTL,
+    AmortizationData, BarChartData, MemoryData, UdpFitData, COLOR_MODEL, COLOR_WITHOUT_MTL,
+    COLOR_WITH_MTL,
 };
 use crate::error::ReportError;
 use crate::summary::condition_label;
@@ -83,12 +85,25 @@ pub const REUSE_FOOTNOTES: [&str; 3] = [
     "Both series normalised to baseline (per-message): values < 1.0 mean the reused/amortised path beats the baseline for that r.",
 ];
 
+/// Footnotes for the modelled UDP-fit chart.
+pub const UDP_FIT_FOOTNOTES: [&str; 3] = [
+    "Source: target/climb-results.json → derived.udp_fit (analytical model; response profiles ship alongside the model as a data file).",
+    "Every bar is modelled, not measured: the largest response length carrying at least one message in the modelled length distribution for that dataset size, one hollow bar per signature configuration (A plain SLH-DSA, B MTL non-amortised, C MTL amortised).",
+    "Horizontal lines mark the 1,232-byte EDNS UDP fit threshold and the 4,096-byte practical ceiling above which UDP is not attempted; a bar above a line exceeds that limit for its dataset size.",
+];
+
 /// Canvas width for every chart, in pixels.
 const CHART_W: u32 = 960;
 /// Canvas height for the grouped bar charts.
 const BAR_H: u32 = 640;
 /// Canvas height for the amortization and memory charts.
 const CURVE_H: u32 = 600;
+/// Canvas height for the stacked UDP-fit chart (one panel per profile, plus
+/// the title strip).
+const UDP_FIT_H: u32 = 910;
+/// Height reserved at the top of the UDP-fit canvas for the chart title, so
+/// the per-panel captions below it never have to double as the title.
+const UDP_FIT_TITLE_H: u32 = 30;
 /// Height reserved at the bottom of the canvas for the footnote block.
 const FOOT_H: u32 = 48;
 
@@ -944,6 +959,217 @@ pub fn draw_reuse(
             .label_font(("sans-serif", 11))
             .draw()
             .map_err(|e| chart_err(path, e))?;
+    }
+
+    draw_footnotes(&foot, footnotes).map_err(|e| chart_err(path, e))?;
+    root.present().map_err(|e| chart_err(path, e))?;
+    Ok(())
+}
+
+/// Render the modelled UDP-fit chart: one stacked panel per response
+/// profile, each showing grouped log-scale bars (one hollow bar per
+/// signature configuration at each dataset size) with threshold lines at
+/// the EDNS UDP fit size and the TCP-fallback ceiling.
+///
+/// Every value plotted here is an output of the analytical model — no bar
+/// is a measurement — so all bars are hollow and the legend is drawn once
+/// on the first panel.
+pub fn draw_udp_fit(
+    path: &Path,
+    data: &UdpFitData,
+    footnotes: &[&str; 3],
+) -> Result<(), ReportError> {
+    let root = SVGBackend::new(path, (CHART_W, UDP_FIT_H)).into_drawing_area();
+    root.fill(&WHITE).map_err(|e| chart_err(path, e))?;
+    let (plot, foot) = root.split_vertically(UDP_FIT_H - FOOT_H);
+    // The overall title gets its own strip: each panel below carries a caption
+    // naming its response profile, so neither can stand in for the other.
+    let (title_area, plot) = plot.split_vertically(UDP_FIT_TITLE_H);
+    let (title_w, _) = title_area.dim_in_pixel();
+    title_area
+        .draw_text(
+            data.title.as_str(),
+            &TextStyle::from(("sans-serif", 17))
+                .color(&BLACK)
+                .pos(Pos::new(HPos::Center, VPos::Top)),
+            (i32::try_from(title_w).unwrap_or(0) / 2, 4),
+        )
+        .map_err(|e| chart_err(path, e))?;
+
+    if data.panels.is_empty() {
+        plot.draw_text(
+            "No modelled UDP-fit rows in this artifact.",
+            &TextStyle::from(("sans-serif", 15)).color(&RGBColor(95, 95, 100)),
+            (300, 340),
+        )
+        .map_err(|e| chart_err(path, e))?;
+        draw_footnotes(&foot, footnotes).map_err(|e| chart_err(path, e))?;
+        root.present().map_err(|e| chart_err(path, e))?;
+        return Ok(());
+    }
+
+    let udp_1232: usize = climb_analytical::UDP_MTU_1232;
+    let udp_4096: usize = climb_analytical::UDP_MTU_4096;
+    let limit_1232 = udp_1232 as f64;
+    let limit_4096 = udp_4096 as f64;
+
+    // Shared x range (dataset sizes) across all panels.
+    let (mut n_lo, mut n_hi) = (f64::INFINITY, 0.0f64);
+    // Shared y range, widened to contain both threshold lines so they are
+    // always drawn inside the axes.
+    let (mut y_lo, mut y_hi) = (f64::INFINITY, 0.0f64);
+    for panel in &data.panels {
+        for series in &panel.series {
+            for p in &series.points {
+                if p.value > 0.0 {
+                    n_lo = n_lo.min(p.n as f64);
+                    n_hi = n_hi.max(p.n as f64);
+                    y_lo = y_lo.min(p.value);
+                    y_hi = y_hi.max(p.value);
+                }
+            }
+        }
+    }
+    let (x_lo, x_hi) = if n_lo.is_finite() && n_hi > 0.0 {
+        (n_lo * 0.4, n_hi * 2.5)
+    } else {
+        (40.0, 2_500_000.0)
+    };
+    let (y_lo, y_hi) = if y_lo.is_finite() {
+        (y_lo.min(limit_1232), y_hi.max(limit_4096))
+    } else {
+        (limit_1232, limit_4096)
+    };
+    let (y_lo, y_hi) = decade_bounds(y_lo, y_hi);
+
+    let line_1232 = RGBAColor(214, 94, 0, 1.0);
+    let line_4096 = RGBAColor(170, 25, 25, 1.0);
+
+    let areas = plot.split_evenly((data.panels.len(), 1));
+    for (idx, (panel, area)) in data.panels.iter().zip(areas.iter()).enumerate() {
+        let first = idx == 0;
+        let heading = format!("{} ({})", panel.profile_label, panel.profile_source);
+        let mut chart = ChartBuilder::on(area)
+            .margin(MARGIN)
+            .caption(heading.as_str(), ("sans-serif", 14))
+            .x_label_area_size(46)
+            .y_label_area_size(Y_LABEL_AREA)
+            .build_cartesian_2d((x_lo..x_hi).log_scale(), (y_lo..y_hi).log_scale())
+            .map_err(|e| chart_err(path, e))?;
+
+        let mut mesh = chart.configure_mesh();
+        mesh.y_label_formatter(&|v: &f64| format!("{:.0}", *v))
+            .x_label_formatter(&|v: &f64| format!("{:.0}", *v))
+            .label_style(("sans-serif", 11))
+            .axis_desc_style(("sans-serif", 12));
+        if first {
+            mesh.y_desc(data.y_desc.as_str());
+        }
+        if idx + 1 == data.panels.len() {
+            mesh.x_desc(data.x_desc.as_str());
+        }
+        mesh.draw().map_err(|e| chart_err(path, e))?;
+
+        // Grouped bars: white bodies first (so the grid reads behind them),
+        // then the coloured outlines that carry the legend entries.
+        let s_count = panel.series.len();
+        let slot = 0.62_f64; // decades per group slot
+        let bar_w = if s_count > 0 {
+            slot / s_count as f64
+        } else {
+            slot
+        };
+        for (i, series) in panel.series.iter().enumerate() {
+            let offset = (i as f64 - (s_count as f64 - 1.0) / 2.0) * bar_w;
+            let bodies: Vec<Rectangle<(f64, f64)>> = series
+                .points
+                .iter()
+                .filter(|p| p.value > 0.0 && p.value >= y_lo)
+                .filter_map(|p| {
+                    let c = (p.n as f64).log10() + offset;
+                    let left = 10f64.powf(c - bar_w / 2.0);
+                    let right = 10f64.powf(c + bar_w / 2.0);
+                    if left < x_lo || right > x_hi {
+                        return None;
+                    }
+                    Some(Rectangle::new(
+                        [(left, y_lo), (right, p.value)],
+                        ShapeStyle::from(WHITE).filled(),
+                    ))
+                })
+                .collect();
+            if bodies.is_empty() {
+                continue;
+            }
+            chart.draw_series(bodies).map_err(|e| chart_err(path, e))?;
+
+            let outline = ShapeStyle::from(series.color).stroke_width(2);
+            let rects: Vec<Rectangle<(f64, f64)>> = series
+                .points
+                .iter()
+                .filter(|p| p.value > 0.0 && p.value >= y_lo)
+                .filter_map(|p| {
+                    let c = (p.n as f64).log10() + offset;
+                    let left = 10f64.powf(c - bar_w / 2.0);
+                    let right = 10f64.powf(c + bar_w / 2.0);
+                    if left < x_lo || right > x_hi {
+                        return None;
+                    }
+                    Some(Rectangle::new([(left, y_lo), (right, p.value)], outline))
+                })
+                .collect();
+            let drawings = chart.draw_series(rects).map_err(|e| chart_err(path, e))?;
+            if first {
+                let color = series.color;
+                let label = series.label.clone();
+                drawings.label(label).legend(move |(x, y)| {
+                    Rectangle::new(
+                        [(x, y), (x + 16, y + 11)],
+                        ShapeStyle::from(color).stroke_width(2),
+                    )
+                });
+            }
+        }
+
+        // Threshold lines on top of the bars so they stay visible where a
+        // bar crosses them.
+        let drawings = chart
+            .draw_series(LineSeries::new(
+                [(x_lo, limit_1232), (x_hi, limit_1232)],
+                line_1232.stroke_width(2),
+            ))
+            .map_err(|e| chart_err(path, e))?;
+        if first {
+            let color = line_1232;
+            drawings
+                .label(format!("EDNS UDP fit limit: {udp_1232} B"))
+                .legend(move |(x, y)| PathElement::new(vec![(x, y + 5), (x + 16, y + 5)], color));
+        }
+        let drawings = chart
+            .draw_series(LineSeries::new(
+                [(x_lo, limit_4096), (x_hi, limit_4096)],
+                line_4096.stroke_width(2),
+            ))
+            .map_err(|e| chart_err(path, e))?;
+        if first {
+            let color = line_4096;
+            drawings
+                .label(format!(
+                    "Above {udp_4096} B: UDP not attempted (TCP fallback)"
+                ))
+                .legend(move |(x, y)| PathElement::new(vec![(x, y + 5), (x + 16, y + 5)], color));
+        }
+
+        if first {
+            chart
+                .configure_series_labels()
+                .position(SeriesLabelPosition::UpperLeft)
+                .background_style(WHITE.mix(0.85))
+                .border_style(BLACK)
+                .label_font(("sans-serif", 11))
+                .draw()
+                .map_err(|e| chart_err(path, e))?;
+        }
     }
 
     draw_footnotes(&foot, footnotes).map_err(|e| chart_err(path, e))?;

@@ -91,7 +91,7 @@ enum Commands {
     /// Verify the consolidated results carry one memory row per size described
     /// by the memory report, so a silently-empty memory section fails the chain.
     VerifyConsolidated(VerifyConsolidatedArgs),
-    /// Render the six SVG report charts from consolidated results.
+    /// Render the seven SVG report charts from consolidated results.
     ///
     /// Reads `target/climb-results.json` (Phase 15) and writes
     /// `target/climb-report/charts/*.svg` (Phase 16).
@@ -153,7 +153,7 @@ struct ReportArgs {
     #[arg(long, default_value = "target/climb-results.json")]
     results: PathBuf,
 
-    /// Directory holding the six SVG charts (`--format html`).
+    /// Directory holding the seven SVG charts (`--format html`).
     #[arg(long, default_value = "target/climb-report/charts")]
     charts: PathBuf,
 

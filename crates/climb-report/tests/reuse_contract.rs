@@ -99,7 +99,7 @@ fn committed_reuse_section_renders_through_charts_and_report() {
     let charts = dir.join("charts");
 
     let paths = climb_report::charts::generate_charts(&results, &charts).expect("charts");
-    assert_eq!(paths.len(), 6);
+    assert_eq!(paths.len(), 7);
     let reuse_svg = charts.join("reuse_curve.svg");
     assert!(reuse_svg.exists(), "the reuse chart must be written");
     let svg = std::fs::read_to_string(&reuse_svg).expect("read reuse svg");

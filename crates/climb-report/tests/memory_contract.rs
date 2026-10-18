@@ -36,6 +36,7 @@ fn consolidate_memory(
         ladder_fixture_path: root.join("no-ladder-fixture.json"),
         environment_path: root.join("no-env.json"),
         baseline: "new".to_string(),
+        rtt_ms: None,
         output_path: root.join("out.json"),
     })
 }

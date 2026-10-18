@@ -87,13 +87,14 @@ fn resolve_summary_id(id: &str, claims: &[Claim]) -> Option<String> {
 }
 
 /// Figure captions, index-aligned with [`CHART_FILES`].
-const CHART_CAPTIONS: [&str; 6] = [
+const CHART_CAPTIONS: [&str; 7] = [
     "Batch signing time per dataset size — solid bars are Criterion-measured means with 95% CI whiskers; hollow bars are extrapolated.",
     "Batch verification time per dataset size, including trust-cached ladder rows (measured only).",
     "Transmitted bytes — MTL amortised (condensed signature + one signed ladder) vs no amortisation (full MTL signature on every message); both series measured from real output, no modelling.",
     "MTL-amortised signing: measured per-message cost and the OLS fit of the batch total.",
     "Measured peak and resident RSS deltas against the itemised analytical model (libMTL pages + harness buffers + dataset buffers + keypair), with recomputed ratios and residual.",
     "Ladder reuse model: effective per-message time and bytes as a fraction of the unamortised baseline, against reuse count r (log–log). The flat line at 1.0× is parity; a curve crossing it marks the break-even reuse r*.",
+    "Modelled DNS response size over UDP vs dataset size — largest response length per signature configuration, against the 1,232-byte EDNS fit threshold and the 4,096-byte TCP-fallback ceiling. Every bar is analytical; none is a measurement.",
 ];
 
 /// Escape text for HTML body/attribute context.
@@ -447,6 +448,153 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         );
     }
 
+    // UDP fit: one claim group per modelled row, plus the capture
+    // cross-check. Registered only when the section will render (non-empty
+    // `derived.udp_fit`), so the registry and the body stay in lockstep.
+    if let Some(udp) = results
+        .derived
+        .udp_fit
+        .as_ref()
+        .filter(|section| !section.rows.is_empty())
+    {
+        push_claim(
+            &mut claims,
+            &root,
+            "udpfit-rt",
+            "/derived/udp_fit/rows/0/tcp_round_trips",
+            Some(format!("{} round trips", udp.rows[0].tcp_round_trips)),
+        );
+        push_claim(
+            &mut claims,
+            &root,
+            "udpfit-rtt",
+            "/derived/udp_fit/rtt_ms",
+            udp.rtt_ms.map(|rtt| format!("{rtt:.1} ms")),
+        );
+        for (idx, row) in udp.rows.iter().enumerate() {
+            let base = format!("/derived/udp_fit/rows/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-messages"),
+                &format!("{base}/messages"),
+                Some(row.messages.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-max"),
+                &format!("{base}/max_response_bytes"),
+                Some(row.max_response_bytes.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-fit-pct"),
+                &format!("{base}/fit_1232_percent"),
+                Some(format!("{:.1}%", row.fit_1232_percent)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-tc-pct"),
+                &format!("{base}/tc_band_percent"),
+                Some(format!("{:.1}%", row.tc_band_percent)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-tcp-pct"),
+                &format!("{base}/needs_tcp_percent"),
+                Some(format!("{:.1}%", row.needs_tcp_percent)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-payload"),
+                &format!("{base}/tcp_payload_bytes"),
+                Some(format!("{} B", row.tcp_payload_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-delay"),
+                &format!("{base}/tcp_modeled_ms"),
+                row.tcp_modeled_ms.map(|ms| format!("{ms:.1} ms")),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-{idx}-class"),
+                &format!("{base}/class"),
+                Some(row.class.label().to_string()),
+            );
+        }
+        if let Some(v) = udp.validation.as_ref() {
+            let base = "/derived/udp_fit/validation";
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-zone",
+                &format!("{base}/zone_leaves"),
+                Some(v.zone_leaves.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-plain",
+                &format!("{base}/plain_signature_len_bytes"),
+                Some(format!("{} B", v.plain_signature_len_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-full-recorded",
+                &format!("{base}/recorded_full_response_bytes"),
+                Some(format!("{} B", v.recorded_full_response_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-full-modeled",
+                &format!("{base}/modeled_full_response_bytes"),
+                Some(format!("{} B", v.modeled_full_response_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-cond-recorded",
+                &format!("{base}/recorded_condensed_response_bytes"),
+                Some(format!("{} B", v.recorded_condensed_response_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-cond-modeled",
+                &format!("{base}/modeled_condensed_response_bytes"),
+                Some(format!("{} B", v.modeled_condensed_response_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-tolerance",
+                &format!("{base}/tolerance_bytes"),
+                Some(format!("{} B", v.tolerance_bytes)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-val-matches",
+                &format!("{base}/matches"),
+                Some(if v.matches {
+                    "exact match".to_string()
+                } else {
+                    "MISMATCH".to_string()
+                }),
+            );
+        }
+    }
+
     // Ladder: model vs libMTL.  Claims are registered only when the section is
     // actually rendered, so the registry and the body stay in lockstep.
     if let Some(ladder) = results
@@ -676,6 +824,84 @@ fn render_reuse_section(results: &ClimbResults, claims: &[Claim]) -> String {
     )
 }
 
+/// Render the analytical UDP-fit section: one row per (profile, config,
+/// dataset size) plus the zero-tolerance capture cross-check, every value
+/// read from the registered claims so the body contains each registered
+/// value verbatim — the property [`check_claims`] enforces. Returns an empty
+/// string when no UDP-fit model was folded into the results.
+fn render_udp_fit_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    let Some(section) = results
+        .derived
+        .udp_fit
+        .as_ref()
+        .filter(|section| !section.rows.is_empty())
+    else {
+        return String::new();
+    };
+    let value = |id: &str| -> String {
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for (idx, row) in section.rows.iter().enumerate() {
+        let delay = match row.tcp_modeled_ms {
+            Some(_) => format!(
+                "MODELED {} (RTT {})",
+                value(&format!("udpfit-{idx}-delay")),
+                value("udpfit-rtt")
+            ),
+            None => "\u{2014}".to_string(),
+        };
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&row.profile_label),
+            escape_html(&row.config_label),
+            escape_html(&value(&format!("udpfit-{idx}-messages"))),
+            escape_html(&value(&format!("udpfit-{idx}-max"))),
+            escape_html(&value(&format!("udpfit-{idx}-fit-pct"))),
+            escape_html(&value(&format!("udpfit-{idx}-tc-pct"))),
+            escape_html(&value(&format!("udpfit-{idx}-tcp-pct"))),
+            escape_html(&value(&format!("udpfit-{idx}-payload"))),
+            escape_html(&delay),
+            escape_html(&value(&format!("udpfit-{idx}-class"))),
+        ));
+    }
+
+    let validation_html = match section.validation.as_ref() {
+        Some(_) => format!(
+            "<p class=\"note\">Capture cross-check at zero tolerance: zone inferred as {} leaves from a plain signature of {}; modelled vs recorded full response {} vs {}, condensed {} vs {}; tolerance {} &mdash; <strong>{}</strong>.</p>\n",
+                value("udpfit-val-zone"),
+                value("udpfit-val-plain"),
+                value("udpfit-val-full-modeled"),
+                value("udpfit-val-full-recorded"),
+                value("udpfit-val-cond-modeled"),
+                value("udpfit-val-cond-recorded"),
+                value("udpfit-val-tolerance"),
+                value("udpfit-val-matches"),
+            ),
+        None => String::new(),
+    };
+
+    let delay_html = if section.rtt_ms.is_some() {
+        format!(
+            "Fallback delay is shown as <strong>MODELED</strong> at an assumed RTT of {} &mdash; a computed figure at that assumption, not a measurement.",
+            value("udpfit-rtt")
+        )
+    } else {
+        "Fallback delay is omitted: no RTT was supplied to the consolidator, so no delay was modelled."
+            .to_string()
+    };
+
+    format!(
+        "<section aria-labelledby=\"udpfit-h\">\n<h2 id=\"udpfit-h\">DNS over UDP: fit and TCP fallback</h2>\n<p class=\"note\">Analytical model, not measurement (evidence class ANALYTICAL): each response profile&rsquo;s length distribution is modelled for each signature configuration &mdash; A plain SLH-DSA, B MTL non-amortised, C MTL amortised &mdash; and banded against the 1,232-byte EDNS UDP fit threshold and the 4,096-byte ceiling above which UDP is not attempted. Percentages are shares of that row&rsquo;s messages; &ldquo;max response&rdquo; is the largest length carrying at least one modelled message. TCP fallback is modelled as {} with the TCP payload adding 4 bytes of length framing to the response. {}\n{validation_html}<table class=\"memtable\">\n<thead><tr><th>Profile</th><th>Config</th><th>Messages</th><th>Max response (B)</th><th>Fits &le;1,232 B</th><th>TC band (1,232&ndash;4,096 B)</th><th>Needs TCP (&gt;4,096 B)</th><th>TCP payload</th><th>Fallback delay</th><th>Evidence</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
+        value("udpfit-rt"),
+        delay_html,
+        rows = rows,
+    )
+}
+
 /// Render the three-way wire-size comparison table (A/B/C).
 fn render_wire_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
     if results.comparisons.is_empty() {
@@ -814,6 +1040,7 @@ pub fn render_html(
     let memory_html = render_memory_section(results, &claims);
     let ladder_html = render_ladder_section(results, &claims);
     let reuse_html = render_reuse_section(results, &claims);
+    let udp_fit_html = render_udp_fit_section(results, &claims);
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
 
@@ -884,7 +1111,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}{reuse_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -1160,6 +1387,7 @@ mod tests {
                 overall_verifying_trust_cached_speedup_avg: Some(10.125),
                 headline: Some("MTL cuts www.a wire bytes by 97.3%.".to_string()),
                 reuse: Vec::new(),
+                udp_fit: None,
             },
             warnings: Vec::new(),
         }
@@ -1395,6 +1623,7 @@ mod tests {
             largest_wire_reduction_percent: None,
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
+            udp_fit: None,
             reuse: Vec::new(),
         };
         results.dns_pipeline = None;

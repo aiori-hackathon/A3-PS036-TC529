@@ -51,6 +51,7 @@ fn consolidate_from_committed_fixture(root: &Path) -> climb_report::ClimbResults
         ladder_fixture_path: ladder_fixture(),
         environment_path: root.join("no-env.json"),
         baseline: "new".to_string(),
+        rtt_ms: None,
         output_path: root.join("climb-results.json"),
     })
     .expect("consolidate from the committed ladder fixture")
@@ -73,6 +74,7 @@ fn consolidate(
         ladder_verification_path: live,
         ladder_fixture_path: fixture,
         environment_path: root.join("no-env.json"),
+        rtt_ms: None,
         baseline: "new".to_string(),
         output_path: root.join("climb-results.json"),
     })
