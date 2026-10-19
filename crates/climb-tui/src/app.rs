@@ -11,11 +11,15 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
-use crate::data::{LadderLoadState, LoadState, ValueMode};
+use crate::data::{LadderLoadState, LiveLoadState, LoadState, ValueMode};
 use crate::theme::{ColorDepth, Theme, ThemeId};
 use crate::widgets::ladder_view::{
     MAX_LEAVES as LADDER_MAX_LEAVES, MIN_LEAVES as LADDER_MIN_LEAVES,
 };
+
+/// Replay beat on the Live tab: one step per second at the runtime's 30 fps
+/// tick.
+pub const LIVE_AUTOPLAY_TICKS: usize = 30;
 
 /// The dashboard's tabs, in display order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,10 +115,15 @@ pub enum Action {
     LadderUp,
     /// Shrink the modelled ladder by one leaf (Ladder tab).
     LadderDown,
-    /// Toggle the "one big post-quantum signature" banner (Ladder tab).
+    /// Toggle the "one big post-quantum signature" banner (Ladder tab); step
+    /// the replay forward (Live tab).
     ToggleBanner,
-    /// Toggle automatic leaf advance (Ladder tab).
+    /// Toggle automatic leaf advance (Ladder tab) or replay advance (Live tab).
     ToggleAutoplay,
+    /// Step the Live replay back one packet leg (Live tab).
+    LivePrevStep,
+    /// Toggle the Live bar scale between linear and log10 (Live tab).
+    ToggleScale,
     /// Cycle the baseline shown on Wire/Signing tabs (A=plain, B=MTL non-amortised, C=MTL amortised).
     CycleBaseline,
     Resize {
@@ -160,6 +169,14 @@ pub struct App {
     pub ladder_banner: bool,
     /// Whether the Ladder tab advances the selected leaf each tick.
     pub ladder_autoplay: bool,
+    /// Recorded DNS capture state; updated by the runtime on load/reload.
+    live: LiveLoadState,
+    /// Replay cursor into the recorded capture's step list (Live tab).
+    pub live_step: usize,
+    /// Whether the Live tab advances the replay cursor each beat.
+    pub live_autoplay: bool,
+    /// Live bar scale: `true` = log10, `false` = linear.
+    pub live_log_scale: bool,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
     /// Wall clock at startup, driving the Overview ladder animation.
@@ -189,6 +206,14 @@ impl App {
             ladder_leaf: 0,
             ladder_banner: false,
             ladder_autoplay: false,
+            // Pre-load placeholder: the runtime replaces it with the real load
+            // outcome before the first frame is drawn.
+            live: LiveLoadState::Missing {
+                path: PathBuf::from(crate::data::LIVE_CAPTURE_PATH),
+            },
+            live_step: 0,
+            live_autoplay: false,
+            live_log_scale: false,
             ladder: LadderLoadState::Absent,
             started_at: Instant::now(),
         }
@@ -240,6 +265,12 @@ impl App {
                 if self.tab == Tab::Ladder && self.ladder_autoplay {
                     self.ladder_leaf = self.step_leaf(1);
                 }
+                if self.tab == Tab::Live
+                    && self.live_autoplay
+                    && self.tick.is_multiple_of(LIVE_AUTOPLAY_TICKS)
+                {
+                    self.step_live(1);
+                }
             }
             Action::LadderUp => {
                 self.ladder_n = (self.ladder_n + 1).min(LADDER_MAX_LEAVES);
@@ -249,8 +280,22 @@ impl App {
                 self.ladder_n = self.ladder_n.saturating_sub(1).max(LADDER_MIN_LEAVES);
                 self.clamp_leaf();
             }
-            Action::ToggleBanner => self.ladder_banner = !self.ladder_banner,
-            Action::ToggleAutoplay => self.ladder_autoplay = !self.ladder_autoplay,
+            Action::ToggleBanner => {
+                if self.tab == Tab::Live {
+                    self.step_live(1);
+                } else {
+                    self.ladder_banner = !self.ladder_banner;
+                }
+            }
+            Action::ToggleAutoplay => {
+                if self.tab == Tab::Live {
+                    self.live_autoplay = !self.live_autoplay;
+                } else {
+                    self.ladder_autoplay = !self.ladder_autoplay;
+                }
+            }
+            Action::LivePrevStep => self.step_live(-1),
+            Action::ToggleScale => self.live_log_scale = !self.live_log_scale,
             Action::Resize { width, height } => self.last_size = (width, height),
         }
         None
@@ -282,6 +327,18 @@ impl App {
     fn step_leaf(&self, delta: isize) -> u64 {
         let n = self.ladder_n.max(1);
         (self.ladder_leaf as isize + delta).rem_euclid(n as isize) as u64
+    }
+
+    /// Step the Live replay cursor by `delta`, wrapping within the step list.
+    /// An empty or unloaded capture keeps the cursor at 0 and never reaches
+    /// the wrapping arithmetic.
+    fn step_live(&mut self, delta: isize) {
+        let count = self.live.step_count();
+        if count == 0 {
+            self.live_step = 0;
+            return;
+        }
+        self.live_step = (self.live_step as isize + delta).rem_euclid(count as isize) as usize;
     }
 
     /// Keep the selected leaf in range after the ladder size changes.
@@ -340,6 +397,33 @@ impl App {
         self.ladder = state;
     }
 
+    /// The recorded DNS capture state.
+    pub fn live(&self) -> &LiveLoadState {
+        &self.live
+    }
+
+    /// Replace the loaded capture state (called by the runtime), keeping the
+    /// replay cursor inside the new step list.
+    pub fn set_live(&mut self, state: LiveLoadState) {
+        self.live = state;
+        self.live_step = self.live_step.min(self.live.step_count().saturating_sub(1));
+    }
+
+    /// Replay cursor into the recorded capture's step list (Live tab).
+    pub fn live_step(&self) -> usize {
+        self.live_step
+    }
+
+    /// Whether the Live tab auto-advances the replay.
+    pub fn live_autoplay(&self) -> bool {
+        self.live_autoplay
+    }
+
+    /// Whether the Live bars are drawn on a log10 scale.
+    pub fn live_log_scale(&self) -> bool {
+        self.live_log_scale
+    }
+
     /// Replace the loaded results state (called by the runtime after a load).
     pub fn set_data(&mut self, state: LoadState) {
         self.data = state;
@@ -380,6 +464,8 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Down => Some(Action::LadderDown),
         KeyCode::Char(' ') => Some(Action::ToggleBanner),
         KeyCode::Enter => Some(Action::ToggleAutoplay),
+        KeyCode::Backspace => Some(Action::LivePrevStep),
+        KeyCode::Char('t') => Some(Action::ToggleScale),
         KeyCode::Char('v') => Some(Action::ToggleValueMode),
         KeyCode::Char('b') => Some(Action::CycleBaseline),
         _ => None,
@@ -611,6 +697,8 @@ mod tests {
             Action::LadderDown,
             Action::ToggleBanner,
             Action::ToggleAutoplay,
+            Action::LivePrevStep,
+            Action::ToggleScale,
             Action::Tick,
             Action::Resize {
                 width: 1,
@@ -626,7 +714,7 @@ mod tests {
         use KeyCode::*;
         let none = KeyModifiers::NONE;
         let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 23] = [
+        let cases: [(KeyEvent, Option<Action>); 25] = [
             (KeyEvent::new(Tab, none), Some(Action::NextTab)),
             (KeyEvent::new(BackTab, none), Some(Action::PrevTab)),
             (KeyEvent::new(Char('1'), none), Some(Action::SelectTab(0))),
@@ -642,6 +730,8 @@ mod tests {
             (KeyEvent::new(Down, none), Some(Action::LadderDown)),
             (KeyEvent::new(Char(' '), none), Some(Action::ToggleBanner)),
             (KeyEvent::new(Enter, none), Some(Action::ToggleAutoplay)),
+            (KeyEvent::new(Backspace, none), Some(Action::LivePrevStep)),
+            (KeyEvent::new(Char('t'), none), Some(Action::ToggleScale)),
             (
                 KeyEvent::new(Char('v'), none),
                 Some(Action::ToggleValueMode),
@@ -650,9 +740,9 @@ mod tests {
             (KeyEvent::new(Esc, none), Some(Action::Quit)),
             (KeyEvent::new(Char('c'), ctrl), Some(Action::Quit)),
             (KeyEvent::new(Char('0'), none), None),
-            (KeyEvent::new(Char('t'), none), None),
             (KeyEvent::new(Char('c'), none), None),
             (KeyEvent::new(Char('x'), none), None),
+            (KeyEvent::new(Char('z'), none), None),
         ];
         for (key, expected) in cases {
             assert_eq!(map_key(key), expected, "wrong mapping for {key:?}");
@@ -789,6 +879,99 @@ mod tests {
             app.ladder_leaf(),
             0,
             "off the Ladder tab the leaf is frozen"
+        );
+    }
+
+    /// An app on the Live tab with the committed sample capture loaded (§7c:
+    /// the dashboard consumes the real artifact, not a hand-built fake).
+    fn live_app() -> App {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/dns-capture.recorded.json");
+        let mut app = test_app();
+        app.tab = Tab::Live;
+        app.set_live(crate::data::load_live(&path));
+        assert!(
+            app.live().view().is_some(),
+            "the committed sample capture must load"
+        );
+        app
+    }
+
+    #[test]
+    fn space_and_backspace_step_the_live_replay_wrapping_at_both_ends() {
+        let mut app = live_app();
+        let count = app.live().step_count();
+        assert!(count >= 3, "fixture must expose several steps");
+        assert_eq!(app.live_step(), 0);
+
+        app.update(Action::ToggleBanner); // Space on the Live tab steps forward
+        assert_eq!(app.live_step(), 1);
+        assert!(
+            !app.ladder_banner,
+            "stepping the replay must not touch the ladder banner"
+        );
+
+        app.update(Action::LivePrevStep);
+        assert_eq!(app.live_step(), 0, "back on the first step stays put");
+        app.update(Action::LivePrevStep);
+        assert_eq!(app.live_step(), count - 1, "back past the first wraps");
+        app.update(Action::ToggleBanner);
+        assert_eq!(app.live_step(), 0, "forward past the last wraps");
+    }
+
+    #[test]
+    fn enter_autoplays_the_live_replay_once_per_beat_and_only_on_the_live_tab() {
+        let mut app = live_app();
+        app.update(Action::ToggleAutoplay);
+        assert!(app.live_autoplay());
+        assert!(!app.ladder_autoplay, "autoplay is live-scoped here");
+
+        for _ in 0..LIVE_AUTOPLAY_TICKS - 1 {
+            app.update(Action::Tick);
+        }
+        assert_eq!(app.live_step(), 0, "no beat has elapsed yet");
+        app.update(Action::Tick);
+        assert_eq!(app.live_step(), 1, "one beat, one step");
+
+        app.tab = Tab::Overview;
+        for _ in 0..LIVE_AUTOPLAY_TICKS {
+            app.update(Action::Tick);
+        }
+        assert_eq!(app.live_step(), 1, "off the Live tab the replay is frozen");
+    }
+
+    #[test]
+    fn t_toggles_the_live_bar_scale() {
+        let mut app = test_app();
+        assert!(!app.live_log_scale());
+        app.update(Action::ToggleScale);
+        assert!(app.live_log_scale(), "t turns the log scale on");
+        app.update(Action::ToggleScale);
+        assert!(!app.live_log_scale(), "t turns it back off");
+    }
+
+    #[test]
+    fn stepping_an_unloaded_capture_stays_at_zero_instead_of_panicking() {
+        let mut app = test_app();
+        app.tab = Tab::Live;
+        assert_eq!(app.live_step(), 0);
+        app.update(Action::ToggleBanner);
+        app.update(Action::LivePrevStep);
+        app.update(Action::Tick);
+        assert_eq!(app.live_step(), 0, "no steps to move through");
+    }
+
+    #[test]
+    fn set_live_clamps_the_replay_cursor_into_the_new_state() {
+        let mut app = live_app();
+        app.live_step = 4;
+        app.set_live(crate::data::LiveLoadState::Missing {
+            path: PathBuf::from("missing.json"),
+        });
+        assert_eq!(
+            app.live_step(),
+            0,
+            "an unloaded capture has no cursor to keep"
         );
     }
 }

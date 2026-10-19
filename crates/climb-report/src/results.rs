@@ -378,6 +378,11 @@ pub struct DnsCapture {
     pub schema_version: u32,
     /// RFC 3339 timestamp of the recording.
     pub recorded_at: String,
+    /// Git commit the recording was made at, when the recorder could resolve
+    /// one. Captures written before this field existed carry `None` and stay
+    /// parseable (`#[serde(default)]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git_commit: Option<String>,
     pub host: DnsCaptureHost,
     pub images: Vec<DnsCaptureImage>,
     pub algorithm: String,
@@ -729,10 +734,7 @@ type SummaryScan = (Vec<SummaryRow>, Vec<CriterionRecord>, Vec<CriterionRecord>)
 ///
 /// Returns the batch-oriented summary rows plus the configuration-A plain
 /// records, which are parsed separately because they carry a per-message cost.
-fn read_summary_rows(
-    criterion_dir: &Path,
-    baseline: &str,
-) -> Result<SummaryScan, ReportError> {
+fn read_summary_rows(criterion_dir: &Path, baseline: &str) -> Result<SummaryScan, ReportError> {
     let records = scan_criterion(criterion_dir, baseline)?;
     let mut plain: Vec<CriterionRecord> = Vec::new();
     let mut classical: Vec<CriterionRecord> = Vec::new();
@@ -1622,8 +1624,11 @@ fn headline_from_dns(headline: &DnsPipelineHeadline) -> Option<String> {
 }
 
 /// The question whose byte counts the DNS headline is computed from.
-const HEADLINE_QNAME: &str = "www.climb.example.";
-const HEADLINE_QTYPE: &str = "A";
+///
+/// Public so every consumer (consolidation, the report, the dashboard) picks
+/// the same rows instead of restating the question.
+pub const HEADLINE_QNAME: &str = "www.climb.example.";
+pub const HEADLINE_QTYPE: &str = "A";
 
 /// Derive the DNS headline from captured byte counts: the full/condensed
 /// bytes come from the matching `www.climb.example. A` rows and the reduction
@@ -3224,6 +3229,7 @@ mod tests {
         DnsCapture {
             schema_version: 1,
             recorded_at: "2026-10-12T00:00:00Z".to_string(),
+            git_commit: None,
             host: DnsCaptureHost {
                 hostname: "test-host".to_string(),
                 uname: "Linux test".to_string(),
@@ -3241,6 +3247,44 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let restored: DnsCapture = serde_json::from_str(&json).unwrap();
         assert_eq!(original, restored);
+    }
+
+    /// A capture written before the git-commit field existed must still parse
+    /// (§7e backward compatibility): the field defaults to `None`, and the
+    /// serializer omits it entirely rather than writing a fake value.
+    #[test]
+    fn dns_capture_without_git_commit_still_parses() {
+        let legacy = serde_json::json!({
+            "schema_version": 1,
+            "recorded_at": "2026-10-12T00:00:00Z",
+            "host": { "hostname": "test-host", "uname": "Linux test" },
+            "images": [],
+            "algorithm": "SLH-DSA-SHA2-128s-MTL-SHA2-128",
+            "zone": "climb.example.",
+            "queries": [],
+        });
+        let parsed: DnsCapture = serde_json::from_value(legacy).unwrap();
+        assert_eq!(parsed.git_commit, None);
+
+        // The serializer never invents a commit either.
+        let without = dns_capture_fixture(24_438, 658);
+        let json = serde_json::to_string(&without).unwrap();
+        assert!(!json.contains("git_commit"), "absent commit leaked: {json}");
+    }
+
+    /// A recording that resolved its commit carries it through serialize and
+    /// parse unchanged.
+    #[test]
+    fn dns_capture_roundtrip_preserves_the_git_commit() {
+        let mut original = dns_capture_fixture(24_438, 658);
+        original.git_commit = Some("312c68268c96878b0ee01922d94c447cc9d0287e".to_string());
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: DnsCapture = serde_json::from_str(&json).unwrap();
+        assert_eq!(original, restored);
+        assert_eq!(
+            restored.git_commit.as_deref(),
+            Some("312c68268c96878b0ee01922d94c447cc9d0287e")
+        );
     }
 
     #[test]

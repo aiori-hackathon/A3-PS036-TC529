@@ -1,15 +1,16 @@
-//! Render the Signing, Verifying, Wire, Memory and Ladder tabs onto an
+//! Render the Signing, Verifying, Wire, Memory, Ladder and Live tabs onto an
 //! in-memory [`TestBackend`] and print the character buffers to stdout (the
 //! evidence tool for the data-view tabs).
 //!
 //! Usage:
 //! ```text
-//! cargo run -p climb-tui --example perf_tabs_dump [RESULTS] [WIDTH] [HEIGHT] [N]
+//! cargo run -p climb-tui --example perf_tabs_dump [RESULTS] [WIDTH] [HEIGHT] [N] [DEPTH] [STEP]
 //! ```
 //! `RESULTS` defaults to `target/climb-results.json`, `WIDTH`/`HEIGHT` to
-//! 120x40, and `N` (the Ladder tab's leaf count) to 8. The dump lets a reviewer
-//! verify the tab layouts on a write-only terminal and becomes the dev notes
-//! evidence.
+//! 120x40, `N` (the Ladder tab's leaf count) to 8, `DEPTH` to `truecolor`
+//! (also `mono`, `ansi256`, `ansi16`), and `STEP` (the Live tab's initial
+//! replay cursor) to 0. The dump lets a reviewer verify the tab layouts on a
+//! write-only terminal and becomes the evidence pasted into the run report.
 
 use std::path::Path;
 
@@ -32,13 +33,27 @@ fn main() -> Result<()> {
     let width: u16 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(120);
     let height: u16 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(40);
     let ladder_n: u64 = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(8);
+    let depth = args
+        .next()
+        .map(|arg| arg.to_ascii_lowercase())
+        .and_then(|arg| match arg.as_str() {
+            "mono" => Some(ColorDepth::Mono),
+            "ansi16" => Some(ColorDepth::Ansi16),
+            "ansi256" => Some(ColorDepth::Ansi256),
+            "truecolor" => Some(ColorDepth::TrueColor),
+            _ => None,
+        })
+        .unwrap_or(ColorDepth::TrueColor);
+    let live_step: usize = args.next().and_then(|arg| arg.parse().ok()).unwrap_or(0);
 
     let cli = Cli::parse_from(["climb-tui", "--results", &results]);
-    let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
+    let mut app = App::from_cli(&cli, depth);
     app.set_data(data::load(Path::new(&results)));
     let ladder = data::load_ladder_auto();
     app.set_ladder(ladder);
     app.ladder_n = ladder_n;
+    app.set_live(data::load_live_auto());
+    app.live_step = live_step.min(app.live().step_count().saturating_sub(1));
 
     for tab in [
         Tab::Signing,
@@ -46,6 +61,7 @@ fn main() -> Result<()> {
         Tab::Wire,
         Tab::Memory,
         Tab::Ladder,
+        Tab::Live,
     ] {
         app.update(Action::SelectTab(tab.index()));
         println!("=== {} ({width}x{height}) ===", tab.title());

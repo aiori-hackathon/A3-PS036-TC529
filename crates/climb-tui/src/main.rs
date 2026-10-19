@@ -91,6 +91,13 @@ fn apply(app: &mut App, effect: Effect) {
                 "ladder verification loaded"
             );
             app.set_ladder(ladder);
+
+            let live = climb_tui::data::load_live_auto();
+            tracing::info!(
+                loaded = %live.summary(),
+                "recorded DNS capture loaded"
+            );
+            app.set_live(live);
         }
     }
 }

@@ -633,11 +633,15 @@ fn parse_capture_output(stdout: &str, label: &str) -> Vec<CaptureRow> {
 /// directory that pass's raw wire `.bin` files were written to. When a row's
 /// capture file is found there, its bytes are embedded as `wire_hex` so the
 /// anatomy can be parsed offline; when absent, the field is `None`.
+///
+/// `git_commit` is the commit the recording is made at, when one could be
+/// resolved (`git_head`); it stays `None` rather than guessed at.
 fn build_dns_capture(
     baseline: &[CaptureRow],
     condensed: &[CaptureRow],
     unbound: &[CaptureRow],
     capture_dirs: &[(&str, &Path)],
+    git_commit: Option<String>,
 ) -> DnsCapture {
     let mut queries = Vec::new();
     for rows in [baseline, condensed, unbound] {
@@ -674,6 +678,7 @@ fn build_dns_capture(
     DnsCapture {
         schema_version: CAPTURE_SCHEMA_VERSION,
         recorded_at: iso8601_now(),
+        git_commit,
         host: DnsCaptureHost {
             hostname: hostname(),
             uname: uname(),
@@ -709,6 +714,18 @@ fn iso8601_now() -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
+}
+
+/// The current `HEAD` commit SHA, or `None` when git is unavailable (e.g. a
+/// source tarball without the `.git` directory).
+fn git_head() -> Option<String> {
+    Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+        .filter(|s| !s.is_empty())
 }
 
 fn hostname() -> String {
@@ -997,6 +1014,7 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
                 ("condensed", cond_dir.as_path()),
                 ("unbound", ub_dir.as_path()),
             ],
+            git_head(),
         );
         let json =
             serde_json::to_string_pretty(&capture).context("failed to serialize DNS capture")?;
@@ -1183,7 +1201,7 @@ mod tests {
         let baseline = parse_capture_output(&sample_capture_full(), "full");
         let condensed = parse_capture_output(&sample_capture_condensed(), "condensed");
         let unbound = parse_capture_output(&sample_capture_full(), "unbound");
-        let capture = build_dns_capture(&baseline, &condensed, &unbound, &[]);
+        let capture = build_dns_capture(&baseline, &condensed, &unbound, &[], None);
         assert_eq!(capture.schema_version, 1);
         assert_eq!(capture.queries.len(), 9);
         assert_eq!(
@@ -1215,6 +1233,27 @@ mod tests {
             .expect("www A row");
         assert_eq!(a_row.response_bytes, 24_438);
         assert_eq!(a_row.transport, "tcp");
+    }
+
+    #[test]
+    fn build_dns_capture_records_the_supplied_git_commit() {
+        let baseline = parse_capture_output(&sample_capture_full(), "full");
+        let capture = build_dns_capture(
+            &baseline,
+            &[],
+            &[],
+            &[],
+            Some("deadbeefcafe0123".to_string()),
+        );
+        assert_eq!(
+            capture.git_commit.as_deref(),
+            Some("deadbeefcafe0123"),
+            "the resolved commit must land in the recorded document"
+        );
+
+        // No resolvable commit stays absent, never a placeholder.
+        let uncommitted = build_dns_capture(&baseline, &[], &[], &[], None);
+        assert_eq!(uncommitted.git_commit, None);
     }
 
     // ── compute_reduction ────────────────────────────────────────────

@@ -1,9 +1,11 @@
 //! The widget tree (phase 18.7): tab bar, tab bodies, status bar, help overlay, and
-//! the too-small-screen guard. Overview, Signing and Verifying render real data
-//! views; the remaining tabs are placeholders until later phases wire theirs.
+//! the too-small-screen guard. Overview, Signing, Verifying, Wire, Memory, Ladder
+//! and Live render real data views; Integrity and Method remain placeholders
+//! until later phases wire theirs.
 
 pub mod amortization;
 pub mod ladder;
+pub mod live;
 pub mod memory;
 pub mod overview;
 pub mod signing;
@@ -77,6 +79,10 @@ fn render_tabs(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
 fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
     if app.tab == Tab::Ladder {
         ladder::render_ladder(frame, area, app, theme, glyphs);
+        return;
+    }
+    if app.tab == Tab::Live {
+        live::render_live(frame, area, app, theme, glyphs);
         return;
     }
     match &app.data {
@@ -304,6 +310,9 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("↑ / ↓", "ladder: fewer / more leaves"),
         entry("Space", "ladder: toggle the signature banner"),
         entry("Enter", "ladder: auto-play the leaves"),
+        entry("Space / Backspace", "live: next / previous step"),
+        entry("Enter", "live: auto-play the replay"),
+        entry("t", "live: log / linear byte scale"),
         entry("q / Esc / Ctrl-C", "quit"),
         Line::from(""),
         Line::from(vec![
@@ -567,9 +576,42 @@ mod tests {
         let app = app_with(false, ThemeId::Dark, true);
         let out = render_to_string(&app, 120, 40);
         assert!(out.contains("Help"), "help overlay:\n{out}");
-        for needle in ["Shift-Tab", "cycle theme", "ASCII", "Ctrl-C", "quit"] {
+        for needle in [
+            "Shift-Tab",
+            "cycle theme",
+            "ASCII",
+            "Ctrl-C",
+            "quit",
+            "live: next / previous step",
+            "live: auto-play the replay",
+            "live: log / linear byte scale",
+        ] {
             assert!(out.contains(needle), "help missing {needle:?}:\n{out}");
         }
+    }
+
+    #[test]
+    fn live_tab_renders_the_capture_replay_not_the_placeholder() {
+        let mut app = app_loaded_with(story_view(None));
+        app.set_live(crate::data::load_live(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../docs/sample-output/dns-capture.recorded.json"),
+        ));
+        app.update(crate::app::Action::SelectTab(Tab::Live.index()));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Live",
+            "RECORDED CAPTURE",
+            "without MTL",
+            "with MTL",
+            "run live: cargo xtask dns-demo",
+        ] {
+            assert!(out.contains(needle), "Live tab misses {needle:?}:\n{out}");
+        }
+        assert!(
+            !out.contains("data view lands in a later phase"),
+            "Live must render its view, not the placeholder:\n{out}"
+        );
     }
 
     #[test]
