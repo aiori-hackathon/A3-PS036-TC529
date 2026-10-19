@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use climb_report::charts::CHART_FILES;
-use climb_report::html::{build_claims, render_html};
+use climb_report::html::{claims, render_html};
 use climb_report::results::EvidenceClass;
 use climb_report::{check_report, ClimbResults};
 
@@ -207,7 +207,7 @@ fn committed_udp_fit_section_renders_through_charts_and_report() {
 
     // Every UDP-fit claim's rendered string must appear verbatim in the
     // body, which is exactly what `report --check` re-validates.
-    let claims = build_claims(&results).expect("claims");
+    let claims = claims(&results).expect("claims");
     assert!(
         claims.iter().any(|c| c.id.starts_with("udpfit-")),
         "the registry must carry UDP-fit claims"

@@ -1,9 +1,10 @@
 //! The widget tree (phase 18.7): tab bar, tab bodies, status bar, help overlay, and
-//! the too-small-screen guard. Overview, Signing, Verifying, Wire, Memory, Ladder
-//! and Live render real data views; Integrity and Method remain placeholders
-//! until later phases wire theirs.
+//! the too-small-screen guard. Overview, Signing, Verifying, Wire, Memory, Ladder,
+//! Live and Integrity render real data views; Method remains a placeholder until a
+//! later phase wires it.
 
 pub mod amortization;
+pub mod integrity;
 pub mod ladder;
 pub mod live;
 pub mod memory;
@@ -100,6 +101,9 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
         }
         LoadState::Loaded(view) if app.tab == Tab::Memory => {
             memory::render_memory(frame, area, view, theme, glyphs);
+        }
+        LoadState::Loaded(view) if app.tab == Tab::Integrity => {
+            integrity::render_integrity(frame, area, app, view, theme, glyphs);
         }
         LoadState::Missing { path } => render_load_error(
             frame,
@@ -307,7 +311,7 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("r", "reload results from disk"),
         entry("← / →", "select dataset size"),
         entry("v", "toggle total / per message"),
-        entry("↑ / ↓", "ladder: fewer / more leaves"),
+        entry("↑ / ↓", "ladder: leaves · integrity: scroll"),
         entry("Space", "ladder: toggle the signature banner"),
         entry("Enter", "ladder: auto-play the leaves"),
         entry("Space / Backspace", "live: next / previous step"),
@@ -585,6 +589,8 @@ mod tests {
             "live: next / previous step",
             "live: auto-play the replay",
             "live: log / linear byte scale",
+            "ladder: leaves",
+            "integrity: scroll",
         ] {
             assert!(out.contains(needle), "help missing {needle:?}:\n{out}");
         }

@@ -7,6 +7,7 @@
 //! appears as a literal anywhere in this crate.
 
 mod amortization;
+mod integrity;
 mod ladder;
 mod live;
 mod memory;
@@ -16,6 +17,10 @@ mod signing;
 mod wire;
 
 pub use amortization::{per_message, AmortizationView, ValueMode};
+pub use integrity::{
+    artifact_line, ArtifactRole, ArtifactRow, ArtifactState, BannerTone, CheckState, IntegrityView,
+    Provenance,
+};
 pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, BadgeKind, LadderBadge, LadderLoadState,
     LadderSource,
@@ -97,6 +102,8 @@ pub struct ResultsView {
     /// Age of the results file at load time.
     age: Option<Duration>,
     report_health: ReportHealth,
+    /// The same check that produced `report_health`, in tab-ready form.
+    integrity: IntegrityView,
 }
 
 impl ResultsView {
@@ -105,6 +112,7 @@ impl ResultsView {
             results,
             age,
             report_health,
+            integrity: IntegrityView::not_run(),
         }
     }
 
@@ -125,6 +133,12 @@ impl ResultsView {
 
     pub fn report_health(&self) -> ReportHealth {
         self.report_health
+    }
+
+    /// The Integrity tab's view: claims check, artifact inventory and
+    /// provenance, from the same load that produced `report_health`.
+    pub fn integrity(&self) -> &IntegrityView {
+        &self.integrity
     }
 }
 
@@ -170,20 +184,24 @@ pub fn load(path: &Path) -> LoadState {
         }
     };
     let age = metadata.modified().ok().and_then(|m| m.elapsed().ok());
-    let report_health = report_health(path, &results);
-    LoadState::Loaded(Box::new(ResultsView::new(results, age, report_health)))
+    let integrity = IntegrityView::run(path, &results);
+    let report_health = report_health(path, &integrity);
+    LoadState::Loaded(Box::new(ResultsView {
+        results,
+        age,
+        report_health,
+        integrity,
+    }))
 }
 
-/// Check the `climb-report/report.html` next to the results file for claim
-/// drift. Missing report counts as `NoReport`, never an error.
-fn report_health(results_path: &Path, results: &ClimbResults) -> ReportHealth {
-    let report = report_path(results_path);
-    let results_mtime = mtime(results_path);
-    let report_mtime = mtime(&report);
-    let drift = std::fs::read_to_string(&report)
-        .ok()
-        .map(|html| climb_report::check_report(&html, results).len());
-    artifact_state(results_mtime, report_mtime, drift)
+/// The Overview tab's report-health badge, derived from the same check the
+/// Integrity tab shows.
+fn report_health(results_path: &Path, integrity: &IntegrityView) -> ReportHealth {
+    artifact_state(
+        mtime(results_path),
+        integrity.report_path().and_then(mtime),
+        integrity.drift_count(),
+    )
 }
 
 /// Classify the results/report artifact pair.
@@ -561,7 +579,9 @@ mod tests {
         let results = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived())
             .results
             .clone();
-        let health = report_health(&dir.join("results.json"), &results);
+        let results_path = dir.join("results.json");
+        let integrity = IntegrityView::run(&results_path, &results);
+        let health = report_health(&results_path, &integrity);
         assert_eq!(health, ReportHealth::NoReport);
         let _ = std::fs::remove_dir_all(&dir);
     }

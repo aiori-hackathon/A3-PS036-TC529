@@ -11,8 +11,7 @@
 use std::path::{Path, PathBuf};
 
 use climb_report::{
-    check_report, consolidate_results, html::build_claims, ConsolidateOptions, LadderSource,
-    ReportError,
+    check_report, consolidate_results, html::claims, ConsolidateOptions, LadderSource, ReportError,
 };
 
 fn repo_root() -> PathBuf {
@@ -180,7 +179,7 @@ fn charts_and_report_render_the_ladder_section_and_check_stays_clean() {
 
     // Every ladder claim's rendered string must appear verbatim in the body,
     // which is exactly what `report --check` re-validates.
-    let claims = build_claims(&results).expect("claims");
+    let claims = claims(&results).expect("claims");
     for claim in claims.iter().filter(|c| c.id.starts_with("ladder-")) {
         assert!(
             html.contains(&claim.formatted)

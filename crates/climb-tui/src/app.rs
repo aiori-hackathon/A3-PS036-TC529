@@ -177,6 +177,8 @@ pub struct App {
     pub live_autoplay: bool,
     /// Live bar scale: `true` = log10, `false` = linear.
     pub live_log_scale: bool,
+    /// Scroll offset into the Integrity tab's claim list.
+    pub integrity_scroll: usize,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
     /// Wall clock at startup, driving the Overview ladder animation.
@@ -214,6 +216,7 @@ impl App {
             live_step: 0,
             live_autoplay: false,
             live_log_scale: false,
+            integrity_scroll: 0,
             ladder: LadderLoadState::Absent,
             started_at: Instant::now(),
         }
@@ -273,12 +276,20 @@ impl App {
                 }
             }
             Action::LadderUp => {
-                self.ladder_n = (self.ladder_n + 1).min(LADDER_MAX_LEAVES);
-                self.clamp_leaf();
+                if self.tab == Tab::Integrity {
+                    self.integrity_scroll = self.integrity_scroll.saturating_sub(1);
+                } else {
+                    self.ladder_n = (self.ladder_n + 1).min(LADDER_MAX_LEAVES);
+                    self.clamp_leaf();
+                }
             }
             Action::LadderDown => {
-                self.ladder_n = self.ladder_n.saturating_sub(1).max(LADDER_MIN_LEAVES);
-                self.clamp_leaf();
+                if self.tab == Tab::Integrity {
+                    self.integrity_scroll = self.integrity_scroll.saturating_add(1);
+                } else {
+                    self.ladder_n = self.ladder_n.saturating_sub(1).max(LADDER_MIN_LEAVES);
+                    self.clamp_leaf();
+                }
             }
             Action::ToggleBanner => {
                 if self.tab == Tab::Live {
@@ -814,6 +825,42 @@ mod tests {
         }
         assert_eq!(app.ladder_n(), LADDER_MIN_LEAVES, "down below 1 clamps");
         assert_eq!(app.ladder_leaf(), 0);
+    }
+
+    #[test]
+    fn up_and_down_scroll_the_integrity_claim_list_instead_of_the_ladder() {
+        let mut app = test_app();
+        app.tab = Tab::Integrity;
+        app.update(Action::LadderDown);
+        assert_eq!(app.integrity_scroll, 1);
+        app.update(Action::LadderDown);
+        assert_eq!(app.integrity_scroll, 2);
+        app.update(Action::LadderUp);
+        assert_eq!(app.integrity_scroll, 1);
+        app.update(Action::LadderUp);
+        app.update(Action::LadderUp);
+        assert_eq!(app.integrity_scroll, 0, "scrolling up at the top stays put");
+        assert_eq!(
+            app.ladder_n(),
+            8,
+            "the ladder size is untouched on Integrity"
+        );
+
+        // Back to a non-zero offset so the tab switch below proves the
+        // offset survives rather than being coincidentally zero.
+        app.update(Action::LadderDown);
+        assert_eq!(app.integrity_scroll, 1);
+        app.update(Action::SelectTab(Tab::Ladder.index()));
+        app.update(Action::LadderDown);
+        assert_eq!(
+            app.ladder_n(),
+            7,
+            "down on the Ladder tab still shrinks the ladder"
+        );
+        assert_eq!(
+            app.integrity_scroll, 1,
+            "the scroll offset is kept for the tab"
+        );
     }
 
     #[test]

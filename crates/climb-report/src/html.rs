@@ -159,7 +159,7 @@ fn push_claim(
 /// Every `Some` headline value in the results document becomes one claim;
 /// `None`/absent values are skipped so the registry never references a
 /// pointer that does not resolve.
-pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
+pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
     let root = serde_json::to_value(results).map_err(|e| ReportError::MalformedData {
         path: PathBuf::from("results"),
         reason: format!("failed to serialize results for the claims registry: {e}"),
@@ -1084,7 +1084,7 @@ pub fn render_html(
     charts_dir: &Path,
     results_href: &str,
 ) -> Result<String, ReportError> {
-    let claims = build_claims(results)?;
+    let claims = claims(results)?;
 
     let mut figures = String::new();
     for (i, name) in CHART_FILES.iter().enumerate() {
@@ -1271,90 +1271,321 @@ fn values_match(expected: &Value, found: &Value) -> bool {
     }
 }
 
-/// Validate the claims registry embedded in `html` against `results`.
-///
-/// Returns one human-readable message per detected problem; an empty vec
-/// means the report and the results document agree. The registry is never
-/// treated as a source of truth: expected claims are rebuilt from `results`
-/// and every embedded claim is compared against them (pointer, value with
-/// relative float tolerance 1e-9, and `formatted` string), each expected
-/// claim's `formatted` string must appear in the page body (raw or
-/// HTML-escaped), and registry entries not backed by `results` are flagged.
-pub fn check_claims(html: &str, results: &ClimbResults) -> Vec<String> {
+/// Agreement state of one claim row in a [`CheckReport`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckStatus {
+    /// The report carries the claim and it matches the results document.
+    Agree,
+    /// The report carries the claim but its pointer, value, formatted
+    /// string, or rendered body text disagrees with the results document.
+    Drift,
+    /// The claim is absent from the report (or the whole registry is
+    /// unavailable), or a registry entry has no backing in the results.
+    Missing,
+}
+
+/// One row of the integrity check: a claim as implied by the results
+/// document next to what the report actually carries.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ClaimCheck {
+    /// Claim identifier (stable across renders).
+    pub id: String,
+    /// JSON Pointer into the results document.
+    pub pointer: String,
+    /// Value the pointer resolves to in the checked results document
+    /// (`Null` for registry-only rows, which have no results backing).
+    pub value_in_results: Value,
+    /// Value the report's registry carries for this claim, when present.
+    pub value_in_report: Option<Value>,
+    /// Agreement state.
+    pub status: CheckStatus,
+    /// Human-readable explanation of any non-agreeing state.
+    pub detail: String,
+}
+
+/// Full result of validating a report against a results document.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckReport {
+    /// One row per claim implied by the results, plus one per registry
+    /// entry without a results backing.
+    pub claims: Vec<ClaimCheck>,
+    /// One human-readable message per detected problem; empty means the
+    /// report and the results document agree.
+    pub problems: Vec<String>,
+    /// True when the registry was located, parsed, derived from `results`,
+    /// and every row agrees.
+    pub registry_ok: bool,
+    /// False only when the report file did not exist at the checked path.
+    pub report_found: bool,
+}
+
+impl CheckReport {
+    /// The flat problem messages (see [`CheckReport::problems`]) — the
+    /// same list `report --check` prints.
+    pub fn messages(&self) -> Vec<String> {
+        self.problems.clone()
+    }
+
+    /// Rows whose status is [`CheckStatus::Drift`].
+    pub fn drifts(&self) -> impl Iterator<Item = &ClaimCheck> {
+        self.claims
+            .iter()
+            .filter(|c| c.status == CheckStatus::Drift)
+    }
+
+    /// Row counts as `(agree, drift, missing)`.
+    pub fn counts(&self) -> (usize, usize, usize) {
+        let mut counts = (0, 0, 0);
+        for c in &self.claims {
+            match c.status {
+                CheckStatus::Agree => counts.0 += 1,
+                CheckStatus::Drift => counts.1 += 1,
+                CheckStatus::Missing => counts.2 += 1,
+            }
+        }
+        counts
+    }
+
+    /// The outcome for an absent report file: every claim the results
+    /// imply is reported as missing and the single problem names the path.
+    fn absent(results: &ClimbResults, report_path: &Path) -> CheckReport {
+        let mut problems = vec![format!("report not found at {}", report_path.display())];
+        let rows = match claims(results) {
+            Ok(expected) => expected
+                .into_iter()
+                .map(|c| ClaimCheck {
+                    id: c.id,
+                    pointer: c.pointer,
+                    value_in_results: c.value,
+                    value_in_report: None,
+                    status: CheckStatus::Missing,
+                    detail: "report not found".to_string(),
+                })
+                .collect(),
+            Err(e) => {
+                problems.push(format!("failed to derive claims from results: {e}"));
+                Vec::new()
+            }
+        };
+        CheckReport {
+            claims: rows,
+            problems,
+            registry_ok: false,
+            report_found: false,
+        }
+    }
+}
+
+/// The claims registry embedded in a report page, or why it could not be
+/// decoded.
+enum Registry {
+    /// The `#climb-claims` marker is missing from the page.
+    MissingMarker,
+    /// The marker is present but the payload never terminates.
+    Unterminated,
+    /// The payload terminated but is not valid JSON.
+    Invalid(String),
+    /// The decoded registry.
+    Claims(Vec<Claim>),
+}
+
+/// Locate and decode the claims registry embedded in `html`.
+fn extract_registry(html: &str) -> Registry {
     let Some(start) = html.find(CLAIMS_MARKER) else {
-        return vec!["claims registry (#climb-claims) missing from HTML".to_string()];
+        return Registry::MissingMarker;
     };
     let rest = &html[start + CLAIMS_MARKER.len()..];
     let Some(end) = rest.find("</script>") else {
-        return vec!["claims registry payload not terminated".to_string()];
+        return Registry::Unterminated;
     };
-    let embedded = match serde_json::from_str::<Vec<Claim>>(&rest[..end]) {
-        Ok(c) => c,
-        Err(e) => return vec![format!("claims registry payload is not valid JSON: {e}")],
+    match serde_json::from_str::<Vec<Claim>>(&rest[..end]) {
+        Ok(c) => Registry::Claims(c),
+        Err(e) => Registry::Invalid(e.to_string()),
+    }
+}
+
+/// Core integrity check: compare the registry embedded in `html` against
+/// claims rebuilt from `results`, producing both the row-level
+/// [`CheckReport`] and the flat message list printed by `report --check`.
+///
+/// The registry is never treated as a source of truth: expected claims are
+/// rebuilt from `results` and every embedded claim is compared against
+/// them (pointer, value with relative float tolerance 1e-9, and
+/// `formatted` string), each expected claim's `formatted` string must
+/// appear in the page body (raw or HTML-escaped), and registry entries not
+/// backed by `results` are flagged. `with_chart_count` additionally tallies
+/// embedded chart data URIs.
+fn check_html(html: &str, results: &ClimbResults, with_chart_count: bool) -> CheckReport {
+    let mut problems = Vec::new();
+    let embedded = match extract_registry(html) {
+        Registry::MissingMarker => {
+            problems.push("claims registry (#climb-claims) missing from HTML".to_string());
+            None
+        }
+        Registry::Unterminated => {
+            problems.push("claims registry payload not terminated".to_string());
+            None
+        }
+        Registry::Invalid(e) => {
+            problems.push(format!("claims registry payload is not valid JSON: {e}"));
+            None
+        }
+        Registry::Claims(c) => Some(c),
     };
-    let expected = match build_claims(results) {
+    let expected = match claims(results) {
         Ok(c) => c,
-        Err(e) => return vec![format!("failed to derive claims from results: {e}")],
+        Err(e) => {
+            problems.push(format!("failed to derive claims from results: {e}"));
+            return CheckReport {
+                claims: Vec::new(),
+                problems,
+                registry_ok: false,
+                report_found: true,
+            };
+        }
     };
 
-    let mut failures = Vec::new();
+    let mut rows = Vec::with_capacity(expected.len());
     for claim in &expected {
-        match embedded.iter().find(|c| c.id == claim.id) {
-            None => failures.push(format!(
-                "claim `{}`: present in results but missing from registry",
-                claim.id
-            )),
+        let mut status = CheckStatus::Agree;
+        let mut detail = String::new();
+        let mut value_in_report = None;
+        let found = embedded
+            .as_ref()
+            .and_then(|c| c.iter().find(|f| f.id == claim.id));
+        match found {
+            None => {
+                status = CheckStatus::Missing;
+                if embedded.is_some() {
+                    let msg = format!(
+                        "claim `{}`: present in results but missing from registry",
+                        claim.id
+                    );
+                    detail = msg.clone();
+                    problems.push(msg);
+                } else {
+                    detail = "claims registry unavailable".to_string();
+                }
+            }
             Some(found) => {
+                value_in_report = Some(found.value.clone());
+                let mut msgs = Vec::new();
                 if found.pointer != claim.pointer {
-                    failures.push(format!(
+                    msgs.push(format!(
                         "claim `{}`: pointer drift — registry has {}, results imply {}",
                         claim.id, found.pointer, claim.pointer
                     ));
                 }
                 if !values_match(&found.value, &claim.value) {
-                    failures.push(format!(
+                    msgs.push(format!(
                         "claim `{}`: value drift — results has {}, report claims {}",
                         claim.id, claim.value, found.value
                     ));
                 }
                 if found.formatted != claim.formatted {
-                    failures.push(format!(
+                    msgs.push(format!(
                         "claim `{}`: formatted drift — results imply {:?}, registry has {:?}",
                         claim.id, claim.formatted, found.formatted
                     ));
                 }
+                if !msgs.is_empty() {
+                    status = CheckStatus::Drift;
+                    detail = msgs.join(" ");
+                    problems.extend(msgs);
+                }
             }
         }
         if !html.contains(&claim.formatted) && !html.contains(&escape_html(&claim.formatted)) {
-            failures.push(format!(
+            let msg = format!(
                 "claim `{}`: rendered string {:?} not found in HTML body",
                 claim.id, claim.formatted
+            );
+            if status == CheckStatus::Agree {
+                status = CheckStatus::Drift;
+                detail = msg.clone();
+            } else {
+                detail = format!("{detail} {msg}");
+            }
+            problems.push(msg);
+        }
+        rows.push(ClaimCheck {
+            id: claim.id.clone(),
+            pointer: claim.pointer.clone(),
+            value_in_results: claim.value.clone(),
+            value_in_report,
+            status,
+            detail,
+        });
+    }
+    if let Some(embedded) = &embedded {
+        for claim in embedded {
+            if !expected.iter().any(|e| e.id == claim.id) {
+                let msg = format!(
+                    "claim `{}`: present in registry but not in results",
+                    claim.id
+                );
+                problems.push(msg.clone());
+                rows.push(ClaimCheck {
+                    id: claim.id.clone(),
+                    pointer: claim.pointer.clone(),
+                    value_in_results: Value::Null,
+                    value_in_report: Some(claim.value.clone()),
+                    status: CheckStatus::Missing,
+                    detail: msg,
+                });
+            }
+        }
+    }
+    if with_chart_count {
+        let embedded_charts = html.matches("data:image/svg+xml;base64,").count();
+        if embedded_charts != CHART_FILES.len() {
+            problems.push(format!(
+                "embedded chart count is {embedded_charts}, expected {}",
+                CHART_FILES.len()
             ));
         }
     }
-    for claim in &embedded {
-        if !expected.iter().any(|e| e.id == claim.id) {
-            failures.push(format!(
-                "claim `{}`: present in registry but not in results",
-                claim.id
-            ));
-        }
+    let registry_ok = embedded.is_some() && rows.iter().all(|r| r.status == CheckStatus::Agree);
+    CheckReport {
+        claims: rows,
+        problems,
+        registry_ok,
+        report_found: true,
     }
-    failures
+}
+
+/// Validate the claims registry embedded in `html` against `results`.
+///
+/// Returns one human-readable message per detected problem; an empty vec
+/// means the report and the results document agree. See [`check_html`] for
+/// the exact rules.
+pub fn check_claims(html: &str, results: &ClimbResults) -> Vec<String> {
+    check_html(html, results, false).problems
 }
 
 /// Full report validation for `--check`: [`check_claims`] plus a count of
 /// embedded chart data URIs.
 pub fn check_report(html: &str, results: &ClimbResults) -> Vec<String> {
-    let mut failures = check_claims(html, results);
-    let embedded = html.matches("data:image/svg+xml;base64,").count();
-    if embedded != CHART_FILES.len() {
-        failures.push(format!(
-            "embedded chart count is {embedded}, expected {}",
-            CHART_FILES.len()
-        ));
+    check_html(html, results, true).problems
+}
+
+/// Validate the report file at `report_path` against `results`.
+///
+/// An absent file is a warning-shaped outcome, not an error: the returned
+/// [`CheckReport`] has `report_found == false`, names the path in its
+/// problem list, and lists every claim the results imply as missing. A
+/// file that exists but cannot be read is a hard error naming the path.
+pub fn check(results: &ClimbResults, report_path: &Path) -> Result<CheckReport, ReportError> {
+    match std::fs::read_to_string(report_path) {
+        Ok(html) => Ok(check_html(&html, results, true)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            Ok(CheckReport::absent(results, report_path))
+        }
+        Err(source) => Err(ReportError::Io {
+            path: report_path.to_path_buf(),
+            source,
+        }),
     }
-    failures
 }
 
 /// Compute a relative href from the directory holding the report to the
@@ -1545,7 +1776,7 @@ mod tests {
         assert!(html.contains(r#"href="../climb-results.json""#));
         assert!(html.contains("No formal security guarantees or proofs are claimed"));
         // Every claim's formatted string must appear in the body.
-        for claim in build_claims(&results).expect("claims") {
+        for claim in claims(&results).expect("claims") {
             assert!(
                 html.contains(&claim.formatted) || html.contains(&escape_html(&claim.formatted)),
                 "missing rendered string for claim {}",
@@ -1585,7 +1816,7 @@ mod tests {
     #[test]
     fn check_detects_missing_formatted_string() {
         let (results, html) = render_fixture();
-        let claims = build_claims(&results).expect("claims");
+        let claims = claims(&results).expect("claims");
         let target = claims
             .iter()
             .find(|c| c.id == "largest-wire-reduction")
@@ -1620,6 +1851,141 @@ mod tests {
             failures.iter().any(|f| f.contains("embedded chart count")),
             "expected chart-count failure, got {failures:?}"
         );
+    }
+
+    /// Write `html` into a fresh temp directory as `report.html` and hand
+    /// back the path; the caller removes the directory when done.
+    fn write_fixture_report(html: &str, tag: &str) -> std::path::PathBuf {
+        let dir = unique_temp_dir(tag);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("report.html");
+        std::fs::write(&path, html).expect("write report");
+        path
+    }
+
+    #[test]
+    fn check_file_api_reports_full_agreement_on_a_fresh_report() {
+        let (results, html) = render_fixture();
+        let path = write_fixture_report(&html, "check-file-ok");
+        let report = check(&results, &path).expect("check");
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+        assert!(report.report_found);
+        assert!(report.registry_ok);
+        assert!(
+            report.problems.is_empty(),
+            "unexpected problems: {:?}",
+            report.problems
+        );
+        let (agree, drift, missing) = report.counts();
+        assert!(agree > 0, "expected claim rows");
+        assert_eq!((drift, missing), (0, 0));
+        assert!(report.drifts().next().is_none());
+        // The message list is exactly what `report --check` prints.
+        assert_eq!(report.messages(), check_report(&html, &results));
+    }
+
+    #[test]
+    fn check_file_api_rows_name_the_drifted_claim_and_carry_both_values() {
+        let (results, html) = render_fixture();
+        let path = write_fixture_report(&html, "check-file-drift");
+        let mut drifted = synthetic_results();
+        drifted.derived.overall_wire_reduction_percent = Some(90.0);
+        let report = check(&drifted, &path).expect("check");
+        let _ = std::fs::remove_dir_all(path.parent().expect("parent"));
+        assert!(report.report_found);
+        assert!(!report.registry_ok);
+        let row = report
+            .drifts()
+            .find(|c| c.id == "overall-wire-reduction")
+            .unwrap_or_else(|| panic!("expected drift row, got {:?}", report.claims));
+        assert_eq!(row.pointer, "/derived/overall_wire_reduction_percent");
+        assert_eq!(row.value_in_results, serde_json::json!(90.0));
+        let pristine = claims(&results)
+            .expect("claims")
+            .into_iter()
+            .find(|c| c.id == "overall-wire-reduction")
+            .expect("pristine claim");
+        assert_eq!(row.value_in_report.as_ref(), Some(&pristine.value));
+        assert!(row.detail.contains("value drift"), "detail: {}", row.detail);
+        let messages = report.messages();
+        assert!(messages.iter().any(|m| m.contains("value drift")));
+        assert!(messages
+            .iter()
+            .any(|m| m.contains("overall-wire-reduction")));
+    }
+
+    #[test]
+    fn check_file_api_absent_report_is_a_warning_naming_the_path() {
+        let (results, _html) = render_fixture();
+        let dir = unique_temp_dir("check-file-absent");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        let path = dir.join("report.html");
+        let report = check(&results, &path).expect("absent report is not an error");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(!report.report_found);
+        assert!(!report.registry_ok);
+        assert_eq!(report.problems.len(), 1, "problems: {:?}", report.problems);
+        assert!(
+            report.problems[0].contains(&path.display().to_string()),
+            "problem should name the path: {}",
+            report.problems[0]
+        );
+        assert!(!report.claims.is_empty(), "expected claim rows");
+        assert!(report
+            .claims
+            .iter()
+            .all(|c| c.status == CheckStatus::Missing));
+    }
+
+    #[test]
+    fn check_file_api_unreadable_report_is_a_hard_error_naming_the_path() {
+        let (results, _html) = render_fixture();
+        let dir = unique_temp_dir("check-file-unreadable");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        // A directory where the report should be reads as an I/O error,
+        // not NotFound, and must surface as a hard error.
+        let err = check(&results, &dir).expect_err("directory is not a readable report");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            err.to_string().contains(&dir.display().to_string()),
+            "error should name the path: {err}"
+        );
+    }
+
+    #[test]
+    fn check_rows_flag_registry_only_claims() {
+        let (results, html) = render_fixture();
+        let mut extra = claims(&results).expect("claims");
+        extra.push(Claim {
+            id: "ghost-claim".to_string(),
+            pointer: "/derived/ghost".to_string(),
+            value: serde_json::json!(1),
+            formatted: "1".to_string(),
+        });
+        let payload = serde_json::to_string(&extra).expect("json");
+        let start = html.find(CLAIMS_MARKER).expect("marker") + CLAIMS_MARKER.len();
+        let end = html[start..].find("</script>").expect("end") + start;
+        let tampered = format!("{}{}{}", &html[..start], payload, &html[end..]);
+
+        let failures = check_claims(&tampered, &results);
+        assert!(
+            failures.iter().any(|f| f.contains("ghost-claim")
+                && f.contains("present in registry but not in results")),
+            "expected registry-only failure, got {failures:?}"
+        );
+        let report = check_html(&tampered, &results, false);
+        let ghost = report
+            .claims
+            .iter()
+            .find(|c| c.id == "ghost-claim")
+            .expect("registry-only row");
+        assert_eq!(ghost.status, CheckStatus::Missing);
+        assert_eq!(ghost.value_in_results, Value::Null);
+        assert_eq!(ghost.value_in_report.as_ref(), Some(&serde_json::json!(1)));
+        assert!(!report.registry_ok);
     }
 
     #[test]
@@ -1852,7 +2218,7 @@ mod tests {
     fn memory_claims_are_rendered_in_body_and_check_clean() {
         let (results, html) = render_memory_fixture();
         assert!(html.contains("Memory model vs measurement"));
-        let claims = build_claims(&results).expect("claims");
+        let claims = claims(&results).expect("claims");
         for suffix in [
             "libmtl-pages",
             "harness-buffers",
@@ -1898,7 +2264,7 @@ mod tests {
         assert!(html.contains("Ladder: model vs libMTL"));
         assert!(html.contains("all 2 sizes match"));
         assert!(html.contains("recorded fixture 2026-10-14"));
-        let claims = build_claims(&results).expect("claims");
+        let claims = claims(&results).expect("claims");
         for id in [
             "ladder-provenance",
             "ladder-all-match",
@@ -1960,7 +2326,7 @@ mod tests {
         // The summary label itself is always present; what must be absent is
         // the per-size section and its registered claim.
         assert!(!html.contains("<h2 id=\"ladder-h\">"), "no ladder section");
-        assert!(!build_claims(&results)
+        assert!(!claims(&results)
             .expect("claims")
             .iter()
             .any(|c| c.id == "ladder-all-match"));
@@ -2015,7 +2381,7 @@ mod tests {
             "size cell is title-cased: {html}"
         );
         assert!(html.contains("<td>r=1</td>") && html.contains("<td>r=2</td>"));
-        let claims = build_claims(&results).expect("claims");
+        let claims = claims(&results).expect("claims");
         let size = claims
             .iter()
             .find(|c| c.id == "reuse-0-size")
@@ -2034,7 +2400,7 @@ mod tests {
     fn report_without_a_reuse_model_renders_no_reuse_section() {
         let (results, html) = render_fixture();
         assert!(!html.contains("<h2 id=\"reuse-h\">"), "no reuse section");
-        assert!(!build_claims(&results)
+        assert!(!claims(&results)
             .expect("claims")
             .iter()
             .any(|c| c.id.starts_with("reuse-")));
@@ -2144,7 +2510,7 @@ mod tests {
 
         // Every registered context claim's rendered string appears verbatim
         // in the body — exactly what `report --check` re-validates.
-        let claims = build_claims(&results).expect("claims");
+        let claims = claims(&results).expect("claims");
         let context_claims: Vec<_> = claims
             .iter()
             .filter(|c| c.id.starts_with("context-"))
@@ -2185,7 +2551,7 @@ mod tests {
             "no context section"
         );
         assert!(!html.contains("not quantum-resistant"), "no caption");
-        assert!(!build_claims(&results)
+        assert!(!claims(&results)
             .expect("claims")
             .iter()
             .any(|c| c.id.starts_with("context-")));

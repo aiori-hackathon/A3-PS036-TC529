@@ -403,11 +403,10 @@ fn cmd_report_html(args: &ReportArgs) -> Result<()> {
 }
 
 fn cmd_report_check(args: &ReportArgs) -> Result<()> {
-    let html = std::fs::read_to_string(&args.out)
-        .with_context(|| format!("failed to read {}", args.out.display()))?;
     let results = load_results(&args.results)?;
 
-    let failures = check_report(&html, &results);
+    let report = climb_report::check(&results, &args.out)?;
+    let failures = report.messages();
     if failures.is_empty() {
         eprintln!("{}: report and results agree", args.out.display());
         return Ok(());

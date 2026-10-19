@@ -20,9 +20,10 @@ climb-report = { path = "../climb-report" }
 ratatui.workspace = true
 crossterm.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 tracing.workspace = true
 tracing-appender.workspace = true
-# env-filter so log verbosity is filterable via RUST_LOG (the project conventions §3).
+# env-filter so log verbosity is filterable via RUST_LOG.
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]

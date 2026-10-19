@@ -16,7 +16,7 @@ pub mod results;
 pub mod summary;
 
 pub use error::ReportError;
-pub use html::check_report;
+pub use html::{check, check_report, claims, CheckReport, CheckStatus, ClaimCheck};
 pub use ladder::{
     model_matches, LadderProvenance, LadderSection, LadderSizeRow, LadderSource,
     LadderVerification, SubmoduleRef, LADDER_VERIFICATION_SCHEMA_VERSION,

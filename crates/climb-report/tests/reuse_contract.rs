@@ -11,7 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use climb_report::{check_report, html::build_claims, ClimbResults};
+use climb_report::{check_report, html::claims, ClimbResults};
 
 fn sample_results_path() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/sample-output/climb-results.json")
@@ -118,7 +118,7 @@ fn committed_reuse_section_renders_through_charts_and_report() {
 
     // Every reuse claim's rendered string must appear verbatim in the body,
     // which is exactly what `report --check` re-validates.
-    let claims = build_claims(&results).expect("claims");
+    let claims = claims(&results).expect("claims");
     assert!(
         claims.iter().any(|c| c.id.starts_with("reuse-")),
         "the registry must carry reuse claims"
