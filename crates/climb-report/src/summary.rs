@@ -252,6 +252,43 @@ pub fn parse_plain_group_id(id: &str) -> Option<(BenchKind, Size)> {
     Some((kind, parse_size(size_str)?))
 }
 
+/// Classical algorithm keys (context only, not PQC).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ClassicalAlgo {
+    Ed25519,
+    EcdsaP256,
+    Rsa2048,
+}
+
+impl fmt::Display for ClassicalAlgo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ClassicalAlgo::Ed25519 => write!(f, "Ed25519"),
+            ClassicalAlgo::EcdsaP256 => write!(f, "ECDSA P-256"),
+            ClassicalAlgo::Rsa2048 => write!(f, "RSA-2048"),
+        }
+    }
+}
+
+/// Parse classical group id: `classical_{algo}_{size}` where algo is
+/// `ed25519`, `ecdsa_p256`, `rsa2048`.
+pub fn parse_classical_group_id(id: &str) -> Option<(ClassicalAlgo, Size)> {
+    let rest = id.strip_prefix("classical_")?;
+    // Longest algorithm fragments first: `ecdsa_p256` contains an underscore,
+    // so splitting at the first underscore would misread its size.
+    const ALGORITHMS: [(&str, ClassicalAlgo); 3] = [
+        ("ecdsa_p256_", ClassicalAlgo::EcdsaP256),
+        ("ed25519_", ClassicalAlgo::Ed25519),
+        ("rsa2048_", ClassicalAlgo::Rsa2048),
+    ];
+    for (fragment, algo) in ALGORITHMS {
+        if let Some(size_str) = rest.strip_prefix(fragment) {
+            return Some((algo, parse_size(size_str)?));
+        }
+    }
+    None
+}
+
 /// Given `"small_with_mtl"`, returns `Some(("small", "with_mtl"))`.
 fn split_size_and_suffix(s: &str) -> Option<(&str, &str)> {
     let first_underscore = s.find('_')?;
@@ -424,5 +461,58 @@ mod tests {
         assert_eq!(parse_plain_group_id("signing_small_plain"), None);
         assert_eq!(parse_plain_group_id("signing_giga_plain_slh_dsa"), None);
         assert_eq!(parse_plain_group_id("garbage"), None);
+    }
+
+    // -- parse_classical_group_id -----------------------------------------
+
+    #[test]
+    fn parse_classical_group_id_accepts_every_algorithm_and_size() {
+        for (fragment, algo) in [
+            ("ed25519", ClassicalAlgo::Ed25519),
+            ("ecdsa_p256", ClassicalAlgo::EcdsaP256),
+            ("rsa2048", ClassicalAlgo::Rsa2048),
+        ] {
+            for (size_str, size) in [
+                ("small", Size::Small),
+                ("onek", Size::OneK),
+                ("medium", Size::Medium),
+                ("large", Size::Large),
+            ] {
+                let id = format!("classical_{fragment}_{size_str}");
+                assert_eq!(
+                    parse_classical_group_id(&id),
+                    Some((algo, size)),
+                    "{id} must parse"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn parse_classical_group_id_splits_ecdsa_p256_at_the_full_algorithm_fragment() {
+        // Regression: splitting at the first underscore misread
+        // `ecdsa_p256_medium` as algorithm `ecdsa` with size `p256_medium`,
+        // dropping every ECDSA row.
+        assert_eq!(
+            parse_classical_group_id("classical_ecdsa_p256_medium"),
+            Some((ClassicalAlgo::EcdsaP256, Size::Medium))
+        );
+        assert_eq!(
+            parse_classical_group_id("classical_ecdsa_p256_small"),
+            Some((ClassicalAlgo::EcdsaP256, Size::Small))
+        );
+    }
+
+    #[test]
+    fn parse_classical_group_id_rejects_unknown_algorithms_and_sizes() {
+        assert_eq!(parse_classical_group_id("classical_dilithium_small"), None);
+        assert_eq!(parse_classical_group_id("classical_ed25519_giga"), None);
+        assert_eq!(parse_classical_group_id("classical_ed25519"), None);
+        assert_eq!(parse_classical_group_id("classical__small"), None);
+        assert_eq!(parse_classical_group_id("garbage"), None);
+        assert_eq!(
+            parse_classical_group_id("signing_small_plain_slh_dsa"),
+            None
+        );
     }
 }

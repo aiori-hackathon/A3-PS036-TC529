@@ -37,6 +37,7 @@ fn consolidate_memory(
         environment_path: root.join("no-env.json"),
         baseline: "new".to_string(),
         rtt_ms: None,
+        classical_signatures_path: root.join("no-classical-signatures.json"),
         output_path: root.join("out.json"),
     })
 }

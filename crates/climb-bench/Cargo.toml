@@ -16,6 +16,10 @@ harness = false
 name = "verifying"
 harness = false
 
+[[bench]]
+name = "classical"
+harness = false
+
 [dependencies]
 climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-mtl = { path = "../climb-mtl" }
@@ -27,6 +31,13 @@ sysinfo = { workspace = true }
 serde_json.workspace = true
 
 [dev-dependencies]
+# Classical-signature baselines are measured for context only. These crates are
+# dev-dependencies so they are never linked into any shipped binary.
+ed25519-dalek = "2.2"
+p256 = "0.13"
+rand_core = { version = "0.6", features = ["getrandom"] }
+rsa = { version = "0.9", features = ["sha2"] }
+sha2 = "0.10"
 criterion = { version = "0.5", features = ["html_reports"] }
 [[bin]]
 name = "mem_probe"

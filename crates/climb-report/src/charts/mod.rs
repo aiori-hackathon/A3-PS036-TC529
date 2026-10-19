@@ -43,6 +43,12 @@ pub const COLOR_TRUST_CACHED: RGBColor = RGBColor(44, 160, 44);
 pub const COLOR_PLAIN: RGBColor = RGBColor(148, 103, 189);
 /// Series colour: analytical / fitted (non-measured) values.
 pub const COLOR_MODEL: RGBColor = RGBColor(90, 90, 95);
+/// Series colour: Ed25519 classical context baseline.
+pub const COLOR_CLASSICAL_ED25519: RGBColor = RGBColor(140, 86, 75);
+/// Series colour: ECDSA P-256 classical context baseline.
+pub const COLOR_CLASSICAL_ECDSA_P256: RGBColor = RGBColor(227, 119, 194);
+/// Series colour: RSA-2048 classical context baseline.
+pub const COLOR_CLASSICAL_RSA2048: RGBColor = RGBColor(23, 190, 207);
 
 /// Generate all six SVG charts into `out_dir` from `results`.
 ///
@@ -946,7 +952,9 @@ pub struct UdpFitData {
 /// Every bar is modelled, so every series is hollow; a missing section yields
 /// empty panels rather than an error (the chart renders its own placeholder).
 pub fn udp_fit(section: Option<&crate::results::UdpFitSection>) -> UdpFitData {
-    let configs: [(&str, &str, RGBColor); 3] = [
+    // The three classical context series appear only when their rows were
+    // consolidated (a per-config filter skips a series with no points).
+    let configs: [(&str, &str, RGBColor); 6] = [
         ("plain", "A (plain SLH-DSA, modelled)", COLOR_PLAIN),
         (
             "mtl-full",
@@ -957,6 +965,21 @@ pub fn udp_fit(section: Option<&crate::results::UdpFitSection>) -> UdpFitData {
             "mtl-amortised",
             "C (MTL amortised, modelled)",
             COLOR_WITH_MTL,
+        ),
+        (
+            "classical-ed25519",
+            "E (Ed25519, context, modelled)",
+            COLOR_CLASSICAL_ED25519,
+        ),
+        (
+            "classical-ecdsa-p256",
+            "P (ECDSA P-256, context, modelled)",
+            COLOR_CLASSICAL_ECDSA_P256,
+        ),
+        (
+            "classical-rsa2048",
+            "R (RSA-2048, context, modelled)",
+            COLOR_CLASSICAL_RSA2048,
         ),
     ];
     let Some(section) = section else {
@@ -1696,6 +1719,7 @@ mod tests {
             dns_anatomy: None,
             ladder: None,
             plain: Vec::new(),
+            classical: Vec::new(),
             comparisons: Vec::new(),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
@@ -1704,6 +1728,7 @@ mod tests {
                 headline: None,
                 reuse: Vec::new(),
                 udp_fit: None,
+                signature_context: Vec::new(),
             },
             warnings: Vec::new(),
         }

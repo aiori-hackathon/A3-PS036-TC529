@@ -487,6 +487,7 @@ mod tests {
                 dns_pipeline: dns,
                 ladder: None,
                 plain: Vec::new(),
+                classical: Vec::new(),
                 comparisons: Vec::new(),
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
@@ -495,6 +496,7 @@ mod tests {
                     headline: None,
                     reuse: Vec::new(),
                     udp_fit: None,
+                    signature_context: Vec::new(),
                 },
                 warnings: Vec::new(),
             },
@@ -791,6 +793,7 @@ mod tests {
                 dns_anatomy: None,
                 ladder: None,
                 plain: Vec::new(),
+                classical: Vec::new(),
                 comparisons: Vec::new(),
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
@@ -799,6 +802,7 @@ mod tests {
                     headline: None,
                     udp_fit: None,
                     reuse: Vec::new(),
+                    signature_context: Vec::new(),
                 },
                 warnings: Vec::new(),
             },

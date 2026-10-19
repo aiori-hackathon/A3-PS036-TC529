@@ -202,6 +202,7 @@ fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
 
     let mut signing = Vec::new();
     let mut verifying = Vec::new();
+    let mut classical = Vec::new();
     let mut skipped = Vec::new();
 
     for group in GROUPS {
@@ -215,6 +216,7 @@ fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
         match group.target {
             BenchTarget::Signing => signing.push(group.name),
             BenchTarget::Verifying => verifying.push(group.name),
+            BenchTarget::Classical => classical.push(group.name),
         }
     }
 
@@ -229,6 +231,7 @@ fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
 
     run_bench_target("signing", &signing, args.baseline.as_deref(), pin_cpu)?;
     run_bench_target("verifying", &verifying, args.baseline.as_deref(), pin_cpu)?;
+    run_bench_target("classical", &classical, args.baseline.as_deref(), pin_cpu)?;
 
     eprintln!("bench-all complete");
     Ok(())

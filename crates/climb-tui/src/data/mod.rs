@@ -19,7 +19,7 @@ pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, BadgeKind, LadderBadge, LadderLoadState,
     LadderSource,
 };
-pub use overview::{rung_state, Kpi, KpiKind, RUNG_TICK};
+pub use overview::{rung_state, ContextRow, Kpi, KpiKind, RUNG_TICK};
 pub use reuse::ReuseRow;
 pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
 pub use wire::{UdpFitTableData, UdpFitTableRow, UdpGaugeData};
@@ -286,6 +286,7 @@ pub(crate) mod test_support {
                 dns_pipeline: dns,
                 ladder: None,
                 plain: Vec::new(),
+                classical: Vec::new(),
                 comparisons: Vec::new(),
                 derived,
                 dns_anatomy: None,
@@ -461,6 +462,7 @@ pub(crate) mod test_support {
             headline: None,
             reuse: Vec::new(),
             udp_fit: None,
+            signature_context: Vec::new(),
         }
     }
 
@@ -626,6 +628,7 @@ mod tests {
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: results_path.clone(),
         })
         .expect("consolidate from the committed ladder fixture");
@@ -733,6 +736,72 @@ mod tests {
             assert_eq!(table_row.cells, expected, "{profile} / {config}");
         }
         assert!(!table.note.is_empty(), "the note must state provenance");
+
+        // The classical context baselines share the grid, each under its own
+        // one-letter configuration id.
+        let letters: Vec<&str> = table.rows.iter().map(|r| r.config.as_str()).collect();
+        for classical in ["E", "P", "R"] {
+            assert!(
+                letters.contains(&classical),
+                "classical configuration {classical} missing from {letters:?}"
+            );
+        }
+    }
+
+    /// The committed sample results document must expose the signature-context
+    /// view-model: one row per `derived.signature_context` entry, every cell
+    /// formatted from the artifact's numbers, classical rows flagged as such
+    /// and ordered before the post-quantum configurations.
+    #[test]
+    fn committed_sample_results_expose_signature_context_rows_to_the_tui() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let state = load(&path);
+        let LoadState::Loaded(view) = state else {
+            panic!("expected the TUI to load the committed sample artifact, got {state:?}");
+        };
+
+        let raw = &view.results().derived.signature_context;
+        assert!(
+            !raw.is_empty(),
+            "the committed sample artifact must carry classical context rows"
+        );
+        let rows = view.context_table();
+        assert_eq!(rows.len(), raw.len());
+        for (row, source) in rows.iter().zip(raw) {
+            let letter = source.label.chars().next().expect("label has a letter");
+            assert_eq!(row.letter, letter.to_string(), "{}", source.label);
+            assert_eq!(
+                row.classical,
+                source.family == "classical (context)",
+                "{}",
+                source.label
+            );
+            // Integral byte counts group with separators; missing cells stay
+            // em dashes, never zeros.
+            match source.signature_bytes {
+                Some(bytes) if bytes.fract() == 0.0 => {
+                    assert_eq!(
+                        row.bytes,
+                        format!("{} B", climb_report::charts::fmt_count(bytes))
+                    );
+                }
+                Some(bytes) => assert_eq!(row.bytes, format!("{bytes:.2} B")),
+                None => assert_eq!(row.bytes, "\u{2014}"),
+            }
+            match source.verifying_mean_ns {
+                Some(ns) => assert_eq!(row.verify, format!("{:.2}", ns / 1000.0)),
+                None => assert_eq!(row.verify, "\u{2014}"),
+            }
+        }
+        assert!(
+            rows[..3].iter().all(|r| r.classical),
+            "classical baselines come first"
+        );
+        assert!(
+            rows[3..].iter().all(|r| !r.classical),
+            "configurations A/B/C follow"
+        );
     }
 
     /// A results document written before the ladder section existed must still

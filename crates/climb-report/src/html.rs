@@ -595,6 +595,50 @@ pub fn build_claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         }
     }
 
+    // Signature context: one claim group per context row. Registered only
+    // when the section will render (non-empty `derived.signature_context`),
+    // so the registry and the body stay in lockstep.
+    if !results.derived.signature_context.is_empty() {
+        for (idx, row) in results.derived.signature_context.iter().enumerate() {
+            let base = format!("/derived/signature_context/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("context-{idx}-sig"),
+                &format!("{base}/signature_bytes"),
+                row.signature_bytes.map(format_context_bytes),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("context-{idx}-sign"),
+                &format!("{base}/signing_mean_ns"),
+                row.signing_mean_ns.map(format_context_us_per_op),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("context-{idx}-verify"),
+                &format!("{base}/verifying_mean_ns"),
+                row.verifying_mean_ns.map(format_context_us_per_op),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("context-{idx}-fit"),
+                &format!("{base}/fits_1232_percent"),
+                row.fits_1232_percent.map(format_context_percent),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("context-{idx}-class"),
+                &format!("{base}/class"),
+                Some(row.class.label().to_string()),
+            );
+        }
+    }
+
     // Ladder: model vs libMTL.  Claims are registered only when the section is
     // actually rendered, so the registry and the body stay in lockstep.
     if let Some(ladder) = results
@@ -964,6 +1008,71 @@ fn render_timing_comparison_section(results: &ClimbResults, claims: &[Claim]) ->
     )
 }
 
+/// Format a per-message signature size for the context table: integral byte
+/// counts group with thousands separators, fractional per-message shares
+/// keep two decimals.
+fn format_context_bytes(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{} B", fmt_count(v))
+    } else {
+        format!("{v:.2} B")
+    }
+}
+
+/// Format a per-operation mean measured in nanoseconds as microseconds.
+fn format_context_us_per_op(ns: f64) -> String {
+    format!("{:.2} \u{b5}s/op", ns / 1000.0)
+}
+
+/// Format a percentage for the context table: whole percents without
+/// decimals, otherwise two.
+fn format_context_percent(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{v:.0}%")
+    } else {
+        format!("{v:.2}%")
+    }
+}
+
+/// Render the signature-context table: the classical baselines beside
+/// configurations A/B/C at the headline dataset size, every cell read from
+/// the registered claims so the body contains each registered value
+/// verbatim — the property [`check_claims`] enforces. Returns an empty
+/// string when no classical context rows were consolidated.
+///
+/// The one-line caption must state plainly that the classical algorithms are
+/// not quantum-resistant — this table is context, not a post-quantum
+/// alternative.
+fn render_context_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    let section = &results.derived.signature_context;
+    if section.is_empty() {
+        return String::new();
+    }
+    let value = |id: &str| -> String {
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for (idx, row) in section.iter().enumerate() {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&row.label),
+            escape_html(&row.family),
+            escape_html(&value(&format!("context-{idx}-sig"))),
+            escape_html(&value(&format!("context-{idx}-sign"))),
+            escape_html(&value(&format!("context-{idx}-verify"))),
+            escape_html(&value(&format!("context-{idx}-fit"))),
+            escape_html(&value(&format!("context-{idx}-class"))),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"context-h\">\n<h2 id=\"context-h\">Signature context: classical beside post-quantum</h2>\n<p class=\"note\">Ed25519, ECDSA P-256 and RSA-2048 are classical algorithms &mdash; <strong>not quantum-resistant</strong> &mdash; measured only to put the post-quantum numbers in context. One row per configuration at the {} dataset size: signature bytes carried per message on the wire, per-message sign and verify cost, and the share of modelled responses that fit 1,232 bytes over UDP.</p>\n<p class=\"note\">The fits column is ANALYTICAL (from the UDP-fit model below); the evidence class covers the measured timing and length inputs only. A cell missing from the artifact renders as an em dash.</p>\n<table class=\"memtable\">\n<thead><tr><th>Configuration</th><th>Family</th><th>Signature size</th><th>Sign</th><th>Verify</th><th>Fits &le;1,232 B</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
+        escape_html(&section[0].size),
+    )
+}
+
 /// Render the full HTML report.
 ///
 /// `charts_dir` must contain the six files named in
@@ -1043,6 +1152,7 @@ pub fn render_html(
     let udp_fit_html = render_udp_fit_section(results, &claims);
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
+    let context_html = render_context_section(results, &claims);
 
     Ok(format!(
         r#"<!DOCTYPE html>
@@ -1111,7 +1221,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
@@ -1295,7 +1405,7 @@ mod tests {
     use crate::results::{
         AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
         DnsCaptureSource, DnsPipelineHeadline, EnvironmentFingerprint, EvidenceClass, MemoryResult,
-        MemoryResults, ReuseCurvePoint, ReuseResult,
+        MemoryResults, ReuseCurvePoint, ReuseResult, SignatureContextRow,
     };
 
     fn synthetic_ladder_section() -> crate::ladder::LadderSection {
@@ -1371,6 +1481,7 @@ mod tests {
             dns_anatomy: None,
             ladder: Some(synthetic_ladder_section()),
             plain: Vec::new(),
+            classical: Vec::new(),
             comparisons: vec![ConfigComparison {
                 size: "Medium".to_string(),
                 wire_reduction_c_vs_a_percent: Some(97.0),
@@ -1388,6 +1499,7 @@ mod tests {
                 headline: Some("MTL cuts www.a wire bytes by 97.3%.".to_string()),
                 reuse: Vec::new(),
                 udp_fit: None,
+                signature_context: Vec::new(),
             },
             warnings: Vec::new(),
         }
@@ -1625,6 +1737,7 @@ mod tests {
             headline: None,
             udp_fit: None,
             reuse: Vec::new(),
+            signature_context: Vec::new(),
         };
         results.dns_pipeline = None;
         let dir = unique_temp_dir("html-empty");
@@ -1925,6 +2038,157 @@ mod tests {
             .expect("claims")
             .iter()
             .any(|c| c.id.starts_with("reuse-")));
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    /// A populated signature-context section: three classical baselines
+    /// followed by configurations A/B/C, all cells present except one (a
+    /// classical row without a verify measurement renders an em dash, and
+    /// registers no claim for that cell).
+    fn context_rows() -> Vec<SignatureContextRow> {
+        let row =
+            |config: &str, label: &str, family: &str, bytes, sign, verify| SignatureContextRow {
+                config: config.to_string(),
+                label: label.to_string(),
+                family: family.to_string(),
+                size: "Medium".to_string(),
+                signature_bytes: bytes,
+                signing_mean_ns: sign,
+                verifying_mean_ns: verify,
+                fits_1232_percent: Some(100.0),
+                class: EvidenceClass::Measured,
+            };
+        vec![
+            row(
+                "classical-ed25519",
+                "E (Ed25519, context)",
+                "classical (context)",
+                Some(64.0),
+                Some(1_100_000.0),
+                Some(220_000.0),
+            ),
+            row(
+                "classical-ecdsa-p256",
+                "P (ECDSA P-256, context)",
+                "classical (context)",
+                Some(64.0),
+                Some(4_400_000.0),
+                Some(880_000.0),
+            ),
+            row(
+                "classical-rsa2048",
+                "R (RSA-2048, context)",
+                "classical (context)",
+                Some(256.0),
+                Some(9_900_000.0),
+                None,
+            ),
+            row(
+                "plain",
+                "A (plain SLH-DSA)",
+                "post-quantum",
+                Some(1070.0),
+                Some(737_922_991.4),
+                Some(736_473.46),
+            ),
+            row(
+                "mtl-full",
+                "B (MTL non-amortised)",
+                "post-quantum",
+                Some(244.38),
+                Some(400_000.0),
+                Some(80_000.0),
+            ),
+            row(
+                "mtl-amortised",
+                "C (MTL amortised)",
+                "post-quantum",
+                Some(6.58),
+                Some(10_000.0),
+                Some(2_000.0),
+            ),
+        ]
+    }
+
+    #[test]
+    fn context_section_renders_classical_beside_post_quantum_with_matching_claims() {
+        let mut results = synthetic_results();
+        results.derived.signature_context = context_rows();
+        let dir = unique_temp_dir("html-context");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(
+            html.contains("<h2 id=\"context-h\">"),
+            "the context section must render"
+        );
+        // The one-line caption must state plainly that the classical
+        // algorithms are not quantum-resistant.
+        assert!(
+            html.contains("<strong>not quantum-resistant</strong>"),
+            "caption must carry the not-quantum-resistant statement"
+        );
+        for needle in [
+            "E (Ed25519, context)",
+            "R (RSA-2048, context)",
+            "A (plain SLH-DSA)",
+            "C (MTL amortised)",
+            "classical (context)",
+            "post-quantum",
+        ] {
+            assert!(html.contains(needle), "{needle:?} must appear in the table");
+        }
+
+        // Every registered context claim's rendered string appears verbatim
+        // in the body — exactly what `report --check` re-validates.
+        let claims = build_claims(&results).expect("claims");
+        let context_claims: Vec<_> = claims
+            .iter()
+            .filter(|c| c.id.starts_with("context-"))
+            .collect();
+        assert_eq!(
+            context_claims.len(),
+            6 * 5 - 1,
+            "every cell but the missing verify"
+        );
+        for claim in &context_claims {
+            assert!(
+                html.contains(&claim.formatted)
+                    || html.contains(&claim.formatted.replace('&', "&amp;")),
+                "claim {} rendered string missing: {}",
+                claim.id,
+                claim.formatted
+            );
+        }
+        // The row without a verify measurement has no claim and renders an
+        // em dash in that cell.
+        assert!(!context_claims.iter().any(|c| c.id == "context-2-verify"));
+        assert_eq!(check_claims(&html, &results), Vec::<String>::new());
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn report_without_classical_context_renders_no_context_section() {
+        let results = synthetic_results();
+        assert!(results.derived.signature_context.is_empty());
+        let dir = unique_temp_dir("html-no-context");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            !html.contains("<h2 id=\"context-h\">"),
+            "no context section"
+        );
+        assert!(!html.contains("not quantum-resistant"), "no caption");
+        assert!(!build_claims(&results)
+            .expect("claims")
+            .iter()
+            .any(|c| c.id.starts_with("context-")));
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 }

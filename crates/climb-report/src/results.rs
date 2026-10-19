@@ -137,6 +137,48 @@ pub struct PlainTimingResult {
     pub samples: Option<u32>,
 }
 
+/// Classical signature baseline timing result (context only).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ClassicalTimingResult {
+    pub algorithm: String,
+    pub size: String,
+    pub messages: u64,
+    pub signing_mean_ns: Option<f64>,
+    pub signing_ci_lower_ns: Option<f64>,
+    pub signing_ci_upper_ns: Option<f64>,
+    pub verifying_mean_ns: Option<f64>,
+    pub verifying_ci_lower_ns: Option<f64>,
+    pub verifying_ci_upper_ns: Option<f64>,
+    pub signature_len_bytes: usize,
+    pub class: EvidenceClass,
+}
+
+/// Signature lengths in bytes for the three classical context baselines,
+/// read from the document the classical benchmark writes after producing one
+/// signature of each algorithm. Every field is required and must be
+/// non-zero: a document that omits a field, carries a wrong shape, or
+/// records a zero length fails to load with an error naming the path — a
+/// present-but-invalid artifact is never silently ignored, and no length is
+/// ever typed in its place.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ClassicalSignatureLengths {
+    pub ed25519: usize,
+    pub ecdsa_p256: usize,
+    pub rsa2048: usize,
+}
+
+impl ClassicalSignatureLengths {
+    /// The measured length for one algorithm, keyed by the parsed group-id
+    /// algorithm.
+    pub fn for_algo(self, algo: crate::summary::ClassicalAlgo) -> usize {
+        match algo {
+            crate::summary::ClassicalAlgo::Ed25519 => self.ed25519,
+            crate::summary::ClassicalAlgo::EcdsaP256 => self.ecdsa_p256,
+            crate::summary::ClassicalAlgo::Rsa2048 => self.rsa2048,
+        }
+    }
+}
+
 /// Three-way configuration comparison for one dataset size, derived from the
 /// consolidated artifacts: A plain SLH-DSA, B MTL non-amortised, C MTL
 /// amortised.
@@ -434,6 +476,48 @@ pub struct DerivedSummary {
     /// keeps results written before this section existed parseable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udp_fit: Option<UdpFitSection>,
+    /// Compact signature-context table: classical baselines beside
+    /// configurations A/B/C at the headline (Medium) dataset size. Empty
+    /// when no classical rows were consolidated — the table exists to frame
+    /// the post-quantum numbers with classical context, so it is emitted
+    /// only when at least one classical context row is present.
+    /// `#[serde(default)]` keeps results written before this section
+    /// existed parseable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub signature_context: Vec<SignatureContextRow>,
+}
+
+/// One row of the compact signature-context table: a classical baseline or
+/// one of the post-quantum configurations A/B/C, side by side at the
+/// headline dataset size (Medium — the largest size whose wire report and
+/// modelled udp-fit rows exist).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SignatureContextRow {
+    /// Machine configuration id (e.g. `classical-ed25519`, `plain`), matching
+    /// the udp-fit section's ids.
+    pub config: String,
+    /// Display label (e.g. `Ed25519`, `B (MTL non-amortised)`).
+    pub label: String,
+    /// Family: `classical (context)` for the baselines, `post-quantum` for
+    /// A/B/C.
+    pub family: String,
+    /// Dataset size label these numbers were taken at (title-cased).
+    pub size: String,
+    /// Signature bytes carried per message on the wire: the full signature
+    /// for the classical baselines and A, the full signature plus ladder
+    /// share for B, the ladder-plus-condensed share for C.
+    pub signature_bytes: Option<f64>,
+    /// Per-message signing mean in nanoseconds.
+    pub signing_mean_ns: Option<f64>,
+    /// Per-message verifying mean in nanoseconds.
+    pub verifying_mean_ns: Option<f64>,
+    /// Share of modelled responses that fit 1,232 bytes over UDP at this
+    /// size (percent), read from the udp-fit section. Modelled
+    /// (ANALYTICAL) regardless of the row's `class`, which covers the
+    /// measured timing/length inputs only.
+    pub fits_1232_percent: Option<f64>,
+    /// Weakest evidence class among the row's measured timing/length inputs.
+    pub class: EvidenceClass,
 }
 
 /// One modelled UDP-fit row: a (profile, config, dataset size) triple.
@@ -547,6 +631,10 @@ pub struct ClimbResults {
     /// size. Empty for results written before configuration A was routed here.
     #[serde(default)]
     pub plain: Vec<PlainTimingResult>,
+    /// Classical signature baselines (context only, not PQC). Empty for results
+    /// written before phase 28.
+    #[serde(default)]
+    pub classical: Vec<ClassicalTimingResult>,
     /// Three-way configuration comparisons (C vs A, C vs B). Empty for results
     /// written before the comparison was derived.
     #[serde(default)]
@@ -582,6 +670,11 @@ pub struct ConsolidateOptions {
     /// Assumed round-trip time in milliseconds for the modelled TCP fallback
     /// cost; without it the fallback delay stays unmodelled.
     pub rtt_ms: Option<f64>,
+    /// Classical signature lengths recorded by the classical benchmark run.
+    /// When absent while classical Criterion records exist, consolidation
+    /// warns and omits every classical context row rather than guessing
+    /// lengths; present-but-invalid is a hard error naming the path.
+    pub classical_signatures_path: PathBuf,
     pub output_path: PathBuf,
 }
 
@@ -626,6 +719,11 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ReportErr
     })
 }
 
+/// Batch summary rows plus the records deliberately kept out of them: the
+/// plain configuration-A records and the classical context baselines, both
+/// timed per operation rather than per batch.
+type SummaryScan = (Vec<SummaryRow>, Vec<CriterionRecord>, Vec<CriterionRecord>);
+
 /// Scans from the criterion root (same traversal as `cargo xtask report`);
 /// unrecognized group ids from stale layouts are dropped instead of failing.
 ///
@@ -634,16 +732,25 @@ fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ReportErr
 fn read_summary_rows(
     criterion_dir: &Path,
     baseline: &str,
-) -> Result<(Vec<SummaryRow>, Vec<CriterionRecord>), ReportError> {
+) -> Result<SummaryScan, ReportError> {
     let records = scan_criterion(criterion_dir, baseline)?;
-    let (plain, mtl): (Vec<CriterionRecord>, Vec<CriterionRecord>) = records
-        .into_iter()
-        .partition(|rec| crate::summary::parse_plain_group_id(&rec.group_id).is_some());
+    let mut plain: Vec<CriterionRecord> = Vec::new();
+    let mut classical: Vec<CriterionRecord> = Vec::new();
+    let mut mtl: Vec<CriterionRecord> = Vec::new();
+    for rec in records {
+        if crate::summary::parse_plain_group_id(&rec.group_id).is_some() {
+            plain.push(rec);
+        } else if crate::summary::parse_classical_group_id(&rec.group_id).is_some() {
+            classical.push(rec);
+        } else {
+            mtl.push(rec);
+        }
+    }
     let known: Vec<CriterionRecord> = mtl
         .into_iter()
         .filter(|rec| crate::summary::parse_group_id(&rec.group_id).is_ok())
         .collect();
-    Ok((summarize(&known)?, plain))
+    Ok((summarize(&known)?, plain, classical))
 }
 
 /// Pure derivation of the headline metrics from the collected sections; every
@@ -703,6 +810,9 @@ fn derive_summary(
         // Attached by `consolidate_results` once the plain signature length is
         // known; the pure derivation has no input for it.
         udp_fit: None,
+        // Likewise attached by `consolidate_results`, which has the classical
+        // rows and the udp-fit section to build the context table from.
+        signature_context: Vec::new(),
     }
 }
 
@@ -785,6 +895,9 @@ const fn config_id(config: climb_analytical::SignatureConfig) -> &'static str {
         climb_analytical::SignatureConfig::Plain => "plain",
         climb_analytical::SignatureConfig::MtlFull => "mtl-full",
         climb_analytical::SignatureConfig::MtlAmortised => "mtl-amortised",
+        climb_analytical::SignatureConfig::ClassicalEd25519 => "classical-ed25519",
+        climb_analytical::SignatureConfig::ClassicalEcdsaP256 => "classical-ecdsa-p256",
+        climb_analytical::SignatureConfig::ClassicalRsa2048 => "classical-rsa2048",
     }
 }
 
@@ -804,6 +917,7 @@ const fn config_id(config: climb_analytical::SignatureConfig) -> &'static str {
 /// capture's algorithm parameter set since the fixture was recorded.
 fn build_udp_fit(
     wire_size: &[WireSizeResult],
+    classical_lengths: Option<&ClassicalSignatureLengths>,
     rtt_ms: Option<f64>,
     warnings: &mut Vec<String>,
 ) -> Option<UdpFitSection> {
@@ -841,17 +955,42 @@ fn build_udp_fit(
         return None;
     };
 
-    let configs = [
-        climb_analytical::SignatureConfig::Plain,
-        climb_analytical::SignatureConfig::MtlFull,
-        climb_analytical::SignatureConfig::MtlAmortised,
+    // A/B/C carry the plain SLH-DSA length; each classical context config
+    // carries its own measured length. Classical configs appear only when
+    // their lengths were recorded (a missing document was already warned
+    // about by the caller).
+    let mut configs: Vec<(climb_analytical::SignatureConfig, usize)> = vec![
+        (climb_analytical::SignatureConfig::Plain, plain_usize),
+        (climb_analytical::SignatureConfig::MtlFull, plain_usize),
+        (climb_analytical::SignatureConfig::MtlAmortised, plain_usize),
     ];
+    if let Some(lengths) = classical_lengths {
+        for (config, len) in [
+            (
+                climb_analytical::SignatureConfig::ClassicalEd25519,
+                lengths.ed25519,
+            ),
+            (
+                climb_analytical::SignatureConfig::ClassicalEcdsaP256,
+                lengths.ecdsa_p256,
+            ),
+            (
+                climb_analytical::SignatureConfig::ClassicalRsa2048,
+                lengths.rsa2048,
+            ),
+        ] {
+            // A zero length cannot come from a produced signature; the
+            // loader rejects such documents, so this is defence in depth.
+            if len > 0 {
+                configs.push((config, len));
+            }
+        }
+    }
     let mut rows = Vec::new();
     for profile in climb_analytical::builtin_profiles() {
-        for &config in &configs {
+        for &(config, sig_len) in &configs {
             for size in climb_analytical::COMPARISON_SIZES {
-                match climb_analytical::udp_fit_for_size(config, &profile, size, size, plain_usize)
-                {
+                match climb_analytical::udp_fit_for_size(config, &profile, size, size, sig_len) {
                     Ok(row) => {
                         let tcp = climb_analytical::tcp_fallback_cost(
                             row.max_bytes,
@@ -1189,6 +1328,286 @@ fn build_comparisons(
         .collect()
 }
 
+/// True when a Criterion record's benchmark is the verify function of its
+/// group: the classical groups use `BenchmarkId::from_parameter`, so
+/// Criterion writes the parameter string (`sign`/`verify`) as `value_str`
+/// with a null `function_id`; a function-id layout is accepted too.
+fn is_verify_record(rec: &crate::record::CriterionRecord) -> bool {
+    rec.value_str == "verify" || rec.function_id.as_deref() == Some("verify")
+}
+
+/// Load the classical signature lengths, if the document was recorded.
+///
+/// * absent while classical Criterion records exist → `None` plus a
+///   warning (consolidation then carries no classical rows anywhere — a
+///   length is never typed in);
+/// * absent with no classical records → `None`, silently (this run simply
+///   never measured classical baselines);
+/// * present but unparseable (missing field, wrong shape, bad number, zero
+///   length) → hard error naming the path (a present-but-invalid artifact
+///   is never silently ignored).
+fn load_classical_signature_lengths(
+    path: &Path,
+    records: &[crate::record::CriterionRecord],
+    warnings: &mut Vec<String>,
+) -> Result<Option<ClassicalSignatureLengths>, ReportError> {
+    if !path.exists() {
+        if !records.is_empty() {
+            warnings.push(format!(
+                "classical signature lengths not recorded at {}; classical context rows omitted",
+                path.display()
+            ));
+        }
+        return Ok(None);
+    }
+    let lengths: ClassicalSignatureLengths = read_json(path)?;
+    for (name, len) in [
+        ("ed25519", lengths.ed25519),
+        ("ecdsa_p256", lengths.ecdsa_p256),
+        ("rsa2048", lengths.rsa2048),
+    ] {
+        if len == 0 {
+            return Err(ReportError::MalformedData {
+                path: path.to_path_buf(),
+                reason: format!("classical {name} signature length is 0; expected bytes"),
+            });
+        }
+    }
+    Ok(Some(lengths))
+}
+
+fn classical_timings(
+    records: &[crate::record::CriterionRecord],
+    lengths: &ClassicalSignatureLengths,
+) -> Vec<ClassicalTimingResult> {
+    use crate::summary::{parse_classical_group_id, ClassicalAlgo};
+    use std::collections::{BTreeMap, BTreeSet};
+    let mut signing: BTreeMap<(ClassicalAlgo, crate::summary::Size), (f64, f64, f64)> =
+        BTreeMap::new();
+    let mut verifying: BTreeMap<(ClassicalAlgo, crate::summary::Size), (f64, f64, f64)> =
+        BTreeMap::new();
+    for rec in records {
+        if let Some((algo, size)) = parse_classical_group_id(&rec.group_id) {
+            let entry = (rec.mean_ns, rec.mean_ci_lower_ns, rec.mean_ci_upper_ns);
+            if is_verify_record(rec) {
+                let _ = verifying.insert((algo, size), entry);
+            } else {
+                let _ = signing.insert((algo, size), entry);
+            }
+        }
+    }
+    // Rows keyed by (algorithm, size) in artifact order: algorithm in
+    // declaration order, size ascending — no name-based sort that could
+    // drift from the presentation order.
+    let keys: BTreeSet<(ClassicalAlgo, crate::summary::Size)> =
+        signing.keys().chain(verifying.keys()).copied().collect();
+    let mut out: Vec<ClassicalTimingResult> = Vec::new();
+    for (algo, size) in keys {
+        let Some((_, label, messages)) = COMPARISON_SIZES.iter().find(|(s, _, _)| *s == size)
+        else {
+            continue;
+        };
+        let skey = signing.get(&(algo, size));
+        let vkey = verifying.get(&(algo, size));
+        out.push(ClassicalTimingResult {
+            algorithm: algo.to_string(),
+            size: (*label).to_string(),
+            messages: *messages,
+            signing_mean_ns: skey.map(|e| e.0),
+            signing_ci_lower_ns: skey.map(|e| e.1),
+            signing_ci_upper_ns: skey.map(|e| e.2),
+            verifying_mean_ns: vkey.map(|e| e.0),
+            verifying_ci_lower_ns: vkey.map(|e| e.1),
+            verifying_ci_upper_ns: vkey.map(|e| e.2),
+            signature_len_bytes: lengths.for_algo(algo),
+            class: EvidenceClass::Measured,
+        });
+    }
+    out
+}
+
+/// Weaker (less direct) of two evidence classes.
+fn weakest_class(a: EvidenceClass, b: EvidenceClass) -> EvidenceClass {
+    fn rank(c: EvidenceClass) -> u8 {
+        match c {
+            EvidenceClass::Measured => 0,
+            EvidenceClass::Extrapolated => 1,
+            EvidenceClass::Analytical => 2,
+            EvidenceClass::Derived => 3,
+        }
+    }
+    if rank(a) >= rank(b) {
+        a
+    } else {
+        b
+    }
+}
+
+/// The evidence class of one measured input, or `None` when the input is
+/// absent (an absent cell has no class of its own).
+fn per_message_class(pm: &PerMessage) -> Option<EvidenceClass> {
+    pm.value.map(|_| {
+        if pm.extrapolated {
+            EvidenceClass::Extrapolated
+        } else {
+            EvidenceClass::Measured
+        }
+    })
+}
+
+/// The signature configuration a classical timing row belongs to, keyed by
+/// the row's algorithm display name (whose only producer is
+/// [`crate::summary::ClassicalAlgo`]'s `Display`).
+fn classical_signature_config(algorithm: &str) -> Option<climb_analytical::SignatureConfig> {
+    match algorithm {
+        "Ed25519" => Some(climb_analytical::SignatureConfig::ClassicalEd25519),
+        "ECDSA P-256" => Some(climb_analytical::SignatureConfig::ClassicalEcdsaP256),
+        "RSA-2048" => Some(climb_analytical::SignatureConfig::ClassicalRsa2048),
+        _ => None,
+    }
+}
+
+/// Response profile the context table's modelled fit cell is read from.
+const CONTEXT_FIT_PROFILE: &str = "positive_a";
+
+/// Build the compact signature-context table: classical baselines first
+/// (artifact order), then A, B, C, all at the headline dataset size
+/// (Medium — the largest size whose wire report and modelled udp-fit rows
+/// exist, where every input is directly measured for the classical and
+/// plain rows).
+///
+/// The section is emitted only when at least one classical row exists (the
+/// table exists to frame the post-quantum numbers with classical context);
+/// without classical timings the comparison table already covers A/B/C.
+/// The `fits_1232_percent` cell is read from the modelled udp-fit section
+/// and is ANALYTICAL regardless of the row's `class`, which covers the
+/// measured timing/length inputs only (documented in the field note).
+#[allow(clippy::too_many_arguments)]
+fn build_signature_context(
+    wire_size: &[WireSizeResult],
+    signing: &[SigningBenchmarkResult],
+    verifying: &[VerifyingBenchmarkResult],
+    plain: &[PlainTimingResult],
+    classical: &[ClassicalTimingResult],
+    udp_fit: Option<&UdpFitSection>,
+) -> Vec<SignatureContextRow> {
+    if classical.is_empty() {
+        return Vec::new();
+    }
+    let Some((_, label, messages)) = COMPARISON_SIZES
+        .iter()
+        .find(|(s, _, _)| *s == crate::summary::Size::Medium)
+    else {
+        return Vec::new();
+    };
+    let fit = |config: &str| -> Option<f64> {
+        udp_fit.and_then(|s| {
+            s.rows
+                .iter()
+                .find(|r| {
+                    r.profile == CONTEXT_FIT_PROFILE
+                        && r.messages == *messages
+                        && r.config == config
+                })
+                .map(|r| r.fit_1232_percent)
+        })
+    };
+    let wire = wire_size
+        .iter()
+        .find(|w| w.size.eq_ignore_ascii_case(label));
+
+    let mut rows: Vec<SignatureContextRow> = Vec::new();
+
+    for row in classical.iter().filter(|r| r.size == *label) {
+        let Some(signature_config) = classical_signature_config(&row.algorithm) else {
+            continue;
+        };
+        let config = config_id(signature_config);
+        rows.push(SignatureContextRow {
+            config: config.to_string(),
+            label: signature_config.label().to_string(),
+            family: "classical (context)".to_string(),
+            size: size_display(label),
+            signature_bytes: Some(row.signature_len_bytes as f64),
+            signing_mean_ns: row.signing_mean_ns,
+            verifying_mean_ns: row.verifying_mean_ns,
+            fits_1232_percent: fit(config),
+            class: row.class,
+        });
+    }
+
+    // Configuration A: the plain timing row plus the wire row's measured
+    // per-message signature length.
+    if let Some(p) = plain.iter().find(|p| p.size == *label) {
+        if p.signing_mean_ns.is_some() || p.verifying_mean_ns.is_some() {
+            let signature_bytes = wire
+                .filter(|w| w.plain_signature_len_bytes > 0)
+                .map(|w| w.plain_signature_len_bytes as f64);
+            let mut class = p.class;
+            if signature_bytes.is_some() {
+                class = weakest_class(class, EvidenceClass::Measured);
+            }
+            let config = config_id(climb_analytical::SignatureConfig::Plain);
+            rows.push(SignatureContextRow {
+                config: config.to_string(),
+                label: climb_analytical::SignatureConfig::Plain.label().to_string(),
+                family: "post-quantum".to_string(),
+                size: size_display(label),
+                signature_bytes,
+                signing_mean_ns: p.signing_mean_ns,
+                verifying_mean_ns: p.verifying_mean_ns,
+                fits_1232_percent: fit(config),
+                class,
+            });
+        }
+    }
+
+    // Configurations B and C: per-message cost from the signing/verifying
+    // benchmarks, signature bytes from the wire totals.
+    let wire_per_message = |total: u64| -> Option<f64> {
+        wire.filter(|w| w.message_count > 0)
+            .map(|w| total as f64 / w.message_count as f64)
+    };
+    for (config, condition) in [
+        (climb_analytical::SignatureConfig::MtlFull, "Without MTL"),
+        (climb_analytical::SignatureConfig::MtlAmortised, "With MTL"),
+    ] {
+        let sign = signing_per_message(signing, label, condition);
+        let verify = verifying_per_message(verifying, label, condition);
+        let (Some(sign_value), Some(verify_value)) = (sign.value, verify.value) else {
+            continue;
+        };
+        let total = match config {
+            climb_analytical::SignatureConfig::MtlFull => wire.map(|w| w.without_mtl_total_bytes),
+            _ => wire.map(|w| w.with_mtl_total_bytes),
+        }
+        .and_then(wire_per_message);
+        let mut class = EvidenceClass::Measured;
+        class = weakest_class(
+            class,
+            per_message_class(&sign).unwrap_or(EvidenceClass::Measured),
+        );
+        class = weakest_class(
+            class,
+            per_message_class(&verify).unwrap_or(EvidenceClass::Measured),
+        );
+        let config_id = config_id(config);
+        rows.push(SignatureContextRow {
+            config: config_id.to_string(),
+            label: config.label().to_string(),
+            family: "post-quantum".to_string(),
+            size: size_display(label),
+            signature_bytes: total,
+            signing_mean_ns: Some(sign_value),
+            verifying_mean_ns: Some(verify_value),
+            fits_1232_percent: fit(config_id),
+            class,
+        });
+    }
+
+    rows
+}
+
 /// Derive the one-line headline from captured DNS numbers; `None` when the
 /// capture is absent or incomplete, so the headline is never a constant.
 fn headline_from_dns(headline: &DnsPipelineHeadline) -> Option<String> {
@@ -1370,7 +1789,8 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         .to_string_lossy()
         .to_string();
 
-    let (summary_rows, plain_records) = read_summary_rows(&opts.criterion_dir, &opts.baseline)?;
+    let (summary_rows, plain_records, classical_records) =
+        read_summary_rows(&opts.criterion_dir, &opts.baseline)?;
 
     let mut signing: Vec<SigningBenchmarkResult> = Vec::new();
     let mut verifying: Vec<VerifyingBenchmarkResult> = Vec::new();
@@ -1501,6 +1921,15 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let ladder = load_ladder_section(&opts.ladder_verification_path, &opts.ladder_fixture_path)?;
 
     let plain = plain_timings(&plain_records);
+    let classical_lengths = load_classical_signature_lengths(
+        &opts.classical_signatures_path,
+        &classical_records,
+        &mut warnings,
+    )?;
+    let classical = match &classical_lengths {
+        Some(lengths) => classical_timings(&classical_records, lengths),
+        None => Vec::new(),
+    };
     let comparisons = build_comparisons(&wire_size, &signing, &verifying, &plain);
 
     let mut derived = derive_summary(
@@ -1510,7 +1939,20 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &plain,
         dns_pipeline.as_ref(),
     );
-    derived.udp_fit = build_udp_fit(&wire_size, opts.rtt_ms, &mut warnings);
+    derived.udp_fit = build_udp_fit(
+        &wire_size,
+        classical_lengths.as_ref(),
+        opts.rtt_ms,
+        &mut warnings,
+    );
+    derived.signature_context = build_signature_context(
+        &wire_size,
+        &signing,
+        &verifying,
+        &plain,
+        &classical,
+        derived.udp_fit.as_ref(),
+    );
 
     let results = ClimbResults {
         version: "1.0".to_string(),
@@ -1524,6 +1966,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         dns_anatomy,
         ladder,
         plain,
+        classical,
         comparisons,
         derived,
         warnings,
@@ -2097,6 +2540,7 @@ mod tests {
             dns_anatomy: None,
             ladder: Some(sample_ladder_section()),
             plain,
+            classical: Vec::new(),
             comparisons,
             derived,
             warnings: vec!["wire report missing: /x".to_string()],
@@ -2131,6 +2575,7 @@ mod tests {
             dns_anatomy: None,
             ladder: None,
             plain: Vec::new(),
+            classical: Vec::new(),
             comparisons: Vec::new(),
             derived: DerivedSummary {
                 overall_wire_reduction_percent: None,
@@ -2139,6 +2584,7 @@ mod tests {
                 headline: None,
                 reuse: Vec::new(),
                 udp_fit: None,
+                signature_context: Vec::new(),
             },
             warnings: Vec::new(),
         };
@@ -2227,7 +2673,7 @@ mod tests {
             1,
         );
 
-        let (rows, _plain) = read_summary_rows(&root, "new").unwrap();
+        let (rows, _plain, _classical) = read_summary_rows(&root, "new").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Signing);
         assert_eq!(rows[0].size, crate::summary::Size::Small);
@@ -2260,7 +2706,7 @@ mod tests {
         )
         .unwrap();
 
-        let (rows, _plain) = read_summary_rows(&root, "new").unwrap();
+        let (rows, _plain, _classical) = read_summary_rows(&root, "new").unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Verifying);
         assert_eq!(rows[0].size, crate::summary::Size::Medium);
@@ -2371,6 +2817,7 @@ mod tests {
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
         };
 
@@ -2434,6 +2881,7 @@ mod tests {
             environment_path: root.join("environment.json"),
             rtt_ms: None,
             baseline: "new".to_string(),
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: output.clone(),
         };
 
@@ -2521,6 +2969,7 @@ mod tests {
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
         };
         consolidate_results(opts).unwrap()
@@ -2697,6 +3146,7 @@ mod tests {
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
         };
         let results = consolidate_results(opts).unwrap();
@@ -2965,6 +3415,7 @@ mod tests {
             ladder_fixture_path: fixture,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
+            classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
         })
         .unwrap();
@@ -3278,5 +3729,361 @@ mod tests {
         let restored: ClimbResults =
             serde_json::from_value(serde_json::Value::Object(object)).unwrap();
         assert!(restored.derived.reuse.is_empty());
+    }
+
+    // -- classical context baselines -------------------------------------
+
+    /// A Criterion record for a classical group: those benches use
+    /// `BenchmarkId::from_parameter`, so the parameter string (`sign` or
+    /// `verify`) lands in `value_str` and `function_id` stays null.
+    fn make_classical_record(
+        group_id: &str,
+        parameter: &str,
+        mean_ns: f64,
+    ) -> crate::record::CriterionRecord {
+        crate::record::CriterionRecord {
+            group_id: group_id.to_string(),
+            function_id: None,
+            value_str: parameter.to_string(),
+            full_id: format!("{group_id}/{parameter}"),
+            elements: None,
+            mean_ns,
+            mean_ci_lower_ns: mean_ns * 0.9,
+            mean_ci_upper_ns: mean_ns * 1.1,
+            confidence_level: 0.95,
+        }
+    }
+
+    /// A wire row carrying a plain SLH-DSA length (and a plain total), for
+    /// sections that need configuration A's inputs.
+    fn wire_row_with_plain(size: &str, plain_len: u64) -> WireSizeResult {
+        WireSizeResult {
+            plain_total_bytes: plain_len * 100,
+            plain_signature_len_bytes: plain_len,
+            ..wire_row(size, 97.0)
+        }
+    }
+
+    /// Sign and verify records for all three classical algorithms at Medium.
+    fn classical_medium_records() -> Vec<crate::record::CriterionRecord> {
+        [
+            ("classical_ed25519_medium", 1_100.0, 220.0),
+            ("classical_ecdsa_p256_medium", 4_400.0, 880.0),
+            ("classical_rsa2048_medium", 9_900.0, 330.0),
+        ]
+        .into_iter()
+        .flat_map(|(group, sign, verify)| {
+            [
+                make_classical_record(group, "sign", sign),
+                make_classical_record(group, "verify", verify),
+            ]
+        })
+        .collect()
+    }
+
+    const TEST_LENGTHS: ClassicalSignatureLengths = ClassicalSignatureLengths {
+        ed25519: 64,
+        ecdsa_p256: 64,
+        rsa2048: 256,
+    };
+
+    #[test]
+    fn classical_timings_splits_sign_and_verify_by_parameter() {
+        let records = vec![
+            make_classical_record("classical_ed25519_small", "sign", 1_000.0),
+            make_classical_record("classical_ed25519_small", "verify", 200.0),
+            make_classical_record("classical_ecdsa_p256_medium", "sign", 4_000.0),
+            make_classical_record("classical_ecdsa_p256_medium", "verify", 800.0),
+            make_classical_record("classical_rsa2048_small", "sign", 9_000.0),
+            make_classical_record("classical_rsa2048_small", "verify", 300.0),
+        ];
+        let rows = classical_timings(&records, &TEST_LENGTHS);
+        assert_eq!(rows.len(), 3);
+        // Row order is algorithm declaration order, size ascending within an
+        // algorithm; the ECDSA group id parses despite its own underscore.
+        assert_eq!(rows[0].algorithm, "Ed25519");
+        assert_eq!(rows[0].size, "Small");
+        assert_eq!(rows[0].signing_mean_ns, Some(1_000.0));
+        assert_eq!(rows[0].verifying_mean_ns, Some(200.0));
+        assert_eq!(rows[0].signature_len_bytes, 64);
+        assert_eq!(rows[0].class, EvidenceClass::Measured);
+        assert_eq!(rows[1].algorithm, "ECDSA P-256");
+        assert_eq!(rows[1].size, "Medium");
+        assert_eq!(rows[1].signing_mean_ns, Some(4_000.0));
+        assert_eq!(rows[1].verifying_mean_ns, Some(800.0));
+        assert_eq!(rows[2].algorithm, "RSA-2048");
+        assert_eq!(rows[2].size, "Small");
+        assert_eq!(rows[2].signing_mean_ns, Some(9_000.0));
+        assert_eq!(rows[2].verifying_mean_ns, Some(300.0));
+        assert_eq!(rows[2].signature_len_bytes, 256);
+    }
+
+    #[test]
+    fn classical_timings_carries_ci_bounds_from_the_records() {
+        let records = vec![
+            make_classical_record("classical_ed25519_small", "sign", 1_000.0),
+            make_classical_record("classical_ed25519_small", "verify", 200.0),
+        ];
+        let rows = classical_timings(&records, &TEST_LENGTHS);
+        assert_eq!(rows.len(), 1);
+        // The CI bounds flow from the record's own mean (computed as the
+        // helper does, to stay exact in floating point).
+        assert_eq!(rows[0].signing_ci_lower_ns, Some(1_000.0 * 0.9));
+        assert_eq!(rows[0].signing_ci_upper_ns, Some(1_000.0 * 1.1));
+        assert_eq!(rows[0].verifying_ci_lower_ns, Some(200.0 * 0.9));
+        assert_eq!(rows[0].verifying_ci_upper_ns, Some(200.0 * 1.1));
+    }
+
+    #[test]
+    fn classical_lengths_absent_warns_with_records_and_is_silent_without() {
+        let root = temp_root("classical-missing");
+        let path = root.join("climb-classical-signatures.json");
+        let records = vec![make_classical_record(
+            "classical_ed25519_small",
+            "sign",
+            1.0,
+        )];
+
+        let mut warnings = Vec::new();
+        assert_eq!(
+            load_classical_signature_lengths(&path, &records, &mut warnings).unwrap(),
+            None
+        );
+        assert_eq!(warnings.len(), 1, "missing lengths must warn exactly once");
+        assert!(
+            warnings[0].contains(&path.display().to_string()),
+            "the warning must name the path: {}",
+            warnings[0]
+        );
+
+        let mut warnings = Vec::new();
+        assert_eq!(
+            load_classical_signature_lengths(&path, &[], &mut warnings).unwrap(),
+            None
+        );
+        assert!(
+            warnings.is_empty(),
+            "no classical records means no expectation: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn classical_lengths_present_but_invalid_are_a_hard_error_naming_the_path() {
+        let root = temp_root("classical-invalid");
+        let unparseable = root.join("unparseable.json");
+        fs::write(&unparseable, "not json at all").unwrap();
+        let missing_field = root.join("missing-field.json");
+        fs::write(&missing_field, r#"{"ed25519":64,"ecdsa_p256":64}"#).unwrap();
+        let wrong_type = root.join("wrong-type.json");
+        fs::write(
+            &wrong_type,
+            r#"{"ed25519":64,"ecdsa_p256":64,"rsa2048":"nope"}"#,
+        )
+        .unwrap();
+        let zero = root.join("zero-length.json");
+        fs::write(&zero, r#"{"ed25519":0,"ecdsa_p256":64,"rsa2048":256}"#).unwrap();
+
+        for path in [&unparseable, &missing_field, &wrong_type, &zero] {
+            let mut warnings = Vec::new();
+            let err = load_classical_signature_lengths(path, &[], &mut warnings)
+                .expect_err("a present-but-invalid document must be a hard error");
+            match err {
+                ReportError::JsonDecode { path: found, .. }
+                | ReportError::MalformedData { path: found, .. } => {
+                    assert_eq!(&found, path, "the error must name the path");
+                }
+                other => panic!("expected a path-naming error, got {other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn classical_lengths_flow_from_the_document_into_rows_and_context() {
+        // Deliberately non-standard byte counts: consumers must read them
+        // from the document, never reproduce the spec sizes on their own
+        // (test data, deliberately unlike any real signature length).
+        let root = temp_root("classical-read");
+        let path = root.join("climb-classical-signatures.json");
+        fs::write(&path, r#"{"ed25519":77,"ecdsa_p256":88,"rsa2048":99}"#).unwrap();
+
+        let records = classical_medium_records();
+        let mut warnings = Vec::new();
+        let lengths = load_classical_signature_lengths(&path, &records, &mut warnings)
+            .unwrap()
+            .expect("the recorded document loads");
+        assert!(warnings.is_empty());
+        assert_eq!(
+            lengths,
+            ClassicalSignatureLengths {
+                ed25519: 77,
+                ecdsa_p256: 88,
+                rsa2048: 99
+            }
+        );
+
+        let rows = classical_timings(&records, &lengths);
+        let from_rows: Vec<usize> = rows.iter().map(|r| r.signature_len_bytes).collect();
+        assert_eq!(from_rows, [77, 88, 99]);
+
+        let context = build_signature_context(&[], &[], &[], &[], &rows, None);
+        let from_context: Vec<Option<f64>> = context.iter().map(|r| r.signature_bytes).collect();
+        assert_eq!(from_context, [Some(77.0), Some(88.0), Some(99.0)]);
+    }
+
+    #[test]
+    fn build_signature_context_orders_classical_then_configs_at_medium_only() {
+        let wire = vec![
+            wire_row_with_plain("Small", 1070),
+            wire_row_with_plain("Medium", 1070),
+        ];
+        let signing = vec![
+            signing_row("Medium", "Without MTL", 40_000_000.0),
+            signing_row("Medium", "With MTL", 1_000_000.0),
+        ];
+        let verifying = vec![
+            verifying_row("Medium", "Without MTL", 8_000_000.0),
+            verifying_row("Medium", "With MTL", 200_000.0),
+        ];
+        let plain = vec![plain_row("Medium")];
+        let classical = classical_timings(&classical_medium_records(), &TEST_LENGTHS);
+        let mut warnings = Vec::new();
+        let udp_fit = build_udp_fit(&wire, Some(&TEST_LENGTHS), None, &mut warnings);
+
+        let rows = build_signature_context(
+            &wire,
+            &signing,
+            &verifying,
+            &plain,
+            &classical,
+            udp_fit.as_ref(),
+        );
+        let configs: Vec<&str> = rows.iter().map(|r| r.config.as_str()).collect();
+        assert_eq!(
+            configs,
+            [
+                "classical-ed25519",
+                "classical-ecdsa-p256",
+                "classical-rsa2048",
+                "plain",
+                "mtl-full",
+                "mtl-amortised",
+            ],
+            "classical baselines first, then A, B, C"
+        );
+        assert!(rows.iter().all(|r| r.size == "Medium"), "Medium size only");
+        assert_eq!(rows[0].family, "classical (context)");
+        assert_eq!(rows[1].family, "classical (context)");
+        assert_eq!(rows[2].family, "classical (context)");
+        assert!(
+            rows[3..].iter().all(|r| r.family == "post-quantum"),
+            "A/B/C are post-quantum"
+        );
+
+        // Signature bytes per message: classical from the document, A from
+        // the wire row's plain length, B/C from the wire totals per message.
+        assert_eq!(rows[0].signature_bytes, Some(64.0));
+        assert_eq!(rows[1].signature_bytes, Some(64.0));
+        assert_eq!(rows[2].signature_bytes, Some(256.0));
+        assert_eq!(rows[3].signature_bytes, Some(1070.0));
+        assert_eq!(rows[4].signature_bytes, Some(24_438.0 / 100.0));
+        assert_eq!(rows[5].signature_bytes, Some(658.0 / 100.0));
+
+        // Per-message costs: A from the plain row, B/C from the condition
+        // rows, classical from the classical rows.
+        assert_eq!(rows[0].signing_mean_ns, Some(1_100.0));
+        assert_eq!(rows[0].verifying_mean_ns, Some(220.0));
+        assert_eq!(rows[3].signing_mean_ns, plain[0].signing_mean_ns);
+        assert_eq!(rows[3].verifying_mean_ns, plain[0].verifying_mean_ns);
+        assert_eq!(rows[4].signing_mean_ns, Some(400_000.0));
+        assert_eq!(rows[4].verifying_mean_ns, Some(80_000.0));
+        assert_eq!(rows[5].signing_mean_ns, Some(10_000.0));
+        assert_eq!(rows[5].verifying_mean_ns, Some(2_000.0));
+
+        // The fits cell is the modelled udp-fit row for the same config at
+        // the Medium message count, under the headline profile.
+        let udp = udp_fit.as_ref().expect("the section must model");
+        for row in &rows {
+            let expected = udp
+                .rows
+                .iter()
+                .find(|r| {
+                    r.profile == CONTEXT_FIT_PROFILE
+                        && r.messages == 10_000
+                        && r.config == row.config
+                })
+                .map(|r| r.fit_1232_percent);
+            assert_eq!(
+                row.fits_1232_percent, expected,
+                "fits cell for {} must come from the modelled row",
+                row.config
+            );
+            assert!(row.fits_1232_percent.is_some());
+            assert_eq!(row.class, EvidenceClass::Measured);
+        }
+
+        // Without a udp-fit section the fits cell stays absent, never
+        // fabricated.
+        let without =
+            build_signature_context(&wire, &signing, &verifying, &plain, &classical, None);
+        assert!(without.iter().all(|r| r.fits_1232_percent.is_none()));
+    }
+
+    #[test]
+    fn build_signature_context_is_empty_without_classical_rows() {
+        // The context table exists to frame the post-quantum numbers with
+        // classical context; without classical rows it is not built at all.
+        let wire = vec![wire_row_with_plain("Medium", 1070)];
+        let plain = vec![plain_row("Medium")];
+        let rows = build_signature_context(&wire, &[], &[], &plain, &[], None);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn build_udp_fit_models_each_classical_config_with_its_own_length() {
+        let wire = vec![wire_row_with_plain("Medium", 1070)];
+        let mut warnings = Vec::new();
+        let without = build_udp_fit(&wire, None, None, &mut warnings).expect("section");
+        let configs: std::collections::BTreeSet<&str> =
+            without.rows.iter().map(|r| r.config.as_str()).collect();
+        assert_eq!(
+            configs.into_iter().collect::<Vec<_>>(),
+            ["mtl-amortised", "mtl-full", "plain"]
+        );
+
+        let mut warnings = Vec::new();
+        let with = build_udp_fit(&wire, Some(&TEST_LENGTHS), None, &mut warnings).expect("section");
+        let configs: std::collections::BTreeSet<&str> =
+            with.rows.iter().map(|r| r.config.as_str()).collect();
+        assert_eq!(
+            configs.into_iter().collect::<Vec<_>>(),
+            [
+                "classical-ecdsa-p256",
+                "classical-ed25519",
+                "classical-rsa2048",
+                "mtl-amortised",
+                "mtl-full",
+                "plain",
+            ]
+        );
+        assert!(
+            warnings
+                .iter()
+                .all(|w| !w.contains("signature length is missing")),
+            "no classical-length warning: {warnings:?}"
+        );
+
+        // Each classical config is modelled with its own fed length: RSA's
+        // 256-byte signature must exceed the 64-byte ones at every size.
+        let rsa = with
+            .rows
+            .iter()
+            .find(|r| r.config == "classical-rsa2048" && r.profile == CONTEXT_FIT_PROFILE)
+            .expect("rsa row");
+        let ed = with
+            .rows
+            .iter()
+            .find(|r| r.config == "classical-ed25519" && r.profile == CONTEXT_FIT_PROFILE)
+            .expect("ed25519 row");
+        assert!(rsa.max_response_bytes > ed.max_response_bytes);
     }
 }

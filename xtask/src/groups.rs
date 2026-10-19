@@ -16,6 +16,7 @@ pub enum DatasetSize {
 pub enum BenchTarget {
     Signing,
     Verifying,
+    Classical,
 }
 
 /// One Criterion benchmark group defined by the `climb-bench` suite.
@@ -165,6 +166,42 @@ pub const GROUPS: &[GroupSpec] = &[
         name: "verifying_medium_plain_slh_dsa",
         size: DatasetSize::Medium,
         target: BenchTarget::Verifying,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_ed25519_small",
+        size: DatasetSize::Small,
+        target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_ed25519_medium",
+        size: DatasetSize::Medium,
+        target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_ecdsa_p256_small",
+        size: DatasetSize::Small,
+        target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_ecdsa_p256_medium",
+        size: DatasetSize::Medium,
+        target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_rsa2048_small",
+        size: DatasetSize::Small,
+        target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "classical_rsa2048_medium",
+        size: DatasetSize::Medium,
+        target: BenchTarget::Classical,
         slow: false,
     },
 ];

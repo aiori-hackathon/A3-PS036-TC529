@@ -224,6 +224,93 @@ impl ResultsView {
             DnsCaptureSource::RecordedFixture => Some(when),
         }
     }
+
+    // --- Signature context ---------------------------------------------------
+
+    /// Rows for the compact signature-context table: the classical baselines
+    /// beside configurations A/B/C at the headline dataset size. Empty when
+    /// the artifact carries no `derived.signature_context` section, so the
+    /// Overview renders nothing rather than a blank frame. Every cell is
+    /// formatted from the artifact's numbers, never typed here.
+    pub fn context_table(&self) -> Vec<ContextRow> {
+        self.results
+            .derived
+            .signature_context
+            .iter()
+            .map(|row| {
+                let letter = row.label.chars().next().unwrap_or('\u{2014}');
+                let name = row
+                    .label
+                    .split_once('(')
+                    .and_then(|(_, inner)| inner.strip_suffix(')'))
+                    .unwrap_or(&row.label)
+                    .to_string();
+                ContextRow {
+                    letter: letter.to_string(),
+                    name,
+                    bytes: row
+                        .signature_bytes
+                        .map(context_bytes)
+                        .unwrap_or_else(|| "\u{2014}".to_string()),
+                    sign: row
+                        .signing_mean_ns
+                        .map(|ns| format!("{:.2}", ns / 1000.0))
+                        .unwrap_or_else(|| "\u{2014}".to_string()),
+                    verify: row
+                        .verifying_mean_ns
+                        .map(|ns| format!("{:.2}", ns / 1000.0))
+                        .unwrap_or_else(|| "\u{2014}".to_string()),
+                    fits: row
+                        .fits_1232_percent
+                        .map(context_percent)
+                        .unwrap_or_else(|| "\u{2014}".to_string()),
+                    classical: row.family == "classical (context)",
+                }
+            })
+            .collect()
+    }
+}
+
+/// One row of the compact signature-context table on the Overview tab.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContextRow {
+    /// One-letter configuration id (E/P/R for the classical baselines, A/B/C
+    /// for the post-quantum configurations) — the first character of the
+    /// artifact's label.
+    pub letter: String,
+    /// The label without its letter wrapper, e.g. `Ed25519, context`.
+    pub name: String,
+    /// Signature bytes carried per message on the wire.
+    pub bytes: String,
+    /// Per-message sign cost, microseconds per operation.
+    pub sign: String,
+    /// Per-message verify cost, microseconds per operation.
+    pub verify: String,
+    /// Share of modelled responses that fit the UDP payload budget.
+    pub fits: String,
+    /// True for the classical context rows (not quantum-resistant).
+    pub classical: bool,
+}
+
+/// Format a signature size for the compact context table: integral byte
+/// counts group with thousands separators, fractional per-message shares keep
+/// two decimals.
+fn context_bytes(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{} B", fmt_count(v))
+    } else {
+        format!("{v:.2} B")
+    }
+}
+
+/// Format a share-of-responses percentage for the compact context table:
+/// whole percents without decimals, otherwise two.
+fn context_percent(v: f64) -> String {
+    if v.fract() == 0.0 {
+        format!("{v:.0}%")
+    } else {
+        format!("{v:.2}%")
+    }
 }
 
 fn speedup(slower: f64, faster: f64) -> String {
@@ -477,5 +564,79 @@ mod tests {
     fn rung_state_degrades_gracefully() {
         assert_eq!(rung_state(Duration::from_secs(1), 0), 0);
         assert_eq!(rung_state(Duration::from_secs(1), 1), 0);
+    }
+
+    #[test]
+    fn context_table_reads_every_cell_from_the_artifact() {
+        use climb_report::results::{EvidenceClass, SignatureContextRow};
+
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        view.results.derived.signature_context = vec![
+            SignatureContextRow {
+                config: "classical-ed25519".to_string(),
+                label: "E (Ed25519, context)".to_string(),
+                family: "classical (context)".to_string(),
+                size: "Medium".to_string(),
+                signature_bytes: Some(64.0),
+                signing_mean_ns: Some(1_100.0),
+                verifying_mean_ns: Some(220.0),
+                fits_1232_percent: Some(100.0),
+                class: EvidenceClass::Measured,
+            },
+            SignatureContextRow {
+                config: "classical-rsa2048".to_string(),
+                label: "R (RSA-2048, context)".to_string(),
+                family: "classical (context)".to_string(),
+                size: "Medium".to_string(),
+                signature_bytes: Some(256.0),
+                signing_mean_ns: Some(9_900.0),
+                verifying_mean_ns: None,
+                fits_1232_percent: Some(99.5),
+                class: EvidenceClass::Measured,
+            },
+            SignatureContextRow {
+                config: "mtl-amortised".to_string(),
+                label: "C (MTL amortised)".to_string(),
+                family: "post-quantum".to_string(),
+                size: "Medium".to_string(),
+                signature_bytes: Some(6.58),
+                signing_mean_ns: Some(10_000.0),
+                verifying_mean_ns: Some(2_000.0),
+                fits_1232_percent: Some(100.0),
+                class: EvidenceClass::Measured,
+            },
+        ];
+
+        let rows = view.context_table();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(rows[0].letter, "E", "letter is the label's first character");
+        assert_eq!(rows[0].name, "Ed25519, context", "wrapper stripped");
+        assert_eq!(rows[0].bytes, "64 B");
+        assert_eq!(rows[0].sign, "1.10", "ns means render as µs");
+        assert_eq!(rows[0].verify, "0.22");
+        assert_eq!(rows[0].fits, "100%", "whole percents drop decimals");
+        assert!(rows[0].classical);
+
+        assert_eq!(rows[1].letter, "R");
+        assert_eq!(rows[1].bytes, "256 B");
+        assert_eq!(
+            rows[1].verify, "\u{2014}",
+            "a missing cell is an em dash, never a zero"
+        );
+        assert_eq!(rows[1].fits, "99.50%", "fractions keep two decimals");
+
+        assert_eq!(rows[2].letter, "C");
+        assert_eq!(rows[2].name, "MTL amortised");
+        assert_eq!(rows[2].bytes, "6.58 B", "fractional per-message share");
+        assert!(!rows[2].classical, "post-quantum rows are not classical");
+    }
+
+    #[test]
+    fn context_table_is_empty_without_the_artifact_section() {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        assert!(
+            view.context_table().is_empty(),
+            "no section means the Overview renders no table"
+        );
     }
 }

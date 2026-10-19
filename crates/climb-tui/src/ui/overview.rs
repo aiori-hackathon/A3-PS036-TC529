@@ -14,7 +14,7 @@ use ratatui::widgets::{Block, Paragraph};
 use ratatui::Frame;
 
 use crate::app::App;
-use crate::data::{rung_state, Kpi, KpiKind, ReportHealth, ResultsView};
+use crate::data::{rung_state, ContextRow, Kpi, KpiKind, ReportHealth, ResultsView};
 use crate::theme::{Glyphs, Theme};
 
 /// Rungs on the Overview ladder (5 rows fit the word mark's height).
@@ -44,16 +44,79 @@ pub fn render_overview(
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let [hero, kpi_area, panels] = Layout::vertical([
+    let context = view.context_table();
+    let context_height = if context.is_empty() {
+        Constraint::Length(0)
+    } else {
+        Constraint::Length(context.len() as u16 + 4)
+    };
+    let [hero, kpi_area, context_area, panels] = Layout::vertical([
         Constraint::Length(7),
         Constraint::Length(5),
+        context_height,
         Constraint::Min(0),
     ])
     .areas(area);
 
     render_hero(frame, hero, app, theme, glyphs);
     render_kpis(frame, kpi_area, view, theme, glyphs);
+    if !context.is_empty() {
+        render_context(frame, context_area, theme, glyphs, &context);
+    }
     render_panels(frame, panels, view, theme, glyphs);
+}
+
+/// The compact signature-context table: the classical baselines beside
+/// configurations A/B/C at the headline dataset size, between the KPI cards
+/// and the environment/artifact panels.
+///
+/// The caption must state plainly that the classical algorithms are not
+/// quantum-resistant — the table is context, not a post-quantum alternative.
+fn render_context(
+    frame: &mut Frame,
+    area: Rect,
+    theme: &Theme,
+    glyphs: &Glyphs,
+    rows: &[ContextRow],
+) {
+    let dim = Style::new().fg(theme.muted);
+    let mut lines = vec![Line::from(vec![
+        Span::styled(format!("{:<4}", "cfg"), dim),
+        Span::styled(format!("{:<24}", "configuration"), dim),
+        Span::styled(format!("{:>9}", "sig B"), dim),
+        Span::styled(format!("{:>8}", "sign \u{b5}s"), dim),
+        Span::styled(format!("{:>8}", "verify \u{b5}s"), dim),
+        Span::styled(format!("{:>8}", "fits 1,232"), dim),
+    ])];
+    for row in rows {
+        let style = if row.classical {
+            dim
+        } else {
+            Style::new().fg(theme.fg)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(format!("{:<4}", row.letter), style),
+            Span::styled(format!("{:<24}", row.name), style),
+            Span::styled(format!("{:>9}", row.bytes), style),
+            Span::styled(format!("{:>8}", row.sign), style),
+            Span::styled(format!("{:>8}", row.verify), style),
+            Span::styled(format!("{:>8}", row.fits), style),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        "classical rows are not quantum-resistant \u{b7} context only",
+        dim,
+    )));
+    let body = Paragraph::new(lines).block(
+        Block::bordered()
+            .border_set(glyphs.border)
+            .border_style(Style::new().fg(theme.border))
+            .title(Span::styled(
+                " Signature context ",
+                Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
+            )),
+    );
+    frame.render_widget(body, area);
 }
 
 fn render_hero(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {

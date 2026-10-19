@@ -92,6 +92,13 @@ fn committed_udp_fit_section_is_self_consistent() {
     sizes.sort_unstable();
     assert!(configs.contains(&"plain") && configs.contains(&"mtl-full"));
     assert!(configs.contains(&"mtl-amortised"));
+    // The classical context baselines share the same grid.
+    assert!(
+        configs.contains(&"classical-ed25519")
+            && configs.contains(&"classical-ecdsa-p256")
+            && configs.contains(&"classical-rsa2048"),
+        "classical context configs must be modelled: {configs:?}"
+    );
     assert!(profiles.len() >= 2, "profiles={profiles:?}");
     assert!(sizes.len() >= 2, "sizes={sizes:?}");
 
@@ -113,6 +120,17 @@ fn committed_udp_fit_section_is_self_consistent() {
     let Ok(plain) = usize::try_from(v.plain_signature_len_bytes) else {
         return;
     };
+    // The signature length fed to the model for each configuration: A/B/C
+    // share the plain SLH-DSA length, each classical config its own recorded
+    // length (read from the artifact's classical rows, never typed here).
+    let classical_len = |algorithm: &str| -> usize {
+        results
+            .classical
+            .iter()
+            .find(|c| c.algorithm == algorithm)
+            .map(|c| c.signature_len_bytes)
+            .unwrap_or_else(|| panic!("the artifact must carry {algorithm} rows"))
+    };
     for row in &section.rows {
         let profile = climb_analytical::builtin_profiles()
             .into_iter()
@@ -122,11 +140,20 @@ fn committed_udp_fit_section_is_self_consistent() {
             "plain" => climb_analytical::SignatureConfig::Plain,
             "mtl-full" => climb_analytical::SignatureConfig::MtlFull,
             "mtl-amortised" => climb_analytical::SignatureConfig::MtlAmortised,
+            "classical-ed25519" => climb_analytical::SignatureConfig::ClassicalEd25519,
+            "classical-ecdsa-p256" => climb_analytical::SignatureConfig::ClassicalEcdsaP256,
+            "classical-rsa2048" => climb_analytical::SignatureConfig::ClassicalRsa2048,
             other => panic!("unknown signature configuration {other:?}"),
+        };
+        let length = match row.config.as_str() {
+            "classical-ed25519" => classical_len("Ed25519"),
+            "classical-ecdsa-p256" => classical_len("ECDSA P-256"),
+            "classical-rsa2048" => classical_len("RSA-2048"),
+            _ => plain,
         };
         let zone = row.zone_leaves;
         let messages = row.messages;
-        let modelled = climb_analytical::udp_fit_for_size(config, &profile, zone, messages, plain)
+        let modelled = climb_analytical::udp_fit_for_size(config, &profile, zone, messages, length)
             .unwrap_or_else(|e| {
                 panic!(
                     "model failed for {} / {} at {} messages: {e}",
@@ -173,6 +200,10 @@ fn committed_udp_fit_section_renders_through_charts_and_report() {
         html.contains("DNS over UDP: fit and TCP fallback"),
         "the report must render the UDP-fit section"
     );
+    assert!(
+        html.contains("Signature context: classical beside post-quantum"),
+        "the report must render the signature-context section"
+    );
 
     // Every UDP-fit claim's rendered string must appear verbatim in the
     // body, which is exactly what `report --check` re-validates.
@@ -190,7 +221,97 @@ fn committed_udp_fit_section_renders_through_charts_and_report() {
             claim.formatted
         );
     }
+    assert!(
+        claims.iter().any(|c| c.id.starts_with("context-")),
+        "the registry must carry signature-context claims"
+    );
+    for claim in claims.iter().filter(|c| c.id.starts_with("context-")) {
+        assert!(
+            html.contains(&claim.formatted)
+                || html.contains(&claim.formatted.replace('&', "&amp;")),
+            "claim {} rendered string missing: {}",
+            claim.id,
+            claim.formatted
+        );
+    }
     assert_eq!(check_report(&html, &results), Vec::<String>::new());
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The committed artifact's signature-context section frames the post-quantum
+/// numbers with the classical baselines: six rows at the headline dataset
+/// size, the classical ones first, each signature size matching the
+/// artifact's own classical rows and each fits cell read from the modelled
+/// UDP-fit grid.
+#[test]
+fn committed_signature_context_matches_the_udp_fit_model() {
+    let results = load_sample();
+    let section = &results.derived.signature_context;
+    assert!(
+        !section.is_empty(),
+        "the committed artifact must carry classical context rows"
+    );
+    assert_eq!(
+        section.len(),
+        6,
+        "three classical baselines plus configurations A, B and C"
+    );
+    let configs: Vec<&str> = section.iter().map(|r| r.config.as_str()).collect();
+    assert_eq!(
+        configs,
+        [
+            "classical-ed25519",
+            "classical-ecdsa-p256",
+            "classical-rsa2048",
+            "plain",
+            "mtl-full",
+            "mtl-amortised",
+        ],
+        "classical baselines first, then A, B, C"
+    );
+    assert!(section.iter().all(|r| r.size == "Medium"));
+    assert!(section[..3]
+        .iter()
+        .all(|r| r.family == "classical (context)"));
+    assert!(section[3..].iter().all(|r| r.family == "post-quantum"));
+
+    // The classical signature sizes are the lengths read from the produced
+    // signatures, recorded in the artifact's classical rows.
+    for (row, algorithm) in section[..3]
+        .iter()
+        .zip(["Ed25519", "ECDSA P-256", "RSA-2048"])
+    {
+        let recorded = results
+            .classical
+            .iter()
+            .find(|c| c.algorithm == algorithm)
+            .unwrap_or_else(|| panic!("the artifact must carry {algorithm} rows"));
+        assert_eq!(
+            row.signature_bytes,
+            Some(recorded.signature_len_bytes as f64),
+            "{algorithm} context size must match its classical row"
+        );
+    }
+
+    // The fits cell is the modelled UDP-fit row for the same configuration
+    // at the headline message count, under the headline profile.
+    let udp = results
+        .derived
+        .udp_fit
+        .as_ref()
+        .expect("the committed artifact must carry the UDP-fit section");
+    for row in section {
+        let modelled = udp
+            .rows
+            .iter()
+            .find(|r| r.profile == "positive_a" && r.config == row.config && r.messages == 10_000)
+            .unwrap_or_else(|| panic!("no modelled row for {} at Medium", row.config));
+        assert_eq!(
+            row.fits_1232_percent,
+            Some(modelled.fit_1232_percent),
+            "fits cell for {} must come from the modelled row",
+            row.config
+        );
+    }
 }

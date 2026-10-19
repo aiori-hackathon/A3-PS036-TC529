@@ -9,6 +9,11 @@
 //! * **C — MTL amortised** (`MTL-Type 0x02`): per RRSIG, only the lead byte
 //!   and the condensed signature: `lead(1) + condensed`.
 //!
+//! Alongside those three, the `classical-*` configs model one Ed25519,
+//! ECDSA P-256 or RSA-2048 signature per RRSIG with no ladder — classical
+//! algorithms, which are not quantum-resistant, modelled only to put the
+//! post-quantum configurations in context.
+//!
 //! The condensed length varies with the leaf's authentication-path depth, so
 //! per-leaf signature-field lengths form a histogram; a response with
 //! `rrsig_count` RRSIGs sums `rrsig_count` independent draws from it, which is
@@ -34,7 +39,8 @@ use std::collections::BTreeMap;
 use crate::ladder::{predicted_condensed_len, predicted_ladder_len, CONDENSED_FIXED_LEN};
 use crate::{HASH_SIZE, MTL_INDEX_LEN};
 
-/// The three signature-field shapes a response's RRSIGs may carry.
+/// The signature-field shapes a response's RRSIGs may carry: the three
+/// post-quantum configurations (A/B/C) plus the classical context baselines.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum SignatureConfig {
@@ -44,6 +50,18 @@ pub enum SignatureConfig {
     MtlFull,
     /// MTL amortised form: condensed signature per RRSIG, one shared ladder.
     MtlAmortised,
+    /// One Ed25519 signature per RRSIG — classical context, not
+    /// quantum-resistant, modelled only to frame the post-quantum numbers.
+    #[serde(rename = "classical-ed25519")]
+    ClassicalEd25519,
+    /// One ECDSA P-256 signature per RRSIG — classical context, not
+    /// quantum-resistant, modelled only to frame the post-quantum numbers.
+    #[serde(rename = "classical-ecdsa-p256")]
+    ClassicalEcdsaP256,
+    /// One RSA-2048 signature per RRSIG — classical context, not
+    /// quantum-resistant, modelled only to frame the post-quantum numbers.
+    #[serde(rename = "classical-rsa2048")]
+    ClassicalRsa2048,
 }
 
 impl SignatureConfig {
@@ -54,7 +72,22 @@ impl SignatureConfig {
             SignatureConfig::Plain => "A (plain SLH-DSA)",
             SignatureConfig::MtlFull => "B (MTL non-amortised)",
             SignatureConfig::MtlAmortised => "C (MTL amortised)",
+            SignatureConfig::ClassicalEd25519 => "E (Ed25519, context)",
+            SignatureConfig::ClassicalEcdsaP256 => "P (ECDSA P-256, context)",
+            SignatureConfig::ClassicalRsa2048 => "R (RSA-2048, context)",
         }
+    }
+
+    /// True for the classical context baselines, which are measured only to
+    /// frame the post-quantum configurations and are not quantum-resistant.
+    #[must_use]
+    pub const fn is_classical(self) -> bool {
+        matches!(
+            self,
+            SignatureConfig::ClassicalEd25519
+                | SignatureConfig::ClassicalEcdsaP256
+                | SignatureConfig::ClassicalRsa2048
+        )
     }
 }
 
@@ -139,8 +172,10 @@ pub enum UdpFitError {
     /// A length or count exceeded the model's integer range.
     #[error("response-length model overflowed its integer range")]
     Overflow,
-    /// No plain SLH-DSA signature length was available to build config A/B.
-    #[error("plain SLH-DSA signature length is missing (got 0)")]
+    /// No signature length was available to build the row's histogram (the
+    /// plain SLH-DSA length for A/B/C, the classical length for a context
+    /// config).
+    #[error("signature length is missing (got 0)")]
     MissingPlainSignature,
 }
 
@@ -255,6 +290,9 @@ pub fn condensed_histogram(leaf_count: u64) -> ResponseLengthHistogram {
 /// * `Plain`: one bucket, the plain signature length, for every leaf.
 /// * `MtlFull`: `ladder + 4 + plain + 1 + condensed(leaf)` per leaf.
 /// * `MtlAmortised`: `1 + condensed(leaf)` per leaf.
+/// * classical context configs: one bucket, the classical signature length
+///   (the `plain_signature_len` argument carries it), for every leaf — the
+///   same shape as `Plain`, with no ladder and no MTL framing.
 ///
 /// Bucket counts sum to `leaf_count`.
 fn signature_field_histogram(
@@ -266,7 +304,10 @@ fn signature_field_histogram(
         return Err(UdpFitError::MissingPlainSignature);
     }
     match config {
-        SignatureConfig::Plain => Ok(ResponseLengthHistogram {
+        SignatureConfig::Plain
+        | SignatureConfig::ClassicalEd25519
+        | SignatureConfig::ClassicalEcdsaP256
+        | SignatureConfig::ClassicalRsa2048 => Ok(ResponseLengthHistogram {
             buckets: vec![CondensedHistogramBucket {
                 len: plain_signature_len,
                 count: leaf_count,
@@ -395,9 +436,10 @@ fn allocate_counts(counts: &[u64], total: u64) -> Vec<u64> {
 /// `leaf_count` leaves signed as one batch, distributed over
 /// `total_messages` messages.
 ///
-/// `plain_signature_len` is the plain SLH-DSA signature length to model (a
-/// property of the signature scheme and parameter set, read from a measured
-/// artifact by callers — never guessed here).
+/// `plain_signature_len` is the signature length to model with: the plain
+/// SLH-DSA length for configurations A/B/C, the classical signature length
+/// for the classical context configs (a property of the scheme and parameter
+/// set, read from a measured artifact by callers — never guessed here).
 pub fn udp_fit_for_size(
     config: SignatureConfig,
     profile: &ResponseProfile,
@@ -412,7 +454,11 @@ pub fn udp_fit_for_size(
     let sig_totals =
         convolve_rrsigs(&per_leaf, profile.rrsig_count).ok_or(UdpFitError::Overflow)?;
     let overhead = match config {
-        SignatureConfig::Plain | SignatureConfig::MtlFull => profile.overhead_bytes,
+        SignatureConfig::Plain
+        | SignatureConfig::MtlFull
+        | SignatureConfig::ClassicalEd25519
+        | SignatureConfig::ClassicalEcdsaP256
+        | SignatureConfig::ClassicalRsa2048 => profile.overhead_bytes,
         SignatureConfig::MtlAmortised => profile.overhead_bytes_sigttag,
     };
     let mut response_lens = Vec::with_capacity(sig_totals.buckets.len());
@@ -834,5 +880,95 @@ mod tests {
         assert_eq!(row.over_4096_count, 0);
         assert_eq!(row.max_bytes, 0);
         assert_eq!(row.fit_1232_percent, 0.0);
+    }
+
+    #[test]
+    fn classical_context_histograms_are_one_bucket_at_the_fed_length() {
+        // Test data: a signature length read from a produced signature.
+        for config in [
+            SignatureConfig::ClassicalEd25519,
+            SignatureConfig::ClassicalEcdsaP256,
+            SignatureConfig::ClassicalRsa2048,
+        ] {
+            let hist = signature_field_histogram(config, 16, 64).expect("hist");
+            assert_eq!(
+                hist.buckets,
+                vec![CondensedHistogramBucket { len: 64, count: 16 }],
+                "{config:?}: fixed-width field, one bucket over the whole zone"
+            );
+            assert!(
+                signature_field_histogram(config, 16, 0).is_err(),
+                "{config:?}: a zero length is still a missing length"
+            );
+        }
+    }
+
+    #[test]
+    fn classical_context_configs_model_the_fed_signature_length() {
+        // Test data: classical signature lengths recorded by producing one
+        // signature of each algorithm; the model must use exactly these, not
+        // the plain SLH-DSA length.
+        for (config, len) in [
+            (SignatureConfig::ClassicalEd25519, 64usize),
+            (SignatureConfig::ClassicalEcdsaP256, 64),
+            (SignatureConfig::ClassicalRsa2048, 256),
+        ] {
+            let p = profile("positive_a");
+            let row = udp_fit_for_size(config, &p, 100, 100, len).expect("fit");
+            assert_eq!(row.config, config);
+            assert_eq!(
+                row.max_bytes,
+                p.overhead_bytes + p.rrsig_count * len,
+                "{config:?}: response = overhead + one signature field per RRSIG"
+            );
+            assert_eq!(
+                row.fit_1232_percent, 100.0,
+                "{config:?}: a classical signature fits the 1,232-byte UDP budget"
+            );
+            let plain = udp_fit_for_size(SignatureConfig::Plain, &p, 100, 100, TEST_PLAIN_LEN)
+                .expect("fit");
+            assert_eq!(plain.fit_1232_percent, 0.0, "plain SLH-DSA does not fit");
+            assert!(
+                row.max_bytes < plain.max_bytes,
+                "{config:?}: strictly smaller than the plain SLH-DSA response"
+            );
+        }
+    }
+
+    #[test]
+    fn classical_context_labels_have_distinct_first_characters() {
+        // Tables that key each configuration by the label's first character
+        // (the TUI's modelled-fit grid) must not collide on two "E" labels.
+        let firsts: Vec<char> = [
+            SignatureConfig::ClassicalEd25519,
+            SignatureConfig::ClassicalEcdsaP256,
+            SignatureConfig::ClassicalRsa2048,
+        ]
+        .iter()
+        .map(|c| c.label().chars().next().expect("non-empty label"))
+        .collect();
+        let mut unique = firsts.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        assert_eq!(unique.len(), firsts.len(), "first characters: {firsts:?}");
+    }
+
+    #[test]
+    fn classical_context_configs_serialize_with_hyphenated_ids() {
+        for (config, id) in [
+            (SignatureConfig::ClassicalEd25519, "classical-ed25519"),
+            (SignatureConfig::ClassicalEcdsaP256, "classical-ecdsa-p256"),
+            (SignatureConfig::ClassicalRsa2048, "classical-rsa2048"),
+        ] {
+            let encoded = serde_json::to_string(&config).expect("serialize");
+            assert_eq!(encoded, format!("\"{id}\""));
+            let back: SignatureConfig =
+                serde_json::from_str(&format!("\"{id}\"")).expect("deserialize");
+            assert_eq!(back, config);
+            assert!(config.is_classical(), "{id} is classical context");
+        }
+        assert!(!SignatureConfig::Plain.is_classical());
+        assert!(!SignatureConfig::MtlFull.is_classical());
+        assert!(!SignatureConfig::MtlAmortised.is_classical());
     }
 }

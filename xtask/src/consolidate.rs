@@ -48,6 +48,13 @@ pub(crate) struct ConsolidateArgs {
     #[arg(long, default_value = "environment.json")]
     environment: PathBuf,
 
+    /// Classical signature lengths recorded by the classical benchmark run
+    /// (written beside the Criterion output by the classical bench); its
+    /// absence while classical records exist drops every classical context
+    /// row with a warning rather than guessing lengths
+    #[arg(long, default_value = "target/climb-classical-signatures.json")]
+    classical_signatures: PathBuf,
+
     /// Output path for consolidated results
     #[arg(long, default_value = "target/climb-results.json")]
     output: PathBuf,
@@ -72,6 +79,7 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         environment_path: args.environment,
         baseline: args.baseline,
         rtt_ms: args.rtt_ms,
+        classical_signatures_path: args.classical_signatures,
         output_path: args.output.clone(),
     };
     let _results = consolidate_results(opts).context("failed to consolidate results")?;
