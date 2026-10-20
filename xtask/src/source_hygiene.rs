@@ -283,11 +283,15 @@ mod tests {
     #[test]
     fn tool_and_model_handles_are_violations() {
         let mut v = Vec::new();
-        check_text(
-            "c.rs",
-            "// the tool ran this\n// the assistant wrote it\n// the model model\n",
-            &mut v,
+        // The handles are assembled from fragments so this fixture does not
+        // itself carry the literals the scanner forbids.
+        let fixture = format!(
+            "// {} ran this\n// {} wrote it\n// {} model\n",
+            "open".to_string() + "code",
+            "Sisy".to_string() + "phus",
+            "Big ".to_string() + "Pickle",
         );
+        check_text("c.rs", &fixture, &mut v);
         assert_eq!(v.len(), 3, "{v:?}");
     }
 
