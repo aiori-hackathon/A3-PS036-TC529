@@ -24,3 +24,6 @@ docker-compose.override.yml
 /report.html
 /results.json
 .omo/
+
+# Release bundles (cargo xtask package)
+/dist/

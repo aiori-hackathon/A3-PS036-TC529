@@ -15,6 +15,7 @@ mod docs_check;
 mod groups;
 mod ladder_verify;
 mod memory;
+mod package;
 mod pin_env;
 mod reproduce;
 mod verify_consolidated;
@@ -27,6 +28,7 @@ use docs_check::{cmd_docs_check, DocsCheckArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
+use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
 use reproduce::{cmd_reproduce, ReproduceArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
@@ -112,6 +114,15 @@ enum Commands {
     /// headline-table row's value, unit, evidence class or baseline does not
     /// match a quote-sheet row.
     DocsCheck(DocsCheckArgs),
+    /// Bundle the recorded artifacts into one release tarball under `dist/`.
+    ///
+    /// Copies the HTML report, every report chart, the consolidated results,
+    /// the quote sheet, the environment fingerprint and the recorded fixtures
+    /// into `dist/climb-<short-sha>.tar.gz` beside a `SHA256SUMS` manifest and
+    /// a `PROVENANCE.txt` naming the commit, submodule SHAs, toolchain, host
+    /// fingerprint and date.  Fails when an input is missing or the report
+    /// disagrees with the results it ships with.
+    Package(PackageArgs),
     /// Run the whole artifact chain in order, from one command.
     ///
     /// Pins the environment, measures wire sizes and memory, optionally
@@ -204,6 +215,7 @@ fn main() -> Result<()> {
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
+        Commands::Package(args) => cmd_package(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
     }
 }
@@ -538,6 +550,24 @@ mod tests {
                 assert_eq!(args.quote_sheet, PathBuf::from("docs/deck-facts.md"));
             }
             _ => panic!("expected the docs-check subcommand"),
+        }
+    }
+
+    #[test]
+    fn package_defaults_to_the_recorded_artifact_paths() {
+        let cli = Cli::try_parse_from(["xtask", "package"]).expect("package parses");
+        match cli.command {
+            Commands::Package(args) => {
+                assert_eq!(args.out, PathBuf::from("dist"));
+                assert_eq!(args.results, PathBuf::from("target/climb-results.json"));
+                assert_eq!(
+                    args.report,
+                    PathBuf::from("target/climb-report/report.html")
+                );
+                assert_eq!(args.charts, PathBuf::from("target/climb-report/charts"));
+                assert!(!args.skip_checks);
+            }
+            _ => panic!("expected the package subcommand"),
         }
     }
 }

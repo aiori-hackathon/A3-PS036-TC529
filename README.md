@@ -47,9 +47,9 @@ in this table drifts from the quote sheet.
 | Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B |
 | Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A |
 | Wire reduction, Medium — C vs B | 96.706 % | DERIVED | B |
-| Signing speed-up, Medium — C vs B | ≈9,869 × | EXTRAPOLATED | B |
-| Verifying speed-up, Medium, trust cached ladder — C vs A | ≈86.37 × | EXTRAPOLATED | A |
-| Memory, Small — measured / analytical ratio | 1.93 × | DERIVED | n/a |
+| Signing speed-up, Medium — C vs B | ≈15,084 × | EXTRAPOLATED | B |
+| Verifying speed-up, Medium, trust cached ladder — C vs A | ≈215.3 × | EXTRAPOLATED | A |
+| Memory, Small — measured / analytical ratio | 1.90 × | DERIVED | n/a |
 <!-- headline:end -->
 
 Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
@@ -122,7 +122,7 @@ Eight workspace packages (seven crates plus the automation binary):
 | `crates/climb-bench/` | Criterion benchmark groups, wire-size and memory probes |
 | `crates/climb-report/` | Consolidation, charts, HTML report, claims registry |
 | `crates/climb-tui/` | Terminal dashboard (live runs and recorded replay) |
-| `xtask/` | `cargo xtask` automation: pin-env, bench-all, report, wire-report, memory-report, ladder-verify, dns-demo, consolidate, charts, deck-facts, docs-check, reproduce |
+| `xtask/` | `cargo xtask` automation: pin-env, bench-all, report, wire-report, memory-report, ladder-verify, dns-demo, consolidate, charts, deck-facts, docs-check, package, reproduce |
 
 Supporting directories:
 
@@ -134,7 +134,8 @@ Supporting directories:
   `RESEARCH.md` (reading list), the generated quote sheet `deck-facts.md`, and
   `sample-output/` (committed, provenance-stamped sample artifacts);
 - `data/` — recorded fixtures (DNS capture, ladder verification);
-- `scripts/` — environment pinning and clean-clone check helpers.
+- `scripts/` — environment pinning and clean-clone check helpers;
+- `dist/` — release bundles written by `cargo xtask package` (gitignored).
 
 ## Development
 
@@ -180,6 +181,21 @@ self-check, so a zero exit means the artifacts and the rendered report agree.
 
 The live DNS step also runs only when Docker is available; otherwise the
 recorded capture is used automatically.
+
+## Release bundle
+
+```bash
+cargo xtask package
+```
+
+Writes `dist/climb-<short-sha>.tar.gz` containing everything a judge or mentor
+needs to inspect the numbers without building: the self-contained
+`report.html`, every report chart, `climb-results.json`, the quote sheet
+`deck-facts.md`, the environment fingerprint, the recorded DNS and ladder
+fixtures, a `SHA256SUMS` manifest over the payload, and a `PROVENANCE.txt`
+naming the commit, submodule SHAs, toolchain, host-fingerprint hash and the
+packing date. Packing fails when an input is missing or when the report
+disagrees with the results it ships beside.
 
 ## Honest limits
 
