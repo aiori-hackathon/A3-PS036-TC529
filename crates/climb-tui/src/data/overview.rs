@@ -318,7 +318,7 @@ fn speedup(slower: f64, faster: f64) -> String {
 }
 
 /// Read a string field from an environment JSON object, if present.
-fn json_str(obj: &serde_json::Value, key: &str) -> Option<String> {
+pub(super) fn json_str(obj: &serde_json::Value, key: &str) -> Option<String> {
     obj.get(key)?.as_str().map(str::to_string)
 }
 

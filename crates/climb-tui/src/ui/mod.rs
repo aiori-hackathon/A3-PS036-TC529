@@ -1,13 +1,13 @@
 //! The widget tree (phase 18.7): tab bar, tab bodies, status bar, help overlay, and
-//! the too-small-screen guard. Overview, Signing, Verifying, Wire, Memory, Ladder,
-//! Live and Integrity render real data views; Method remains a placeholder until a
-//! later phase wires it.
+//! the too-small-screen guard. Every tab — Overview, Signing, Verifying, Wire,
+//! Memory, Ladder, Live, Integrity and Method — renders a real data view.
 
 pub mod amortization;
 pub mod integrity;
 pub mod ladder;
 pub mod live;
 pub mod memory;
+pub mod method;
 pub mod overview;
 pub mod signing;
 pub mod verifying;
@@ -86,6 +86,10 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
         live::render_live(frame, area, app, theme, glyphs);
         return;
     }
+    if app.tab == Tab::Method {
+        method::render_method(frame, area, app, theme, glyphs);
+        return;
+    }
     match &app.data {
         LoadState::Loaded(view) if app.tab == Tab::Overview => {
             overview::render_overview(frame, area, app, view, theme, glyphs);
@@ -132,7 +136,9 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
             String::new(),
             None,
         ),
-        _ => render_placeholder(frame, area, app, theme, glyphs),
+        // Every tab is dispatched above; this arm only exists because the match
+        // must be exhaustive.
+        _ => {}
     }
 }
 
@@ -191,54 +197,6 @@ fn render_load_error(
                 .title(Span::styled(
                     " Problem ",
                     Style::new().fg(theme.bad).add_modifier(Modifier::BOLD),
-                )),
-        )
-        .wrap(Wrap { trim: false });
-    frame.render_widget(body, area);
-}
-
-fn render_placeholder(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
-    let key = |text: &'static str| Span::styled(text, Style::new().fg(theme.accent));
-    let lines = vec![
-        Line::from(""),
-        Line::from(Span::styled(
-            format!("  {} — data view lands in a later phase", app.tab.title()),
-            Style::new().fg(theme.muted),
-        )),
-        Line::from(""),
-        Line::from(Span::styled(
-            "  the headline numbers are on the Overview tab",
-            Style::new().fg(theme.fg),
-        )),
-        Line::from(""),
-        Line::from(vec![
-            Span::raw("  switch tabs: "),
-            key("[Tab]/[Shift-Tab]"),
-            Span::raw(" or "),
-            key("[1-9]"),
-        ]),
-        Line::from(vec![
-            Span::raw("  keys: "),
-            key("[?]"),
-            Span::raw(" help   "),
-            key("[T]"),
-            Span::raw(" theme   "),
-            key("[a]"),
-            Span::raw(" ascii   "),
-            key("[r]"),
-            Span::raw(" reload   "),
-            key("[q]"),
-            Span::raw(" quit"),
-        ]),
-    ];
-    let body = Paragraph::new(lines)
-        .block(
-            Block::bordered()
-                .border_set(glyphs.border)
-                .border_style(Style::new().fg(theme.border))
-                .title(Span::styled(
-                    format!(" {} ", app.tab.title()),
-                    Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
                 )),
         )
         .wrap(Wrap { trim: false });
@@ -311,7 +269,10 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("r", "reload results from disk"),
         entry("← / →", "select dataset size"),
         entry("v", "toggle total / per message"),
-        entry("↑ / ↓", "ladder: leaves · integrity: scroll"),
+        entry(
+            "↑ / ↓",
+            "ladder: leaves · integrity: scroll · method: scroll",
+        ),
         entry("Space", "ladder: toggle the signature banner"),
         entry("Enter", "ladder: auto-play the leaves"),
         entry("Space / Backspace", "live: next / previous step"),
@@ -591,6 +552,7 @@ mod tests {
             "live: log / linear byte scale",
             "ladder: leaves",
             "integrity: scroll",
+            "method: scroll",
         ] {
             assert!(out.contains(needle), "help missing {needle:?}:\n{out}");
         }
@@ -621,12 +583,23 @@ mod tests {
     }
 
     #[test]
-    fn renders_placeholder_body_naming_the_tab() {
+    fn method_tab_renders_its_sections_instead_of_a_placeholder() {
         let mut app = app_loaded_with(story_view(None));
         app.update(crate::app::Action::SelectTab(Tab::Method.index()));
-        let out = render_to_string(&app, 80, 24);
-        assert!(out.contains("data view lands in a later phase"));
-        assert!(out.contains("Method"));
+        let out = render_to_string(&app, 120, 40);
+        for needle in [
+            "Method",
+            "Contents",
+            "Scope",
+            "Sampling and extrapolation",
+            "cargo xtask reproduce",
+        ] {
+            assert!(out.contains(needle), "method tab misses {needle:?}:\n{out}");
+        }
+        assert!(
+            !out.contains("data view lands in a later phase"),
+            "Method must render its view, not a placeholder:\n{out}"
+        );
     }
 
     #[test]

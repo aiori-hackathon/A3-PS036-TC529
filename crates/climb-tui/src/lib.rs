@@ -3,8 +3,7 @@
 //! This is the Batch 6 demo layer (the design notes §5 Layer 5, §10). Phase 18 establishes
 //! the architecture every later TUI phase builds on: terminal safety, an Elm-style
 //! model/update split, a threaded event pump, theming with colour-depth mapping, and a
-//! widget-tree skeleton. No result data is rendered yet — every tab shows a placeholder
-//! until the data-wiring phases land.
+//! widget-tree skeleton. Every tab now renders a real data view.
 //!
 //! Project rules carried in from the project conventions:
 //! - No `println!`/`eprintln!` in the TUI path. Logging goes through `tracing` to

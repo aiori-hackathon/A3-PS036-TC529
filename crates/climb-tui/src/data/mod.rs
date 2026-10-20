@@ -11,6 +11,7 @@ mod integrity;
 mod ladder;
 mod live;
 mod memory;
+mod method;
 mod overview;
 mod reuse;
 mod signing;
@@ -29,6 +30,10 @@ pub use live::{
     bar_cells, flag_text, load_live, load_live_auto, load_live_auto_from, Direction, HeadlineLanes,
     Lane, LaneStep, LiveLoadState, LiveSource, LiveStep, LiveView, LIVE_CAPTURE_PATH,
     RECORDED_CAPTURE_PATH,
+};
+pub use method::{
+    ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
+    MethodView, SeedRow,
 };
 pub use overview::{rung_state, ContextRow, Kpi, KpiKind, RUNG_TICK};
 pub use reuse::ReuseRow;

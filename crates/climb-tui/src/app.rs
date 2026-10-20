@@ -11,7 +11,7 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
-use crate::data::{LadderLoadState, LiveLoadState, LoadState, ValueMode};
+use crate::data::{LadderLoadState, LiveLoadState, LoadState, MethodView, ValueMode};
 use crate::theme::{ColorDepth, Theme, ThemeId};
 use crate::widgets::ladder_view::{
     MAX_LEAVES as LADDER_MAX_LEAVES, MIN_LEAVES as LADDER_MIN_LEAVES,
@@ -179,6 +179,10 @@ pub struct App {
     pub live_log_scale: bool,
     /// Scroll offset into the Integrity tab's claim list.
     pub integrity_scroll: usize,
+    /// Scroll offset into the Method tab's document.
+    pub method_scroll: usize,
+    /// The Method tab's document; rebuilt from every results load.
+    method: MethodView,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
     /// Wall clock at startup, driving the Overview ladder animation.
@@ -208,7 +212,7 @@ impl App {
             ladder_leaf: 0,
             ladder_banner: false,
             ladder_autoplay: false,
-            // Pre-load placeholder: the runtime replaces it with the real load
+            // Pre-load state: the runtime replaces it with the real load
             // outcome before the first frame is drawn.
             live: LiveLoadState::Missing {
                 path: PathBuf::from(crate::data::LIVE_CAPTURE_PATH),
@@ -217,6 +221,8 @@ impl App {
             live_autoplay: false,
             live_log_scale: false,
             integrity_scroll: 0,
+            method_scroll: 0,
+            method: MethodView::embedded(),
             ladder: LadderLoadState::Absent,
             started_at: Instant::now(),
         }
@@ -278,6 +284,8 @@ impl App {
             Action::LadderUp => {
                 if self.tab == Tab::Integrity {
                     self.integrity_scroll = self.integrity_scroll.saturating_sub(1);
+                } else if self.tab == Tab::Method {
+                    self.method_scroll = self.method_scroll.saturating_sub(1);
                 } else {
                     self.ladder_n = (self.ladder_n + 1).min(LADDER_MAX_LEAVES);
                     self.clamp_leaf();
@@ -286,6 +294,8 @@ impl App {
             Action::LadderDown => {
                 if self.tab == Tab::Integrity {
                     self.integrity_scroll = self.integrity_scroll.saturating_add(1);
+                } else if self.tab == Tab::Method {
+                    self.method_scroll = self.method_scroll.saturating_add(1);
                 } else {
                     self.ladder_n = self.ladder_n.saturating_sub(1).max(LADDER_MIN_LEAVES);
                     self.clamp_leaf();
@@ -436,8 +446,17 @@ impl App {
     }
 
     /// Replace the loaded results state (called by the runtime after a load).
+    /// Rebuilds the Method tab's document from the new state, reading the
+    /// sibling artifacts once here rather than on every frame.
     pub fn set_data(&mut self, state: LoadState) {
+        let method = MethodView::build(&self.results_path, &state);
         self.data = state;
+        self.method = method;
+    }
+
+    /// The Method tab's document.
+    pub fn method(&self) -> &MethodView {
+        &self.method
     }
 
     /// Wall-clock time since startup (drives the Overview ladder animation).
@@ -860,6 +879,34 @@ mod tests {
         assert_eq!(
             app.integrity_scroll, 1,
             "the scroll offset is kept for the tab"
+        );
+    }
+
+    #[test]
+    fn up_and_down_scroll_the_method_document_instead_of_the_ladder() {
+        let mut app = test_app();
+        app.tab = Tab::Method;
+        app.update(Action::LadderDown);
+        assert_eq!(app.method_scroll, 1);
+        app.update(Action::LadderDown);
+        assert_eq!(app.method_scroll, 2);
+        app.update(Action::LadderUp);
+        assert_eq!(app.method_scroll, 1);
+        app.update(Action::LadderUp);
+        app.update(Action::LadderUp);
+        assert_eq!(app.method_scroll, 0, "scrolling up at the top stays put");
+        assert_eq!(app.ladder_n(), 8, "the ladder size is untouched on Method");
+
+        app.update(Action::SelectTab(Tab::Ladder.index()));
+        app.update(Action::LadderDown);
+        assert_eq!(
+            app.ladder_n(),
+            7,
+            "down on the Ladder tab still shrinks the ladder"
+        );
+        assert_eq!(
+            app.method_scroll, 0,
+            "the Method scroll offset is kept for its tab"
         );
     }
 

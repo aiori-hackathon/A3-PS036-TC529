@@ -1,6 +1,6 @@
-//! Render the Signing, Verifying, Wire, Memory, Ladder, Live and Integrity tabs
-//! onto an in-memory [`TestBackend`] and print the character buffers to stdout
-//! (the evidence tool for the data-view tabs).
+//! Render the Signing, Verifying, Wire, Memory, Ladder, Live, Integrity and
+//! Method tabs onto an in-memory [`TestBackend`] and print the character buffers
+//! to stdout (the evidence tool for the data-view tabs).
 //!
 //! Usage:
 //! ```text
@@ -63,6 +63,7 @@ fn main() -> Result<()> {
         Tab::Ladder,
         Tab::Live,
         Tab::Integrity,
+        Tab::Method,
     ] {
         app.update(Action::SelectTab(tab.index()));
         println!("=== {} ({width}x{height}) ===", tab.title());
