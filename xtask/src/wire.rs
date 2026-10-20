@@ -1,6 +1,6 @@
 //! The `wire-report` subcommand: permanent, reproducible wire-size numbers.
 //!
-//! Replaces the throwaway Phase 7.2 probe (which existed only as a markdown
+//! Replaces the earlier throwaway probe (which existed only as a markdown
 //! table) with a command anyone can re-run:
 //!
 //! ```text

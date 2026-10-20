@@ -1,4 +1,4 @@
-//! The Signing tab (phase 20.3): with-MTL vs without-MTL bars on the shared
+//! The Signing tab: with-MTL vs without-MTL bars on the shared
 //! log scale, the numbers table with its speed-up column, and a detail line
 //! for the currently selected size. Bar and table values come from
 //! [`crate::data::ResultsView`], which mirrors the report charts exactly —

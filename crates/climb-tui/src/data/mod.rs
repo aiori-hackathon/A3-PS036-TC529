@@ -1,4 +1,4 @@
-//! Read-only view model over the consolidated results file (phase 19.1).
+//! Read-only view model over the consolidated results file.
 //!
 //! [`load`] is the only I/O entry point and never panics: a missing or
 //! unparseable file becomes a [`LoadState`] variant the UI renders instead of
@@ -254,9 +254,9 @@ fn report_path(results_path: &Path) -> PathBuf {
 pub(crate) mod test_support {
     use super::*;
     use climb_report::results::{
-        AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
-        MemoryResult, MemoryResults, SigningBenchmarkResult, VerifyingBenchmarkResult,
-        WireSizeResult,
+        AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
+        EnvironmentFingerprint, MemoryResult, MemoryResults, SigningBenchmarkResult,
+        VerifyingBenchmarkResult, WireSizeResult,
     };
     use climb_report::{DnsCaptureSource, DnsPipelineHeadline};
 
@@ -336,6 +336,15 @@ pub(crate) mod test_support {
             recorded_at: Some("2026-10-12T00:00:00Z".to_string()),
             algorithm: Some("SLH-DSA-SHA2-128s-MTL-SHA2-128".to_string()),
         }
+    }
+
+    /// A view over the same fixture as [`view_with`] but with the three-way
+    /// comparison rows supplied, so comparison consumers can be exercised.
+    pub(crate) fn view_with_comparisons(comparisons: Vec<ConfigComparison>) -> ResultsView {
+        let mut results =
+            view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived()).results;
+        results.comparisons = comparisons;
+        ResultsView::new(results, Some(Duration::from_secs(60)), ReportHealth::Agree)
     }
 
     pub(crate) fn wire_row(size: &str, messages: usize, reduction: f64) -> WireSizeResult {

@@ -1,4 +1,4 @@
-//! Terminal lifecycle safety (phase 18.3).
+//! Terminal lifecycle safety.
 //!
 //! [`TerminalGuard`] owns raw mode and the alternate screen and restores both in `Drop`,
 //! including on early return from `?`. [`install_panic_hook`] installs a process-wide hook

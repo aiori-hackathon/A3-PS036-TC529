@@ -2,8 +2,7 @@
 //!
 //! Compares `sign_batch(&[N messages])` (one shared ladder, one underlying OQS
 //! signature) against `N × sign_batch(&[1 message])` (fresh ladder, N underlying
-//! OQS signatures).  This is exactly the with-MTL / without-MTL comparison
-//! defined in the design notes §4.
+//! OQS signatures).  This is exactly the with-MTL / without-MTL comparison.
 //!
 //! # Benchmark seed
 //!

@@ -1,6 +1,6 @@
 //! Deterministic synthetic DNS dataset generation.
 //!
-//! Provides [`DatasetSize`] (three predefined sizes matching the design notes §4)
+//! Provides [`DatasetSize`] (the predefined sizes CLIMB benchmarks)
 //! and [`generate_dataset`], which produces a reproducible,
 //! byte-identical dataset from a size and a seed.
 
@@ -16,7 +16,7 @@ use crate::synthetic::SyntheticRecord;
 /// respects this bound.
 pub const MAX_MESSAGE_LEN: usize = u16::MAX as usize;
 
-/// Predefined dataset sizes as specified in the design notes §4 plus OneK
+/// Predefined dataset sizes CLIMB benchmarks, plus the OneK
 /// validation size.
 ///
 /// | Variant | Messages | Represents |

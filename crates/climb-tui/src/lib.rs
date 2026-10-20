@@ -1,11 +1,10 @@
 //! `climb-tui` — the CLIMB live-run benchmark dashboard.
 //!
-//! This is the Batch 6 demo layer (the design notes §5 Layer 5, §10). Phase 18 establishes
-//! the architecture every later TUI phase builds on: terminal safety, an Elm-style
+//! This is the demo layer: terminal safety, an Elm-style
 //! model/update split, a threaded event pump, theming with colour-depth mapping, and a
 //! widget-tree skeleton. Every tab now renders a real data view.
 //!
-//! Project rules carried in from the project conventions:
+//! Project rules carried into this crate:
 //! - No `println!`/`eprintln!` in the TUI path. Logging goes through `tracing` to
 //!   `target/climb-tui.log` (see `src/main.rs`), never to the terminal while the TUI
 //!   owns the screen.

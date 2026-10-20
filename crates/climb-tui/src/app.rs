@@ -1,4 +1,4 @@
-//! The application model (phase 18.5), Elm style.
+//! The application model, Elm style.
 //!
 //! [`App`] is the model, [`Action`] the messages, and [`App::update`] the pure transition:
 //! it mutates the model and *returns* an optional [`Effect`] describing side work. It never

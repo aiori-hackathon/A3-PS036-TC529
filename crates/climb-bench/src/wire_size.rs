@@ -9,8 +9,8 @@
 //!
 //! # Why `Result` is deliberate
 //!
-//! the project conventions §3 forbids `unwrap`/`expect` on fallible operations in library
-//! code paths.  [`measure_wire_sizes`] calls `MtlKeyPair::generate()` and
+//! The rule is that library code paths must not `unwrap`/`expect` on fallible
+//! operations.  [`measure_wire_sizes`] calls `MtlKeyPair::generate()` and
 //! `sign_batch`, both of which can fail (out-of-memory, buffer issues, etc.).
 //! Returning `Result<WireSizeReport, MtlError>` forces every caller to
 //! explicitly handle those failure modes instead of panicking mid-measurement.

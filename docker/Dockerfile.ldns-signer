@@ -1,4 +1,4 @@
-# docker/Dockerfile.ldns-signer — CLIMB Batch 4 (Phase 14)
+# docker/Dockerfile.ldns-signer — CLIMB MTL zone-signing tools
 #
 # Multi-stage build that vendors the verisign/mtl-mode-ldns fork and produces
 # the MTL-capable DNSSEC zone-signing tools:
@@ -6,18 +6,18 @@
 #   ldns-signzone    — sign a zone, emitting condensed + full MTL RRSIGs
 #   ldns-verify-zone — verify the signed zone against the KSK
 #
-# ── Why this exists (Phase 12.1 blocker resolution) ──
+# ── Why this exists ──
 # NSD *serves* pre-signed zones but does not sign them. Without a signer there
 # are no MTL RRSIGs in the zone, so NSD's MTL condensing path (EDNS opcode
 # 65050) has nothing to condense and the live demo cannot show MTL mode at
 # work. This image closes that gap using the reference signer, not any
-# from-scratch cryptography (the project conventions §2.1).
+# from-scratch cryptography.
 #
 # ── Build dependency chain ──
 # OpenSSL 3.4.1 → liboqs 0.16.0 (third_party/liboqs submodule) →
 # libMTL (third_party/MTL submodule, our pinned fork) → mtl-mode-ldns.
 # Unlike NSD (OpenSSL-only), the signer links liboqs + libmtlslib at build and
-# runtime — see the dev notes Phase 14.
+# runtime.
 #
 # ── Pinned dependencies ──
 # Base image:   debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
@@ -118,7 +118,7 @@ WORKDIR /ldns-mtl/src
 # Configure with only the algorithms CLIMB needs. --enable-pqc-algo-slh-dsa-sha2
 # defines the pure SLH-DSA-SHA2-128s (alg 246); --enable-pqc-algo-mtl adds the
 # MTL variants including SLH-DSA-SHA2-128s-MTL-SHA2-128 (alg 130). Both flags
-# are required for alg 130 to be compiled in (see the dev notes Phase 14).
+# are required for alg 130 to be compiled in.
 # --disable-dane/--disable-gost drop optional deps irrelevant to zone signing
 # and unavailable in the slim builder.
 RUN libtoolize -ci \

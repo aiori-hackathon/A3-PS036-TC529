@@ -38,9 +38,17 @@ const ALLOW_NUMBER_MARKER: &str = "<!-- docs-check:allow-number -->";
 const HEADLINE_BEGIN: &str = "<!-- headline:begin -->";
 const HEADLINE_END: &str = "<!-- headline:end -->";
 
+/// Markers bracketing the numbers-of-record table in the progress log.
+const NUMBERS_BEGIN: &str = "<!-- numbers-of-record:begin -->";
+const NUMBERS_END: &str = "<!-- numbers-of-record:end -->";
+
 /// The quote sheet, relative to the workspace root. It is the source of truth
 /// for quotable numbers, so it is the one documentation file not scanned.
 const QUOTE_SHEET: &str = "docs/deck-facts.md";
+
+/// The progress-log filename, referenced where its numbers-of-record table is
+/// read and labelled in tests.
+const PROGRESS_FILE: &str = "the dev notes"; // source-hygiene:allow
 
 /// Letter units that mark a number as a recorded result when they follow it
 /// after whitespace. Percent and the multiplication sign count glued too.
@@ -53,6 +61,10 @@ const RESULT_UNITS: &[&str] = &[
 /// Infrastructure names that legitimately share the crate-name prefix but are
 /// not crates; allowed as Mermaid node ids alongside the real workspace names.
 const NON_CRATE_IDS: &[&str] = &["climb_net"];
+
+/// Marker on a numbers-of-record row whose artifact was superseded, so its
+/// value need not appear in the quote sheet. Case-insensitive substring match.
+const HISTORICAL_TAG: &str = "historical";
 
 /// One parsed row of the quote sheet's fact tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -348,6 +360,71 @@ pub(crate) fn parse_headline_rows(text: &str) -> Option<Vec<(usize, String, Stri
     Some(rows)
 }
 
+/// Parse the marker-bracketed numbers-of-record table of the progress log.
+/// `None` when the markers are absent; `Some(rows)` with `(line, value_cell,
+/// is_historical)`. The historical flag comes from a case-insensitive
+/// `historical` tag in the row's label cell.
+pub(crate) fn parse_numbers_of_record_rows(text: &str) -> Option<Vec<(usize, String, bool)>> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines.iter().position(|l| l.trim() == NUMBERS_BEGIN)?;
+    let end = lines.iter().position(|l| l.trim() == NUMBERS_END)?;
+    if end <= begin {
+        return None;
+    }
+    let mut rows = Vec::new();
+    for (idx, line) in lines.iter().enumerate().skip(begin + 1) {
+        if idx >= end {
+            break;
+        }
+        let trimmed = line.trim();
+        if !trimmed.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = trimmed.split('|').map(str::trim).collect();
+        // | Number | Value | Source artifact | Phase |
+        if cells.len() < 5 {
+            continue;
+        }
+        let label = cells[1];
+        let value = cells[2];
+        if label == "Number" || value.starts_with("---") || value.is_empty() {
+            continue;
+        }
+        let historical = label.to_ascii_lowercase().contains(HISTORICAL_TAG);
+        rows.push((idx + 1, value.to_string(), historical));
+    }
+    Some(rows)
+}
+
+/// Check the numbers-of-record table in the progress log: every value+unit
+/// token in a row's value cell must appear in the quote sheet, unless the row
+/// is tagged historical. Pure: no filesystem, no subprocesses.
+pub(crate) fn check_numbers_of_record(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violation> {
+    let Some(rows) = parse_numbers_of_record_rows(text) else {
+        return Vec::new();
+    };
+    let mut violations = Vec::new();
+    for (line, value, historical) in rows {
+        if historical {
+            continue;
+        }
+        for (number, unit) in scan_result_numbers(&value) {
+            let known_value = facts.iter().any(|f| f.value == number && f.unit == unit);
+            if !known_value {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line,
+                    message: format!(
+                        "numbers-of-record value `{number} {unit}` is not in the quote sheet \
+                         ({QUOTE_SHEET}); correct the row, or tag it historical"
+                    ),
+                });
+            }
+        }
+    }
+    violations
+}
+
 fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violation> {
     let Some(rows) = parse_headline_rows(text) else {
         return Vec::new();
@@ -476,7 +553,27 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         violations.extend(check_file(&label, &text, &facts, &known));
     }
 
+    // The progress log's numbers-of-record table is scanned too (its rows are
+    // checked against the quote sheet), but the log is not a documentation
+    // file for the numeric-result and Mermaid rules — only its tagged table is.
+    let progress_path = args.root.join(PROGRESS_FILE);
+    if progress_path.exists() {
+        let text = std::fs::read_to_string(&progress_path)
+            .with_context(|| format!("failed to read {}", progress_path.display()))?;
+        let label = progress_path
+            .strip_prefix(&args.root)
+            .unwrap_or(&progress_path)
+            .display()
+            .to_string();
+        violations.extend(check_numbers_of_record(&label, &text, &facts));
+    }
+
     if violations.is_empty() {
+        // A single command guards the whole documentation surface, so the
+        // source-tree hygiene scan and the pinned-dependency agreement check
+        // run alongside the documentation rules.
+        crate::source_hygiene::run(&args.root).context("source-hygiene scan failed")?;
+        crate::check_pins::run(&args.root).context("pin agreement check failed")?;
         println!(
             "docs-check: {} documentation file(s) clean against {} ({} facts)",
             doc_files.len(),
@@ -680,6 +777,56 @@ mod tests {
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("no number+unit pair"));
+    }
+
+    #[test]
+    fn numbers_of_record_rows_are_parsed_between_the_markers() {
+        let text = "before\n<!-- numbers-of-record:begin -->\n| Number | Value | Source artifact | Phase |\n|---|---|---|---|\n| Wire total | 2,743,352 B | target/x.json | 8 |\n| Old row `historical` | 999 B | target/y.json | 9 |\n<!-- numbers-of-record:end -->\nafter\n";
+        let rows = parse_numbers_of_record_rows(text).expect("markers present");
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0], (5, "2,743,352 B".to_string(), false));
+        assert_eq!(rows[1], (6, "999 B".to_string(), true));
+    }
+
+    #[test]
+    fn numbers_of_record_without_markers_is_not_parsed() {
+        assert!(parse_numbers_of_record_rows("| Wire | 1 B | x | 8 |\n").is_none());
+    }
+
+    #[test]
+    fn a_wrong_numbers_of_record_value_fails_with_a_located_line() {
+        let text = "<!-- numbers-of-record:begin -->\n| Number | Value | Source artifact | Phase |\n|---|---|---|---|\n| Wire, Medium C vs A | 97.01% | target/climb-results.json | F18 |\n<!-- numbers-of-record:end -->";
+        let violations = check_numbers_of_record(PROGRESS_FILE, text, &facts());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].file, PROGRESS_FILE);
+        assert_eq!(violations[0].line, 4);
+        assert!(violations[0].message.contains("97.01 %"), "{violations:?}");
+        assert!(violations[0].message.contains("historical"));
+    }
+
+    #[test]
+    fn a_historical_numbers_of_record_row_passes() {
+        let text = "<!-- numbers-of-record:begin -->\n| Number | Value | Source artifact | Phase |\n|---|---|---|---|\n| Wire, Medium C vs A `historical` | 97.01% | target/climb-results.json | F18 |\n<!-- numbers-of-record:end -->";
+        assert!(check_numbers_of_record(PROGRESS_FILE, text, &facts()).is_empty());
+    }
+
+    #[test]
+    fn a_correct_numbers_of_record_row_passes() {
+        let text = "<!-- numbers-of-record:begin -->\n| Number | Value | Source artifact | Phase |\n|---|---|---|---|\n| Medium wire reduction C vs B | 96.706% | target/climb-results.json | F18 |\n<!-- numbers-of-record:end -->";
+        assert!(check_numbers_of_record(PROGRESS_FILE, text, &facts()).is_empty());
+    }
+
+    #[test]
+    fn the_committed_numbers_of_record_table_passes_the_check() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let facts = parse_quote_sheet(
+            &std::fs::read_to_string(root.join(QUOTE_SHEET)).expect("quote sheet is committed"),
+        );
+        let text = std::fs::read_to_string(root.join(PROGRESS_FILE)).expect("log is committed");
+        let violations = check_numbers_of_record(PROGRESS_FILE, &text, &facts);
+        assert!(violations.is_empty(), "{violations:?}");
     }
 
     #[test]

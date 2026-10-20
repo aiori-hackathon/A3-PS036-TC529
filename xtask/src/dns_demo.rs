@@ -132,9 +132,9 @@ pub(crate) struct DnsDemoArgs {
 // Visual output helpers
 // ---------------------------------------------------------------------------
 
-fn print_phase(n: u32, title: &str) {
+fn print_stage(n: u32, title: &str) {
     humanln!("\n{:=<72}", "");
-    humanln!("  Phase {n} — {title}");
+    humanln!("  Stage {n} — {title}");
     humanln!("{:=<72}", "");
 }
 
@@ -302,7 +302,7 @@ fn run_cmd_capture(mut cmd: Command) -> Result<String> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 1 — Preflight
+// Stage 1 — Preflight
 // ---------------------------------------------------------------------------
 
 fn check_docker() -> Result<()> {
@@ -342,7 +342,7 @@ fn image_exists(image: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 4 helper — wait for NSD to be ready
+// Stage 4 helper — wait for NSD to be ready
 // ---------------------------------------------------------------------------
 
 fn wait_for_nsd_ready(root: &Path) -> Result<()> {
@@ -371,7 +371,7 @@ fn wait_for_nsd_ready(root: &Path) -> Result<()> {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 5 / 6 / 8 — run the capture script
+// Stage 5 / 6 / 8 — run the capture script
 // ---------------------------------------------------------------------------
 
 /// One row from `scripts/mtl_dns_capture.py` output.
@@ -432,7 +432,7 @@ fn run_capture(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6 — SigTag script
+// Stage 6 — SigTag script
 // ---------------------------------------------------------------------------
 
 fn run_sigtag(root: &Path, signed_zone: &Path) -> Result<String> {
@@ -492,7 +492,7 @@ fn print_dig_output(output: &str, max_chars: usize) {
 }
 
 // ---------------------------------------------------------------------------
-// Phase 7 — Headline comparison
+// Stage 7 — Headline comparison
 // ---------------------------------------------------------------------------
 
 fn print_headline(baseline: &[CaptureRow], condensed: &[CaptureRow]) {
@@ -772,25 +772,25 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
     let root = workspace_root()?;
     let scratch = root.join("target").join("dns-demo");
 
-    // ── Phase 1: Preflight ──────────────────────────────────────────
-    print_phase(1, "Preflight");
+    // ── Stage 1: Preflight ──────────────────────────────────────────
+    print_stage(1, "Preflight");
     check_docker()?;
     check_images()?;
 
-    // ── Phase 2: Build images (unless --no-build) ───────────────────
+    // ── Stage 2: Build images (unless --no-build) ───────────────────
     if !args.no_build {
-        print_phase(2, "Build Docker Images");
+        print_stage(2, "Build Docker Images");
         run_cmd_inherit(compose_cmd(&root, &["build"]))?;
         print_status("Result", "Images built successfully");
     } else {
-        print_phase(2, "Build Docker Images (skipped — --no-build)");
+        print_stage(2, "Build Docker Images (skipped — --no-build)");
     }
 
-    // ── Phase 3: Sign the zone (unless --reuse-zone) ────────────────
+    // ── Stage 3: Sign the zone (unless --reuse-zone) ────────────────
     let signed_zone: PathBuf;
 
     if let Some(ref reuse) = args.reuse_zone {
-        print_phase(3, "Reuse Signed Zone");
+        print_stage(3, "Reuse Signed Zone");
         if !reuse.exists() {
             bail!("--reuse-zone path does not exist: {}", reuse.display());
         }
@@ -815,7 +815,7 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
             ),
         );
     } else {
-        print_phase(3, "Sign Zone");
+        print_stage(3, "Sign Zone");
         fs::create_dir_all(&scratch).context("failed to create scratch directory")?;
 
         // Copy the unsigned zone into the scratch dir.
@@ -899,8 +899,8 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
         print_status("Verification", "Zone is verified and complete");
     }
 
-    // ── Phase 4: Bring pipeline up ──────────────────────────────────
-    print_phase(4, "Bring Pipeline Up");
+    // ── Stage 4: Bring pipeline up ──────────────────────────────────
+    print_stage(4, "Bring Pipeline Up");
 
     let zone_dir = signed_zone
         .parent()
@@ -922,16 +922,16 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
     print_status("NSD", "ready — zone loaded");
     print_status("Unbound", "ready — forwarding to NSD");
 
-    // ── Phase 5: Baseline queries (full signature) ──────────────────
-    print_phase(5, "Baseline Queries — Full Signatures");
+    // ── Stage 5: Baseline queries (full signature) ──────────────────
+    print_stage(5, "Baseline Queries — Full Signatures");
     humanln!("  Querying NSD directly (192.168.13.2) with DO bit, no SigTag.");
     humanln!("  NSD returns the full signed ladder (~8 KB) in every response.");
     humanln!();
     let base_dir = scratch.join("captures-full");
     let baseline_rows = run_capture(&root, NSD_IP, &base_dir, None, "full")?;
 
-    // ── Phase 6: SigTag + condensed queries ─────────────────────────
-    print_phase(6, "MTL SigTag + Condensed Queries");
+    // ── Stage 6: SigTag + condensed queries ─────────────────────────
+    print_stage(6, "MTL SigTag + Condensed Queries");
 
     let sigtag = run_sigtag(&root, &signed_zone)?;
     humanln!("  SigTag (SHAKE-128 hash of the signed ladder):");
@@ -946,8 +946,8 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
     let cond_dir = scratch.join("captures-condensed");
     let condensed_rows = run_capture(&root, NSD_IP, &cond_dir, Some(&sigtag), "condensed")?;
 
-    // ── Phase 7: Live dig queries ───────────────────────────────────
-    print_phase(7, "Live dig Queries — Full vs Condensed");
+    // ── Stage 7: Live dig queries ───────────────────────────────────
+    print_stage(7, "Live dig Queries — Full vs Condensed");
     humanln!("  The same query issued by real `dig`, twice. The only");
     humanln!("  difference is the MTL SigTag in EDNS option 65050.");
     humanln!();
@@ -962,12 +962,12 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
         humanln!();
     }
 
-    // ── Phase 8: Headline comparison ────────────────────────────────
-    print_phase(8, "Headline — Full vs Condensed");
+    // ── Stage 8: Headline comparison ────────────────────────────────
+    print_stage(8, "Headline — Full vs Condensed");
     print_headline(&baseline_rows, &condensed_rows);
 
-    // ── Phase 9: Unbound forwarding ─────────────────────────────────
-    print_phase(9, "Unbound Forwarding (iterator mode)");
+    // ── Stage 9: Unbound forwarding ─────────────────────────────────
+    print_stage(9, "Unbound Forwarding (iterator mode)");
     humanln!("  The committed unbound.conf uses module-config: \"iterator\"");
     humanln!("  (forwarding) — it forwards queries to NSD and returns answers");
     humanln!("  but does not perform DNSSEC validation or set the `ad` flag.");
@@ -983,8 +983,8 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
     humanln!("  All queries via Unbound returned successfully.");
     humanln!("  (The AD flag is absent — expected in iterator mode.)");
 
-    // ── Phase 10: Wire captures summary ─────────────────────────────
-    print_phase(10, "Wire Captures");
+    // ── Stage 10: Wire captures summary ─────────────────────────────
+    print_stage(10, "Wire Captures");
 
     let total_full: u64 = baseline_rows.iter().map(|r| r.bytes).sum();
     let total_cond: u64 = condensed_rows.iter().map(|r| r.bytes).sum();
@@ -1034,8 +1034,8 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
         }
     }
 
-    // ── Phase 11: Teardown ──────────────────────────────────────────
-    print_phase(11, "Teardown");
+    // ── Stage 11: Teardown ──────────────────────────────────────────
+    print_stage(11, "Teardown");
 
     if args.keep {
         guard.disarm(); // already disarmed; explicit for clarity

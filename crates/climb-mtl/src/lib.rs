@@ -20,7 +20,7 @@
 //!   tool, algorithm, and key, differing only in batching.
 //!
 //! This `N`-calls-of-one-versus-one-call-of-`N` equivalence was verified
-//! empirically against the native library during Phase 3, not assumed.
+//! empirically against the native library, not assumed.
 //!
 //! # Example
 //!
@@ -91,7 +91,7 @@ fn sign_error(operation: &'static str, status: u32) -> MtlError {
 ///
 /// Signature and ladder bytes are untrusted input. libMTL's parser rejects
 /// malformed input with the same status range it uses for cryptographic
-/// mismatches, and an empirical probe during Phase 3 confirmed that flipping a
+/// mismatches, and an empirical probe confirmed that flipping a
 /// single signature byte yields `MTLLIB_NULL_PARAMS` while flipping a message
 /// byte yields `MTLLIB_BOGUS_CRYPTO`. Both mean the signature did not verify, so
 /// every "rejected" status maps to `Ok(false)` and can never be mistaken for

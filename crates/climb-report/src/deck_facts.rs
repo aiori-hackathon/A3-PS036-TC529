@@ -2448,6 +2448,70 @@ mod tests {
         assert_eq!(first.rows, second.rows);
     }
 
+    /// The comparison and wire sections must be collected with each row's own
+    /// size label, so the sheet's rows are identical whether the artifact's
+    /// `comparisons` array is in declaration order or reversed. A positional
+    /// collector would relabel the numbers when the order changes.
+    #[test]
+    fn comparison_rows_are_identical_when_the_artifact_order_is_reversed() {
+        let dir = PathBuf::from("target/deck-facts-tests");
+        std::fs::create_dir_all(&dir).expect("create test directory");
+        let raw = std::fs::read_to_string(sample_results_path()).expect("sample results readable");
+        let mut doc: serde_json::Value = serde_json::from_str(&raw).expect("sample results parse");
+
+        let forward = dir.join("forward-results.json");
+        std::fs::write(&forward, &raw).expect("write forward copy");
+
+        let reversed = dir.join("reversed-results.json");
+        if let Some(rows) = doc
+            .get_mut("comparisons")
+            .and_then(serde_json::Value::as_array_mut)
+        {
+            rows.reverse();
+        }
+        std::fs::write(&reversed, serde_json::to_string(&doc).expect("reserialize"))
+            .expect("write reversed copy");
+
+        let missing = dir.join("absent.json");
+        let input_for = |results: PathBuf| DeckFactsInput {
+            results_path: results,
+            wire_report_path: missing.clone(),
+            memory_report_path: missing.clone(),
+            ladder_verification_path: missing.clone(),
+            ladder_fixture_path: missing.clone(),
+            dns_capture_path: missing.clone(),
+            dns_fixture_path: missing.clone(),
+            environment_path: missing.clone(),
+            commit_sha: Some("c5cf3220000000000000000000000000000000000".to_string()),
+            test_summary: None,
+        };
+
+        let forward_rows = generate(&input_for(forward)).expect("forward sheet").rows;
+        let reversed_rows = generate(&input_for(reversed)).expect("reversed sheet").rows;
+
+        // Compare the comparison-section facts keyed by their size label: the
+        // label, value, unit, class and pointer must survive the reorder.
+        let comparison_facts = |rows: Vec<Fact>| -> Vec<(String, String, String)> {
+            let mut f: Vec<(String, String, String)> = rows
+                .into_iter()
+                .filter(|r| r.section == Section::WireBytes)
+                .filter(|r| r.label.contains("wire reduction"))
+                .map(|r| (r.label, r.value, r.pointer))
+                .collect();
+            f.sort();
+            f
+        };
+        let forward_facts = comparison_facts(forward_rows);
+        let reversed_facts = comparison_facts(reversed_rows);
+        assert!(!forward_facts.is_empty(), "sample has comparison rows");
+        // Pointers legitimately change with the array index; labels and values
+        // must not.
+        let strip = |facts: Vec<(String, String, String)>| -> Vec<(String, String)> {
+            facts.into_iter().map(|(l, v, _)| (l, v)).collect()
+        };
+        assert_eq!(strip(forward_facts), strip(reversed_facts));
+    }
+
     #[test]
     fn parse_test_summary_sums_every_result_line() {
         let output = "\

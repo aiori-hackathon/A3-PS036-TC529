@@ -1,4 +1,4 @@
-//! SVG rendering for the Phase 16 report charts.
+//! SVG rendering for the report charts.
 //!
 //! Turns the prepared series from [`super`] into seven self-contained SVG
 //! files. The measured-vs-modelled distinction is a rendering rule applied to

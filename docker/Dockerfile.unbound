@@ -1,9 +1,9 @@
-# docker/Dockerfile.unbound — CLIMB Phase 13
+# docker/Dockerfile.unbound — CLIMB Unbound-MTL recursive resolver
 #
 # Multi-stage build: OpenSSL 3.4.1 → liboqs 0.16.0 → libMTL (our fork) →
 # verisign/mtl-mode-unbound @ IETF-126-Interim → slim runtime.
 #
-# Unlike NSD (Phase 12), Unbound directly links liboqs + libmtlslib and
+# Unlike NSD, Unbound directly links liboqs + libmtlslib and
 # needs the full PQC stack. The MTL algorithm table in val_pqc_algo.c
 # requires headers at <include>/mtllib/ and AC_SEARCH_LIBS([mtl_initns]).
 #

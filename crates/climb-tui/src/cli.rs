@@ -1,4 +1,4 @@
-//! Command-line interface for `climb-tui` (phase 18.2).
+//! Command-line interface for `climb-tui`.
 //!
 //! Every flag is parsed now and carried into [`crate::app::App`]. `--replay`
 //! is recorded and surfaced in the status bar; `--tour` starts the scripted

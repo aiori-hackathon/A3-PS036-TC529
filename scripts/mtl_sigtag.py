@@ -49,7 +49,7 @@ import binascii
 import hashlib
 import sys
 
-# SLH-DSA-SHA2-128s-MTL-SHA2-128 parameters (see the dev notes Phase 2).
+# SLH-DSA-SHA2-128s-MTL-SHA2-128 parameters.
 HASH_SIZE = 16
 # lead(1) + SID(2*HASH_SIZE) + flags(2) + randomizer(HASH_SIZE) + 3*8 indices.
 FIXED_HEADER = 1 + 2 * HASH_SIZE + 2 + HASH_SIZE + 3 * 8

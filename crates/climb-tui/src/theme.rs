@@ -1,4 +1,4 @@
-//! Theming, colour-depth mapping and glyph sets (phase 18.6).
+//! Theming, colour-depth mapping and glyph sets.
 
 use clap::ValueEnum;
 use ratatui::style::{Color, Modifier, Style};

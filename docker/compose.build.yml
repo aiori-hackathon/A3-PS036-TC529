@@ -1,4 +1,4 @@
-# docker/compose.build.yml — CLIMB Phase 1 build verification
+# docker/compose.build.yml — CLIMB toolchain build verification
 #
 # Builds the full liboqs + libMTL toolchain from pinned submodules,
 # then runs the upstream test/ suite and examples/test.sh.

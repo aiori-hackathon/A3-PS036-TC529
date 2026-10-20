@@ -1,7 +1,7 @@
-//! Chart data preparation for the Phase 16 report charts.
+//! Chart data preparation for the report charts.
 //!
 //! Builds plotters-friendly series from [`ClimbResults`] (the single source of
-//! truth consolidated in Phase 15) and renders six SVGs under
+//! truth of consolidated results) and renders six SVGs under
 //! `target/climb-report/charts/`. Measured Criterion rows are visually
 //! distinguished from values extrapolated from them (hollow bars, dashed fit),
 //! and every chart carries a three-line footnote naming its source file.

@@ -2,12 +2,12 @@
 //!
 //! Compares verifying N condensed signatures against one shared ladder (the
 //! MTL-amortized path) against verifying N full signatures individually (each
-//! carries its own ladder). This mirrors Phase 5's with-MTL / without-MTL
+//! carries its own ladder). This mirrors the with-MTL / without-MTL
 //! signing comparison — the same workload, measured from the verifier's side.
 //!
 //! # Bonus axis: trust_cached_ladder
 //!
-//! Per the design notes §4, the with-MTL (condensed + shared ladder) path includes
+//! The with-MTL (condensed + shared ladder) path includes
 //! a `trust_cached_ladder` axis:
 //!
 //! - `true`  — a resolver that has already validated the ladder, so only the
@@ -86,9 +86,9 @@ use climb_mtl::{MtlKeyPair, MtlSigner, PlainSlhDsa, Signature};
 
 /// Fixed seed for benchmark reproducibility.
 ///
-/// ASCII `CLIMB_V6` encoded as a `u64`, the Phase 6 counterpart of Phase 5's
-/// `CLIMB_V5`.  `generate_dataset(size, BENCH_SEED)` always produces the same
-/// byte-identical dataset.
+/// ASCII `CLIMB_V6` encoded as a `u64`, the verifying counterpart of the
+/// `CLIMB_V5` signing seed.  `generate_dataset(size, BENCH_SEED)` always
+/// produces the same byte-identical dataset.
 pub const BENCH_SEED: u64 = 0x434C494D425F5636;
 
 // ---------------------------------------------------------------------------

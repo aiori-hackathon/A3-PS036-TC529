@@ -114,6 +114,29 @@ pub fn size_display(label: &str) -> String {
     }
 }
 
+/// Compare two size labels for equality, ignoring case.
+///
+/// Every per-size array in the results artifact is keyed by the label in its
+/// `size` field, and the sections disagree about its spelling (lowercase in
+/// `wire_size`/`reuse`, title-cased in `comparisons`). Consumers therefore must
+/// never reach a row by position: an array reordered upstream (or a size added)
+/// would silently relabel every number. [`find_by_size`] is the one lookup;
+/// this is the comparison it uses.
+pub fn size_eq(a: &str, b: &str) -> bool {
+    a.eq_ignore_ascii_case(b)
+}
+
+/// Find the entry of a per-size slice whose `size` field matches `size`.
+///
+/// The extractor is passed in so the same keyed lookup serves every section
+/// (`comparisons`, `wire_size`, `reuse`, `memory`, `plain`, …) without knowing
+/// each row's type. A label is matched case-insensitively via [`size_eq`], so
+/// callers can pass either the artifact spelling (`"small"`) or the display
+/// spelling (`"Small"`).
+pub fn find_by_size<'a, T>(rows: &'a [T], size: &str, key: impl Fn(&T) -> &str) -> Option<&'a T> {
+    rows.iter().find(|row| size_eq(key(row), size))
+}
+
 /// Configuration A (plain SLH-DSA) per-message timings for one dataset size.
 ///
 /// A plain signature carries no ladder, so its cost is size-independent: a size
@@ -637,7 +660,7 @@ pub struct ClimbResults {
     #[serde(default)]
     pub plain: Vec<PlainTimingResult>,
     /// Classical signature baselines (context only, not PQC). Empty for results
-    /// written before phase 28.
+    /// written before the baselines were captured.
     #[serde(default)]
     pub classical: Vec<ClassicalTimingResult>,
     /// Three-way configuration comparisons (C vs A, C vs B). Empty for results
@@ -651,6 +674,33 @@ pub struct ClimbResults {
     /// absent section apart from a genuinely empty one. An empty list means
     /// every requested optional input was present and fresh.
     pub warnings: Vec<String>,
+}
+
+impl ClimbResults {
+    /// The three-way comparison row for `size`, matched by its size field.
+    ///
+    /// The comparison array is ordered by declaration, not by size; a consumer
+    /// that indexes it by position can silently point a dataset's number at
+    /// another dataset's row. Look the row up by its size label instead.
+    pub fn comparison_for(&self, size: &str) -> Option<&ConfigComparison> {
+        find_by_size(&self.comparisons, size, |row| &row.size)
+    }
+
+    /// The wire-size row for `size`, matched case-insensitively (the wire
+    /// section stores its label lowercase, the comparison section title-cased).
+    pub fn wire_for(&self, size: &str) -> Option<&WireSizeResult> {
+        find_by_size(&self.wire_size, size, |row| &row.size)
+    }
+
+    /// The ladder-reuse row for `size`, matched case-insensitively.
+    pub fn reuse_for(&self, size: &str) -> Option<&ReuseResult> {
+        find_by_size(&self.derived.reuse, size, |row| &row.size)
+    }
+
+    /// The measured-memory row for `size`, matched case-insensitively.
+    pub fn memory_for(&self, size: &str) -> Option<&MemoryResult> {
+        find_by_size(&self.memory.measured, size, |row| &row.size)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -3612,6 +3662,134 @@ mod tests {
         assert_eq!(ratio(Some(10.0), Some(2.0)), Some(5.0));
         assert_eq!(ratio(Some(10.0), Some(0.0)), None);
         assert_eq!(ratio(None, Some(2.0)), None);
+    }
+
+    /// Per-size lookups must be keyed by the size label, never by position: a
+    /// consumer that indexes `comparisons`/`wire_size`/`reuse`/`memory` by
+    /// array position silently relabels every number when the artifact order
+    /// changes. This shuffles each per-size array and asserts the keyed
+    /// accessors still resolve the same row for every size.
+    #[test]
+    fn size_keyed_accessors_are_independent_of_array_order() {
+        let sizes = ["Small", "Medium", "Large"];
+        let build = |order: &[usize]| -> ClimbResults {
+            let wire: Vec<WireSizeResult> = order
+                .iter()
+                .map(|&i| wire_row(&sizes[i].to_lowercase(), 90.0 + i as f64))
+                .collect();
+            let memory: Vec<MemoryResult> = order
+                .iter()
+                .map(|&i| {
+                    let mut row = memory_row(&sizes[i].to_lowercase());
+                    row.median_bytes = 1_000 * (i as u64 + 1);
+                    row
+                })
+                .collect();
+            let comparisons: Vec<ConfigComparison> = order
+                .iter()
+                .map(|&i| ConfigComparison {
+                    size: sizes[i].to_string(),
+                    wire_reduction_c_vs_a_percent: Some(90.0 + i as f64),
+                    wire_reduction_c_vs_b_percent: Some(91.0 + i as f64),
+                    signing_speedup_c_vs_a: Some(100.0 * (i as f64 + 1.0)),
+                    signing_speedup_c_vs_b: Some(200.0 * (i as f64 + 1.0)),
+                    verifying_speedup_cached_vs_a: Some(10.0 * (i as f64 + 1.0)),
+                    verifying_speedup_cold_vs_a: Some(1.0 * (i as f64 + 1.0)),
+                    class: EvidenceClass::Derived,
+                })
+                .collect();
+            let reuse: Vec<ReuseResult> = order
+                .iter()
+                .map(|&i| ReuseResult {
+                    size: sizes[i].to_lowercase(),
+                    batch_size: 100,
+                    curve: vec![ReuseCurvePoint {
+                        reuse: 1,
+                        effective_time_ns: 1.0,
+                        effective_bytes: 1.0,
+                    }],
+                    breakeven_reuse_time: Some(i as u64 + 1),
+                    breakeven_reuse_bytes: Some(i as u64 + 2),
+                    r_star_time: None,
+                    r_star_bytes: None,
+                    baseline_time_ns: 1.0,
+                    baseline_bytes: 1.0,
+                    class: EvidenceClass::Derived,
+                })
+                .collect();
+            let mut derived = derive_summary(&wire, &[], &[], &[], None);
+            derived.reuse = reuse;
+            ClimbResults {
+                version: "1.0".to_string(),
+                generated_at: "2026-10-12T00:00:00Z".to_string(),
+                workspace_root: "/tmp/climb".to_string(),
+                benchmark: BenchmarkResults {
+                    signing: Vec::new(),
+                    verifying: Vec::new(),
+                },
+                wire_size: wire,
+                memory: MemoryResults {
+                    measured: memory,
+                    analytical_model: analytical_model(),
+                },
+                environment: environment_fingerprint(),
+                dns_pipeline: None,
+                dns_anatomy: None,
+                ladder: None,
+                plain: Vec::new(),
+                classical: Vec::new(),
+                comparisons,
+                derived,
+                warnings: Vec::new(),
+            }
+        };
+
+        let canonical = build(&[0, 1, 2]);
+        let shuffled = build(&[2, 0, 1]);
+
+        for (i, size) in sizes.iter().enumerate() {
+            let expected = 90.0 + i as f64;
+            assert_eq!(
+                canonical.wire_for(size).map(|r| r.reduction_percent),
+                Some(expected),
+                "canonical wire {size}"
+            );
+            assert_eq!(
+                shuffled.wire_for(size).map(|r| r.reduction_percent),
+                Some(expected),
+                "shuffled wire {size} must key by size"
+            );
+            assert_eq!(
+                shuffled
+                    .comparison_for(size)
+                    .and_then(|r| r.wire_reduction_c_vs_a_percent),
+                Some(expected),
+                "shuffled comparison {size}"
+            );
+            assert_eq!(
+                canonical
+                    .comparison_for(size)
+                    .and_then(|r| r.signing_speedup_c_vs_a),
+                Some(100.0 * (i as f64 + 1.0)),
+                "signing speedup {size}"
+            );
+            assert_eq!(
+                shuffled
+                    .reuse_for(size)
+                    .and_then(|r| r.breakeven_reuse_time),
+                Some(i as u64 + 1),
+                "shuffled reuse {size}"
+            );
+            assert_eq!(
+                shuffled.memory_for(size).map(|r| r.median_bytes),
+                Some(1_000 * (i as u64 + 1)),
+                "shuffled memory {size}"
+            );
+        }
+        // A size absent from the artifact resolves to no row, never to a
+        // neighbouring one.
+        assert!(shuffled.wire_for("OneK").is_none());
+        assert!(shuffled.comparison_for("OneK").is_none());
     }
 
     #[test]

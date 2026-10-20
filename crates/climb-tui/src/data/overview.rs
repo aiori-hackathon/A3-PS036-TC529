@@ -405,6 +405,62 @@ mod tests {
         assert_eq!(view.wire_reduction_largest(), None);
     }
 
+    /// The C-vs-A hero KPI must select the Medium comparison by its size label,
+    /// not by array position: shuffling the comparison array leaves the KPI
+    /// unchanged.
+    #[test]
+    fn c_vs_a_signing_speedup_keys_the_medium_row_not_its_position() {
+        use crate::data::test_support::view_with_comparisons;
+        use climb_report::results::{ConfigComparison, EvidenceClass};
+
+        let row = |size: &str, speedup: f64| ConfigComparison {
+            size: size.to_string(),
+            wire_reduction_c_vs_a_percent: Some(0.0),
+            wire_reduction_c_vs_b_percent: Some(0.0),
+            signing_speedup_c_vs_a: Some(speedup),
+            signing_speedup_c_vs_b: Some(0.0),
+            verifying_speedup_cached_vs_a: Some(0.0),
+            verifying_speedup_cold_vs_a: Some(0.0),
+            class: EvidenceClass::Extrapolated,
+        };
+
+        let canonical = view_with_comparisons(vec![
+            row("Small", 11.0),
+            row("Medium", 275.5),
+            row("Large", 33.0),
+        ])
+        .c_vs_a_signing_speedup()
+        .expect("medium row present");
+        let shuffled = view_with_comparisons(vec![
+            row("Large", 33.0),
+            row("Medium", 275.5),
+            row("Small", 11.0),
+        ])
+        .c_vs_a_signing_speedup()
+        .expect("medium row present");
+        assert_eq!(canonical.value, shuffled.value);
+        assert_eq!(canonical.caption, "C vs A signing (Medium)");
+        assert!(canonical.value.contains("276"), "{}", canonical.value);
+    }
+
+    #[test]
+    fn c_vs_a_signing_speedup_is_none_without_a_medium_row() {
+        use crate::data::test_support::view_with_comparisons;
+        use climb_report::results::{ConfigComparison, EvidenceClass};
+
+        let view = view_with_comparisons(vec![ConfigComparison {
+            size: "Small".to_string(),
+            wire_reduction_c_vs_a_percent: None,
+            wire_reduction_c_vs_b_percent: None,
+            signing_speedup_c_vs_a: Some(11.0),
+            signing_speedup_c_vs_b: None,
+            verifying_speedup_cached_vs_a: None,
+            verifying_speedup_cold_vs_a: None,
+            class: EvidenceClass::Derived,
+        }]);
+        assert_eq!(view.c_vs_a_signing_speedup(), None);
+    }
+
     #[test]
     fn signing_speedup_measured_when_both_conditions_present() {
         let view = view_with(

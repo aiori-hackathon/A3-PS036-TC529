@@ -1,4 +1,4 @@
-//! The amortization curve panel (phase 20.5): measured with-MTL and
+//! The amortization curve panel: measured with-MTL and
 //! without-MTL per-message signing cost against dataset size on log-log
 //! axes, plus the OLS fit of the with-MTL batch total. It renders inside
 //! the Signing tab — the tab bar is pinned to nine tabs (keys 1-9), so the

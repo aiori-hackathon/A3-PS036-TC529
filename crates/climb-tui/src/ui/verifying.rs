@@ -1,4 +1,4 @@
-//! The Verifying tab (phase 20.4): trust-cached / full-ladder / without-MTL
+//! The Verifying tab: trust-cached / full-ladder / without-MTL
 //! bars on the shared log scale plus the numbers table. Values come from
 //! [`crate::data::ResultsView`], which mirrors the report charts exactly.
 

@@ -27,7 +27,7 @@ use std::ptr;
 
 use climb_mtl_sys::*;
 
-/// Algorithm string selected in `the design notes` §3: the small-signature ("s")
+/// Algorithm string: the small-signature ("s")
 /// SLH-DSA variant with an SHA2-128 MTL tree. Its `sec_param` is 16, so the
 /// Series ID embedded at the front of every signature is 32 bytes.
 const ALGORITHM: &str = "SLH-DSA-SHA2-128s-MTL-SHA2-128";

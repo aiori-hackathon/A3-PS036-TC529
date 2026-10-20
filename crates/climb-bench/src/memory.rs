@@ -11,7 +11,7 @@
 //!
 //! | Component | Lives in which measurement | Typical size | Source |
 //! |---|---|---|---|
-//! | Synthetic dataset (`Vec<Vec<u8>>`) | **Before** baseline only | ~93 MiB (payload) / ~529 MiB (RSS overhead, Phase 4) | [`climb_dns::generate_dataset`] |
+//! | Synthetic dataset (`Vec<Vec<u8>>`) | **Before** baseline only | ~93 MiB (payload) / ~529 MiB (RSS overhead) | [`climb_dns::generate_dataset`] |
 //! | `MtlKeyPair` (cached key-image + native context) | **Before** baseline only | ~186 B (key image) + native context | [`climb_mtl::MtlKeyPair::generate`] |
 //! | Rust harness binary + stack + heap baseline | **Before** baseline only | OS-dependent | This binary |
 //! | **libMTL tree node pages** | **Delta** | pages × 1 MiB (lazy `calloc`) | `sign_batch` → native context |
@@ -23,7 +23,7 @@
 //! does not expose internal page vs. output-buffer accounting).  At
 //! Small/Medium the output is &lt; 3 MB, so the tree pages dominate.  At Large the
 //! output is ~370 MB (1M × mean condensed ~367 B + 8 KB ladder), so the analytical
-//! comparison in Phase 10.2 must account for this.
+//! comparison must account for this.
 //!
 //! # Measurement protocol
 //!
@@ -191,7 +191,7 @@ pub fn measure_all_sizes(seed: u64, repeat_count: usize) -> Result<RssDeltaRepor
     Ok(RssDeltaReport { seed, runs })
 }
 
-/// Cross-validate measured RSS delta against the Phase 9 analytical estimate.
+/// Cross-validate measured RSS delta against the analytical estimate.
 ///
 /// Returns a comparison row suitable for table rendering.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -200,7 +200,7 @@ pub struct RssComparison {
     pub message_count: usize,
     /// Mean of the measured repeat deltas, in bytes.
     pub measured_mean_bytes: u64,
-    /// Phase 9 analytical total memory estimate, in bytes.
+    /// Analytical total memory estimate, in bytes.
     pub analytical_bytes: usize,
     /// `measured_mean_bytes / analytical_bytes` as a ratio.  1.0 =
     /// perfect match.  &gt;1.0 = measured exceeds analytical.

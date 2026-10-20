@@ -605,14 +605,14 @@ RUN true
     fn parses_and_filters_docker_images() {
         let sample = "\
 docker-climb-smoke|latest|sha256:dac97e73d810f9b66e02a8973e04a4845545524501f57c7f2b6ded2e9dfa802e|docker-climb-smoke@sha256:dac97e73d810f9b66e02a8973e04a4845545524501f57c7f2b6ded2e9dfa802e
-climb-builder|phase1|sha256:084d30888a6dc7d97bea5cbe28da1bc2286a1bb86940a12c9d2088d0e732d81d|
+climb-builder|v1|sha256:084d30888a6dc7d97bea5cbe28da1bc2286a1bb86940a12c9d2088d0e732d81d|
 nginx|latest|sha256:aaaa|
 ";
         let images = parse_docker_images(sample);
         // nginx is filtered out.
         assert_eq!(images.len(), 2);
-        // Sorted by reference: "climb-builder:phase1" < "docker-climb-smoke:latest".
-        assert_eq!(images[0].reference, "climb-builder:phase1");
+        // Sorted by reference: "climb-builder:v1" < "docker-climb-smoke:latest".
+        assert_eq!(images[0].reference, "climb-builder:v1");
         assert_eq!(images[0].repo_digest, None);
         assert_eq!(images[1].reference, "docker-climb-smoke:latest");
         assert!(images[1].repo_digest.is_some());

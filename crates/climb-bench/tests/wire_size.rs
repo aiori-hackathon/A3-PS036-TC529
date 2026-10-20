@@ -1,4 +1,4 @@
-//! Integration tests for wire-size measurement (Phase 8.4).
+//! Integration tests for wire-size measurement.
 //!
 //! Uses `DatasetSize::Small` (and `Medium` where cheap) to keep runtime
 //! reasonable.  All tests verify behaviour through the public

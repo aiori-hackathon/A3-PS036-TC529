@@ -1,9 +1,9 @@
-//! Empirical probes for Phase 6: confirm that setup-separated verification
+//! Empirical probes: confirm that setup-separated verification
 //! measurement actually isolates signing cost from verification time, and
 //! that the `trust_cached_ladder` axis is measurable.
 //!
 //! These are not benchmarks — they are boolean gates. If either fails,
-//! the entire Phase 6 methodology is invalid.
+//! the verification methodology is invalid.
 
 use std::time::Instant;
 

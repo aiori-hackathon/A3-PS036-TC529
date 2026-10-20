@@ -1,11 +1,10 @@
-# docker/Dockerfile.dig — CLIMB Batch 4 (Phase 14) query tool
+# docker/Dockerfile.dig — CLIMB DNS query tool
 #
 # A minimal `dig` image used by `cargo xtask dns-demo` to issue the scripted
 # DNS queries from *inside* the pipeline's Docker network. The Arch host has no
 # `dig`/`kdig`/`drill`, and `sudo` is unavailable, so the demo cannot query
 # from the host. Running dig in a container is also strictly safer: it keeps
-# every query on the internal `climb-net` and requires no host port exposure
-# (the project conventions §2.3).
+# every query on the internal `climb-net` and requires no host port exposure.
 #
 # bind-tools provides `dig` (and `host`/`nslookup`). `openssl` provides the
 # SHAKE-128 digest used to compute an MTL SigTag (EDNS option 65050): NSD's

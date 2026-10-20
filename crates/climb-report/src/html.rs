@@ -1,6 +1,6 @@
-//! Self-contained HTML report rendering (Phase 17).
+//! Self-contained HTML report rendering.
 //!
-//! Builds `report.html` from [`ClimbResults`] plus the six Phase 16 SVG
+//! Builds `report.html` from [`ClimbResults`] plus the SVG
 //! charts, embedding each chart as a base64 data URI so the file stands
 //! alone. Every headline number rendered into the page is registered in a
 //! claims registry — JSON objects with an RFC 6901 JSON Pointer into
@@ -457,13 +457,18 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         .as_ref()
         .filter(|section| !section.rows.is_empty())
     {
-        push_claim(
-            &mut claims,
-            &root,
-            "udpfit-rt",
-            "/derived/udp_fit/rows/0/tcp_round_trips",
-            Some(format!("{} round trips", udp.rows[0].tcp_round_trips)),
-        );
+        // The round-trip count is a section-wide model constant; every row
+        // carries the same value, so read the first and use it for the claim
+        // that points at the section's canonical location.
+        if let Some(round_trips) = udp.rows.first().map(|row| row.tcp_round_trips) {
+            push_claim(
+                &mut claims,
+                &root,
+                "udpfit-rt",
+                "/derived/udp_fit/rows/0/tcp_round_trips",
+                Some(format!("{round_trips} round trips")),
+            );
+        }
         push_claim(
             &mut claims,
             &root,
@@ -1048,6 +1053,13 @@ fn render_context_section(results: &ClimbResults, claims: &[Claim]) -> String {
     if section.is_empty() {
         return String::new();
     }
+    // Every context row is emitted at the same headline dataset size, so the
+    // section carries one size label; read it from the first row rather than
+    // indexing the array.
+    let headline_size = section
+        .first()
+        .map(|row| row.size.clone())
+        .unwrap_or_default();
     let value = |id: &str| -> String {
         claims
             .iter()
@@ -1069,7 +1081,7 @@ fn render_context_section(results: &ClimbResults, claims: &[Claim]) -> String {
     }
     format!(
         "<section aria-labelledby=\"context-h\">\n<h2 id=\"context-h\">Signature context: classical beside post-quantum</h2>\n<p class=\"note\">Ed25519, ECDSA P-256 and RSA-2048 are classical algorithms &mdash; <strong>not quantum-resistant</strong> &mdash; measured only to put the post-quantum numbers in context. One row per configuration at the {} dataset size: signature bytes carried per message on the wire, per-message sign and verify cost, and the share of modelled responses that fit 1,232 bytes over UDP.</p>\n<p class=\"note\">The fits column is ANALYTICAL (from the UDP-fit model below); the evidence class covers the measured timing and length inputs only. A cell missing from the artifact renders as an em dash.</p>\n<table class=\"memtable\">\n<thead><tr><th>Configuration</th><th>Family</th><th>Signature size</th><th>Sign</th><th>Verify</th><th>Fits &le;1,232 B</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
-        escape_html(&section[0].size),
+        escape_html(&headline_size),
     )
 }
 

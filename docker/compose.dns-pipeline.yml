@@ -1,12 +1,12 @@
-# docker/compose.dns-pipeline.yml — CLIMB Batch 4 (Phases 12–14)
+# docker/compose.dns-pipeline.yml — CLIMB live MTL DNS pipeline
 #
 # The single canonical Compose file for the live MTL DNS pipeline: the patched
-# NSD-MTL authoritative server (Phase 12) and the patched Unbound-MTL recursive
-# resolver (Phase 13), plus the two one-shot tools (Phase 14): a `dig` query
+# NSD-MTL authoritative server and the patched Unbound-MTL recursive
+# resolver, plus the two one-shot tools: a `dig` query
 # client and the reference MTL zone signer.
 #
-# It supersedes docker/compose.nsd.yml (Phase 12, NSD only) and
-# docker/compose.batch4.yml (Phase 13); keeping one file removes the drift
+# It supersedes docker/compose.nsd.yml (NSD only) and
+# docker/compose.batch4.yml (Unbound); keeping one file removes the drift
 # between two near-identical service definitions.
 #
 # ── Usage ──────────────────────────────────────────────────────────────
@@ -29,7 +29,7 @@
 #
 #   # 6. Or drive the whole thing automatically:  cargo xtask dns-demo
 #
-# ── What is bound where (the project conventions §2.3 "No Internet deployment") ──────
+# ── What is bound where (no-Internet-deployment constraint) ──────────
 # NOTHING is published to the host. There is no `ports:` mapping anywhere in
 # this file. NSD and Unbound listen on `0.0.0.0:53` inside their own network
 # namespaces only, reachable solely from containers attached to the internal
@@ -56,7 +56,7 @@ name: climb-dns
 
 services:
 
-  # ── Authoritative: NSD-MTL (Phase 12) ───────────────────────────────
+  # ── Authoritative: NSD-MTL ───────────────────────────────
   nsd:
     build:
       context: ..
@@ -64,7 +64,7 @@ services:
     image: climb-nsd:phase12
 
     # Zone directory is overridable so `cargo xtask dns-demo` can point NSD at
-    # a freshly MTL-signed zone in a scratch dir (see Phase 14) without
+    # a freshly MTL-signed zone in a scratch dir without
     # touching the committed unsigned zone in ./zones. Default keeps plain
     # `docker compose up` working out of the box.
     volumes:
@@ -80,7 +80,7 @@ services:
       climb-net:
         ipv4_address: 192.168.13.2
 
-  # ── Recursive validator: Unbound-MTL (Phase 13) ─────────────────────
+  # ── Recursive validator: Unbound-MTL ─────────────────────
   unbound:
     build:
       context: ..
@@ -103,7 +103,7 @@ services:
     depends_on:
       - nsd
 
-  # ── Query tool: dig (Phase 14) ──────────────────────────────────────
+  # ── Query tool: dig ──────────────────────────────────────
   # A throwaway client that lives on the internal network so queries never
   # leave it. Started explicitly per query via `run --rm`, never `up`.
   dig:
@@ -117,7 +117,7 @@ services:
     profiles:
       - tools
 
-  # ── Signer: ldns keygen/signzone (Phase 14) ─────────────────────────
+  # ── Signer: ldns keygen/signzone ─────────────────────────
   # The reference MTL signer, used by `cargo xtask dns-demo` to produce a real
   # MTL-signed zone (NSD only *serves* pre-signed zones). Also a one-shot tool,
   # so it is behind the same `tools` profile and never starts with `up`.
@@ -131,7 +131,7 @@ services:
     profiles:
       - tools
 
-# ── Shared internal bridge (the project conventions §2.3) ───────────────────────────
+# ── Shared internal bridge ────────────────────────────────────────────
 # `internal: true` means Docker installs no route or NAT rule from this bridge
 # to the outside world: containers on climb-net can reach each other and
 # nothing else. This is the single network both servers and the dig tool share.

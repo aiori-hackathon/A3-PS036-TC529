@@ -8,6 +8,7 @@ use climb_report::html::{check_report, relative_href, render_html};
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize, ClimbResults};
 
 mod charts;
+mod check_pins;
 mod consolidate;
 mod deck_facts;
 mod dns_demo;
@@ -18,9 +19,11 @@ mod memory;
 mod package;
 mod pin_env;
 mod reproduce;
+mod source_hygiene;
 mod verify_consolidated;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
+use check_pins::CheckPinsArgs;
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
@@ -31,6 +34,7 @@ use memory::{cmd_memory_report, MemoryReportArgs};
 use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
 use reproduce::{cmd_reproduce, ReproduceArgs};
+use source_hygiene::SourceHygieneArgs;
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
@@ -38,7 +42,7 @@ use wire::{cmd_wire_report, WireReportArgs};
 ///
 /// Host: Intel i3-1115G4, 2 physical cores / 4 logical CPUs.
 /// Physical core 0 = {cpu0, cpu2}, physical core 1 = {cpu1, cpu3}.
-/// Interrupt totals measured at Phase 6 start:
+/// Interrupt totals measured on this host:
 ///   cpu1=1,428,276  cpu3=140,767  cpu0=65,862  cpu2=53,645
 /// CPU 2 is the quietest logical CPU and the quieter sibling of physical core 0,
 /// making it the least-contended choice for a single-threaded benchmark.
@@ -56,7 +60,7 @@ struct Cli {
 enum Commands {
     /// Capture the current build environment and write it to environment.json.
     PinEnv,
-    /// Run the Phase 5 signing and Phase 6 verification benchmark suites.
+    /// Run the signing and verification benchmark suites.
     BenchAll(BenchAllArgs),
     /// Print a plain-text summary of Criterion's latest results, or render
     /// the self-contained HTML report with `--format html`.
@@ -97,8 +101,8 @@ enum Commands {
     VerifyConsolidated(VerifyConsolidatedArgs),
     /// Render the seven SVG report charts from consolidated results.
     ///
-    /// Reads `target/climb-results.json` (Phase 15) and writes
-    /// `target/climb-report/charts/*.svg` (Phase 16).
+    /// Reads `target/climb-results.json` and writes
+    /// `target/climb-report/charts/*.svg`.
     Charts(ChartsArgs),
     /// Render the deck quote sheet: every number a slide deck or README may
     /// quote, with its evidence class, baseline, JSON pointer and source file.
@@ -114,6 +118,17 @@ enum Commands {
     /// headline-table row's value, unit, evidence class or baseline does not
     /// match a quote-sheet row.
     DocsCheck(DocsCheckArgs),
+    /// Scan the shipped source tree for process-history references.
+    ///
+    /// A comment that cites a planning/process document by name, or the phase
+    /// numbering those documents use, is a dangling reference for every
+    /// downstream reader of the mirror. Comments must describe behaviour.
+    SourceHygiene(SourceHygieneArgs),
+    /// Check that the pinned-dependency record agrees across its three sources.
+    ///
+    /// Fails when the commits named in the toolchain Dockerfile comment,
+    /// `environment.json` and `git submodule status` disagree.
+    CheckPins(CheckPinsArgs),
     /// Bundle the recorded artifacts into one release tarball under `dist/`.
     ///
     /// Copies the HTML report, every report chart, the consolidated results,
@@ -215,6 +230,8 @@ fn main() -> Result<()> {
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
+        Commands::SourceHygiene(args) => cmd_source_hygiene(args),
+        Commands::CheckPins(args) => check_pins::run(&args.root),
         Commands::Package(args) => cmd_package(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
     }
@@ -442,6 +459,10 @@ fn cmd_report_check(args: &ReportArgs) -> Result<()> {
         args.out.display(),
         failures.len()
     );
+}
+
+fn cmd_source_hygiene(args: SourceHygieneArgs) -> Result<()> {
+    source_hygiene::run(&args.root)
 }
 
 fn cmd_report_text(args: ReportArgs) -> Result<()> {

@@ -3,7 +3,7 @@
 //! Generates raw `bindgen` FFI bindings to **libMTL** (`mtlslib`) and emits the
 //! linker flags needed to link the vendored, pinned C toolchain.
 //!
-//! # Header discovery (Phase 2.1 finding)
+//! # Header discovery
 //!
 //! The public C API behind the `mtlkeygen` / `mtlsign` / `mtlverify` CLI tools
 //! lives in `src/mtllib.h` (installed as `include/mtllib/mtllib.h`). It pulls in
@@ -143,7 +143,7 @@ fn main() {
 
     // ── Linker configuration ────────────────────────────────────────────────
     //
-    // DISCOVERED DEFECT (Phase 2): the shipped `libmtlslib.so` does NOT record
+    // DISCOVERED DEFECT: the shipped `libmtlslib.so` does NOT record
     // its liboqs dependency in DT_NEEDED — it carries 7 undefined `OQS_*`
     // symbols, and its `.la` dependency_libs omits `-loqs`. rustc links with
     // `-Wl,--as-needed`, and ld drops a shared library whose only undefined
@@ -173,7 +173,7 @@ fn main() {
 
     // Make the example/test binaries in this crate runnable without setting
     // LD_LIBRARY_PATH, by baking the prefix lib dir into the rpath. This does
-    // NOT propagate to dependent crates (verified in Phase 3) — dependent
+    // NOT propagate to dependent crates — dependent
     // crates must consume `DEP_MTLSLIB_LIB_DIR` below and emit their own rpath.
     println!("cargo:rustc-link-arg=-Wl,-rpath,{}", lib_dir.display());
 

@@ -1,5 +1,5 @@
 //! Ladder-tab data: loading the recorded ladder-verification artifact and the
-//! model-vs-library badge (phase 24.4).
+//! model-vs-library badge.
 //!
 //! Loading never panics: a missing or unparseable artifact becomes a
 //! [`LadderLoadState`] variant the UI renders instead of crashing. The badge is

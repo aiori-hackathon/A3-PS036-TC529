@@ -1,13 +1,13 @@
 //! Render the Overview onto an in-memory [`TestBackend`] and print the
-//! character buffer to stdout (phase 19.7 evidence tool).
+//! character buffer to stdout.
 //!
 //! Usage:
 //! ```text
 //! cargo run -p climb-tui --example overview_dump [RESULTS] [WIDTH] [HEIGHT]
 //! ```
 //! `RESULTS` defaults to `target/climb-results.json`, `WIDTH`/`HEIGHT` to
-//! 120x40. The dump lets a reviewer verify the Overview layout on a
-//! write-only terminal and becomes the dev notes evidence.
+//! 120x40. The dump lets a reviewer inspect the Overview layout on a
+//! write-only terminal.
 
 use std::path::Path;
 

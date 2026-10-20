@@ -7,7 +7,7 @@
 //! `LD_LIBRARY_PATH`.
 //!
 //! The rpath baked into `climb-mtl-sys` does not propagate to dependent crates
-//! — this is the Phase 3 finding: each binary that calls into the native
+//! — each binary that calls into the native
 //! libraries at runtime needs its own rpath.  `xtask` needs it because
 //! `wire-report` calls `climb_bench::measure_wire_sizes`, which ultimately
 //! invokes libMTL's native signing code.

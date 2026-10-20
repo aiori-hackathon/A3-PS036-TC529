@@ -1,9 +1,9 @@
-# docker/Dockerfile.nsd — CLIMB Phase 12
+# docker/Dockerfile.nsd — CLIMB NSD-MTL authoritative server
 #
 # Multi-stage build: clones the pinned verisign/mtl-mode-nsd fork and builds
 # NSD with MTL mode support (EDNS opcode 65050, --enable-draft-mtl).
 #
-# ── Key architectural finding (Phase 12.1 investigation) ──
+# ── Key architectural finding ──
 # NSD's MTL patch does NOT link against libMTL. The only crypto used in the
 # patched code is OpenSSL EVP SHAKE-128 (val_algo_get_ladder_hash). NSD serves
 # pre-signed zones — signing is done by the separate verisign/mtl-mode-ldns

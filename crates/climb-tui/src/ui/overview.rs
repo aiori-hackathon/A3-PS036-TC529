@@ -1,4 +1,4 @@
-//! The Overview tab (phase 19.3–19.5): the headline story in ten seconds.
+//! The Overview tab: the headline story in ten seconds.
 //!
 //! Layout, top to bottom: the CLIMB word mark with the animated ladder on its
 //! right, subtitle + tagline, four KPI cards and the extrapolation footnote,

@@ -5,7 +5,7 @@
 //! hand-written cryptographic logic — every symbol here is emitted by
 //! `bindgen` from the vendored, pinned headers at build time.
 //!
-//! # Header discovery (Phase 2.1)
+//! # Header discovery
 //!
 //! The public API lives in `mtllib.h`. It transitively includes `mtl.h`
 //! (types: [`MTL_CTX`], [`MTL_HANDLE`]), `mtllib_buffer.h`

@@ -1,4 +1,4 @@
-//! The widget tree (phase 18.7): tab bar, tab bodies, the guided-tour caption
+//! The widget tree: tab bar, tab bodies, the guided-tour caption
 //! bar, status bar, help overlay, and the too-small-screen guard. Every tab —
 //! Overview, Signing, Verifying, Wire, Memory, Ladder, Live, Integrity and
 //! Method — renders a real data view.
@@ -153,7 +153,7 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
 }
 
 /// The recovery screen for a missing, invalid, or not-yet-loaded results file.
-/// Loading never panics (phase 19.1); the problem is explained here instead.
+/// Loading never panics; the problem is explained here instead.
 fn render_load_error(
     frame: &mut Frame,
     area: Rect,

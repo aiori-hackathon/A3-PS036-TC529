@@ -1,4 +1,4 @@
-//! A threaded event pump (phase 18.4).
+//! A threaded event pump.
 //!
 //! Deliberately *not* async: a crossterm input thread polls with a timeout, a second
 //! thread emits a fixed-rate [`Event::Tick`], and both feed one `std::sync::mpsc` channel.

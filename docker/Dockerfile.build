@@ -1,4 +1,4 @@
-# docker/Dockerfile.build — CLIMB Phase 1
+# docker/Dockerfile.build — CLIMB toolchain build
 #
 # Multi-stage build: compiles OpenSSL ≥3.1.0, liboqs, and libMTL from pinned
 # submodules. The default (builder) stage includes test binaries for smoke
@@ -9,7 +9,7 @@
 # Base image:  debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 # OpenSSL:     3.4.1 (bootstrapped — Bookworm's 3.0.x < libMTL's 3.1.0 floor)
 # liboqs:      0.16.0  (git submodule at third_party/liboqs)
-# libMTL:      566c518 (git submodule at third_party/MTL)
+# libMTL:      53ce25d (git submodule at third_party/MTL)
 # ──────────────────────────
 
 # ── Stage 1: full builder (default) ──────────────────────────────────────
