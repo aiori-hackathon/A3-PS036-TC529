@@ -3,6 +3,7 @@
 //! Logging goes to `target/climb-tui.log` via `tracing-appender`, never to stdout/stderr —
 //! the TUI owns the screen while it runs.
 
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
@@ -11,11 +12,16 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tracing_appender::non_blocking::WorkerGuard;
 
-use climb_tui::app::{map_key, Action, App, Effect};
+use climb_tui::app::{map_key, map_key_tour, Action, App, Effect};
 use climb_tui::cli::Cli;
 use climb_tui::event::{Event, EventHandler};
 use climb_tui::terminal::{install_panic_hook, TerminalGuard};
 use climb_tui::{theme, ui};
+
+/// The committed sample results, used when the requested results file is
+/// absent — a clean checkout has no `target/` yet, and the demo must still
+/// show the recorded numbers rather than a recovery screen.
+const SAMPLE_RESULTS_PATH: &str = "docs/sample-output/climb-results.json";
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -59,7 +65,13 @@ fn event_loop(
         terminal.draw(|frame| ui::render(frame, app))?;
 
         let action = match events.next() {
-            Ok(Event::Key(key)) => map_key(key),
+            Ok(Event::Key(key)) => {
+                if app.tour_active() {
+                    map_key_tour(key)
+                } else {
+                    map_key(key)
+                }
+            }
             Ok(Event::Tick) => Some(Action::Tick),
             Ok(Event::Resize(width, height)) => Some(Action::Resize { width, height }),
             Ok(Event::Worker(_)) => None,
@@ -80,10 +92,26 @@ fn event_loop(
 fn apply(app: &mut App, effect: Effect) {
     match effect {
         Effect::Quit => {}
-        Effect::LoadResults(path) => {
+        Effect::LoadResults(requested) => {
+            // A missing requested file falls back to the committed sample, so
+            // a clean checkout — and therefore `--tour` on a clean clone —
+            // reads the recorded artifacts instead of a recovery screen.
+            let path = if requested.exists() {
+                requested
+            } else {
+                Path::new(SAMPLE_RESULTS_PATH).to_path_buf()
+            };
+            if path != app.results_path {
+                tracing::info!(
+                    requested = %app.results_path.display(),
+                    fallback = %path.display(),
+                    "requested results missing; using the committed sample"
+                );
+            }
             let state = climb_tui::data::load(&path);
             tracing::info!(path = %path.display(), loaded = %state.summary(), "results loaded");
             app.set_data(state);
+            app.source_path = path;
 
             let ladder = climb_tui::data::load_ladder_auto();
             tracing::info!(

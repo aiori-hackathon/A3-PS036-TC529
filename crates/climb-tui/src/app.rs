@@ -2,8 +2,10 @@
 //!
 //! [`App`] is the model, [`Action`] the messages, and [`App::update`] the pure transition:
 //! it mutates the model and *returns* an optional [`Effect`] describing side work. It never
-//! touches the terminal, files or the clock, so the whole model is unit-testable. All key
-//! binding lives in one place, [`map_key`].
+//! touches the terminal or files, and its only clock is the injectable [`Clock`] of the
+//! guided tour, so the whole model is unit-testable. All key binding lives in one place:
+//! [`map_key`], plus [`map_key_tour`] for the narrower set that applies while the guided
+//! tour is running.
 
 use std::path::PathBuf;
 use std::time::Instant;
@@ -13,6 +15,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crate::cli::Cli;
 use crate::data::{LadderLoadState, LiveLoadState, LoadState, MethodView, ValueMode};
 use crate::theme::{ColorDepth, Theme, ThemeId};
+use crate::tour::{Clock, Press, TourRunner};
 use crate::widgets::ladder_view::{
     MAX_LEAVES as LADDER_MAX_LEAVES, MIN_LEAVES as LADDER_MIN_LEAVES,
 };
@@ -126,6 +129,12 @@ pub enum Action {
     ToggleScale,
     /// Cycle the baseline shown on Wire/Signing tabs (A=plain, B=MTL non-amortised, C=MTL amortised).
     CycleBaseline,
+    /// Toggle the guided tour's pause (only while the tour runs).
+    TourPause,
+    /// Skip to the next guided-tour step (only while the tour runs).
+    TourNext,
+    /// Leave the guided tour, staying on the tab it last showed.
+    QuitTour,
     Resize {
         width: u16,
         height: u16,
@@ -148,8 +157,20 @@ pub struct App {
     pub show_help: bool,
     pub should_quit: bool,
     pub results_path: PathBuf,
+    /// The artifact path the current view was loaded from: the committed
+    /// sample when the requested results file is absent (a clean checkout has
+    /// no `target/` yet), otherwise `results_path` itself. The status bar and
+    /// the reload check name this path, so a sample frame is never labelled
+    /// with a generated file's name.
+    pub source_path: PathBuf,
     pub replay: bool,
-    pub tour: bool,
+    /// The guided-tour runner, present only while the tour runs: started by
+    /// `--tour`, left with [`Action::QuitTour`].
+    tour: Option<TourRunner>,
+    /// The tour's time source: [`Clock::System`] in a live run, a
+    /// [`Clock::Fake`] in tests and evidence dumps. Nothing else in the model
+    /// reads a clock.
+    clock: Clock,
     pub color_depth: ColorDepth,
     pub tick: usize,
     pub last_size: (u16, u16),
@@ -192,6 +213,7 @@ pub struct App {
 impl App {
     /// Build the model from parsed CLI options and the detected colour depth.
     pub fn from_cli(cli: &Cli, color_depth: ColorDepth) -> Self {
+        let clock = Clock::system();
         Self {
             tab: Tab::Overview,
             theme: cli.theme,
@@ -199,8 +221,10 @@ impl App {
             show_help: false,
             should_quit: false,
             results_path: cli.results.clone(),
+            source_path: cli.results.clone(),
             replay: cli.replay,
-            tour: cli.tour,
+            tour: cli.tour.then(|| TourRunner::new(cli.tour_speed)),
+            clock,
             color_depth,
             tick: 0,
             last_size: (80, 24),
@@ -269,6 +293,18 @@ impl App {
             }
             Action::ToggleValueMode => self.value_mode = self.value_mode.toggled(),
             Action::CycleBaseline => self.baseline = (self.baseline + 1) % 3,
+            Action::TourPause => {
+                if let Some(tour) = &mut self.tour {
+                    tour.toggle_pause();
+                }
+            }
+            Action::TourNext => {
+                if let Some(tour) = &mut self.tour {
+                    tour.next();
+                }
+                self.apply_tour_step();
+            }
+            Action::QuitTour => self.tour = None,
             Action::Tick => {
                 self.tick = self.tick.wrapping_add(1);
                 if self.tab == Tab::Ladder && self.ladder_autoplay {
@@ -279,6 +315,13 @@ impl App {
                     && self.tick.is_multiple_of(LIVE_AUTOPLAY_TICKS)
                 {
                     self.step_live(1);
+                }
+                if self.tour.is_some() {
+                    let now = self.clock.now();
+                    if let Some(tour) = &mut self.tour {
+                        tour.on_tick(now);
+                    }
+                    self.apply_tour_step();
                 }
             }
             Action::LadderUp => {
@@ -371,6 +414,57 @@ impl App {
     fn clamp_size(&mut self) {
         let count = self.size_count();
         self.selected_size = self.selected_size.min(count.saturating_sub(1));
+    }
+
+    /// Pin the screen to the current tour step: select its tab and apply its
+    /// scripted presses. Called on every tour tick, so the step holds even
+    /// when the dashboard's state was poked some other way between ticks.
+    fn apply_tour_step(&mut self) {
+        let Some(tour) = &self.tour else {
+            return;
+        };
+        // Both reads are copies out of the runner (a `Tab` and a `&'static`
+        // slice), so the borrow of `self.tour` ends here, before the mutation.
+        let tab = tour.tab();
+        let presses = tour.presses();
+        if let Some(tab) = tab {
+            self.tab = tab;
+        }
+        for press in presses {
+            match press {
+                Press::LadderN(n) => {
+                    self.ladder_n = (*n).clamp(LADDER_MIN_LEAVES, LADDER_MAX_LEAVES);
+                    self.clamp_leaf();
+                }
+            }
+        }
+        self.clamp_size();
+    }
+
+    /// The guided-tour runner, while the tour runs.
+    pub fn tour(&self) -> Option<&TourRunner> {
+        self.tour.as_ref()
+    }
+
+    /// Whether the guided tour is running.
+    pub fn tour_active(&self) -> bool {
+        self.tour.is_some()
+    }
+
+    /// Replace the guided-tour runner (`None` leaves the tour off); used by
+    /// evidence tools that drive the tour from a fake clock.
+    pub fn set_tour(&mut self, runner: Option<TourRunner>) {
+        self.tour = runner;
+    }
+
+    /// The tour's time source.
+    pub fn clock(&self) -> Clock {
+        self.clock
+    }
+
+    /// Replace the tour's time source (a [`Clock::Fake`] in tests).
+    pub fn set_clock(&mut self, clock: Clock) {
+        self.clock = clock;
     }
 
     /// The currently selected dataset size index (Signing/Verifying tabs).
@@ -498,6 +592,28 @@ pub fn map_key(key: KeyEvent) -> Option<Action> {
         KeyCode::Char('t') => Some(Action::ToggleScale),
         KeyCode::Char('v') => Some(Action::ToggleValueMode),
         KeyCode::Char('b') => Some(Action::CycleBaseline),
+        _ => None,
+    }
+}
+
+/// Map a key press while the guided tour is running.
+///
+/// Only the tour's own controls pass: `p` pause/resume, `n` next step, `Esc`
+/// leave the tour, plus `q`/Ctrl-C to quit the dashboard and the theme/ascii
+/// and help toggles. Every other binding is swallowed so a recording cannot
+/// be knocked off the script mid-step, and the tour re-pins its tab on every
+/// tick regardless.
+pub fn map_key_tour(key: KeyEvent) -> Option<Action> {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    match key.code {
+        KeyCode::Char('c') if ctrl => Some(Action::Quit),
+        KeyCode::Char('q') => Some(Action::Quit),
+        KeyCode::Esc => Some(Action::QuitTour),
+        KeyCode::Char('p') => Some(Action::TourPause),
+        KeyCode::Char('n') => Some(Action::TourNext),
+        KeyCode::Char('T') => Some(Action::CycleTheme),
+        KeyCode::Char('a') => Some(Action::ToggleAscii),
+        KeyCode::Char('?') => Some(Action::ToggleHelp),
         _ => None,
     }
 }
@@ -730,6 +846,9 @@ mod tests {
             Action::LivePrevStep,
             Action::ToggleScale,
             Action::Tick,
+            Action::TourPause,
+            Action::TourNext,
+            Action::QuitTour,
             Action::Resize {
                 width: 1,
                 height: 1,
@@ -744,7 +863,7 @@ mod tests {
         use KeyCode::*;
         let none = KeyModifiers::NONE;
         let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 25] = [
+        let cases: [(KeyEvent, Option<Action>); 27] = [
             (KeyEvent::new(Tab, none), Some(Action::NextTab)),
             (KeyEvent::new(BackTab, none), Some(Action::PrevTab)),
             (KeyEvent::new(Char('1'), none), Some(Action::SelectTab(0))),
@@ -773,6 +892,10 @@ mod tests {
             (KeyEvent::new(Char('c'), none), None),
             (KeyEvent::new(Char('x'), none), None),
             (KeyEvent::new(Char('z'), none), None),
+            // `p` and `n` are the guided tour's keys; outside the tour they
+            // are unbound (`map_key_tour` binds them).
+            (KeyEvent::new(Char('p'), none), None),
+            (KeyEvent::new(Char('n'), none), None),
         ];
         for (key, expected) in cases {
             assert_eq!(map_key(key), expected, "wrong mapping for {key:?}");
@@ -1067,5 +1190,137 @@ mod tests {
             0,
             "an unloaded capture has no cursor to keep"
         );
+    }
+
+    /// A tour-running app on a fake clock: `--tour` starts the runner, and the
+    /// clock only moves when the test moves it.
+    fn tour_app() -> App {
+        let cli = Cli::parse_from(["climb-tui", "--tour"]);
+        let mut app = App::from_cli(&cli, ColorDepth::TrueColor);
+        app.set_clock(Clock::fake());
+        assert!(app.tour_active(), "--tour must start the runner");
+        app
+    }
+
+    #[test]
+    fn tour_ticks_pin_the_screen_to_each_step_and_apply_its_presses() {
+        let mut app = tour_app();
+        assert_eq!(app.tab, Tab::Overview, "the tour opens on the Overview");
+        assert_eq!(app.ladder_n(), 8, "the ladder starts at its default");
+
+        // Walk the whole scripted dwell schedule: 20/20/20/20 s to the first
+        // Ladder stop (N=13), then 15 s to the second (N=32), then Live,
+        // Integrity and Method. Advancing the clock by exactly one dwell and
+        // ticking is what a live run does between steps.
+        for (dt, tab, ladder_n) in [
+            (20, Tab::Signing, 8),
+            (20, Tab::Verifying, 8),
+            (20, Tab::Wire, 8),
+            (20, Tab::Ladder, 13),
+            (15, Tab::Ladder, 32),
+            (25, Tab::Live, 32),
+            (15, Tab::Integrity, 32),
+            (20, Tab::Method, 32),
+        ] {
+            app.clock.advance(std::time::Duration::from_secs(dt));
+            app.update(Action::Tick);
+            assert_eq!(app.tab, tab, "wrong tab after {dt}s");
+            assert_eq!(app.ladder_n(), ladder_n, "wrong ladder size after {dt}s");
+            assert_eq!(app.ladder_leaf(), 0, "the scripted press resets the leaf");
+        }
+        assert!(
+            !app.tour().expect("runner").is_done(),
+            "the last step still has its own dwell to run"
+        );
+
+        app.clock.advance(std::time::Duration::from_secs(60));
+        app.update(Action::Tick);
+        assert!(app.tour().expect("runner").is_done(), "the script ran out");
+        assert_eq!(
+            app.tab,
+            Tab::Method,
+            "a completed tour keeps its last frame"
+        );
+    }
+
+    #[test]
+    fn esc_leaves_the_tour_keeping_the_tab_it_showed() {
+        let mut app = tour_app();
+        app.clock.advance(std::time::Duration::from_secs(30));
+        app.update(Action::Tick);
+        assert_eq!(app.tab, Tab::Signing);
+
+        app.update(Action::QuitTour);
+        assert!(!app.tour_active(), "Esc must leave the tour");
+        assert_eq!(app.tab, Tab::Signing, "the dashboard keeps the last tab");
+
+        app.clock.advance(std::time::Duration::from_secs(60));
+        app.update(Action::Tick);
+        assert_eq!(app.tab, Tab::Signing, "ticks no longer drive a tour");
+    }
+
+    #[test]
+    fn p_pauses_and_resumes_the_tour_through_the_app() {
+        let mut app = tour_app();
+        app.update(Action::TourPause);
+        assert!(app.tour().expect("runner").is_paused());
+
+        app.clock.advance(std::time::Duration::from_secs(120));
+        app.update(Action::Tick);
+        assert_eq!(app.tab, Tab::Overview, "a paused tour holds its step");
+
+        app.update(Action::TourPause);
+        assert!(!app.tour().expect("runner").is_paused());
+        app.clock.advance(std::time::Duration::from_secs(20));
+        app.update(Action::Tick);
+        assert_eq!(app.tab, Tab::Signing, "the resumed step runs its dwell");
+    }
+
+    #[test]
+    fn n_skips_to_the_next_tour_step() {
+        let mut app = tour_app();
+        app.update(Action::TourNext);
+        assert_eq!(app.tab, Tab::Signing, "n advances immediately");
+        app.update(Action::TourNext);
+        app.update(Action::TourNext);
+        assert_eq!(app.tab, Tab::Wire, "n advances again");
+        assert_eq!(
+            app.tour().expect("runner").index(),
+            3,
+            "each n is one step, no dwell spent"
+        );
+    }
+
+    #[test]
+    fn map_key_tour_scopes_the_keys_while_the_tour_runs() {
+        use crossterm::event::KeyModifiers;
+        use KeyCode::*;
+        let none = KeyModifiers::NONE;
+        let ctrl = KeyModifiers::CONTROL;
+        let cases: [(KeyEvent, Option<Action>); 14] = [
+            (KeyEvent::new(Char('p'), none), Some(Action::TourPause)),
+            (KeyEvent::new(Char('n'), none), Some(Action::TourNext)),
+            (KeyEvent::new(Esc, none), Some(Action::QuitTour)),
+            (KeyEvent::new(Char('q'), none), Some(Action::Quit)),
+            (KeyEvent::new(Char('c'), ctrl), Some(Action::Quit)),
+            (KeyEvent::new(Char('T'), none), Some(Action::CycleTheme)),
+            (KeyEvent::new(Char('a'), none), Some(Action::ToggleAscii)),
+            (KeyEvent::new(Char('?'), none), Some(Action::ToggleHelp)),
+            // Everything else is swallowed mid-tour: a recording must not be
+            // knocked off the script.
+            (KeyEvent::new(Tab, none), None),
+            (KeyEvent::new(Char('1'), none), None),
+            (KeyEvent::new(Char(' '), none), None),
+            (KeyEvent::new(Char('r'), none), None),
+            (KeyEvent::new(Up, none), None),
+            (KeyEvent::new(Char('t'), none), None),
+        ];
+        for (key, expected) in cases {
+            assert_eq!(
+                map_key_tour(key),
+                expected,
+                "wrong tour mapping for {key:?}"
+            );
+        }
     }
 }

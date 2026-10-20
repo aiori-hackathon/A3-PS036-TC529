@@ -1,17 +1,21 @@
 //! Command-line interface for `climb-tui` (phase 18.2).
 //!
-//! Every flag is parsed now and carried into [`crate::app::App`]. The behaviour behind
-//! `--replay` and `--tour` is wired in later phases; at this stage they are recorded and
-//! surfaced in the status bar.
+//! Every flag is parsed now and carried into [`crate::app::App`]. `--replay`
+//! is recorded and surfaced in the status bar; `--tour` starts the scripted
+//! walkthrough (see [`crate::tour`]), whose playback rate `--tour-speed`
+//! scales.
 
 use std::path::PathBuf;
 
 use clap::Parser;
 
 use crate::theme::ThemeId;
+use crate::tour::{MAX_SPEED, MIN_SPEED};
 
 /// CLIMB live-run benchmark dashboard.
-#[derive(Debug, Clone, PartialEq, Eq, Parser)]
+///
+/// `PartialEq` but not `Eq`: `--tour-speed` is an `f64`.
+#[derive(Debug, Clone, PartialEq, Parser)]
 #[command(name = "climb-tui", version, about, long_about = None)]
 pub struct Cli {
     /// Path to the consolidated results JSON.
@@ -33,6 +37,30 @@ pub struct Cli {
     /// Begin with the guided tour enabled.
     #[arg(long)]
     pub tour: bool,
+
+    /// Guided-tour playback speed: 0.5 (half) to 2.0 (double) scripted dwells.
+    #[arg(
+        long,
+        value_name = "X",
+        default_value_t = 1.0,
+        value_parser = parse_tour_speed,
+    )]
+    pub tour_speed: f64,
+}
+
+/// Parse a `--tour-speed` value, rejecting anything outside
+/// [`MIN_SPEED`]..=[`MAX_SPEED`]. The range is enforced here rather than by
+/// clap's numeric parser so the bound lives in one place.
+fn parse_tour_speed(raw: &str) -> Result<f64, String> {
+    let speed: f64 = raw
+        .parse()
+        .map_err(|_| format!("'{raw}' is not a number"))?;
+    if !speed.is_finite() || !(MIN_SPEED..=MAX_SPEED).contains(&speed) {
+        return Err(format!(
+            "{speed} is outside the supported range {MIN_SPEED}..={MAX_SPEED}"
+        ));
+    }
+    Ok(speed)
 }
 
 #[cfg(test)]
@@ -47,6 +75,7 @@ mod tests {
         assert!(!cli.ascii);
         assert!(!cli.replay);
         assert!(!cli.tour);
+        assert_eq!(cli.tour_speed, 1.0);
     }
 
     #[test]
@@ -60,12 +89,30 @@ mod tests {
             "--ascii",
             "--replay",
             "--tour",
+            "--tour-speed",
+            "1.5",
         ]);
         assert_eq!(cli.results, PathBuf::from("/tmp/r.json"));
         assert_eq!(cli.theme, ThemeId::Contrast);
         assert!(cli.ascii);
         assert!(cli.replay);
         assert!(cli.tour);
+        assert_eq!(cli.tour_speed, 1.5);
+    }
+
+    #[test]
+    fn tour_speed_accepts_the_documented_range_and_rejects_the_rest() {
+        for (arg, expected) in [("0.5", 0.5), ("1", 1.0), ("2.0", 2.0)] {
+            let cli = Cli::parse_from(["climb-tui", "--tour-speed", arg]);
+            assert_eq!(cli.tour_speed, expected, "--tour-speed {arg}");
+        }
+        for bad in ["0.4", "2.01", "fast", "-1"] {
+            let result = Cli::try_parse_from(["climb-tui", "--tour-speed", bad]);
+            assert!(
+                result.is_err(),
+                "--tour-speed {bad} must be rejected by the 0.5..=2.0 range"
+            );
+        }
     }
 
     #[test]

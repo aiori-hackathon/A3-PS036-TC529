@@ -1,6 +1,7 @@
-//! The widget tree (phase 18.7): tab bar, tab bodies, status bar, help overlay, and
-//! the too-small-screen guard. Every tab — Overview, Signing, Verifying, Wire,
-//! Memory, Ladder, Live, Integrity and Method — renders a real data view.
+//! The widget tree (phase 18.7): tab bar, tab bodies, the guided-tour caption
+//! bar, status bar, help overlay, and the too-small-screen guard. Every tab —
+//! Overview, Signing, Verifying, Wire, Memory, Ladder, Live, Integrity and
+//! Method — renders a real data view.
 
 pub mod amortization;
 pub mod integrity;
@@ -10,6 +11,7 @@ pub mod memory;
 pub mod method;
 pub mod overview;
 pub mod signing;
+pub mod tour;
 pub mod verifying;
 pub mod wire;
 
@@ -39,15 +41,23 @@ pub fn render(frame: &mut Frame, app: &App) {
         return;
     }
 
-    let [tabs_area, body_area, status_area] = Layout::vertical([
-        Constraint::Length(3),
-        Constraint::Min(0),
-        Constraint::Length(1),
-    ])
-    .areas(area);
+    // The tour caption bar takes one row between the body and the status bar
+    // while the guided tour runs.
+    let mut constraints = vec![Constraint::Length(3), Constraint::Min(0)];
+    if app.tour_active() {
+        constraints.push(Constraint::Length(1));
+    }
+    constraints.push(Constraint::Length(1));
+    let chunks = Layout::vertical(constraints).split(area);
+    let tabs_area = chunks[0];
+    let body_area = chunks[1];
+    let status_area = chunks[chunks.len() - 1];
 
     render_tabs(frame, tabs_area, app, &theme, &glyphs);
     render_body(frame, body_area, app, &theme, &glyphs);
+    if let Some(runner) = app.tour() {
+        tour::render_tour_bar(frame, chunks[2], runner, app.clock().now(), &theme);
+    }
     render_status(frame, status_area, app, &theme, &glyphs);
 
     if app.show_help {
@@ -206,7 +216,7 @@ fn render_load_error(
 fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
     let spinner = glyphs.spinner[app.tick % glyphs.spinner.len()];
     let mode = if app.replay { "replay" } else { "live" };
-    let tour = if app.tour { "on" } else { "off" };
+    let tour = if app.tour_active() { "on" } else { "off" };
     let ascii = if app.ascii { "on" } else { "off" };
     // The source path is the only field of unbounded width; every other span is
     // fixed, so the path is shortened with a marker until the trailing help key
@@ -222,7 +232,7 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
         + "· ? help".len();
     let path_budget = (area.width as usize).saturating_sub(fixed);
     let path = crate::widgets::ellipsize(
-        &app.results_path.display().to_string(),
+        &app.source_path.display().to_string(),
         path_budget,
         theme.ascii,
     );
@@ -278,6 +288,7 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("Space / Backspace", "live: next / previous step"),
         entry("Enter", "live: auto-play the replay"),
         entry("t", "live: log / linear byte scale"),
+        entry("p / n / Esc", "tour: pause · next step · quit tour"),
         entry("q / Esc / Ctrl-C", "quit"),
         Line::from(""),
         Line::from(vec![
@@ -553,9 +564,35 @@ mod tests {
             "ladder: leaves",
             "integrity: scroll",
             "method: scroll",
+            "tour: pause",
         ] {
             assert!(out.contains(needle), "help missing {needle:?}:\n{out}");
         }
+    }
+
+    #[test]
+    fn tour_caption_bar_sits_between_the_body_and_the_status_bar() {
+        let mut app = app_with(false, ThemeId::Dark, false);
+        app.set_tour(Some(crate::tour::TourRunner::new(1.0)));
+        let out = render_to_string(&app, 120, 40);
+        let lines: Vec<&str> = out.lines().collect();
+        let bar = lines
+            .iter()
+            .position(|line| line.contains("Tour 1/9"))
+            .unwrap_or_else(|| panic!("the tour caption bar is missing:\n{out}"));
+        assert_eq!(
+            bar,
+            lines.len() - 2,
+            "the caption bar sits directly above the status bar:\n{out}"
+        );
+        assert!(
+            lines[lines.len() - 1].contains("tour: on"),
+            "the status bar names the running tour:\n{out}"
+        );
+        assert!(
+            out.contains("The story in one screen"),
+            "the step caption is missing:\n{out}"
+        );
     }
 
     #[test]

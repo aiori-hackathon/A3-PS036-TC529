@@ -19,11 +19,13 @@ pub mod data;
 pub mod event;
 pub mod terminal;
 pub mod theme;
+pub mod tour;
 pub mod ui;
 pub mod widgets;
 
-pub use app::{map_key, Action, App, Effect, Tab};
+pub use app::{map_key, map_key_tour, Action, App, Effect, Tab};
 pub use cli::Cli;
 pub use event::{Event, EventHandler, WorkerMsg};
 pub use terminal::{install_panic_hook, TerminalGuard};
 pub use theme::{ColorDepth, Glyphs, Theme, ThemeId};
+pub use tour::{Clock, Press, TourRunner, TourStep};
