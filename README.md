@@ -59,7 +59,7 @@ capture rows) lives there with JSON pointers into the artifacts.
 ## Quickstart — clean clone to dashboard, three commands
 
 ```bash
-git clone --recurse-submodules <repository-url> climb && cd climb
+git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
 docker build -f docker/Dockerfile.build -t climb-builder:phase1 . && docker/extract-libs.sh
 cargo run -p climb-tui
 ```
