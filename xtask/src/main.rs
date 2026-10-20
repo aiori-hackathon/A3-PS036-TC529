@@ -11,6 +11,7 @@ mod charts;
 mod consolidate;
 mod deck_facts;
 mod dns_demo;
+mod docs_check;
 mod groups;
 mod ladder_verify;
 mod memory;
@@ -22,6 +23,7 @@ use charts::{cmd_charts, ChartsArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
+use docs_check::{cmd_docs_check, DocsCheckArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
@@ -102,6 +104,14 @@ enum Commands {
     /// Reads the recorded artifacts only. Two artifacts that disagree about the
     /// same number are reported in the footer and fail the command.
     DeckFacts(DeckFactsArgs),
+    /// Check the documentation against the real workspace and the quote sheet.
+    ///
+    /// Fails when a Mermaid node id in README.md or docs/*.md looks like a
+    /// crate or binary name but is not one, when a numeric result (a number
+    /// plus a result unit) is absent from docs/deck-facts.md, or when a
+    /// headline-table row's value, unit, evidence class or baseline does not
+    /// match a quote-sheet row.
+    DocsCheck(DocsCheckArgs),
     /// Run the whole artifact chain in order, from one command.
     ///
     /// Pins the environment, measures wire sizes and memory, optionally
@@ -193,6 +203,7 @@ fn main() -> Result<()> {
         Commands::VerifyConsolidated(args) => cmd_verify_consolidated(args),
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
+        Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
     }
 }
@@ -515,6 +526,18 @@ mod tests {
                 assert_eq!(args.out, PathBuf::from("docs/deck-facts.md"));
             }
             _ => panic!("expected the deck-facts subcommand"),
+        }
+    }
+
+    #[test]
+    fn docs_check_defaults_to_the_repository_paths() {
+        let cli = Cli::try_parse_from(["xtask", "docs-check"]).expect("docs-check parses");
+        match cli.command {
+            Commands::DocsCheck(args) => {
+                assert_eq!(args.root, PathBuf::from("."));
+                assert_eq!(args.quote_sheet, PathBuf::from("docs/deck-facts.md"));
+            }
+            _ => panic!("expected the docs-check subcommand"),
         }
     }
 }

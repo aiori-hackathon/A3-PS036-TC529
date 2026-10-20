@@ -1,8 +1,8 @@
 # Signing baselines
 
 This suite measures Merkle Tree Ladder (MTL) amortisation for post-quantum
-DNSSEC signing (SLH-DSA). Two settings are compared throughout; the labels
-below are the ones the report, charts, TUI and README use.
+DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the
+labels below are the ones the report, charts, TUI and README use.
 
 ## What each setting signs
 
@@ -25,7 +25,8 @@ Three configurations are worth keeping distinct:
 
 - **A — plain SLH-DSA RRSIG.** One full SLH-DSA signature per RRset, no ladder
   at all. Wire bytes = `Σ full_slhdsa_signature_i`. This is the DNSSEC status
-  quo before any MTL wrapper; it is *not* measured by this suite.
+  quo before any MTL wrapper; the suite measures it directly — wire bytes and
+  per-message sign/verify time — as the third configuration.
 - **B — MTL full-signature mode** (labelled **No amortisation**). An MTL-aware
   resolver reconstructs a complete signature for every message, so each message
   carries `condensed_i || ladder`. Wire bytes = `Σ condensed_i + N × ladder`,
