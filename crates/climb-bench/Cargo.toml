@@ -20,6 +20,10 @@ harness = false
 name = "classical"
 harness = false
 
+[[bench]]
+name = "primitives"
+harness = false
+
 [dependencies]
 climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-mtl = { path = "../climb-mtl" }

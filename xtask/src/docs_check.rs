@@ -46,6 +46,9 @@ const NUMBERS_END: &str = "<!-- numbers-of-record:end -->";
 /// for quotable numbers, so it is the one documentation file not scanned.
 const QUOTE_SHEET: &str = "docs/deck-facts.md";
 
+/// The committed consolidated results artifact that documentation is built on.
+const SAMPLE_RESULTS: &str = "docs/sample-output/climb-results.json";
+
 /// The progress-log filename, referenced where its numbers-of-record table is
 /// read and labelled in tests.
 const PROGRESS_FILE: &str = "the dev notes"; // source-hygiene:allow
@@ -101,6 +104,10 @@ pub(crate) struct DocsCheckArgs {
     /// Quote sheet to check numeric results against, relative to the root.
     #[arg(long, default_value = QUOTE_SHEET)]
     pub(crate) quote_sheet: PathBuf,
+
+    /// Consolidated results artifact whose signing speed-up bound is enforced.
+    #[arg(long, default_value = SAMPLE_RESULTS)]
+    pub(crate) results: PathBuf,
 }
 
 /// Normalise a crate/binary name for comparison: lowercase, `_` for `-`.
@@ -500,6 +507,42 @@ pub(crate) fn workspace_names(root: &Path) -> Result<HashSet<String>> {
     Ok(names)
 }
 
+/// Treat `bound_ok == false` in a consolidated results artifact as a failing
+/// claim: the documented numbers must not rest on a signing speed-up that
+/// exceeds the 1.05xN bound. Names every offending ratio.
+fn check_signing_bound(results_path: &Path) -> Result<()> {
+    let text = std::fs::read_to_string(results_path)
+        .with_context(|| format!("failed to read {}", results_path.display()))?;
+    let doc: serde_json::Value = serde_json::from_str(&text)
+        .with_context(|| format!("{} is not valid JSON", results_path.display()))?;
+    let bound_ok = doc
+        .pointer("/derived/bound_ok")
+        .and_then(|v| v.as_bool())
+        // A missing bound field is treated as unchecked, not as a pass.
+        .unwrap_or(true);
+    if bound_ok {
+        return Ok(());
+    }
+    let offenders: Vec<String> = doc
+        .pointer("/derived/bound_offenders")
+        .and_then(|v| v.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|o| o.as_str().map(str::to_string))
+                .collect()
+        })
+        .unwrap_or_default();
+    bail!(
+        "{}: signing speed-up bound violated (bound_ok=false){}",
+        results_path.display(),
+        if offenders.is_empty() {
+            String::new()
+        } else {
+            format!(" — {}", offenders.join("; "))
+        }
+    );
+}
+
 pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     let sheet_path = args.root.join(&args.quote_sheet);
     let sheet_text = std::fs::read_to_string(&sheet_path)
@@ -568,6 +611,11 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         violations.extend(check_numbers_of_record(&label, &text, &facts));
     }
 
+    // The signing speed-up bound is a hard honesty claim: a consolidated
+    // artifact whose reported speed-up exceeds 1.05xN must not back the
+    // documented numbers. `bound_ok == false` is treated as a failing claim.
+    check_signing_bound(&args.root.join(&args.results))?;
+
     if violations.is_empty() {
         // A single command guards the whole documentation surface, so the
         // source-tree hygiene scan and the pinned-dependency agreement check
@@ -591,6 +639,43 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Write a minimal results document with the given `bound_ok` flag and
+    /// offenders, and return its path for the bound guard to read.
+    fn write_results(dir: &Path, bound_ok: bool, offenders: &[&str]) -> PathBuf {
+        let doc = serde_json::json!({
+            "derived": {
+                "bound_ok": bound_ok,
+                "bound_offenders": offenders,
+            }
+        });
+        let path = dir.join("climb-results.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).expect("json"))
+            .expect("write temp results");
+        path
+    }
+
+    #[test]
+    fn the_bound_guard_passes_when_the_bound_holds() {
+        let dir = std::env::temp_dir().join(format!("climb-docs-bound-ok-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = write_results(&dir, true, &[]);
+        assert!(check_signing_bound(&path).is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bound_guard_fails_when_the_bound_is_violated() {
+        let dir = std::env::temp_dir().join(format!("climb-docs-bound-bad-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        let path = write_results(&dir, false, &["signing_speedup_c_vs_b Small (N=100)"]);
+        let err = check_signing_bound(&path)
+            .expect_err("bound_ok=false must be a failing claim")
+            .to_string();
+        assert!(err.contains("bound violated"), "unexpected message: {err}");
+        assert!(err.contains("Small"), "the offender must be named: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// A miniature quote sheet: two facts, the same shape as the real one.
     const SHEET: &str = "\

@@ -15,6 +15,8 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde_json::Value;
+
 use climb_report::{CheckReport, CheckStatus, ClimbResults};
 
 use super::{mtime, report_path, MAX_FRESH_AGE};
@@ -225,6 +227,14 @@ impl IntegrityView {
                 (BannerTone::Bad, format!("CHECK FAILED \u{2014} {error}"))
             }
             CheckState::Ran { report, .. } => {
+                // A violated signing speed-up bound is a failing claim even when
+                // the report and the results agree that it is violated.
+                let bound_bad = report.claims.iter().any(|c| {
+                    c.id == "signing-speedup-bound" && c.value_in_results == Value::Bool(false)
+                });
+                if bound_bad {
+                    return (BannerTone::Bad, "BOUND VIOLATION".to_string());
+                }
                 let (agree, drift, missing) = report.counts();
                 if drift > 0 {
                     let ids: Vec<&str> = report.drifts().map(|row| row.id.as_str()).collect();
@@ -497,6 +507,37 @@ mod tests {
                 .all(|row| row.status == CheckStatus::Agree),
             "every claim row must agree for the committed sample pair"
         );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A violated signing speed-up bound is a failing claim: the banner reads
+    /// BOUND VIOLATION even when the report and the results agree that it is
+    /// violated (no drift).
+    #[test]
+    fn a_violated_bound_flips_the_banner_to_bound_violation() {
+        let root = sample_dir("bound");
+        let results_path = root.join("climb-results.json");
+        // Flip the committed sample's bound flag to violated, keeping every
+        // other field (and the report) untouched.
+        let text = std::fs::read_to_string(&results_path).expect("read sample results");
+        let mut doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        doc["derived"]["bound_ok"] = serde_json::json!(false);
+        doc["derived"]["bound_offenders"] =
+            serde_json::json!(["signing_speedup_c_vs_b Small (N=100)"]);
+        std::fs::write(
+            &results_path,
+            serde_json::to_vec_pretty(&doc).expect("serialize"),
+        )
+        .expect("write flipped results");
+
+        let state = super::super::load(&results_path);
+        let super::super::LoadState::Loaded(view) = state else {
+            panic!("expected the flipped sample results to load, got {state:?}");
+        };
+        let integrity = view.integrity();
+        let (tone, banner) = integrity.banner();
+        assert_eq!(tone, BannerTone::Bad, "banner: {banner}");
+        assert_eq!(banner, "BOUND VIOLATION");
         let _ = std::fs::remove_dir_all(&root);
     }
 

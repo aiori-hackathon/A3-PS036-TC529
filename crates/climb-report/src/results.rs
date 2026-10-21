@@ -491,6 +491,43 @@ pub struct ReuseResult {
     pub class: EvidenceClass,
 }
 
+/// Per-ratio stability statistics across repeated runs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StabilityRatioStats {
+    pub ratio_name: String,
+    pub median: f64,
+    pub min: f64,
+    pub max: f64,
+    pub cv: f64,
+    pub n_runs: usize,
+}
+
+/// Stability statistics written by `cargo xtask stability`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StabilitySection {
+    #[serde(default)]
+    pub runs: Vec<StabilityRatioStats>,
+}
+
+/// Frequency sampling for a primitives measurement.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrimitivesFreq {
+    pub cpu: u32,
+    pub before_khz: Option<u64>,
+    pub after_khz: Option<u64>,
+    pub min_khz: Option<u64>,
+    pub max_khz: Option<u64>,
+}
+
+/// Primitives measurements used for the signing bound model.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PrimitivesSection {
+    #[serde(default)]
+    pub timings: std::collections::BTreeMap<String, f64>,
+    #[serde(default)]
+    pub freq: std::collections::BTreeMap<String, PrimitivesFreq>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DerivedSummary {
     pub overall_wire_reduction_percent: Option<f64>,
@@ -513,6 +550,18 @@ pub struct DerivedSummary {
     /// existed parseable.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub signature_context: Vec<SignatureContextRow>,
+    /// Stability statistics from repeated runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability: Option<StabilitySection>,
+    /// Primitives measurements for the signing bound model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub primitives: Option<PrimitivesSection>,
+    /// Whether all signing speed-ups satisfy speed-up ≤ 1.05×N.
+    #[serde(default)]
+    pub bound_ok: bool,
+    /// Offending ratio names when bound_ok is false.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub bound_offenders: Vec<String>,
 }
 
 /// One row of the compact signature-context table: a classical baseline or
@@ -865,6 +914,10 @@ fn derive_summary(
         // Likewise attached by `consolidate_results`, which has the classical
         // rows and the udp-fit section to build the context table from.
         signature_context: Vec::new(),
+        stability: None,
+        primitives: None,
+        bound_ok: true,
+        bound_offenders: Vec::new(),
     }
 }
 
@@ -1994,6 +2047,35 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &plain,
         dns_pipeline.as_ref(),
     );
+
+    // Check signing speed-up bound: speed-up ≤ 1.05×N
+    let mut bound_ok = true;
+    let mut bound_offenders = Vec::new();
+    for comp in &comparisons {
+        if let Some(sp) = comp.signing_speedup_c_vs_b {
+            // Find N for this size
+            if let Some((_, _, n)) = COMPARISON_SIZES
+                .iter()
+                .find(|(_, label, _)| label.eq_ignore_ascii_case(&comp.size))
+            {
+                let limit = 1.05_f64 * (*n as f64);
+                if sp > limit + 1e-12 {
+                    bound_ok = false;
+                    bound_offenders.push(format!(
+                        "signing_speedup_c_vs_b {} (N={}): {:.3} > {:.3}",
+                        comp.size, n, sp, limit
+                    ));
+                    warnings.push(format!(
+                        "signing speed-up bound violated for {}: {:.3} > {:.3}×{}",
+                        comp.size, sp, 1.05, n
+                    ));
+                }
+            }
+        }
+    }
+    derived.bound_ok = bound_ok;
+    derived.bound_offenders = bound_offenders;
+
     derived.udp_fit = build_udp_fit(
         &wire_size,
         classical_lengths.as_ref(),
@@ -2640,6 +2722,10 @@ mod tests {
                 reuse: Vec::new(),
                 udp_fit: None,
                 signature_context: Vec::new(),
+                stability: None,
+                primitives: None,
+                bound_ok: true,
+                bound_offenders: Vec::new(),
             },
             warnings: Vec::new(),
         };
@@ -4307,5 +4393,47 @@ mod tests {
             .find(|r| r.config == "classical-ed25519" && r.profile == CONTEXT_FIT_PROFILE)
             .expect("ed25519 row");
         assert!(rsa.max_response_bytes > ed.max_response_bytes);
+    }
+
+    #[test]
+    fn signing_speedup_bound_test() {
+        let mut signing = vec![SigningBenchmarkResult {
+            size: "Medium".to_string(),
+            condition: "Without MTL".to_string(),
+            messages: 10000,
+            mean_ns: 10000000000.0,
+            ci_lower_ns: 0.0,
+            ci_upper_ns: 0.0,
+            speedup: None,
+        }];
+        signing.push(SigningBenchmarkResult {
+            size: "Medium".to_string(),
+            condition: "With MTL".to_string(),
+            messages: 10000,
+            mean_ns: 100.0,
+            ci_lower_ns: 0.0,
+            ci_upper_ns: 0.0,
+            speedup: None,
+        });
+        let comparisons = build_comparisons(
+            &[],
+            &signing,
+            &[],
+            &[PlainTimingResult {
+                size: "Medium".to_string(),
+                messages: 10000,
+                signing_mean_ns: Some(1000.0),
+                signing_ci_lower_ns: None,
+                signing_ci_upper_ns: None,
+                verifying_mean_ns: None,
+                verifying_ci_lower_ns: None,
+                verifying_ci_upper_ns: None,
+                class: EvidenceClass::Measured,
+                samples: None,
+            }],
+        );
+        let comp = &comparisons[0];
+        assert!(comp.signing_speedup_c_vs_b.is_some());
+        // b/m = 1e9, c/m = 0.01, so speedup ~ 1e11 >> 10500
     }
 }

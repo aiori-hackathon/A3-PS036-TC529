@@ -501,6 +501,10 @@ pub(crate) mod test_support {
             reuse: Vec::new(),
             udp_fit: None,
             signature_context: Vec::new(),
+            stability: None,
+            primitives: None,
+            bound_ok: true,
+            bound_offenders: Vec::new(),
         }
     }
 
@@ -785,6 +789,32 @@ mod tests {
                 letters.contains(&classical),
                 "classical configuration {classical} missing from {letters:?}"
             );
+        }
+    }
+
+    /// The committed sample results document must expose the stability section
+    /// to the TUI loader: the per-ratio run statistics survive deserialization
+    /// so the repeated-run spread is available to the view-model.
+    #[test]
+    fn committed_sample_results_expose_stability_rows_to_the_tui() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let state = load(&path);
+        let LoadState::Loaded(view) = state else {
+            panic!("expected the TUI to load the committed sample artifact, got {state:?}");
+        };
+
+        let section = view
+            .results()
+            .derived
+            .stability
+            .as_ref()
+            .expect("the committed sample artifact must carry a stability section");
+        assert!(!section.runs.is_empty());
+        for row in &section.runs {
+            assert!(row.ratio_name.starts_with("signing_speedup_model_"));
+            assert!(row.n_runs >= 1);
+            assert!(row.min <= row.median && row.median <= row.max);
         }
     }
 

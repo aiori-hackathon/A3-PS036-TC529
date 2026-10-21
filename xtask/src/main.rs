@@ -20,6 +20,7 @@ mod package;
 mod pin_env;
 mod reproduce;
 mod source_hygiene;
+mod stability;
 mod verify_consolidated;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
@@ -35,6 +36,7 @@ use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
 use reproduce::{cmd_reproduce, ReproduceArgs};
 use source_hygiene::SourceHygieneArgs;
+use stability::{cmd_stability, StabilityArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
@@ -145,6 +147,8 @@ enum Commands {
     /// then consolidates, charts, renders and self-checks the report — so the
     /// artifacts always agree.  Use `--quick` for Small/Medium only.
     Reproduce(ReproduceArgs),
+    /// Run stability check (repeat signing/verify benches under pinned governor).
+    Stability(StabilityArgs),
 }
 
 #[derive(Args)]
@@ -234,6 +238,7 @@ fn main() -> Result<()> {
         Commands::CheckPins(args) => check_pins::run(&args.root),
         Commands::Package(args) => cmd_package(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
+        Commands::Stability(args) => cmd_stability(args),
     }
 }
 
@@ -257,6 +262,7 @@ fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
             BenchTarget::Signing => signing.push(group.name),
             BenchTarget::Verifying => verifying.push(group.name),
             BenchTarget::Classical => classical.push(group.name),
+            BenchTarget::Primitives => {}
         }
     }
 

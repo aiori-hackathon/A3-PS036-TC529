@@ -17,6 +17,7 @@ pub enum BenchTarget {
     Signing,
     Verifying,
     Classical,
+    Primitives,
 }
 
 /// One Criterion benchmark group defined by the `climb-bench` suite.
@@ -202,6 +203,12 @@ pub const GROUPS: &[GroupSpec] = &[
         name: "classical_rsa2048_medium",
         size: DatasetSize::Medium,
         target: BenchTarget::Classical,
+        slow: false,
+    },
+    GroupSpec {
+        name: "signing_primitives",
+        size: DatasetSize::Small,
+        target: BenchTarget::Primitives,
         slow: false,
     },
 ];

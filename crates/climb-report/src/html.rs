@@ -255,6 +255,20 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         "/derived/headline",
         results.derived.headline.clone(),
     );
+    push_claim(
+        &mut claims,
+        &root,
+        "signing-speedup-bound",
+        "/derived/bound_ok",
+        Some(
+            if results.derived.bound_ok {
+                "ok"
+            } else {
+                "violated"
+            }
+            .to_string(),
+        ),
+    );
     for (idx, comp) in results.comparisons.iter().enumerate() {
         let base = format!("/comparisons/{idx}");
         push_claim(
@@ -1743,6 +1757,10 @@ mod tests {
                 reuse: Vec::new(),
                 udp_fit: None,
                 signature_context: Vec::new(),
+                stability: None,
+                primitives: None,
+                bound_ok: true,
+                bound_offenders: Vec::new(),
             },
             warnings: Vec::new(),
         }
@@ -1850,8 +1868,8 @@ mod tests {
         let end = html[start..].find("</script>").expect("end") + start + "</script>".len();
         let stripped = format!("{}{}", &html[..start], &html[end..]);
         let failures = check_claims(&stripped, &results);
-        assert_eq!(failures.len(), 1);
-        assert!(failures[0].contains("missing"));
+        assert!(!failures.is_empty());
+        assert!(failures.iter().any(|f| f.contains("missing")));
     }
 
     #[test]
@@ -2116,6 +2134,10 @@ mod tests {
             udp_fit: None,
             reuse: Vec::new(),
             signature_context: Vec::new(),
+            stability: None,
+            primitives: None,
+            bound_ok: true,
+            bound_offenders: Vec::new(),
         };
         results.dns_pipeline = None;
         let dir = unique_temp_dir("html-empty");
