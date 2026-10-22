@@ -1,3 +1,12 @@
+<!-- logo:begin -->
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/climb-mark-dark.png">
+    <img src="docs/media/climb-mark-light.png" alt="CLIMB — Cryptographic Ladder Impact Measurement Benchmark" width="380">
+  </picture>
+</div>
+<!-- logo:end -->
+
 # CLIMB — Cryptographic Ladder Impact Measurement Benchmark
 
 **Team Name**: CLIMB

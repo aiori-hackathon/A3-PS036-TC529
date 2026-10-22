@@ -27,3 +27,7 @@ docker-compose.override.yml
 
 # Release bundles (cargo xtask package)
 /dist/
+
+# Local Python environment for the media asset script
+scripts/logo/.venv/
+__pycache__/

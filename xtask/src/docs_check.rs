@@ -463,6 +463,310 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
     violations
 }
 
+/// Markers bracketing the README's logo header block.
+const LOGO_BEGIN: &str = "<!-- logo:begin -->";
+const LOGO_END: &str = "<!-- logo:end -->";
+
+/// The body of the marker-bracketed logo block, and the line it starts on.
+/// `None` when a marker is missing or the end marker comes first.
+pub(crate) fn parse_logo_block(text: &str) -> Option<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines.iter().position(|line| line.trim() == LOGO_BEGIN)?;
+    let end = lines.iter().position(|line| line.trim() == LOGO_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, lines[begin + 1..end].join("\n")))
+}
+
+/// Check a document's logo header block: both markers must be present, in
+/// order, and the block must name at least one image. Pure: no filesystem, no
+/// subprocesses.
+pub(crate) fn check_logo_block(file: &str, text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for marker in [LOGO_BEGIN, LOGO_END] {
+        if !text.contains(marker) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("missing the `{marker}` logo header block marker"),
+            });
+        }
+    }
+    if !violations.is_empty() {
+        return violations;
+    }
+    let Some((line, body)) = parse_logo_block(text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!("the `{LOGO_BEGIN}` marker comes after the `{LOGO_END}` marker"),
+        });
+        return violations;
+    };
+    if extract_image_paths(&body).is_empty() {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the logo block names no image".to_string(),
+        });
+    }
+    violations
+}
+
+/// The image targets of a markdown line: `![alt](target)` images, with the
+/// optional angle-bracket form and the optional title both handled.
+fn markdown_image_targets(line: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut cursor = 0;
+    while let Some(offset) = line[cursor..].find("![") {
+        let bang = cursor + offset;
+        let after = bang + 2;
+        let Some(alt_end) = line[after..].find(']') else {
+            break;
+        };
+        let paren = after + alt_end + 1;
+        let Some(rest) = line[paren..].strip_prefix('(') else {
+            cursor = paren;
+            continue;
+        };
+        let Some(close) = rest.find(')') else {
+            break;
+        };
+        let raw = rest[..close].trim();
+        let target = raw
+            .strip_prefix('<')
+            .and_then(|inner| inner.strip_suffix('>'))
+            .unwrap_or(raw)
+            .split_whitespace()
+            .next()
+            .unwrap_or_default();
+        if !target.is_empty() {
+            targets.push(target.to_string());
+        }
+        cursor = paren + 1 + close + 1;
+    }
+    targets
+}
+
+/// The value of an HTML attribute inside a tag. The attribute name must be a
+/// whole word, so `data-src=` is not read as `src=`.
+fn html_attribute(tag: &str, name: &str) -> Vec<String> {
+    let mut values = Vec::new();
+    let lower = tag.to_ascii_lowercase();
+    let needle = format!("{name}=");
+    let mut cursor = 0;
+    while let Some(offset) = lower[cursor..].find(&needle) {
+        let start = cursor + offset;
+        if start > 0 && !lower.as_bytes()[start - 1].is_ascii_whitespace() {
+            cursor = start + needle.len();
+            continue;
+        }
+        let value_start = start + needle.len();
+        let quote = tag[value_start..].chars().next();
+        let (value, next) = match quote {
+            Some('"') => match tag[value_start + 1..].find('"') {
+                Some(end) => (
+                    tag[value_start + 1..value_start + 1 + end].to_string(),
+                    value_start + 1 + end + 1,
+                ),
+                None => break,
+            },
+            Some('\'') => match tag[value_start + 1..].find('\'') {
+                Some(end) => (
+                    tag[value_start + 1..value_start + 1 + end].to_string(),
+                    value_start + 1 + end + 1,
+                ),
+                None => break,
+            },
+            _ => {
+                let end = tag[value_start..]
+                    .find(char::is_whitespace)
+                    .unwrap_or(tag.len() - value_start);
+                (
+                    tag[value_start..value_start + end].to_string(),
+                    value_start + end,
+                )
+            }
+        };
+        values.push(value);
+        cursor = next;
+    }
+    values
+}
+
+/// The candidate files of a `srcset` attribute: the paths, without the density
+/// descriptors that sit next to them.
+fn srcset_candidates(value: &str) -> Vec<String> {
+    value
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|candidate| !candidate.is_empty())
+        .filter(|candidate| candidate.contains('.'))
+        .filter(|candidate| match candidate.strip_suffix('x') {
+            Some(number) => {
+                !(number.is_empty() || !number.chars().all(|c| c.is_ascii_digit() || c == '.'))
+            }
+            None => true,
+        })
+        .map(str::to_string)
+        .collect()
+}
+
+/// The image sources of an HTML line: the `src` and `srcset` attributes of
+/// every `<img>` and `<source>` element.
+fn html_image_sources(line: &str) -> Vec<String> {
+    let mut sources = Vec::new();
+    let lower = line.to_ascii_lowercase();
+    let mut cursor = 0;
+    while let Some(offset) = lower[cursor..].find('<') {
+        let start = cursor + offset;
+        let name_start = start + 1;
+        let rest = &lower[name_start..];
+        let name_len = if rest.starts_with("img") {
+            3
+        } else if rest.starts_with("source") {
+            6
+        } else {
+            0
+        };
+        let boundary = rest
+            .chars()
+            .nth(name_len)
+            .is_none_or(|c| c.is_ascii_whitespace() || c == '>' || c == '/');
+        if name_len == 0 || !boundary {
+            cursor = name_start;
+            continue;
+        }
+        let Some(close) = line[start..].find('>') else {
+            break;
+        };
+        let tag = &line[start..start + close];
+        sources.extend(html_attribute(tag, "src"));
+        for value in html_attribute(tag, "srcset") {
+            sources.extend(srcset_candidates(&value));
+        }
+        cursor = start + close + 1;
+    }
+    sources
+}
+
+/// Every image path a document names, with the line it appears on. Markdown
+/// images and the `<img>` / `<source>` elements of raw HTML are both read.
+pub(crate) fn extract_image_paths(text: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        for path in markdown_image_targets(line) {
+            found.push((index + 1, path));
+        }
+        for path in html_image_sources(line) {
+            found.push((index + 1, path));
+        }
+    }
+    found
+}
+
+/// Join a document-relative path onto the document's own directory and
+/// normalise the `.` and `..` segments.
+fn resolve_doc_path(dir_prefix: &str, path: &str) -> String {
+    let mut segments: Vec<&str> = Vec::new();
+    for segment in dir_prefix.split('/').chain(path.split('/')) {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop();
+            }
+            other => segments.push(other),
+        }
+    }
+    segments.join("/")
+}
+
+/// Whether a path names something outside the repository: an absolute path, a
+/// protocol-relative URL or a URL with a scheme.
+fn is_external_path(path: &str) -> bool {
+    if path.starts_with('/') {
+        return true;
+    }
+    match path.find(':') {
+        Some(index) => path[..index]
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '-' || c == '.'),
+        None => false,
+    }
+}
+
+/// Check every relative image path a document names: it must resolve to a
+/// file tracked in the repository. Paths outside the repository are skipped.
+/// Pure: the tracked-file set is passed in.
+pub(crate) fn check_image_paths(
+    file: &str,
+    dir_prefix: &str,
+    text: &str,
+    tracked: &HashSet<String>,
+) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for (line, raw) in extract_image_paths(text) {
+        let path = raw.split('#').next().unwrap_or_default().trim();
+        if path.is_empty() || is_external_path(path) {
+            continue;
+        }
+        let resolved = resolve_doc_path(dir_prefix, path);
+        if !tracked.contains(&resolved) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!(
+                    "image path `{path}` resolves to `{resolved}`, which is not a tracked file"
+                ),
+            });
+        }
+    }
+    violations
+}
+
+/// The repository paths tracked in git, relative to the workspace root.
+pub(crate) fn tracked_files(root: &Path) -> Result<HashSet<String>> {
+    let output = Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(root)
+        .output()
+        .context("failed to run `git ls-files`")?;
+    if !output.status.success() {
+        bail!(
+            "`git ls-files` failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Every markdown file under a directory, recursively.
+fn markdown_files(dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut found = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(current) = pending.pop() {
+        for entry in std::fs::read_dir(&current)
+            .with_context(|| format!("failed to read {}", current.display()))?
+        {
+            let entry = entry
+                .with_context(|| format!("failed to read an entry of {}", current.display()))?;
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "md") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    Ok(found)
+}
+
 /// The real crate and binary names of the workspace, from `cargo metadata`.
 pub(crate) fn workspace_names(root: &Path) -> Result<HashSet<String>> {
     let output = Command::new("cargo")
@@ -594,6 +898,31 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
             .display()
             .to_string();
         violations.extend(check_file(&label, &text, &facts, &known));
+    }
+
+    // The README's logo header block is marker-bracketed and must name an
+    // image; every relative image path in the documentation must resolve to a
+    // file tracked in the repository.
+    let tracked = tracked_files(&args.root)?;
+    let readme_label = readme_path
+        .strip_prefix(&args.root)
+        .unwrap_or(&readme_path)
+        .display()
+        .to_string();
+    violations.extend(check_logo_block(&readme_label, &readme_text));
+
+    let mut image_files = vec![readme_path.clone()];
+    image_files.extend(markdown_files(&args.root.join("docs"))?);
+    for path in &image_files {
+        let text = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let relative = path.strip_prefix(&args.root).unwrap_or(path);
+        let label = relative.display().to_string();
+        let dir_prefix = relative
+            .parent()
+            .map(|parent| parent.display().to_string())
+            .unwrap_or_default();
+        violations.extend(check_image_paths(&label, &dir_prefix, &text, &tracked));
     }
 
     // The progress log's numbers-of-record table is scanned too (its rows are
@@ -974,5 +1303,161 @@ mod tests {
         }
         let violations = check_file("README.md", &readme, &facts, &known);
         assert!(violations.is_empty(), "README.md: {violations:?}");
+    }
+
+    /// The tracked-file set of the workspace under test.
+    fn tracked(paths: &[&str]) -> HashSet<String> {
+        paths.iter().map(|path| (*path).to_string()).collect()
+    }
+
+    /// The workspace root, one level above the `xtask` crate.
+    fn workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace")
+            .to_path_buf()
+    }
+
+    #[test]
+    fn the_committed_readme_carries_the_logo_header_block() {
+        let root = workspace_root();
+        let text = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let violations = check_logo_block("README.md", &text);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_document_without_the_logo_markers_is_a_violation() {
+        let violations = check_logo_block("README.md", "# Title\n\nno logo header here\n");
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(violations[0].message.contains(LOGO_BEGIN), "{violations:?}");
+        assert!(violations[1].message.contains(LOGO_END), "{violations:?}");
+    }
+
+    #[test]
+    fn a_logo_block_without_an_image_is_a_violation() {
+        let text = format!("{LOGO_BEGIN}\n<p>no image in this block</p>\n{LOGO_END}\n");
+        let violations = check_logo_block("README.md", &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("names no image"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_logo_block_naming_an_image_passes() {
+        let text = format!(
+            "{LOGO_BEGIN}\n<picture><img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\"></picture>\n{LOGO_END}\n"
+        );
+        assert!(check_logo_block("README.md", &text).is_empty());
+    }
+
+    #[test]
+    fn markdown_and_html_image_paths_are_extracted() {
+        let text = concat!(
+            "![the mark](docs/media/climb-mark-light.png)\n",
+            "<picture>\n",
+            "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"docs/media/climb-mark-dark.png\">\n",
+            "  <img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\" width=\"380\">\n",
+            "</picture>\n",
+        );
+        let found = extract_image_paths(text);
+        let paths: Vec<&str> = found.iter().map(|(_, path)| path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "docs/media/climb-mark-light.png",
+                "docs/media/climb-mark-dark.png",
+                "docs/media/climb-mark-light.png",
+            ]
+        );
+        assert_eq!(found[0].0, 1);
+        assert_eq!(found[1].0, 3);
+    }
+
+    #[test]
+    fn a_srcset_density_descriptor_is_not_read_as_a_path() {
+        let text = "<img srcset=\"docs/media/climb-mark-light.png 1x, docs/media/climb-mark-dark.png 2x\">\n";
+        let found = extract_image_paths(text);
+        let paths: Vec<&str> = found.iter().map(|(_, path)| path.as_str()).collect();
+        assert_eq!(
+            paths,
+            vec![
+                "docs/media/climb-mark-light.png",
+                "docs/media/climb-mark-dark.png"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_relative_image_path_that_is_tracked_passes() {
+        let text = "<img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\">\n";
+        let files = tracked(&["docs/media/climb-mark-light.png"]);
+        assert!(check_image_paths("README.md", "", text, &files).is_empty());
+    }
+
+    #[test]
+    fn a_relative_image_path_that_is_not_tracked_is_a_violation() {
+        let text = "<img src=\"docs/media/climb-mark-missing.png\" alt=\"CLIMB\">\n";
+        let files = tracked(&["docs/media/climb-mark-light.png"]);
+        let violations = check_image_paths("README.md", "", text, &files);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].line, 1);
+        assert!(
+            violations[0]
+                .message
+                .contains("docs/media/climb-mark-missing.png"),
+            "{violations:?}"
+        );
+        assert!(violations[0].message.contains("not a tracked file"));
+    }
+
+    #[test]
+    fn paths_outside_the_repository_are_skipped() {
+        let text = concat!(
+            "<img src=\"/absolute/path.png\" alt=\"a\">\n",
+            "<img src=\"https://example.invalid/x.png\" alt=\"b\">\n",
+            "<img src=\"//cdn.example.invalid/x.png\" alt=\"c\">\n",
+            "<img src=\"data:image/png;base64,AAAA\" alt=\"d\">\n",
+        );
+        assert!(check_image_paths("README.md", "", text, &tracked(&[])).is_empty());
+    }
+
+    #[test]
+    fn image_paths_resolve_against_the_document_directory() {
+        let text = "<img src=\"media/climb-icon.png\" alt=\"the icon\">\n";
+        let files = tracked(&["docs/media/climb-icon.png"]);
+        // A document in `docs/` resolves the path against its own directory.
+        assert!(check_image_paths("docs/README.md", "docs", text, &files).is_empty());
+        // The same document in `docs/media/` would look one level deeper.
+        assert_eq!(
+            check_image_paths("docs/media/README.md", "docs/media", text, &files).len(),
+            1
+        );
+        // A sibling path in the document's own directory resolves the same way.
+        let sibling = "<img src=\"climb-icon.png\" alt=\"the icon\">\n";
+        assert!(
+            check_image_paths("docs/media/README.md", "docs/media", sibling, &files).is_empty()
+        );
+    }
+
+    #[test]
+    fn the_committed_documentation_image_paths_are_tracked() {
+        let root = workspace_root();
+        let files = tracked_files(&root).expect("git ls-files runs in the workspace");
+        let mut documents = vec![root.join("README.md")];
+        documents.extend(markdown_files(&root.join("docs")).expect("docs/ is committed"));
+        for path in &documents {
+            let text = std::fs::read_to_string(path).expect("readable document");
+            let relative = path.strip_prefix(&root).unwrap_or(path);
+            let label = relative.display().to_string();
+            let dir_prefix = relative
+                .parent()
+                .map(|parent| parent.display().to_string())
+                .unwrap_or_default();
+            let violations = check_image_paths(&label, &dir_prefix, &text, &files);
+            assert!(violations.is_empty(), "{label}: {violations:?}");
+        }
     }
 }
