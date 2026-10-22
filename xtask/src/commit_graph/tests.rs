@@ -42,7 +42,7 @@ impl TempRepo {
         let repo = Self {
             dir: TempDir::new(label),
         };
-        repo.git(&["init", "-q"]);
+        repo.git(&["init", "-q", "-b", "main"]);
         repo.git(&["config", "user.name", "Test Harness"]);
         repo.git(&["config", "user.email", "harness@example.invalid"]);
         repo.git(&["config", "commit.gpgsign", "false"]);
@@ -105,10 +105,13 @@ impl TempRepo {
 fn config() -> CommitGraphConfig {
     CommitGraphConfig {
         timezone: "Asia/Kolkata".to_string(),
-        since: None,
+        source_url: "https://example.invalid/public.git".to_string(),
+        source_ref: "main".to_string(),
+        source_cache: "target/public.git".to_string(),
+        repo_web_url: "https://example.invalid/public".to_string(),
         exclude_authors: Vec::new(),
         display_names: BTreeMap::new(),
-        ignore_commits_whose_files_all_match: Vec::new(),
+        refresh_commits_whose_files_all_match: Vec::new(),
         milestones: Vec::new(),
         budget_kb: 50,
         staleness_commits: 20,
@@ -260,7 +263,7 @@ fn streak_logic_counts_consecutive_active_days() {
 }
 
 #[test]
-fn the_excluded_bot_never_enters_the_graph() {
+fn an_excluded_author_is_hidden_but_its_commits_are_counted() {
     let repo = TempRepo::new("bot");
     repo.commit(
         "2026-10-10T09:00:00+05:30",
@@ -275,14 +278,18 @@ fn the_excluded_bot_never_enters_the_graph() {
     let mut config = config();
     config.exclude_authors = vec!["github-actions[bot]".to_string()];
     let (graph, json) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
-    assert_eq!(graph.totals.commits, 1);
+    // The public repository's commit count includes the bot commit, so the
+    // totals must too; only the contributor breakdown hides the name.
+    assert_eq!(graph.totals.commits, 2);
     assert_eq!(graph.per_author.len(), 1);
     assert!(!json.contains("github-actions"));
     assert!(!json.contains("bot"));
+    let counted: u64 = graph.per_day.iter().map(|day| day.commits).sum();
+    assert_eq!(counted, 2);
 }
 
 #[test]
-fn a_commit_is_ignored_only_when_every_path_matches() {
+fn media_only_commits_are_counted_and_reported_as_refreshes() {
     let repo = TempRepo::new("paths");
     repo.commit(
         "2026-10-10T09:00:00+05:30",
@@ -306,24 +313,44 @@ fn a_commit_is_ignored_only_when_every_path_matches() {
         &[("README.md", "hello\n")],
     );
     let mut config = config();
-    config.ignore_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
     let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
-    assert_eq!(graph.totals.commits, 2);
-    // The ignored day precedes the first counted commit, so it is not part of
-    // the range at all.
-    assert_eq!(graph.range.start, "2026-10-11");
-    assert_eq!(day(&graph, "2026-10-11").commits, 1);
-    assert_eq!(graph.totals.files_touched, 3);
+    // Nothing is hidden: the media-only commit is part of the total and the
+    // per-day counts, and is reported separately as a graph refresh.
+    assert_eq!(graph.totals.commits, 3);
+    assert_eq!(graph.totals.refresh_commits, 1);
+    assert_eq!(graph.range.start, "2026-10-10");
+    assert_eq!(day(&graph, "2026-10-10").commits, 1);
+    assert_eq!(graph.totals.files_touched, 5);
 }
 
 #[test]
-fn an_empty_commit_is_not_swept_up_by_the_path_rule() {
+fn a_commit_that_touches_a_graph_file_and_code_is_not_a_refresh() {
+    let repo = TempRepo::new("mixed-paths");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[
+            ("docs/media/commit-graph.json", "{}"),
+            ("src/lib.rs", "pub fn f() {}\n"),
+        ],
+    );
+    let mut config = config();
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    assert_eq!(graph.totals.commits, 1);
+    assert_eq!(graph.totals.refresh_commits, 0);
+}
+
+#[test]
+fn an_empty_commit_is_not_a_graph_refresh() {
     let repo = TempRepo::new("empty");
     repo.commit("2026-10-10T09:00:00+05:30", "Pratyay Mukherjee", &[]);
     let mut config = config();
-    config.ignore_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
     let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
     assert_eq!(graph.totals.commits, 1);
+    assert_eq!(graph.totals.refresh_commits, 0);
     assert_eq!(graph.totals.files_touched, 0);
 }
 
@@ -425,11 +452,7 @@ fn a_shallow_clone_skips_history_checks_and_reports_why() {
     assert!(status.success());
 
     std::fs::create_dir_all(clone.join("docs/media")).expect("create the card directory");
-    std::fs::write(
-        clone.join(CONFIG_PATH),
-        "[commit_graph]\ntimezone = \"Asia/Kolkata\"\nbudget_kb = 50\n",
-    )
-    .expect("write the configuration");
+    write_config(&clone, &config());
     let (graph, json) = generate(&clone, &config(), Some("HEAD")).expect("generate");
     let palette = svg::Palette::default();
     let full = svg::render_full(&graph, &palette).expect("full card");
@@ -551,20 +574,37 @@ fn the_desc_numbers_equal_the_json_totals() {
         .filter_map(|token| token.split_once('='))
         .collect();
     assert_eq!(tokens.get("commits"), Some(&"1"));
+    assert_eq!(tokens.get("refresh_commits"), Some(&"0"));
     assert_eq!(tokens.get("lines_added"), Some(&"2"));
     assert_eq!(tokens.get("date"), Some(&"2026-10-10"));
     assert_eq!(tokens.get("as_of"), Some(&&graph.as_of_sha[..7]));
 }
 
 #[test]
-fn the_committed_document_reproduces_from_its_own_as_of_commit() {
+fn the_committed_document_reproduces_from_the_history_that_contains_it() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("xtask lives inside the workspace");
     let committed = std::fs::read_to_string(root.join(JSON_PATH)).expect("committed graph");
     let graph: CommitGraph = serde_json::from_str(&committed).expect("valid graph");
     let config = load_config(&root.join(CONFIG_PATH)).expect("config");
-    let (_, regenerated) = generate(root, &config, Some(&graph.as_of_sha)).expect("regenerate");
+    let cache = cache_path(root, &config);
+    let history = if is_ancestor(root, &graph.as_of_sha).expect("ancestry probe") {
+        root.to_path_buf()
+    } else if cache.exists() && commit_exists(&cache, &graph.as_of_sha).expect("cache probe") {
+        cache
+    } else {
+        // A private checkout without the public cache cannot reproduce the
+        // committed card; the documentation check reports that as a skip rather
+        // than a failure, and there is nothing to compare here.
+        eprintln!(
+            "commit graph: {} is in neither this checkout nor the cache; reproduction skipped",
+            &graph.as_of_sha[..7]
+        );
+        return;
+    };
+    let (_, regenerated) = generate(&history, &config, Some(&graph.as_of_sha))
+        .expect("regenerate from the containing history");
     assert_eq!(regenerated, committed);
 }
 
@@ -642,45 +682,99 @@ fn iso_dates_round_trip_across_leap_years_and_epochs() {
 }
 
 #[test]
-fn since_bounds_the_range_and_rejects_a_future_start() {
-    let repo = TempRepo::new("since");
-    repo.commit(
-        "2026-10-10T09:00:00+05:30",
-        "Pratyay Mukherjee",
-        &[("a.txt", "a\n")],
+fn totals_commits_equals_git_rev_list_count() {
+    let repo = TempRepo::new("rev-list");
+    for day in 10..16 {
+        repo.commit(
+            &format!("2026-10-{day}T09:00:00+05:30"),
+            "Pratyay Mukherjee",
+            &[(format!("f{day}.txt").as_str(), "a\n")],
+        );
+    }
+    let expected: u64 = repo
+        .git(&["rev-list", "--count", "HEAD"])
+        .trim()
+        .parse()
+        .expect("a count");
+    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    assert_eq!(graph.totals.commits, expected);
+    assert_eq!(
+        graph.per_day.iter().map(|entry| entry.commits).sum::<u64>(),
+        expected
     );
-    repo.commit(
-        "2026-10-15T09:00:00+05:30",
-        "Pratyay Mukherjee",
-        &[("b.txt", "b\n")],
-    );
-    let mut config = config();
-    config.since = Some("2026-10-12".to_string());
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
-    assert_eq!(graph.range.start, "2026-10-12");
-    assert_eq!(graph.totals.commits, 1);
-    assert_eq!(graph.per_day.len(), 4);
-
-    config.since = Some("2027-01-01".to_string());
-    assert!(generate(repo.path(), &config, Some("HEAD")).is_err());
+    assert_eq!(graph.totals.refresh_commits, 0);
 }
 
-/// Write a complete, consistent set of artifacts for `repo` at `as_of`, so the
-/// `--check` command has something to read.
-fn write_artifacts(repo: &TempRepo, as_of: &str) {
-    std::fs::create_dir_all(repo.path().join("docs/media")).expect("create the media directory");
-    std::fs::write(
-        repo.path().join(CONFIG_PATH),
-        "[commit_graph]\ntimezone = \"Asia/Kolkata\"\nbudget_kb = 50\n",
+/// Write a configuration file that `load_config` parses into `config`.
+fn write_config(root: &Path, config: &CommitGraphConfig) {
+    let patterns = config
+        .refresh_commits_whose_files_all_match
+        .iter()
+        .map(|pattern| format!("\"{pattern}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let text = format!(
+        "[commit_graph]\n\
+         timezone = \"{}\"\n\
+         source_url = \"{}\"\n\
+         source_ref = \"{}\"\n\
+         source_cache = \"{}\"\n\
+         repo_web_url = \"{}\"\n\
+         refresh_commits_whose_files_all_match = [{patterns}]\n\
+         budget_kb = {}\n\
+         staleness_commits = {}\n\
+         staleness_days = {}\n",
+        config.timezone,
+        config.source_url,
+        config.source_ref,
+        config.source_cache,
+        config.repo_web_url,
+        config.budget_kb,
+        config.staleness_commits,
+        config.staleness_days,
+    );
+    std::fs::write(root.join(CONFIG_PATH), text).expect("write the configuration");
+}
+
+/// The README block with a permalink and the provenance caption.
+fn readme_text(permalink: &str) -> String {
+    format!(
+        "# CLIMB\n\n\
+         <!-- commit-graph:begin -->\n\
+         <a href=\"{permalink}\" target=\"_blank\" rel=\"noopener\"><img src=\"docs/media/commit-graph.svg\" alt=\"a graph\" width=\"880\"></a>\n\n\
+         Read from the public commit history of this repository.\n\n\
+         Generated by `cargo xtask commit-graph` from the public history of\n\
+         aiori-hackathon/A3-PS036-TC529, as of the commit shown in the image; later\n\
+         commits appear after the next refresh.\n\
+         <!-- commit-graph:end -->\n"
     )
-    .expect("write the configuration");
-    let (graph, json) = generate(repo.path(), &config(), Some(as_of)).expect("generate");
+}
+
+/// Write a complete, consistent set of artifacts for `repo` at `as_of`, read
+/// from `history`, so the `--check` command has something to read.
+fn write_artifacts_from(
+    history: &Path,
+    repo: &TempRepo,
+    config: &CommitGraphConfig,
+    as_of: &str,
+) -> CommitGraph {
+    std::fs::create_dir_all(repo.path().join("docs/media")).expect("create the media directory");
+    write_config(repo.path(), config);
+    let (graph, json) = generate(history, config, Some(as_of)).expect("generate");
     let palette = svg::Palette::default();
     let full = svg::render_full(&graph, &palette).expect("full card");
     let compact = svg::render_compact(&graph, &palette).expect("compact card");
     std::fs::write(repo.path().join(JSON_PATH), json).expect("write the JSON");
     std::fs::write(repo.path().join(SVG_PATH), full).expect("write the full card");
     std::fs::write(repo.path().join(COMPACT_PATH), compact).expect("write the compact card");
+    let permalink = commit_permalink(config, &graph.as_of_sha);
+    std::fs::write(repo.path().join("README.md"), readme_text(&permalink))
+        .expect("write the README");
+    graph
+}
+
+fn write_artifacts(repo: &TempRepo, as_of: &str) -> CommitGraph {
+    write_artifacts_from(repo.path(), repo, &config(), as_of)
 }
 
 /// A `commit-graph` invocation rooted at `repo` whose `--check` flag is set.
@@ -690,6 +784,7 @@ fn check_args(repo: &TempRepo) -> CommitGraphArgs {
         as_of: None,
         config: PathBuf::from(CONFIG_PATH),
         out_dir: PathBuf::from("docs/media"),
+        source: HistorySource::Auto,
         check: true,
     }
 }
@@ -748,4 +843,268 @@ fn the_check_command_rejects_an_inconsistent_graph() {
     );
     std::fs::write(repo.path().join(SVG_PATH), edited).expect("rewrite the full card");
     assert!(cmd_commit_graph_check(&check_args(&repo)).is_err());
+}
+
+#[test]
+fn a_hand_edited_json_is_a_violation() {
+    let repo = TempRepo::new("hand-edited");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    write_artifacts(&repo, "HEAD");
+    let path = repo.path().join(JSON_PATH);
+    let committed = std::fs::read_to_string(&path).expect("the document");
+    let mut value: serde_json::Value = serde_json::from_str(&committed).expect("valid JSON");
+    let commits = value["totals"]["commits"].as_u64().expect("a count");
+    *value
+        .pointer_mut("/totals/commits")
+        .expect("the totals object has a commits count") = serde_json::json!(commits + 1);
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).expect("serialise")
+        ),
+    )
+    .expect("rewrite the document");
+
+    let outcome = check::check_docs(repo.path()).expect("the check runs");
+    assert!(
+        outcome
+            .violations
+            .iter()
+            .any(|violation| violation.contains("does not reproduce")),
+        "{:?}",
+        outcome.violations
+    );
+}
+
+/// Clone `repo` into a bare repository at `destination`.
+fn bare_clone(repo: &TempRepo, destination: &Path) {
+    let url = format!("file://{}", repo.path().display());
+    let status = Command::new("git")
+        .args(["clone", "--bare", "--quiet", &url])
+        .arg(destination)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .status()
+        .expect("run git clone --bare");
+    assert!(status.success());
+}
+
+/// Three public commits, in a bare repository a cache can clone from.
+fn public_bare(label: &str) -> (TempRepo, TempDir, PathBuf) {
+    let work = TempRepo::new(label);
+    for (index, day) in [10, 11, 12].into_iter().enumerate() {
+        work.commit(
+            &format!("2026-10-{day}T09:00:00+05:30"),
+            "Pratyay Mukherjee",
+            &[(format!("public{index}.txt").as_str(), "public\n")],
+        );
+    }
+    let sandbox = TempDir::new(&format!("{label}-bare"));
+    let bare = sandbox.root.join("public.git");
+    bare_clone(&work, &bare);
+    (work, sandbox, bare)
+}
+
+/// A checkout whose history is not the public one: five commits, two of them
+/// private-only (the public repository shows three).
+fn private_checkout(label: &str) -> TempRepo {
+    let repo = TempRepo::new(label);
+    for (index, day) in [10, 11, 12].into_iter().enumerate() {
+        repo.commit(
+            &format!("2026-10-{day}T10:00:00+05:30"),
+            "Pratyay Mukherjee",
+            &[(format!("public{index}.txt").as_str(), "public\n")],
+        );
+    }
+    repo.commit(
+        "2026-10-13T10:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("private-one.txt", "private only\n")],
+    );
+    repo.commit(
+        "2026-10-14T10:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("private-two.txt", "private only\n")],
+    );
+    repo
+}
+
+fn config_for_public(bare: &Path) -> CommitGraphConfig {
+    let mut config = config();
+    config.source_url = format!("file://{}", bare.display());
+    config.source_cache = "target/public-cache.git".to_string();
+    config
+}
+
+#[test]
+fn the_public_graph_excludes_private_only_commits_and_matches_rev_list() {
+    let (_public_work, _public_dir, bare) = public_bare("cache-public");
+    let private = private_checkout("cache-private");
+    assert_eq!(
+        private.git(&["rev-list", "--count", "HEAD"]).trim(),
+        "5",
+        "the private checkout has two extra commits"
+    );
+    let config = config_for_public(&bare);
+
+    let history = acquire_history(private.path(), &config, HistorySource::Public)
+        .expect("the public cache is populated");
+    assert!(history.public);
+    let (graph, json) = generate(&history.path, &config, Some(&config.source_ref))
+        .expect("generate from the public cache");
+    let expected: u64 = String::from_utf8_lossy(
+        &run_git(&bare, &["rev-list", "--count", "refs/heads/main"]).expect("rev-list count"),
+    )
+    .trim()
+    .parse()
+    .expect("a count");
+    assert_eq!(expected, 3);
+    assert_eq!(graph.totals.commits, expected);
+    assert!(!json.contains("private-one"));
+    assert!(!json.contains("private-two"));
+}
+
+#[test]
+fn an_unreachable_public_source_names_the_offline_local_option() {
+    let repo = TempRepo::new("offline");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    let mut config = config();
+    config.source_url = "file:///definitely/not/a/public/repository.git".to_string();
+    config.source_cache = "target/absent-cache.git".to_string();
+    let error = acquire_history(repo.path(), &config, HistorySource::Public)
+        .expect_err("an unreachable source cannot be read");
+    let message = error.to_string();
+    assert!(message.contains("--source local"), "{message}");
+    assert!(
+        message.contains("must not be committed"),
+        "the message must say an offline graph is not committable: {message}"
+    );
+    assert!(message.contains("public repository"), "{message}");
+}
+
+#[test]
+fn a_public_clone_passes_the_check_from_local_history_without_the_cache() {
+    let repo = TempRepo::new("public-clone-check");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    repo.commit(
+        "2026-10-11T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("b.txt", "b\n")],
+    );
+    let mut config = config();
+    // Deliberately unreachable: the local history contains the as-of commit,
+    // so the check must never need the cache or the network.
+    config.source_url = "https://example.invalid/public.git".to_string();
+    config.source_cache = "target/absent-cache.git".to_string();
+    write_artifacts_from(repo.path(), &repo, &config, "HEAD");
+
+    let outcome = check::check_docs(repo.path()).expect("the check runs offline");
+    assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
+    assert!(outcome.note.is_none(), "{:?}", outcome.note);
+}
+
+#[test]
+fn a_private_checkout_reproduces_from_the_public_cache() {
+    let (_public_work, _public_dir, bare) = public_bare("cache-check-public");
+    let private = private_checkout("cache-check-private");
+    let config = config_for_public(&bare);
+    let history = acquire_history(private.path(), &config, HistorySource::Public)
+        .expect("populate the cache");
+    let graph = write_artifacts_from(&history.path, &private, &config, &config.source_ref);
+    assert_eq!(graph.totals.commits, 3);
+
+    let outcome = check::check_docs(private.path()).expect("the check runs");
+    assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
+    let note = outcome.note.unwrap_or_default();
+    assert!(note.contains("public-history cache"), "{note}");
+    assert!(note.contains("staleness is not checked"), "{note}");
+}
+
+#[test]
+fn a_commit_missing_from_the_cache_skips_the_history_checks_with_a_reason() {
+    let repo = TempRepo::new("cache-missing");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    let mut config = config();
+    config.source_cache = "target/absent-cache.git".to_string();
+    let graph = write_artifacts_from(repo.path(), &repo, &config, "HEAD");
+    // Rewrite the only commit so the artifact's as-of commit is no longer
+    // reachable from HEAD, and no cache exists to contain it.
+    repo.git(&["checkout", "-q", "--detach", "HEAD"]);
+    let status = Command::new("git")
+        .arg("-C")
+        .arg(repo.path())
+        .args(["commit", "--amend", "-q", "-m", "rewritten"])
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .env("GIT_AUTHOR_DATE", "2026-10-11T09:00:00+05:30")
+        .env("GIT_COMMITTER_DATE", "2026-10-11T09:00:00+05:30")
+        .env("GIT_AUTHOR_NAME", "Pratyay Mukherjee")
+        .env("GIT_AUTHOR_EMAIL", "harness@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Pratyay Mukherjee")
+        .env("GIT_COMMITTER_EMAIL", "harness@example.invalid")
+        .status()
+        .expect("run git commit --amend");
+    assert!(status.success());
+
+    let outcome = check::check_docs(repo.path()).expect("the check runs offline");
+    assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
+    let note = outcome.note.unwrap_or_default();
+    assert!(note.contains("skipped"), "{note}");
+    assert!(note.contains("not in this checkout"), "{note}");
+    assert!(
+        note.contains(&graph.as_of_sha[..7]),
+        "the note names the missing commit: {note}"
+    );
+    assert!(note.contains("--source public"), "{note}");
+}
+
+#[test]
+fn the_readme_permalink_tracks_the_public_as_of_commit() {
+    let text = "# title\n\n<!-- commit-graph:begin -->\n\
+                <a href=\"https://example.invalid/public/commits/main\"><img src=\"card.svg\"></a>\n\
+                Generated by `cargo xtask commit-graph`.\n\
+                <!-- commit-graph:end -->\n\nfooter\n";
+    let rewritten = rewrite_readme_permalink(
+        text,
+        "https://example.invalid/public/commit/0123456789abcdef",
+    )
+    .expect("the block carries an anchor");
+    assert!(rewritten.contains("href=\"https://example.invalid/public/commit/0123456789abcdef\""));
+    assert!(!rewritten.contains("commits/main"));
+    assert!(rewritten.starts_with("# title\n\n<!-- commit-graph:begin -->"));
+    assert!(rewritten.ends_with("<!-- commit-graph:end -->\n\nfooter\n"));
+    assert!(rewrite_readme_permalink("no block here", "https://x").is_none());
+}
+
+#[test]
+fn remote_urls_compare_across_clone_forms() {
+    assert_eq!(
+        normalize_remote("git@github.com:aiori-hackathon/A3-PS036-TC529.git"),
+        normalize_remote("https://github.com/aiori-hackathon/A3-PS036-TC529")
+    );
+    assert_eq!(
+        normalize_remote("https://github.com/aiori-hackathon/A3-PS036-TC529.git/"),
+        "https://github.com/aiori-hackathon/A3-PS036-TC529"
+    );
+    assert_ne!(
+        normalize_remote("https://github.com/someone/CLIMB.git"),
+        normalize_remote("https://github.com/aiori-hackathon/A3-PS036-TC529.git")
+    );
 }

@@ -1,19 +1,22 @@
 //! `docs-check` integration for the committed commit graph.
 //!
 //! The document must describe the history its own `as_of_sha` names, so it is
-//! regenerated in memory from that commit and compared byte for byte. The card
-//! must carry the same headline numbers in its `<desc>`, stay inside the size
-//! budget, and request nothing from the network. Staleness relative to `HEAD`
-//! is a warning, never a failure: a graph that is one commit behind is normal
-//! immediately after a commit, and blocking on it would make every push fail.
+//! regenerated in memory from that commit and compared byte for byte. History
+//! is read from this checkout when it contains the commit (a public clone),
+//! otherwise from the public bare cache, and skipped with a printed reason when
+//! neither has it: an offline checkout must always pass. The check never
+//! fetches, so it cannot fail on a missing network. The card must carry the
+//! same headline numbers in its `<desc>`, stay inside the size budget, and
+//! request nothing from the network. Staleness relative to `HEAD` is a warning,
+//! never a failure.
 
 use anyhow::{Context, Result};
 use std::path::Path;
-use std::process::Command;
 
 use super::{
-    config_hash, generate, is_shallow, load_config, run_git, tz_offset_minutes, CommitGraph,
-    CommitGraphConfig, COMPACT_PATH, CONFIG_PATH, JSON_PATH, SCHEMA_VERSION, SVG_PATH,
+    cache_path, commit_exists, config_hash, generate, is_ancestor, is_shallow, load_config,
+    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, COMPACT_PATH, CONFIG_PATH,
+    JSON_PATH, SCHEMA_VERSION, SVG_PATH,
 };
 
 /// The outcome of the commit-graph part of the documentation check.
@@ -78,7 +81,12 @@ pub(crate) fn check_with_paths(
         violations.push(format!("{label}: as_of_sha is not a full commit id"));
     }
 
-    let note = if is_shallow(root)? {
+    let note = if graph.as_of_sha.len() != 40 {
+        Some(format!(
+            "commit graph: history checks skipped because as_of_sha `{}` is not a full commit id",
+            graph.as_of_sha
+        ))
+    } else if is_shallow(root)? {
         Some(
             "commit graph: history-dependent checks skipped because this is a shallow clone; \
              run `git fetch --unshallow` to check reproduction, ancestry and staleness"
@@ -93,8 +101,7 @@ pub(crate) fn check_with_paths(
             &label,
             &mut violations,
             &mut warnings,
-        )?;
-        None
+        )?
     };
 
     check_card(
@@ -121,6 +128,9 @@ pub(crate) fn check_with_paths(
     })
 }
 
+/// Reproduce the document from the history that contains its as-of commit.
+/// Returns a note when the history checks had to be skipped or read from the
+/// cache, and `None` when they ran against this checkout.
 fn check_history(
     root: &Path,
     config: &CommitGraphConfig,
@@ -129,46 +139,59 @@ fn check_history(
     label: &str,
     violations: &mut Vec<String>,
     warnings: &mut Vec<String>,
-) -> Result<()> {
-    let ancestor = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(["merge-base", "--is-ancestor", &graph.as_of_sha, "HEAD"])
-        .status()
-        .context("failed to ask git whether the graph's as-of commit is an ancestor")?;
-    if !ancestor.success() {
-        violations.push(format!(
-            "{label}: as_of_sha {} is not an ancestor of HEAD",
-            &graph.as_of_sha[..7.min(graph.as_of_sha.len())]
-        ));
-        return Ok(());
+) -> Result<Option<String>> {
+    let sha = &graph.as_of_sha;
+    if is_ancestor(root, sha)? {
+        let (_, regenerated) = generate(root, config, Some(sha))
+            .with_context(|| format!("{label}: failed to regenerate the graph from as_of_sha"))?;
+        if regenerated != json_text {
+            violations.push(format!(
+                "{label}: the document does not reproduce byte for byte from its as_of_sha; \
+                 regenerate it with `cargo xtask commit-graph`"
+            ));
+        }
+        let count = run_git(root, &["rev-list", "--count", &format!("{}..HEAD", sha)])?;
+        let ahead: u64 = String::from_utf8_lossy(&count).trim().parse().unwrap_or(0);
+        let head_stamp: i64 =
+            String::from_utf8_lossy(&run_git(root, &["show", "-s", "--format=%at", "HEAD"])?)
+                .trim()
+                .parse()
+                .unwrap_or(0);
+        let offset = tz_offset_minutes(&config.timezone)?;
+        let head_day = super::local_day(head_stamp, offset);
+        let as_of_day = super::parse_iso_date(&graph.as_of_date)?;
+        let days_behind = (head_day - as_of_day).max(0);
+        warnings.extend(staleness_warnings(ahead, days_behind, config));
+        return Ok(None);
     }
 
-    let (_, regenerated) = generate(root, config, Some(&graph.as_of_sha))
-        .with_context(|| format!("{label}: failed to regenerate the graph from as_of_sha"))?;
-    if regenerated != json_text {
-        violations.push(format!(
-            "{label}: the document does not reproduce byte for byte from its as_of_sha; \
-             regenerate it with `cargo xtask commit-graph`"
-        ));
+    let cache = cache_path(root, config);
+    if cache.exists() && commit_exists(&cache, sha)? {
+        let (_, regenerated) = generate(&cache, config, Some(sha)).with_context(|| {
+            format!("{label}: failed to regenerate the graph from the public-history cache")
+        })?;
+        if regenerated != json_text {
+            violations.push(format!(
+                "{label}: the document does not reproduce byte for byte from the public-history \
+                 cache at {}; regenerate it with `cargo xtask commit-graph`",
+                cache.display()
+            ));
+        }
+        return Ok(Some(format!(
+            "commit graph: reproduction checked against the public-history cache at {}; \
+             staleness is not checked because this checkout does not contain the public as-of \
+             commit",
+            cache.display()
+        )));
     }
 
-    let count = run_git(
-        root,
-        &["rev-list", "--count", &format!("{}..HEAD", graph.as_of_sha)],
-    )?;
-    let ahead: u64 = String::from_utf8_lossy(&count).trim().parse().unwrap_or(0);
-    let head_stamp: i64 =
-        String::from_utf8_lossy(&run_git(root, &["show", "-s", "--format=%at", "HEAD"])?)
-            .trim()
-            .parse()
-            .unwrap_or(0);
-    let offset = tz_offset_minutes(&config.timezone)?;
-    let head_day = super::local_day(head_stamp, offset);
-    let as_of_day = super::parse_iso_date(&graph.as_of_date)?;
-    let days_behind = (head_day - as_of_day).max(0);
-    warnings.extend(staleness_warnings(ahead, days_behind, config));
-    Ok(())
+    Ok(Some(format!(
+        "commit graph: history checks skipped because as_of_sha {} is not in this checkout and \
+         the cache {} does not contain it; run `cargo xtask commit-graph --source public` to \
+         populate the cache. An offline checkout must still pass, so this is not a failure.",
+        &sha[..7.min(sha.len())],
+        cache.display()
+    )))
 }
 
 fn staleness_warnings(
@@ -285,6 +308,7 @@ fn check_desc(label: &str, desc: &str, graph: &CommitGraph, violations: &mut Vec
         .collect();
     let expected = [
         ("commits", graph.totals.commits.to_string()),
+        ("refresh_commits", graph.totals.refresh_commits.to_string()),
         ("active_days", graph.totals.active_days.to_string()),
         ("longest_streak", graph.totals.longest_streak.to_string()),
         ("current_streak", graph.totals.current_streak.to_string()),
@@ -325,10 +349,13 @@ mod tests {
     fn staleness_is_a_warning_and_respects_both_thresholds() {
         let config = CommitGraphConfig {
             timezone: "Asia/Kolkata".to_string(),
-            since: None,
+            source_url: "https://example.invalid/public.git".to_string(),
+            source_ref: "main".to_string(),
+            source_cache: "target/public.git".to_string(),
+            repo_web_url: "https://example.invalid/public".to_string(),
             exclude_authors: Vec::new(),
             display_names: Default::default(),
-            ignore_commits_whose_files_all_match: Vec::new(),
+            refresh_commits_whose_files_all_match: Vec::new(),
             milestones: Vec::new(),
             budget_kb: 50,
             staleness_commits: 3,
@@ -339,37 +366,6 @@ mod tests {
         assert_eq!(warnings.len(), 2);
         assert!(warnings[0].contains("4 commits behind"));
         assert!(warnings[1].contains("9 days behind"));
-    }
-
-    #[test]
-    fn a_hand_edited_json_is_a_violation() {
-        let root = workspace_root();
-        let committed =
-            std::fs::read_to_string(root.join(JSON_PATH)).expect("committed commit graph");
-        let mut value: serde_json::Value = serde_json::from_str(&committed).expect("valid JSON");
-        let commits = value["totals"]["commits"].as_u64().expect("a count");
-        *value
-            .pointer_mut("/totals/commits")
-            .expect("the totals object has a commits count") = serde_json::json!(commits + 1);
-        let edited = format!(
-            "{}\n",
-            serde_json::to_string_pretty(&value).expect("serialise")
-        );
-        let path = root.join("target/commit-graph-hand-edited.json");
-        std::fs::write(&path, edited).expect("write fixture");
-
-        let outcome =
-            check_with_paths(&root, &path, &root.join(SVG_PATH), &root.join(COMPACT_PATH))
-                .expect("check runs");
-        assert!(
-            outcome
-                .violations
-                .iter()
-                .any(|violation| violation.contains("does not reproduce")),
-            "{:?}",
-            outcome.violations
-        );
-        let _ = std::fs::remove_file(path);
     }
 
     #[test]

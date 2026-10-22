@@ -100,17 +100,27 @@ message_color = "orange"
 # tz database installed on the machine that runs the generator.
 timezone = "Asia/Kolkata"
 
-# Optional lower bound for the graph, as an ISO date. When omitted the graph
-# starts at the first commit.
-# since = "2026-09-26"
+# The public repository whose history the committed card describes. When this
+# checkout's `origin` is not this repository, `cargo xtask commit-graph` reads a
+# bare cache of it instead of the checkout's own log, so the card never
+# describes a private, rewritten history. The cache is cloned on first use and
+# fetched afterwards, without credentials.
+source_url = "https://github.com/aiori-hackathon/A3-PS036-TC529.git"
+source_ref = "main"
+source_cache = "target/commit-graph-source.git"
 
-# Bot accounts are excluded by git author NAME, never by email address.
+# Human-facing URL used for the README's commit permalink.
+repo_web_url = "https://github.com/aiori-hackathon/A3-PS036-TC529"
+
+# Bots are hidden from the contributor breakdown by git author NAME, never by
+# email address. Their commits are still counted: the total must equal the
+# commit count the public repository shows.
 exclude_authors = ["dependabot[bot]", "github-actions[bot]", "renovate[bot]"]
 
-# A commit whose every changed file matches one of these patterns is not part
-# of the graph. This keeps the commits that only refresh the graph itself from
-# feeding back into the numbers they refresh.
-ignore_commits_whose_files_all_match = ["docs/media/commit-graph*"]
+# A commit whose every changed file matches one of these patterns is a
+# media-only graph refresh. It is counted like every other commit and reported
+# separately with `totals.refresh_commits`, never hidden.
+refresh_commits_whose_files_all_match = ["docs/media/commit-graph*"]
 
 # Both SVG files stay at or below this size. Generation fails rather than
 # writing an oversized card.

@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-10-22T13:39:40+05:30",
+  "generated_at": "2026-10-22T15:30:06+05:30",
   "workspace_root": "/home/pratyay/Documents/My Codes/climb",
   "benchmark": {
     "signing": [
@@ -8,72 +8,72 @@
         "size": "Small",
         "condition": "With MTL",
         "messages": 100,
-        "mean_ns": 535164000.65,
-        "ci_lower_ns": 532061043.0185,
-        "ci_upper_ns": 538991385.4895,
+        "mean_ns": 586809920.93,
+        "ci_lower_ns": 566130616.19125,
+        "ci_upper_ns": 608861707.63375,
         "speedup": null
       },
       {
         "size": "Small",
         "condition": "Without MTL",
         "messages": 1,
-        "mean_ns": 536843411.4,
-        "ci_lower_ns": 532948949.9055,
-        "ci_upper_ns": 541531259.539,
+        "mean_ns": 520477364.53,
+        "ci_lower_ns": 517208166.464,
+        "ci_upper_ns": 524312271.66,
         "speedup": null
       },
       {
         "size": "OneK",
         "condition": "With MTL",
         "messages": 1000,
-        "mean_ns": 547916436.9,
-        "ci_lower_ns": 542387237.45975,
-        "ci_upper_ns": 554731349.0719999,
+        "mean_ns": 520367612.64,
+        "ci_lower_ns": 518094917.583,
+        "ci_upper_ns": 523153107.62875,
         "speedup": null
       },
       {
         "size": "OneK",
         "condition": "Without MTL",
         "messages": 1,
-        "mean_ns": 538263423.41,
-        "ci_lower_ns": 534462007.38775,
-        "ci_upper_ns": 542622714.46225,
+        "mean_ns": 516614149.11,
+        "ci_lower_ns": 514924067.41875,
+        "ci_upper_ns": 518480479.6787501,
         "speedup": null
       },
       {
         "size": "Medium",
         "condition": "With MTL",
         "messages": 10000,
-        "mean_ns": 571175488.69,
-        "ci_lower_ns": 567496652.4469999,
-        "ci_upper_ns": 575354824.62375,
+        "mean_ns": 550247675.41,
+        "ci_lower_ns": 547346897.64275,
+        "ci_upper_ns": 553523656.1455001,
         "speedup": null
       },
       {
         "size": "Medium",
         "condition": "Without MTL",
         "messages": 1,
-        "mean_ns": 535593385.06,
-        "ci_lower_ns": 532576664.38725,
-        "ci_upper_ns": 538948183.0042499,
+        "mean_ns": 519053544.84,
+        "ci_lower_ns": 516466686.65825,
+        "ci_upper_ns": 521984912.93625,
         "speedup": null
       },
       {
         "size": "Large",
         "condition": "With MTL",
         "messages": 1000000,
-        "mean_ns": 4620611063.57,
-        "ci_lower_ns": 4599796247.1165,
-        "ci_upper_ns": 4643945563.29525,
+        "mean_ns": 4328013513.09,
+        "ci_lower_ns": 4317817963.75075,
+        "ci_upper_ns": 4339155288.14425,
         "speedup": null
       },
       {
         "size": "Large",
         "condition": "Without MTL",
         "messages": 1,
-        "mean_ns": 537252555.08,
-        "ci_lower_ns": 533053887.503,
-        "ci_upper_ns": 542219029.1915001,
+        "mean_ns": 523253706.2,
+        "ci_lower_ns": 518637513.2842499,
+        "ci_upper_ns": 528740653.815,
         "speedup": null
       }
     ],
@@ -619,9 +619,9 @@
     {
       "size": "Small",
       "messages": 100,
-      "signing_mean_ns": 533915948.45,
-      "signing_ci_lower_ns": 530881315.0010001,
-      "signing_ci_upper_ns": 537388765.682,
+      "signing_mean_ns": 518232214.24,
+      "signing_ci_lower_ns": 515436244.06575,
+      "signing_ci_upper_ns": 521496852.1735,
       "verifying_mean_ns": 1388591.9235840305,
       "verifying_ci_lower_ns": 1356365.2318701895,
       "verifying_ci_upper_ns": 1426546.848273957,
@@ -631,7 +631,7 @@
     {
       "size": "OneK",
       "messages": 1000,
-      "signing_mean_ns": 534491696.49,
+      "signing_mean_ns": 517875752.72,
       "signing_ci_lower_ns": null,
       "signing_ci_upper_ns": null,
       "verifying_mean_ns": 1406359.1417783257,
@@ -643,9 +643,9 @@
     {
       "size": "Medium",
       "messages": 10000,
-      "signing_mean_ns": 535067444.53,
-      "signing_ci_lower_ns": 531983132.88875,
-      "signing_ci_upper_ns": 538682363.525,
+      "signing_mean_ns": 517519291.2,
+      "signing_ci_lower_ns": 514766808.54175,
+      "signing_ci_upper_ns": 520665132.68375,
       "verifying_mean_ns": 1424126.3599726206,
       "verifying_ci_lower_ns": 1389154.2245719822,
       "verifying_ci_upper_ns": 1463355.459418141,
@@ -655,7 +655,7 @@
     {
       "size": "Large",
       "messages": 1000000,
-      "signing_mean_ns": 534491696.49,
+      "signing_mean_ns": 517875752.72,
       "signing_ci_lower_ns": null,
       "signing_ci_upper_ns": null,
       "verifying_mean_ns": 1406359.1417783257,
@@ -750,8 +750,8 @@
       "size": "Small",
       "wire_reduction_c_vs_a_percent": 96.89103869653768,
       "wire_reduction_c_vs_b_percent": 97.0055122898562,
-      "signing_speedup_c_vs_a": 99.7667907036938,
-      "signing_speedup_c_vs_b": 100.31381235433628,
+      "signing_speedup_c_vs_a": 88.31347183406251,
+      "signing_speedup_c_vs_b": 88.69607448100511,
       "verifying_speedup_cached_vs_a": 402.15197344678575,
       "verifying_speedup_cold_vs_a": 0.925218329794511,
       "class": "derived"
@@ -760,8 +760,8 @@
       "size": "OneK",
       "wire_reduction_c_vs_a_percent": null,
       "wire_reduction_c_vs_b_percent": null,
-      "signing_speedup_c_vs_a": 975.4985623611616,
-      "signing_speedup_c_vs_b": 982.3823254060148,
+      "signing_speedup_c_vs_a": 995.2113470180092,
+      "signing_speedup_c_vs_b": 992.7869001858948,
       "verifying_speedup_cached_vs_a": 156.5303350300352,
       "verifying_speedup_cold_vs_a": 0.939471508019848,
       "class": "extrapolated"
@@ -770,8 +770,8 @@
       "size": "Medium",
       "wire_reduction_c_vs_a_percent": 96.5079531568228,
       "wire_reduction_c_vs_b_percent": 96.70647427677068,
-      "signing_speedup_c_vs_a": 9367.829242063335,
-      "signing_speedup_c_vs_b": 9377.03727953018,
+      "signing_speedup_c_vs_a": 9405.206315762924,
+      "signing_speedup_c_vs_b": 9433.089280263535,
       "verifying_speedup_cached_vs_a": 215.31112108696615,
       "verifying_speedup_cold_vs_a": 0.9537983397315546,
       "class": "derived"
@@ -780,8 +780,8 @@
       "size": "Large",
       "wire_reduction_c_vs_a_percent": 95.32754796334012,
       "wire_reduction_c_vs_b_percent": 95.67497054980068,
-      "signing_speedup_c_vs_a": 115675.5435886089,
-      "signing_speedup_c_vs_b": 116273.05299851517,
+      "signing_speedup_c_vs_a": 119656.68571821554,
+      "signing_speedup_c_vs_b": 120899.2773745804,
       "verifying_speedup_cached_vs_a": 83.28274416480205,
       "verifying_speedup_cold_vs_a": 0.939471508019848,
       "class": "extrapolated"
@@ -790,7 +790,7 @@
   "derived": {
     "overall_wire_reduction_percent": 96.46231903880918,
     "largest_wire_reduction_percent": 97.0055122898562,
-    "overall_verifying_trust_cached_speedup_avg": 519.6015941190822,
+    "overall_verifying_trust_cached_speedup_avg": 569.3478317190618,
     "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)",
     "reuse": [
       {
@@ -2499,7 +2499,7 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 7856.0,
-        "signing_mean_ns": 535067444.53,
+        "signing_mean_ns": 517519291.2,
         "verifying_mean_ns": 1424126.3599726206,
         "fits_1232_percent": 0.0,
         "class": "measured"
@@ -2510,7 +2510,7 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 8329.5296,
-        "signing_mean_ns": 535593385.06,
+        "signing_mean_ns": 519053544.84,
         "verifying_mean_ns": 1450711.45953,
         "fits_1232_percent": 0.0,
         "class": "measured"
@@ -2521,7 +2521,7 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 274.3352,
-        "signing_mean_ns": 57117.548869000006,
+        "signing_mean_ns": 55024.767540999994,
         "verifying_mean_ns": 1493110.54617,
         "fits_1232_percent": 100.0,
         "class": "measured"
@@ -2531,26 +2531,26 @@
       "runs": [
         {
           "ratio_name": "signing_speedup_model_medium",
-          "median": 9538.453781252483,
-          "min": 9112.096158637225,
-          "max": 9737.231768522808,
-          "cv": 0.021924586251424714,
+          "median": 9476.060812691263,
+          "min": 9442.529488319984,
+          "max": 9575.239230730305,
+          "cv": 0.005073425753204427,
           "n_runs": 5
         },
         {
           "ratio_name": "signing_speedup_model_onek",
-          "median": 997.9122515757291,
-          "min": 949.8528484538429,
-          "max": 1062.152080852159,
-          "cv": 0.03563497252634796,
+          "median": 1006.880921962777,
+          "min": 996.5960020100803,
+          "max": 1017.4060695484071,
+          "cv": 0.00717937779470453,
           "n_runs": 5
         },
         {
           "ratio_name": "signing_speedup_model_small",
-          "median": 101.37666218941115,
-          "min": 99.26825955823966,
-          "max": 105.82268593719921,
-          "cv": 0.02241905835031994,
+          "median": 100.99697908859167,
+          "min": 99.53957369415603,
+          "max": 102.65264355704637,
+          "cv": 0.011252095594046187,
           "n_runs": 5
         }
       ]

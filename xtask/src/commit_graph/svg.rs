@@ -107,10 +107,11 @@ pub(crate) fn desc_text(graph: &CommitGraph) -> String {
         .collect::<Vec<_>>()
         .join("; ");
     format!(
-        "CLIMB commit graph. commits={} active_days={} longest_streak={} current_streak={} \
-         lines_added={} lines_removed={} files_touched={} as_of={} date={} authors={} \
-         Milestones: {milestones}",
+        "CLIMB commit graph. commits={} refresh_commits={} active_days={} longest_streak={} \
+         current_streak={} lines_added={} lines_removed={} files_touched={} as_of={} date={} \
+         authors={} Milestones: {milestones}",
         totals.commits,
+        totals.refresh_commits,
         totals.active_days,
         totals.longest_streak,
         totals.current_streak,
@@ -945,9 +946,10 @@ pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<Stri
     );
     canvas.text(
         &format!(
-            "as of {} - {}",
+            "as of {} - {} - of which {} graph refreshes",
             &graph.as_of_sha[..7.min(graph.as_of_sha.len())],
-            graph.as_of_date
+            graph.as_of_date,
+            graph.totals.refresh_commits
         ),
         24.0,
         347.0,
@@ -1195,7 +1197,7 @@ pub(crate) fn render_compact(graph: &CommitGraph, palette: &Palette) -> Result<S
         0.0,
     );
     canvas.text_right(
-        "generated from git history",
+        &format!("of which {} graph refreshes", graph.totals.refresh_commits),
         858.0,
         115.0,
         6.6,
@@ -1297,6 +1299,7 @@ mod tests {
             },
             totals: GraphTotals {
                 commits: 3,
+                refresh_commits: 1,
                 active_days: 2,
                 longest_streak: 2,
                 current_streak: 2,
@@ -1341,6 +1344,7 @@ mod tests {
         let desc = desc_text(&sample_graph());
         for token in [
             "commits=3",
+            "refresh_commits=1",
             "active_days=2",
             "longest_streak=2",
             "current_streak=2",
@@ -1367,5 +1371,15 @@ mod tests {
             toml::from_str("timezone = \"Asia/Kolkata\"\nbudget_kb = 50\n").unwrap();
         assert_eq!(config.staleness_commits, 20);
         assert_eq!(config.staleness_days, 7);
+        assert_eq!(
+            config.source_url,
+            "https://github.com/aiori-hackathon/A3-PS036-TC529.git"
+        );
+        assert_eq!(config.source_ref, "main");
+        assert_eq!(config.source_cache, "target/commit-graph-source.git");
+        assert_eq!(
+            config.repo_web_url,
+            "https://github.com/aiori-hackathon/A3-PS036-TC529"
+        );
     }
 }

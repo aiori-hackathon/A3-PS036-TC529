@@ -528,6 +528,7 @@ fn cmd_report_text(args: ReportArgs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commit_graph::HistorySource;
 
     #[test]
     fn pinned_command_invokes_taskset_with_cpu() {
@@ -612,7 +613,24 @@ mod tests {
                 assert_eq!(args.out_dir, PathBuf::from("docs/media"));
                 assert!(!args.check);
                 assert!(args.as_of.is_none());
+                assert_eq!(args.source, HistorySource::Auto);
             }
+            _ => panic!("expected the commit-graph subcommand"),
+        }
+    }
+
+    #[test]
+    fn commit_graph_source_flag_parses() {
+        let cli = Cli::try_parse_from(["xtask", "commit-graph", "--source", "public"])
+            .expect("commit-graph --source public parses");
+        match cli.command {
+            Commands::CommitGraph(args) => assert_eq!(args.source, HistorySource::Public),
+            _ => panic!("expected the commit-graph subcommand"),
+        }
+        let cli = Cli::try_parse_from(["xtask", "commit-graph", "--source", "local"])
+            .expect("commit-graph --source local parses");
+        match cli.command {
+            Commands::CommitGraph(args) => assert_eq!(args.source, HistorySource::Local),
             _ => panic!("expected the commit-graph subcommand"),
         }
     }

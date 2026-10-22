@@ -491,12 +491,13 @@ const LOGO_END: &str = "<!-- logo:end -->";
 const COMMIT_GRAPH_BEGIN: &str = "<!-- commit-graph:begin -->";
 const COMMIT_GRAPH_END: &str = "<!-- commit-graph:end -->";
 
-/// The fragment of the commit-graph caption that states the provenance a
-/// reader is owed: the picture is generated from git history, and the stamp
-/// inside it names the commit it was generated at. Matched case-insensitively
-/// as a substring so the surrounding wording can change without silently
-/// dropping the provenance note.
-const COMMIT_GRAPH_CAPTION: &str = "generated at";
+/// The fragments of the commit-graph caption that state the provenance a
+/// reader is owed: the picture comes from the public history, and later
+/// commits appear after the next refresh. Matched case-insensitively as
+/// substrings so the surrounding wording can change without silently dropping
+/// the provenance note.
+const COMMIT_GRAPH_CAPTION: &str = "from the public history of";
+const COMMIT_GRAPH_CAPTION_TAIL: &str = "later commits appear after the next refresh";
 
 /// The line range of the managed badge block, exclusive of the markers.
 /// `None` when the markers are absent or the end marker comes first.
@@ -655,10 +656,15 @@ pub(crate) fn parse_commit_graph_block(text: &str) -> Option<(usize, String)> {
 }
 
 /// Check the README's commit-graph block: both markers must be present and in
-/// order, the block must name the full card (an image), and it must carry the
-/// provenance caption. The image path itself is checked by
-/// [`check_image_paths`]. Pure: no filesystem, no subprocesses.
-pub(crate) fn check_commit_graph_block(file: &str, text: &str) -> Vec<Violation> {
+/// order, the block must name the full card (an image), it must carry the
+/// public-history provenance caption, and when `expected_commit_link` is known
+/// the block must link to that public commit permalink. The image path itself
+/// is checked by [`check_image_paths`]. Pure: no filesystem, no subprocesses.
+pub(crate) fn check_commit_graph_block(
+    file: &str,
+    text: &str,
+    expected_commit_link: Option<&str>,
+) -> Vec<Violation> {
     let mut violations = Vec::new();
     for marker in [COMMIT_GRAPH_BEGIN, COMMIT_GRAPH_END] {
         if !text.contains(marker) {
@@ -689,18 +695,60 @@ pub(crate) fn check_commit_graph_block(file: &str, text: &str) -> Vec<Violation>
             message: "the commit-graph block names no image".to_string(),
         });
     }
-    if !body.to_ascii_lowercase().contains(COMMIT_GRAPH_CAPTION) {
+    let lower = body.to_ascii_lowercase();
+    let lower = lower.split_whitespace().collect::<Vec<_>>().join(" ");
+    if !lower.contains(COMMIT_GRAPH_CAPTION) || !lower.contains(COMMIT_GRAPH_CAPTION_TAIL) {
         violations.push(Violation {
             file: file.to_string(),
             line,
             message: format!(
-                "the commit-graph block carries no provenance caption \
-                 (must state that the image is generated from git history and \
-                 that the stamp shows the commit it was {COMMIT_GRAPH_CAPTION})"
+                "the commit-graph block carries no public-history provenance caption \
+                 (must state that the image comes {COMMIT_GRAPH_CAPTION} \
+                 this repository and that {COMMIT_GRAPH_CAPTION_TAIL})"
             ),
         });
     }
+    if let Some(expected) = expected_commit_link {
+        if !href_targets(&body).iter().any(|href| href == expected) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!(
+                    "the commit-graph block does not link to the public as-of commit ({expected})"
+                ),
+            });
+        }
+    }
     violations
+}
+
+/// The public commit permalink the README block must carry, taken from the
+/// committed document and the current configuration. `None` when either is
+/// unreadable; the commit-graph check itself reports that failure.
+fn expected_commit_link(root: &std::path::Path) -> Option<String> {
+    let text = std::fs::read_to_string(root.join(crate::commit_graph::JSON_PATH)).ok()?;
+    let graph: crate::commit_graph::CommitGraph = serde_json::from_str(&text).ok()?;
+    let config =
+        crate::commit_graph::load_config(&root.join(crate::commit_graph::CONFIG_PATH)).ok()?;
+    Some(crate::commit_graph::commit_permalink(
+        &config,
+        &graph.as_of_sha,
+    ))
+}
+
+/// The values of every `href="..."` attribute in a fragment.
+fn href_targets(text: &str) -> Vec<String> {
+    let mut targets = Vec::new();
+    let mut cursor = 0;
+    while let Some(offset) = text[cursor..].find("href=\"") {
+        let start = cursor + offset + "href=\"".len();
+        let Some(end) = text[start..].find('"') else {
+            break;
+        };
+        targets.push(text[start..start + end].to_string());
+        cursor = start + end + 1;
+    }
+    targets
 }
 
 /// The image targets of a markdown line: `![alt](target)` images, with the
@@ -1112,10 +1160,15 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
 
-    // The README's "Built in the open" block is marker-bracketed and must name
-    // the full commit-graph card with its provenance caption; the image path
-    // itself is checked with every other relative image path below.
-    violations.extend(check_commit_graph_block(&readme_label, &readme_text));
+    // The README's "Built in the open" block is marker-bracketed, must name the
+    // full commit-graph card with its public-history provenance caption, and
+    // must link to the public as-of commit; the image path itself is checked
+    // with every other relative image path below.
+    violations.extend(check_commit_graph_block(
+        &readme_label,
+        &readme_text,
+        expected_commit_link(&args.root).as_deref(),
+    ));
 
     // The badge block is generated: rebuild it in memory and fail when the
     // committed copy has drifted from the fresh generation.
@@ -1611,13 +1664,14 @@ mod tests {
     fn the_committed_readme_carries_the_commit_graph_block() {
         let root = workspace_root();
         let text = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
-        let violations = check_commit_graph_block("README.md", &text);
+        let expected = expected_commit_link(&root).expect("the committed graph names its commit");
+        let violations = check_commit_graph_block("README.md", &text, Some(&expected));
         assert!(violations.is_empty(), "{violations:?}");
     }
 
     #[test]
     fn a_document_without_the_commit_graph_markers_is_a_violation() {
-        let violations = check_commit_graph_block("README.md", "# Title\n\nno graph here\n");
+        let violations = check_commit_graph_block("README.md", "# Title\n\nno graph here\n", None);
         assert_eq!(violations.len(), 2, "{violations:?}");
         assert!(
             violations[0].message.contains(COMMIT_GRAPH_BEGIN),
@@ -1632,9 +1686,11 @@ mod tests {
     #[test]
     fn a_commit_graph_block_without_an_image_is_a_violation() {
         let text = format!(
-            "{COMMIT_GRAPH_BEGIN}\nno image, but the stamp shows the commit it was generated at\n{COMMIT_GRAPH_END}\n"
+            "{COMMIT_GRAPH_BEGIN}\n\
+             from the public history of this repository; later commits appear after the next refresh\n\
+             {COMMIT_GRAPH_END}\n"
         );
-        let violations = check_commit_graph_block("README.md", &text);
+        let violations = check_commit_graph_block("README.md", &text, None);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(
             violations[0].message.contains("names no image"),
@@ -1643,11 +1699,14 @@ mod tests {
     }
 
     #[test]
-    fn a_commit_graph_block_without_the_caption_is_a_violation() {
+    fn a_commit_graph_block_without_the_public_caption_is_a_violation() {
         let text = format!(
-            "{COMMIT_GRAPH_BEGIN}\n<img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n{COMMIT_GRAPH_END}\n"
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n\
+             Generated from git history; the stamp shows the commit it was generated at.\n\
+             {COMMIT_GRAPH_END}\n"
         );
-        let violations = check_commit_graph_block("README.md", &text);
+        let violations = check_commit_graph_block("README.md", &text, None);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(
             violations[0].message.contains("provenance caption"),
@@ -1656,11 +1715,53 @@ mod tests {
     }
 
     #[test]
-    fn a_complete_commit_graph_block_passes() {
+    fn a_commit_graph_block_missing_the_refresh_note_is_a_violation() {
         let text = format!(
-            "{COMMIT_GRAPH_BEGIN}\n<img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\nGenerated from git history; the stamp shows the commit it was generated at.\n{COMMIT_GRAPH_END}\n"
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n\
+             Generated from the public history of this repository.\n\
+             {COMMIT_GRAPH_END}\n"
         );
-        assert!(check_commit_graph_block("README.md", &text).is_empty());
+        let violations = check_commit_graph_block("README.md", &text, None);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("provenance caption"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_commit_graph_block_linking_elsewhere_is_a_violation() {
+        let expected =
+            "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <a href=\"https://example.invalid/public/commits/main\"><img src=\"docs/media/commit-graph.svg\" alt=\"a graph\"></a>\n\
+             Generated from the public history of this repository; later commits appear after the next refresh.\n\
+             {COMMIT_GRAPH_END}\n"
+        );
+        let violations = check_commit_graph_block("README.md", &text, Some(expected));
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0]
+                .message
+                .contains("does not link to the public as-of commit"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_complete_commit_graph_block_passes() {
+        let expected =
+            "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <a href=\"{expected}\"><img src=\"docs/media/commit-graph.svg\" alt=\"a graph\"></a>\n\
+             Generated by `cargo xtask commit-graph` from the public history of this repository,\n\
+             as of the commit shown in the image; later commits appear after the next refresh.\n\
+             {COMMIT_GRAPH_END}\n"
+        );
+        assert!(check_commit_graph_block("README.md", &text, Some(expected)).is_empty());
     }
 
     #[test]

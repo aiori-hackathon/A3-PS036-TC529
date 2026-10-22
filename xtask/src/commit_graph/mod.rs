@@ -1,18 +1,25 @@
-//! Commit-graph generation: read the repository's history and write one JSON
-//! document plus two self-contained SVG cards.
+//! Commit-graph generation: read the public history of the repository and
+//! write one JSON document plus two self-contained SVG cards.
 //!
 //! The graph is a pure function of the history reachable from one commit and
 //! the `[commit_graph]` configuration in `docs/readme-config.toml`. Nothing in
 //! the output depends on the wall clock, the machine or the git version's
 //! display defaults: dates are bucketed in a fixed-offset zone, the log format
 //! is pinned, and the JSON is serialised with a fixed key order.
+//!
+//! The committed card must describe the public repository, never a private
+//! development checkout whose history has been rewritten. Unless the checkout
+//! itself is the public repository, history is read from a bare cache of
+//! `source_url` at `source_ref`; the cache is cloned on first use and fetched
+//! afterwards. `--source local` is an offline escape hatch for inspection
+//! only: such a graph must not be committed.
 
 mod check;
 mod svg;
 mod text;
 
 use anyhow::{bail, Context, Result};
-use clap::Args;
+use clap::{Args, ValueEnum};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -22,7 +29,7 @@ use std::process::Command;
 pub(crate) use check::check_docs;
 
 /// Version of the JSON document shape.
-pub(crate) const SCHEMA_VERSION: u32 = 1;
+pub(crate) const SCHEMA_VERSION: u32 = 2;
 
 /// Configuration file, relative to the workspace root.
 pub(crate) const CONFIG_PATH: &str = "docs/readme-config.toml";
@@ -31,13 +38,33 @@ pub(crate) const JSON_PATH: &str = "docs/media/commit-graph.json";
 pub(crate) const SVG_PATH: &str = "docs/media/commit-graph.svg";
 pub(crate) const COMPACT_PATH: &str = "docs/media/commit-graph-compact.svg";
 
+/// Default public repository the committed card describes.
+const DEFAULT_SOURCE_URL: &str = "https://github.com/aiori-hackathon/A3-PS036-TC529.git";
+/// Default human-facing URL of that repository.
+const DEFAULT_REPO_WEB_URL: &str = "https://github.com/aiori-hackathon/A3-PS036-TC529";
+
+/// Where the history comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, ValueEnum)]
+pub(crate) enum HistorySource {
+    /// Read this checkout when its `origin` is the public repository,
+    /// otherwise read the public cache.
+    #[default]
+    Auto,
+    /// Read the public repository through a bare cache, fetching when needed.
+    Public,
+    /// Read this checkout offline. A graph built this way must not be
+    /// committed: it may describe a private, rewritten history.
+    Local,
+}
+
 #[derive(Args)]
 pub(crate) struct CommitGraphArgs {
-    /// Workspace root whose git history is read.
+    /// Workspace root used for configuration and output.
     #[arg(long, default_value = ".")]
     pub(crate) root: PathBuf,
 
-    /// Commit (or ref) to plot the graph up to. Defaults to HEAD.
+    /// Commit (or ref) to plot the graph up to. Defaults to HEAD for a local
+    /// checkout and the configured source ref for the public cache.
     #[arg(long)]
     pub(crate) as_of: Option<String>,
 
@@ -49,13 +76,19 @@ pub(crate) struct CommitGraphArgs {
     #[arg(long, default_value = "docs/media")]
     pub(crate) out_dir: PathBuf,
 
+    /// Which history to read: the public repository (default), this checkout,
+    /// or automatically the public one unless this checkout is the public one.
+    #[arg(long, value_enum, default_value_t = HistorySource::Auto)]
+    pub(crate) source: HistorySource,
+
     /// Verify the committed artifacts instead of regenerating them.
     ///
     /// Exits non-zero only when the graph is inconsistent (it does not
-    /// reproduce from its own as-of commit, a card disagrees with the
-    /// document, or a shape/budget rule fails). A graph that is merely behind
-    /// `HEAD` prints a warning and still exits zero, so a pre-push hook can
-    /// flag a stale graph without blocking the push.
+    /// reproduce from a history that contains its as-of commit, a card
+    /// disagrees with the document, or a shape/budget rule fails). A graph that
+    /// is merely behind `HEAD` prints a warning and still exits zero, and a
+    /// checkout that simply lacks the as-of commit skips the history checks, so
+    /// a hook can never fail offline.
     #[arg(long)]
     pub(crate) check: bool,
 }
@@ -67,19 +100,30 @@ pub(crate) struct CommitGraphArgs {
 pub(crate) struct CommitGraphConfig {
     /// Zone used to bucket commits into calendar days.
     pub(crate) timezone: String,
-    /// Optional lower bound, as an ISO date.
-    #[serde(default)]
-    pub(crate) since: Option<String>,
-    /// Git author names excluded from the graph.
+    /// Public repository whose history the committed card describes.
+    #[serde(default = "default_source_url")]
+    pub(crate) source_url: String,
+    /// Branch (or ref) of the public repository that the graph follows.
+    #[serde(default = "default_source_ref")]
+    pub(crate) source_ref: String,
+    /// Bare cache of the public history, relative to the workspace root.
+    #[serde(default = "default_source_cache")]
+    pub(crate) source_cache: String,
+    /// Human-facing URL used to build the README's commit permalink.
+    #[serde(default = "default_repo_web_url")]
+    pub(crate) repo_web_url: String,
+    /// Git author names hidden from the contributor breakdown. Their commits
+    /// are still counted: the totals must equal the commit count the public
+    /// repository shows.
     #[serde(default)]
     pub(crate) exclude_authors: Vec<String>,
     /// Git author name -> display name.
     #[serde(default)]
     pub(crate) display_names: BTreeMap<String, String>,
     /// Patterns; a commit whose every changed path matches one of them is
-    /// ignored.
+    /// counted and reported as a graph refresh rather than hidden.
     #[serde(default)]
-    pub(crate) ignore_commits_whose_files_all_match: Vec<String>,
+    pub(crate) refresh_commits_whose_files_all_match: Vec<String>,
     /// Milestones drawn on the timeline.
     #[serde(default)]
     pub(crate) milestones: Vec<MilestoneConfig>,
@@ -91,6 +135,22 @@ pub(crate) struct CommitGraphConfig {
     /// Warn when the committed graph is this many days behind HEAD.
     #[serde(default = "default_staleness_days")]
     pub(crate) staleness_days: i64,
+}
+
+fn default_source_url() -> String {
+    DEFAULT_SOURCE_URL.to_string()
+}
+
+fn default_source_ref() -> String {
+    "main".to_string()
+}
+
+fn default_source_cache() -> String {
+    "target/commit-graph-source.git".to_string()
+}
+
+fn default_repo_web_url() -> String {
+    DEFAULT_REPO_WEB_URL.to_string()
 }
 
 fn default_staleness_commits() -> u64 {
@@ -130,7 +190,11 @@ pub(crate) struct GraphRange {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct GraphTotals {
+    /// Every commit reachable from `as_of_sha`, including graph refreshes.
+    /// This equals `git rev-list --count <as_of_sha>`.
     pub(crate) commits: u64,
+    /// The subset of `commits` whose every changed file is a graph artifact.
+    pub(crate) refresh_commits: u64,
     pub(crate) active_days: u64,
     pub(crate) longest_streak: u64,
     pub(crate) current_streak: u64,
@@ -185,9 +249,20 @@ fn validate_config(config: &CommitGraphConfig) -> Result<()> {
     if config.budget_kb == 0 {
         bail!("commit_graph.budget_kb must be greater than zero");
     }
-    if let Some(since) = &config.since {
-        parse_iso_date(since)
-            .with_context(|| format!("commit_graph.since `{since}` is not an ISO date"))?;
+    if config.source_url.trim().is_empty() {
+        bail!("commit_graph.source_url must name the public repository");
+    }
+    if config.source_ref.trim().is_empty()
+        || config.source_ref.starts_with('-')
+        || config.source_ref.contains(char::is_whitespace)
+    {
+        bail!("commit_graph.source_ref is not a usable ref name");
+    }
+    if config.source_cache.trim().is_empty() {
+        bail!("commit_graph.source_cache must name the bare cache directory");
+    }
+    if config.repo_web_url.trim().is_empty() {
+        bail!("commit_graph.repo_web_url must name the public repository's web page");
     }
     for milestone in &config.milestones {
         parse_iso_date(&milestone.date).with_context(|| {
@@ -342,6 +417,255 @@ pub(crate) fn ensure_full_history(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Where a graph's history is read from.
+#[derive(Debug, Clone)]
+pub(crate) struct History {
+    /// Directory accepted by `git -C`: a checkout or a bare repository.
+    pub(crate) path: PathBuf,
+    /// True when the history came from the public cache rather than this
+    /// checkout.
+    pub(crate) public: bool,
+}
+
+/// The bare cache directory named by the configuration.
+pub(crate) fn cache_path(root: &Path, config: &CommitGraphConfig) -> PathBuf {
+    root.join(&config.source_cache)
+}
+
+/// Normalise a git remote URL enough to compare an `origin` with the configured
+/// source. Handles the scp-like `git@host:path` form, a trailing slash and a
+/// trailing `.git`, which are the differences a clone introduces.
+pub(crate) fn normalize_remote(raw: &str) -> String {
+    let mut text = raw.trim().to_string();
+    if let Some(rest) = text.strip_prefix("git@") {
+        text = format!("https://{}", rest.replacen(':', "/", 1));
+    } else if let Some(rest) = text.strip_prefix("ssh://git@") {
+        text = format!("https://{rest}");
+    }
+    while text.ends_with('/') {
+        text.pop();
+    }
+    if let Some(stripped) = text.strip_suffix(".git") {
+        text = stripped.to_string();
+    }
+    while text.ends_with('/') {
+        text.pop();
+    }
+    text
+}
+
+/// True when this checkout's `origin` is the configured public repository, so
+/// its own history is already the public history.
+pub(crate) fn is_public_checkout(root: &Path, config: &CommitGraphConfig) -> Result<bool> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["remote", "get-url", "origin"])
+        .output()
+        .context("failed to run git")?;
+    if !output.status.success() {
+        return Ok(false);
+    }
+    let origin = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(!origin.is_empty() && normalize_remote(&origin) == normalize_remote(&config.source_url))
+}
+
+/// True when `path` contains the commit named by `sha`.
+pub(crate) fn commit_exists(path: &Path, sha: &str) -> Result<bool> {
+    if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(false);
+    }
+    let revision = format!("{sha}^{{commit}}");
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["cat-file", "-e", &revision])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .context("failed to run git")?;
+    Ok(output.status.success())
+}
+
+/// True when `sha` is reachable from `HEAD` in `path`.
+pub(crate) fn is_ancestor(path: &Path, sha: &str) -> Result<bool> {
+    if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Ok(false);
+    }
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(["merge-base", "--is-ancestor", sha, "HEAD"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .output()
+        .context("failed to run git")?;
+    Ok(output.status.success())
+}
+
+/// Run `git` in the bare cache without any credential prompt.
+fn run_git_offline(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(path)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .output()
+        .context("failed to run git")?;
+    if !output.status.success() {
+        bail!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(output.stdout)
+}
+
+/// Clone the public history into the bare cache on first use, then fetch it.
+/// No credentials are requested and no prompt is ever shown.
+fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
+    let cache = cache_path(root, config);
+    let bare = cache.exists()
+        && Command::new("git")
+            .arg("-C")
+            .arg(&cache)
+            .args(["rev-parse", "--is-bare-repository"])
+            .output()
+            .map(|output| {
+                output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
+            })
+            .unwrap_or(false);
+    if bare {
+        if let Err(error) = run_git_offline(
+            &cache,
+            &[
+                "fetch",
+                "--quiet",
+                "--prune",
+                &config.source_url,
+                "+refs/heads/*:refs/heads/*",
+                "+refs/tags/*:refs/tags/*",
+            ],
+        ) {
+            bail!(
+                "cannot refresh the public history from {}: {error}\n\
+                 The committed commit graph must describe the public repository, never this \
+                 checkout's private log.\n\
+                 If the network is unavailable, run `cargo xtask commit-graph --source local` to \
+                 build a graph from this checkout for inspection only. An offline graph describes \
+                 this local history and must not be committed.",
+                config.source_url
+            );
+        }
+        return Ok(cache);
+    }
+    if cache.exists() {
+        bail!(
+            "{} exists but is not a bare git repository; remove it and run \
+             `cargo xtask commit-graph --source public` again",
+            cache.display()
+        );
+    }
+    if let Some(parent) = cache.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    let output = Command::new("git")
+        .args(["clone", "--bare", "--quiet", &config.source_url])
+        .arg(&cache)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .env("GCM_INTERACTIVE", "Never")
+        .output()
+        .context("failed to run git clone")?;
+    if !output.status.success() {
+        let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        bail!(
+            "cannot read the public history from {}: {detail}\n\
+             The committed commit graph must describe the public repository, never this \
+             checkout's private log.\n\
+             If the network is unavailable, run `cargo xtask commit-graph --source local` to \
+             build a graph from this checkout for inspection only. An offline graph describes \
+             this local history and must not be committed.",
+            config.source_url
+        );
+    }
+    Ok(cache)
+}
+
+/// Resolve the history a graph should be read from.
+pub(crate) fn acquire_history(
+    root: &Path,
+    config: &CommitGraphConfig,
+    source: HistorySource,
+) -> Result<History> {
+    match source {
+        HistorySource::Local => Ok(History {
+            path: root.to_path_buf(),
+            public: is_public_checkout(root, config).unwrap_or(false),
+        }),
+        HistorySource::Public => Ok(History {
+            path: ensure_cache(root, config)?,
+            public: true,
+        }),
+        HistorySource::Auto => {
+            if is_public_checkout(root, config)? {
+                Ok(History {
+                    path: root.to_path_buf(),
+                    public: true,
+                })
+            } else {
+                Ok(History {
+                    path: ensure_cache(root, config)?,
+                    public: true,
+                })
+            }
+        }
+    }
+}
+
+/// The public commit permalink the README should carry.
+pub(crate) fn commit_permalink(config: &CommitGraphConfig, sha: &str) -> String {
+    format!("{}/commit/{sha}", config.repo_web_url.trim_end_matches('/'))
+}
+
+/// Point the README's commit-graph image link at the public as-of commit.
+///
+/// Only the `href` of the first anchor inside the marker-bracketed block is
+/// replaced; every other byte of the README is preserved. Returns the rewritten
+/// text, or `None` when the README has no such block or no anchor.
+pub(crate) fn rewrite_readme_permalink(text: &str, permalink: &str) -> Option<String> {
+    const BEGIN: &str = "<!-- commit-graph:begin -->";
+    const END: &str = "<!-- commit-graph:end -->";
+    let begin = text.find(BEGIN)? + BEGIN.len();
+    let end = begin + text[begin..].find(END)?;
+    let body = &text[begin..end];
+    let href = body.find("href=\"")? + "href=\"".len();
+    let close = href + body[href..].find('"')?;
+    let mut rewritten = String::with_capacity(text.len());
+    let href = begin + href;
+    let close = begin + close;
+    rewritten.push_str(&text[..href]);
+    rewritten.push_str(permalink);
+    rewritten.push_str(&text[close..]);
+    Some(rewritten)
+}
+
+/// Update the README permalink in place when the block is present.
+fn update_readme_permalink(root: &Path, config: &CommitGraphConfig, sha: &str) -> Result<()> {
+    let path = root.join("README.md");
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return Ok(());
+    };
+    let permalink = commit_permalink(config, sha);
+    if let Some(rewritten) = rewrite_readme_permalink(&text, &permalink) {
+        if rewritten != text {
+            std::fs::write(&path, rewritten)
+                .with_context(|| format!("failed to write {}", path.display()))?;
+        }
+    }
+    Ok(())
+}
+
 fn resolve_commit(root: &Path, spec: &str) -> Result<String> {
     let spec = spec.trim();
     if spec.is_empty()
@@ -464,11 +788,14 @@ pub(crate) fn glob_match(pattern: &str, path: &str) -> bool {
     helper(pattern.as_bytes(), path.as_bytes())
 }
 
-fn ignorable_by_paths(config: &CommitGraphConfig, files: &[String]) -> bool {
+/// True when every path a commit touched is a graph artifact, so the commit is
+/// a media-only graph refresh. Such commits are counted like any other and
+/// reported separately instead of being hidden.
+fn is_refresh_commit(config: &CommitGraphConfig, files: &[String]) -> bool {
     !files.is_empty()
         && files.iter().all(|path| {
             config
-                .ignore_commits_whose_files_all_match
+                .refresh_commits_whose_files_all_match
                 .iter()
                 .any(|pattern| glob_match(pattern, path))
         })
@@ -483,6 +810,13 @@ struct DayAccumulator {
 }
 
 /// Build the graph document and its serialised JSON form.
+///
+/// Every commit reachable from `as_of` is counted: the totals are what the
+/// public repository shows at that commit, so nothing (a graph refresh, a bot
+/// commit or an excluded display name) can make them disagree with
+/// `git rev-list --count`. The author breakdown is the only place a name is
+/// hidden, and that never removes a commit from the totals or the per-day
+/// counts.
 pub(crate) fn generate(
     root: &Path,
     config: &CommitGraphConfig,
@@ -491,23 +825,11 @@ pub(crate) fn generate(
     let offset = tz_offset_minutes(&config.timezone)?;
     let sha = resolve_commit(root, as_of.unwrap_or("HEAD"))?;
     let as_of_day = local_day(commit_timestamp(root, &sha)?, offset);
-    let since = match &config.since {
-        Some(date) => Some(parse_iso_date(date)?),
-        None => None,
-    };
-    if let Some(start) = since {
-        if start > as_of_day {
-            bail!(
-                "commit_graph.since ({}) is after the as-of date ({})",
-                format_date(start),
-                format_date(as_of_day)
-            );
-        }
-    }
 
     let mut days: BTreeMap<i64, DayAccumulator> = BTreeMap::new();
     let mut authors: BTreeMap<String, u64> = BTreeMap::new();
     let mut commits = 0u64;
+    let mut refresh_commits = 0u64;
     let mut lines_added = 0u64;
     let mut lines_removed = 0u64;
     let mut files_touched = 0u64;
@@ -515,19 +837,10 @@ pub(crate) fn generate(
 
     for commit in read_commits(root, &sha)? {
         let day = local_day(commit.ts, offset);
-        if since.is_some_and(|start| day < start) {
-            continue;
-        }
-        if config
+        let hidden_author = config
             .exclude_authors
             .iter()
-            .any(|excluded| excluded == &commit.author)
-        {
-            continue;
-        }
-        if ignorable_by_paths(config, &commit.files) {
-            continue;
-        }
+            .any(|excluded| excluded == &commit.author);
         let display = config
             .display_names
             .get(&commit.author)
@@ -546,18 +859,21 @@ pub(crate) fn generate(
         entry.commits += 1;
         entry.added = entry.added.saturating_add(commit.added);
         entry.removed = entry.removed.saturating_add(commit.removed);
-        entry.authors.insert(display.clone());
-        *authors.entry(display).or_insert(0) += 1;
+        if !hidden_author {
+            entry.authors.insert(display.clone());
+            *authors.entry(display).or_insert(0) += 1;
+        }
         commits += 1;
+        if is_refresh_commit(config, &commit.files) {
+            refresh_commits += 1;
+        }
         lines_added = lines_added.saturating_add(commit.added);
         lines_removed = lines_removed.saturating_add(commit.removed);
         files_touched = files_touched.saturating_add(commit.files.len() as u64);
         first_day = Some(first_day.map_or(day, |current| current.min(day)));
     }
 
-    let start = since
-        .or(first_day)
-        .with_context(|| format!("no commits to graph at {sha}"))?;
+    let start = first_day.with_context(|| format!("no commits to graph at {sha}"))?;
     if start > as_of_day {
         bail!(
             "the graph start date ({}) is after the as-of date ({})",
@@ -614,6 +930,7 @@ pub(crate) fn generate(
         },
         totals: GraphTotals {
             commits,
+            refresh_commits,
             active_days: per_day.iter().filter(|day| day.commits > 0).count() as u64,
             longest_streak,
             current_streak,
@@ -677,14 +994,20 @@ fn size_label(bytes: usize) -> String {
 
 /// Generate the JSON and both cards, then write them.
 pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
-    ensure_full_history(&args.root)?;
     if args.check {
         return cmd_commit_graph_check(&args);
     }
     let config_path = args.root.join(&args.config);
     let config = load_config(&config_path)?;
-    let as_of = args.as_of.as_deref().unwrap_or("HEAD");
-    let (graph, json) = generate(&args.root, &config, Some(as_of))?;
+    let history = acquire_history(&args.root, &config, args.source)?;
+    ensure_full_history(&history.path)?;
+    let default_as_of = if history.public && history.path != args.root {
+        config.source_ref.as_str()
+    } else {
+        "HEAD"
+    };
+    let as_of = args.as_of.as_deref().unwrap_or(default_as_of);
+    let (graph, json) = generate(&history.path, &config, Some(as_of))?;
     let palette = svg::Palette::load(&args.root)?;
     let full = svg::render_full(&graph, &palette)?;
     let compact = svg::render_compact(&graph, &palette)?;
@@ -712,6 +1035,7 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         .with_context(|| format!("failed to write {}", full_path.display()))?;
     std::fs::write(&compact_path, &compact)
         .with_context(|| format!("failed to write {}", compact_path.display()))?;
+    update_readme_permalink(&args.root, &config, &graph.as_of_sha)?;
 
     let totals = &graph.totals;
     println!(
@@ -723,10 +1047,28 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         graph.range.end,
         graph.timezone
     );
+    if history.public {
+        if history.path == args.root {
+            println!(
+                "  history source: this checkout (origin is {})",
+                config.source_url
+            );
+        } else {
+            println!(
+                "  history source: public {} (ref {}, cache {})",
+                config.source_url, config.source_ref, config.source_cache
+            );
+        }
+    } else {
+        println!(
+            "  history source: LOCAL CHECKOUT (origin is not {}); this graph must not be committed",
+            config.source_url
+        );
+    }
+    println!("  public as of {} ({})", graph.as_of_sha, graph.as_of_date);
     println!(
-        "  as of {} ({})",
-        &graph.as_of_sha[..7.min(graph.as_of_sha.len())],
-        graph.as_of_date
+        "  of which {} graph refresh commit(s)",
+        totals.refresh_commits
     );
     println!(
         "  lines +{} / -{}, {} files touched, longest streak {} day(s), current {} day(s)",
@@ -752,6 +1094,10 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         compact_path.display(),
         size_label(compact.len()),
         config.budget_kb
+    );
+    println!(
+        "  README permalink: {}",
+        commit_permalink(&config, &graph.as_of_sha)
     );
     Ok(())
 }

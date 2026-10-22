@@ -1,6 +1,6 @@
 {
-  "schema_version": 1,
-  "as_of_sha": "6983925c133f8b64799dbadd6bb093072a4a2255",
+  "schema_version": 2,
+  "as_of_sha": "f94fc6a53b0c1363edbc9eae95868cb782b3cfcb",
   "as_of_date": "2026-10-22",
   "timezone": "Asia/Kolkata",
   "range": {
@@ -8,20 +8,21 @@
     "end": "2026-10-22"
   },
   "totals": {
-    "commits": 75,
+    "commits": 71,
+    "refresh_commits": 0,
     "active_days": 18,
     "longest_streak": 12,
     "current_streak": 12,
-    "lines_added": 92064,
-    "lines_removed": 12356,
-    "files_touched": 751
+    "lines_added": 78662,
+    "lines_removed": 5773,
+    "files_touched": 692
   },
   "per_day": [
     {
       "date": "2026-09-26",
       "commits": 7,
-      "added": 4526,
-      "removed": 62,
+      "added": 3400,
+      "removed": 58,
       "authors": [
         "Pratyay"
       ]
@@ -29,8 +30,8 @@
     {
       "date": "2026-09-27",
       "commits": 4,
-      "added": 4699,
-      "removed": 78,
+      "added": 4052,
+      "removed": 66,
       "authors": [
         "Pratyay"
       ]
@@ -45,17 +46,17 @@
     {
       "date": "2026-09-29",
       "commits": 4,
-      "added": 2145,
-      "removed": 47,
+      "added": 1611,
+      "removed": 38,
       "authors": [
         "Pratyay"
       ]
     },
     {
       "date": "2026-09-30",
-      "commits": 5,
-      "added": 3236,
-      "removed": 202,
+      "commits": 4,
+      "added": 2284,
+      "removed": 93,
       "authors": [
         "Pratyay"
       ]
@@ -63,7 +64,7 @@
     {
       "date": "2026-10-01",
       "commits": 1,
-      "added": 2051,
+      "added": 1803,
       "removed": 148,
       "authors": [
         "Pratyay"
@@ -113,9 +114,9 @@
     },
     {
       "date": "2026-10-08",
-      "commits": 3,
-      "added": 3674,
-      "removed": 53,
+      "commits": 2,
+      "added": 3589,
+      "removed": 50,
       "authors": [
         "Pratyay"
       ]
@@ -146,7 +147,7 @@
     {
       "date": "2026-10-12",
       "commits": 8,
-      "added": 10681,
+      "added": 9862,
       "removed": 300,
       "authors": [
         "Pratyay"
@@ -154,18 +155,18 @@
     },
     {
       "date": "2026-10-13",
-      "commits": 6,
-      "added": 7931,
-      "removed": 5848,
+      "commits": 4,
+      "added": 3782,
+      "removed": 2185,
       "authors": [
         "Pratyay"
       ]
     },
     {
       "date": "2026-10-14",
-      "commits": 9,
-      "added": 9256,
-      "removed": 1298,
+      "commits": 8,
+      "added": 7562,
+      "removed": 570,
       "authors": [
         "Pratyay"
       ]
@@ -173,8 +174,8 @@
     {
       "date": "2026-10-15",
       "commits": 1,
-      "added": 1698,
-      "removed": 198,
+      "added": 1433,
+      "removed": 86,
       "authors": [
         "Pratyay"
       ]
@@ -182,8 +183,8 @@
     {
       "date": "2026-10-16",
       "commits": 8,
-      "added": 7193,
-      "removed": 637,
+      "added": 6643,
+      "removed": 313,
       "authors": [
         "Pratyay"
       ]
@@ -191,8 +192,8 @@
     {
       "date": "2026-10-17",
       "commits": 1,
-      "added": 2043,
-      "removed": 142,
+      "added": 1731,
+      "removed": 42,
       "authors": [
         "Pratyay"
       ]
@@ -200,8 +201,8 @@
     {
       "date": "2026-10-18",
       "commits": 2,
-      "added": 5225,
-      "removed": 229,
+      "added": 4752,
+      "removed": 73,
       "authors": [
         "Pratyay"
       ]
@@ -209,8 +210,8 @@
     {
       "date": "2026-10-19",
       "commits": 3,
-      "added": 9081,
-      "removed": 770,
+      "added": 8104,
+      "removed": 241,
       "authors": [
         "Pratyay"
       ]
@@ -218,26 +219,26 @@
     {
       "date": "2026-10-20",
       "commits": 5,
-      "added": 6975,
-      "removed": 1040,
+      "added": 5466,
+      "removed": 259,
       "authors": [
         "Pratyay"
       ]
     },
     {
       "date": "2026-10-21",
-      "commits": 4,
-      "added": 3482,
-      "removed": 695,
+      "commits": 3,
+      "added": 2806,
+      "removed": 384,
       "authors": [
         "Pratyay"
       ]
     },
     {
       "date": "2026-10-22",
-      "commits": 3,
-      "added": 8167,
-      "removed": 606,
+      "commits": 5,
+      "added": 9781,
+      "removed": 864,
       "authors": [
         "Pratyay"
       ]
@@ -246,7 +247,7 @@
   "per_author": [
     {
       "display": "Pratyay",
-      "commits": 75
+      "commits": 71
     }
   ],
   "milestones": [
@@ -271,5 +272,5 @@
       "future": true
     }
   ],
-  "config_hash": "1abd20e2af9cb0fe4a0075f8d87bb3b3145515c70113989fc348958d6cd48360"
+  "config_hash": "23e30316cbdad3ab4a4ce04c3762748857b878dbc8f2e1945ede4246f3fc938f"
 }

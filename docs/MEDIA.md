@@ -48,7 +48,7 @@ Generated PNG/SVG/brand assets live in `docs/media/`. `docs/media/README.md` doc
 
 ## Commit graph card
 
-`cargo xtask commit-graph` reads the repository's own history and writes three
+`cargo xtask commit-graph` reads the **public** commit history and writes three
 artifacts into `docs/media/`:
 
 - `commit-graph.json` — the machine-readable document: totals, one row per day
@@ -60,8 +60,25 @@ artifacts into `docs/media/`:
   the README.
 
 The rules live in the `[commit_graph]` table of `docs/readme-config.toml`: the
-timezone (fixed offset only), an optional start date, excluded authors, display
-names, the path-only commit filter, the milestones and the size budget.
+timezone (fixed offset only), the public `source_url`, `source_ref` and
+`source_cache`, the `repo_web_url` used for the README permalink, hidden author
+names, the refresh-commit pattern, the milestones and the size budget.
+
+The committed card must describe the public repository, never a private
+development checkout whose history has been rewritten. The command therefore
+reads history from a bare cache of `source_url` at `source_ref` — cloned on
+first use, fetched afterwards, without credentials — unless the checkout's own
+`origin` already is that public repository. `--source public` forces the cache,
+and `--source local` reads this checkout for offline inspection; a graph built
+with `--source local` must not be committed, because it may describe a private
+log whose commit ids do not exist publicly.
+
+`totals.commits` counts **every** commit reachable from the stamped
+`as_of_sha`, so it equals `git rev-list --count <as_of_sha>` and therefore the
+number the public repository shows at that commit. Media-only graph refreshes
+are included in that total and reported separately as `totals.refresh_commits`
+(“of which N graph refreshes” in the card footer); active days, streaks and
+per-day counts include them too. Nothing is hidden.
 
 Dates are bucketed in the configured zone from each commit's author timestamp,
 and the document is anchored to one commit: `as_of_sha`, with `as_of_date` taken
@@ -72,24 +89,34 @@ run in a shallow clone, where the history is incomplete.
 Every label is drawn as vector outlines from an embedded font, and both cards
 carry their text as `<title>`/`<desc>` for assistive technology. There are no
 scripts, no external requests and no web fonts. `cargo xtask docs-check`
-regenerates the JSON from its own `as_of_sha`, compares it byte for byte,
-checks the `<desc>` numbers against the document, and enforces the size budget;
-a graph that is merely behind `HEAD` produces a warning, not a failure.
+reproduces the JSON byte for byte from this checkout when it contains the
+as-of commit, otherwise from the public cache, and skips the history checks with
+a printed reason when neither does; it also checks the `<desc>` numbers, the
+size budget, and the README's link to the public commit. It never fetches, so a
+public clone passes with no network; a graph that is merely behind `HEAD`
+produces a warning, not a failure.
 
 ## Refreshing the graph
 
-1. Run `scripts/refresh-commit-graph.sh` after any change worth recording; it
-   runs the generator and stages only `docs/media/commit-graph.*`.
-2. Read the `git diff --stat --cached` it prints, then commit with
+1. Commit the work locally.
+2. Run `tools/sync-aiori.sh` to publish it to the public repository.
+3. Run `scripts/refresh-commit-graph.sh`. It fetches the public history first,
+   prints the public SHA and the commit count at that SHA, regenerates the card
+   (so it includes the commits just synced) and stages only the three media
+   artifacts plus the README permalink the generator rewrites.
+4. Read the `git diff --stat --cached` it prints, then commit with
    `docs: refresh commit graph` — the script never commits or pushes.
-3. To check without writing, run `cargo xtask commit-graph --check`: it fails
-   only when the graph is inconsistent, and warns (exit zero) when it is merely
-   behind `HEAD`.
-4. To warn automatically, run `scripts/install-hooks.sh` once; it prints exactly
+5. The next `tools/sync-aiori.sh` publishes the refreshed card.
+6. To check without writing, run `cargo xtask commit-graph --check`: it fails
+   only when the graph is inconsistent, warns (exit zero) when it is merely
+   behind `HEAD`, and skips the history checks with a reason when the as-of
+   commit is in neither this checkout nor the cache.
+7. To warn automatically, run `scripts/install-hooks.sh` once; it prints exactly
    what it installs and adds a pre-push hook that warns on staleness without
-   blocking a push.
-5. The README's `<!-- commit-graph:begin -->` block points at the latest card;
-   it never needs a hand edit, because the card is regenerated, not rewritten.
+   blocking a push and never fetches.
+8. The README's `<!-- commit-graph:begin -->` block points at the public commit
+   the card was generated from; its caption never needs a hand edit, because the
+   generator rewrites the permalink, not the prose.
 
 ## Honest limits
 
@@ -99,6 +126,8 @@ a graph that is merely behind `HEAD` produces a warning, not a failure.
 - **Activity is not quality.** Commit counts, streaks and lines changed measure
   how the repository was worked on, not how good the work is; a busy week and a
   slow week look different in the picture and say nothing about either.
-- **Generated only from this history.** The graph is a pure function of the
-  reachable commits and the `[commit_graph]` rules; it carries no wall-clock
-  date, no e-mail address and no claim that any milestone was met on time.
+- **Public history only.** The graph is a pure function of the public commits
+  reachable from `as_of_sha` and the `[commit_graph]` rules; it carries no
+  wall-clock date, no e-mail address and no claim that any milestone was met on
+  time. An offline `--source local` graph describes the local checkout instead
+  and must not be committed.

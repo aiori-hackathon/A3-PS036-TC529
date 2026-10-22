@@ -3,10 +3,12 @@
 #
 # This never runs on its own. It installs one hook, .git/hooks/pre-push, which
 # runs `cargo xtask commit-graph --check` before a push. That check fails only
-# when the committed graph is inconsistent (it does not reproduce from its own
-# as-of commit, or a card disagrees with the document) and merely warns when the
-# graph is simply behind HEAD, so a stale graph never blocks a push. The hook
-# does not amend, rewrite or create commits, and it does not push anything.
+# when the committed graph is inconsistent (it does not reproduce from the
+# public history, or a card disagrees with the document) and merely warns when
+# the graph is simply behind HEAD. It never fetches: a checkout that lacks the
+# public as-of commit reproduces from the local bare cache, and when neither
+# has it the history checks are skipped with a printed reason. The hook does
+# not amend, rewrite or create commits, and it does not push anything.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -49,8 +51,11 @@ echo "  $hook_path"
 echo ""
 echo "What it does on every push:"
 echo "  1. runs: cargo xtask commit-graph --check"
-echo "  2. warns (does not fail) when the committed graph is behind HEAD"
-echo "  3. fails only when the committed graph is inconsistent"
+echo "  2. reproduces the card from this checkout or the public-history cache"
+echo "  3. warns (does not fail) when the committed graph is behind HEAD"
+echo "  4. fails only when the committed graph is inconsistent"
 echo ""
+echo "It never fetches and never fails offline: a missing as-of commit skips the"
+echo "history checks with a printed reason."
 echo "What it never does: amend, rewrite or create commits, or push anything."
 echo "Remove it with: rm '$hook_path'"
