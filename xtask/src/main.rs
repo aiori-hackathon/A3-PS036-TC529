@@ -18,6 +18,7 @@ mod ladder_verify;
 mod memory;
 mod package;
 mod pin_env;
+mod readme_badges;
 mod reproduce;
 mod source_hygiene;
 mod stability;
@@ -34,6 +35,7 @@ use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
+use readme_badges::{cmd_readme_badges, ReadmeBadgesArgs};
 use reproduce::{cmd_reproduce, ReproduceArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
@@ -120,6 +122,16 @@ enum Commands {
     /// headline-table row's value, unit, evidence class or baseline does not
     /// match a quote-sheet row.
     DocsCheck(DocsCheckArgs),
+    /// Regenerate the README badge block from one configuration file.
+    ///
+    /// Rewrites the block between the `<!-- badges:begin -->` and
+    /// `<!-- badges:end -->` markers with two centred rows of anchored badge
+    /// images: an identity row (hackathon, problem statement, track) and a
+    /// proof row (language, introduction video, claims count). The claims
+    /// count is read from the claims registry of the consolidated results
+    /// artifact, never typed in. `--check` compares the committed block with a
+    /// fresh generation instead of writing.
+    ReadmeBadges(ReadmeBadgesArgs),
     /// Scan the shipped source tree for process-history references.
     ///
     /// A comment that cites a planning/process document by name, or the phase
@@ -234,6 +246,7 @@ fn main() -> Result<()> {
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
+        Commands::ReadmeBadges(args) => cmd_readme_badges(args),
         Commands::SourceHygiene(args) => cmd_source_hygiene(args),
         Commands::CheckPins(args) => check_pins::run(&args.root),
         Commands::Package(args) => cmd_package(args),

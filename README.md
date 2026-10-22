@@ -9,6 +9,18 @@
 
 # CLIMB — Cryptographic Ladder Impact Measurement Benchmark
 
+<!-- badges:begin -->
+<div align="center">
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="AIORI 3 Hackathon — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Problem statement PS-036 — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=problem%20statement&amp;message=PS-036&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Track 2 Cyber Security — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=track%202&amp;message=Cyber%20Security&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
+  <br>
+  <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
+  <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
+  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 771/771" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=771%2F771&amp;color=C55E33&amp;labelColor=5C8E8D&amp;style=for-the-badge"></a>
+</div>
+<!-- badges:end -->
+
 **Team Name**: CLIMB
 
 **Team Code**: A3-PS036-TC529

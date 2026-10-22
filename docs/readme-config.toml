@@ -1,0 +1,88 @@
+# README badge block — the single source of truth for the badge rows in
+# README.md.
+#
+# `cargo xtask readme-badges` reads this file and rewrites the block between
+# the `<!-- badges:begin -->` and `<!-- badges:end -->` markers. Nothing inside
+# that block is typed by hand: the claims count is read from the claims
+# registry of the consolidated results artifact, and `cargo xtask docs-check`
+# regenerates the block and fails when the committed copy has drifted.
+#
+# This file is committed and mirrored publicly, so it carries no secrets.
+
+[badges]
+# The shields.io rendering style, and the colour of the small logo glyphs.
+style = "for-the-badge"
+logo_color = "white"
+
+# Where the badges link to. A badge names one of these keys in its `link`
+# field; adding a link here makes it available to every badge.
+[badges.links]
+portal = "https://portal.aiori.in/aiori-3/hackathon-guideline/"
+video = "https://www.youtube.com/watch?v=gDHYamjWmtE"
+rust = "https://www.rust-lang.org/"
+claims = "docs/deck-facts.md"
+
+# The brand palette, sampled from the artwork and recorded in
+# docs/media/brand.toml. A badge names one of these keys in its colour fields.
+# Every ink clears 3:1 against white text.
+[badges.colours]
+orange = "#C55E33"
+slate = "#38454E"
+teal = "#5C8E8D"
+
+# The identity row: who the submission is.
+
+[badges.hackathon]
+label = "AIORI 3"
+message = "Hackathon"
+alt = "AIORI 3 Hackathon — open the hackathon guidelines"
+link = "portal"
+label_color = "slate"
+message_color = "orange"
+
+[badges.problem_statement]
+label = "problem statement"
+message = "PS-036"
+alt = "Problem statement PS-036 — open the hackathon guidelines"
+link = "portal"
+label_color = "slate"
+message_color = "orange"
+
+[badges.track]
+label = "track 2"
+message = "Cyber Security"
+alt = "Track 2 Cyber Security — open the hackathon guidelines"
+link = "portal"
+label_color = "slate"
+message_color = "orange"
+
+# The proof row: what backs the submission.
+
+[badges.built_with]
+label = "built with"
+message = "Rust"
+alt = "Built with Rust"
+link = "rust"
+label_color = "slate"
+message_color = "teal"
+logo = "rust"
+
+[badges.video]
+label = "intro video"
+message = "YouTube"
+alt = "YouTube introduction video — watch the team introduction"
+link = "video"
+label_color = "slate"
+message_color = "teal"
+logo = "youtube"
+
+# The claims badge: `{claims}` is replaced by the number of claims that
+# re-resolve in the results artifact, or by `unavailable` when the artifact is
+# missing.
+[badges.claims]
+label = "claims verified"
+message = "{claims}"
+alt = "Claims verified: {claims}"
+link = "claims"
+label_color = "teal"
+message_color = "orange"

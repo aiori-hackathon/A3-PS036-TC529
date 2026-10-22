@@ -24,12 +24,22 @@
 //! value, unit, evidence class and baseline must match a quote-sheet row, so
 //! the table cannot hand-type a number, a class or a baseline the sheet does
 //! not carry.
+//!
+//! The README's badge block (between the `<!-- badges:begin -->` and
+//! `<!-- badges:end -->` markers) is generated, so its numbers are verified by
+//! regeneration instead of by the quote sheet: the block is rebuilt in memory
+//! from the badge configuration and the claims registry, and a block that
+//! differs from the fresh generation is a violation with a diff. The block's
+//! own lines are exempt from the numeric-result rule — and only those lines;
+//! the rule itself is unchanged for every other line of every document.
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use crate::readme_badges;
 
 /// Marker line that exempts its own line from the numeric-result check.
 const ALLOW_NUMBER_MARKER: &str = "<!-- docs-check:allow-number -->";
@@ -276,9 +286,18 @@ pub(crate) fn check_file(
     let mut violations = Vec::new();
 
     // (2) Numeric results: every number+unit pair must be in the quote sheet.
+    // The generated badge block is exempt: its numbers are verified by
+    // regenerating the block, not by the quote sheet, and only the block's
+    // own lines are skipped.
+    let badge_lines = badge_block_lines(text);
     for (idx, line) in text.lines().enumerate() {
         if line.contains(ALLOW_NUMBER_MARKER) {
             continue;
+        }
+        if let Some((begin, end)) = badge_lines {
+            if idx >= begin && idx < end {
+                continue;
+            }
         }
         for (number, unit) in scan_result_numbers(line) {
             let known_value = facts.iter().any(|f| f.value == number && f.unit == unit);
@@ -466,6 +485,98 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
 /// Markers bracketing the README's logo header block.
 const LOGO_BEGIN: &str = "<!-- logo:begin -->";
 const LOGO_END: &str = "<!-- logo:end -->";
+
+/// The line range of the managed badge block, exclusive of the markers.
+/// `None` when the markers are absent or the end marker comes first.
+pub(crate) fn badge_block_lines(text: &str) -> Option<(usize, usize)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines
+        .iter()
+        .position(|line| line.trim() == readme_badges::BADGES_BEGIN)?;
+    let end = lines
+        .iter()
+        .position(|line| line.trim() == readme_badges::BADGES_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, end))
+}
+
+/// Check the generated badge block of the README.
+///
+/// The block is rebuilt in memory from the badge configuration and the claims
+/// registry of the results artifact; a committed block that differs from the
+/// fresh generation is a violation carrying the diff. A missing configuration
+/// or a missing results artifact is a violation too: the block cannot be
+/// verified without them.
+pub(crate) fn check_badge_block(file: &str, readme_text: &str, root: &Path) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let config_path = root.join(readme_badges::DEFAULT_CONFIG);
+    let results_path = root.join(readme_badges::DEFAULT_RESULTS);
+    let begin_line = readme_text
+        .lines()
+        .position(|line| line.trim() == readme_badges::BADGES_BEGIN)
+        .map(|index| index + 1)
+        .unwrap_or(1);
+
+    if !config_path.exists() {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: begin_line,
+            message: format!(
+                "the badge configuration `{}` is missing, so the badge block cannot be verified",
+                config_path.display()
+            ),
+        });
+        return violations;
+    }
+    if !results_path.exists() {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: begin_line,
+            message: format!(
+                "the results artifact `{}` is missing, so the badge block cannot be verified",
+                results_path.display()
+            ),
+        });
+        return violations;
+    }
+
+    let (_, generated, _) = match readme_badges::generate(&config_path, &results_path) {
+        Ok(generated) => generated,
+        Err(error) => {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: begin_line,
+                message: format!("the badge block could not be regenerated: {error:#}"),
+            });
+            return violations;
+        }
+    };
+
+    let Some(committed) = readme_badges::extract_block(readme_text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: begin_line,
+            message: format!(
+                "the README carries no managed badge block (`{}` / `{}`)",
+                readme_badges::BADGES_BEGIN,
+                readme_badges::BADGES_END
+            ),
+        });
+        return violations;
+    };
+
+    if committed.trim_end() != generated.trim_end() {
+        let diff = readme_badges::render_diff(&readme_badges::diff_lines(&generated, &committed));
+        violations.push(Violation {
+            file: file.to_string(),
+            line: begin_line,
+            message: format!("the managed badge block has drifted from the generated one:\n{diff}"),
+        });
+    }
+    violations
+}
 
 /// The body of the marker-bracketed logo block, and the line it starts on.
 /// `None` when a marker is missing or the end marker comes first.
@@ -910,6 +1021,10 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .display()
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
+
+    // The badge block is generated: rebuild it in memory and fail when the
+    // committed copy has drifted from the fresh generation.
+    violations.extend(check_badge_block(&readme_label, &readme_text, &args.root));
 
     let mut image_files = vec![readme_path.clone()];
     image_files.extend(markdown_files(&args.root.join("docs"))?);
@@ -1459,5 +1574,89 @@ mod tests {
             let violations = check_image_paths(&label, &dir_prefix, &text, &files);
             assert!(violations.is_empty(), "{label}: {violations:?}");
         }
+    }
+
+    /// A miniature badge block: the shape the generator writes, with the
+    /// percent-encoded query values that the numeric scanner would otherwise
+    /// read as results.
+    const BADGE_BLOCK: &str = "\
+<!-- badges:begin -->
+<div align=\"center\">
+  <a href=\"https://portal.example.invalid/guideline/\"><img alt=\"AIORI 3 Hackathon\" src=\"https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=C55E33\"></a>
+  <br>
+  <a href=\"docs/deck-facts.md\"><img alt=\"Claims verified: 771/771\" src=\"https://img.shields.io/static/v1?label=claims%20verified&amp;message=771%2F771\"></a>
+</div>
+<!-- badges:end -->";
+
+    #[test]
+    fn the_badge_block_lines_are_exempt_from_the_numeric_rule() {
+        let text = format!("# Title\n\n{BADGE_BLOCK}\n");
+        let violations = check_file("README.md", &text, &facts(), &known());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn the_numeric_rule_still_applies_outside_the_badge_block() {
+        // The same digits, one line above the block, are still a violation:
+        // the exemption covers the managed block and nothing else.
+        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n");
+        let violations = check_file("README.md", &text, &facts(), &known());
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].message.contains("771 %"), "{violations:?}");
+    }
+
+    #[test]
+    fn the_badge_block_line_range_covers_only_the_body() {
+        let text = format!("# Title\n\n{BADGE_BLOCK}\n");
+        let (begin, end) = badge_block_lines(&text).expect("the markers are present");
+        let lines: Vec<&str> = text.lines().collect();
+        // The range starts after the opening marker and ends before the
+        // closing one.
+        assert_eq!(lines[begin - 1].trim(), "<!-- badges:begin -->");
+        assert_eq!(lines[end].trim(), "<!-- badges:end -->");
+        assert!(lines[begin].contains("<div align=\"center\">"), "{lines:?}");
+        assert!(lines[end - 1].contains("</div>"), "{lines:?}");
+    }
+
+    #[test]
+    fn a_document_without_the_badge_markers_has_no_exempt_range() {
+        assert!(badge_block_lines("# Title\n\n771 % of nothing\n").is_none());
+    }
+
+    #[test]
+    fn the_committed_readme_badge_block_matches_a_fresh_generation() {
+        let root = workspace_root();
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let violations = check_badge_block("README.md", &readme, &root);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn an_injected_edit_in_the_badge_block_is_reported_as_drift() {
+        let root = workspace_root();
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let edited = readme.replace("771%2F771", "772%2F771");
+        assert_ne!(edited, readme, "the injection must change the block");
+        let violations = check_badge_block("README.md", &edited, &root);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("has drifted"),
+            "{violations:?}"
+        );
+        assert!(
+            violations[0].message.contains("772%2F771"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_readme_without_the_badge_block_is_a_violation() {
+        let root = workspace_root();
+        let violations = check_badge_block("README.md", "# Title\n\nno block here\n", &root);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("no managed badge block"),
+            "{violations:?}"
+        );
     }
 }
