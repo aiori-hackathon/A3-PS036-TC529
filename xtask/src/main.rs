@@ -183,8 +183,8 @@ struct BenchAllArgs {
     #[arg(long)]
     baseline: Option<String>,
 
-    /// Also run the without-MTL signing groups that take hours to days per run
-    /// on the reference hardware (medium ~18 h, large ~78 days).
+    /// Also run the benchmark groups that are skipped by default because a
+    /// single iteration is infeasibly slow on the reference hardware.
     #[arg(long)]
     include_slow: bool,
 

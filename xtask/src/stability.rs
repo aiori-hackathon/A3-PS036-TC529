@@ -4,12 +4,36 @@
 //!
 //! Each run measures the per-message MTL signing primitive `t_mtl_single` and
 //! the per-batch amortised signing cost `t_tree(N)` for every selected dataset
-//! size. The signing speed-up model is then
-//! `B/C = (N * t_mtl_single) / (t_mtl_single + t_tree(N))`. Across runs the
-//! median, min, max, coefficient of variation and run count are computed per
-//! size and merged additively into `derived.stability` of the consolidated
-//! results artifact, so a run-to-run instability in a headline ratio is visible
-//! without re-deriving it by hand.
+//! size.
+//!
+//! # The signing speed-up model
+//!
+//! Signing a batch of `N` messages costs:
+//!
+//! * **C — with amortisation:** one MTL ladder over all `N` messages, i.e.
+//!   `t_tree(N)`. The underlying signature is paid once.
+//! * **B — without amortisation:** `N` independent MTL signatures, i.e.
+//!   `N × t_mtl_single`. The underlying signature is paid `N` times.
+//!
+//! so the speed-up is
+//!
+//! ```text
+//! B/C = (N × t_mtl_single) / t_tree(N)
+//! ```
+//!
+//! Because `t_tree(N)` is dominated by that one underlying signature and is
+//! nearly independent of `N`, the model ratio is close to `N`: the amortised
+//! path signs `N` messages for roughly the price of one.
+//!
+//! The model deliberately does **not** add `t_mtl_single` to `t_tree(N)`.
+//! `t_tree(N)` already contains the underlying signature — it *is* the
+//! signature over the ladder — so adding it again would count the same
+//! signature twice and halve the modelled ratio.
+//!
+//! Across runs the median, min, max, coefficient of variation and run count
+//! are computed per size and merged additively into `derived.stability` of the
+//! consolidated results artifact, so a run-to-run instability in a headline
+//! ratio is visible without re-deriving it by hand.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -19,7 +43,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde_json::Value;
 
-use climb_report::{StabilityRatioStats, StabilitySection};
+use climb_report::{ClimbResults, StabilityRatioStats, StabilitySection};
 
 #[derive(Args)]
 pub(crate) struct StabilityArgs {
@@ -146,6 +170,23 @@ fn compute_stats(vals: &[f64]) -> (f64, f64, f64, f64) {
     (median, min, max, cv)
 }
 
+/// The modelled signing speed-up `B/C` for a batch of `n` messages.
+///
+/// `C` is the amortised cost of signing the whole batch under one ladder
+/// (`t_tree`); `B` is the non-amortised cost (`n` independent MTL
+/// signatures, each `t_mtl_single`). `t_tree` already contains the single
+/// underlying signature, so it is used as-is.
+///
+/// Returns `None` when `t_tree` is not positive — a degenerate measurement
+/// must not become a ratio.
+fn model_speedup(n: usize, t_mtl_single: f64, t_tree: f64) -> Option<f64> {
+    if t_tree <= 0.0 {
+        None
+    } else {
+        Some((n as f64) * t_mtl_single / t_tree)
+    }
+}
+
 pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
     let sizes = parse_sizes(&args.sizes)?;
     if args.runs == 0 {
@@ -171,12 +212,17 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
             let group = format!("primitives_t_tree_{n}");
             let t_tree = read_criterion_mean(&args.criterion_dir, &group)
                 .with_context(|| format!("missing {group} estimate after the run"))?;
-            let c_model = t_mtl_single + t_tree;
-            let b_model = (*n as f64) * t_mtl_single;
+            // The amortised cost of signing the whole batch is the ladder
+            // signing itself; the non-amortised cost is one independent
+            // signature per message. `t_tree(N)` already contains the
+            // underlying signature, so nothing is added to it.
+            let Some(speedup) = model_speedup(*n, t_mtl_single, t_tree) else {
+                bail!("{group} reported a non-positive ladder signing cost ({t_tree} ns)");
+            };
             per_ratio
                 .entry(format!("signing_speedup_model_{label}"))
                 .or_default()
-                .push(b_model / c_model);
+                .push(speedup);
         }
     }
 
@@ -219,17 +265,22 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
 
 /// Load the results artifact, set `derived.stability`, and write it back
 /// without disturbing any other field (the section is purely additive).
+///
+/// The document goes through the same typed model the consolidator writes, so
+/// the merged artifact keeps the consolidator's field order and layout: a
+/// merge never reshapes the file around it. An artifact the model cannot
+/// parse is a hard error naming the path, never a silently rewritten file.
 fn merge_stability(results_path: &Path, section: StabilitySection) -> Result<()> {
     let text = std::fs::read_to_string(results_path)
         .with_context(|| format!("failed to read {}", results_path.display()))?;
-    let mut doc: Value = serde_json::from_str(&text)
-        .with_context(|| format!("{} is not valid JSON", results_path.display()))?;
-    let derived = doc
-        .get_mut("derived")
-        .and_then(|d| d.as_object_mut())
-        .with_context(|| format!("{} has no derived object", results_path.display()))?;
-    derived.insert("stability".to_string(), serde_json::to_value(&section)?);
-    let out = serde_json::to_string_pretty(&doc)?;
+    let mut results: ClimbResults = serde_json::from_str(&text).with_context(|| {
+        format!(
+            "{} is not a consolidated results artifact",
+            results_path.display()
+        )
+    })?;
+    results.derived.stability = Some(section);
+    let out = serde_json::to_string_pretty(&results)?;
     std::fs::write(results_path, out)
         .with_context(|| format!("failed to write {}", results_path.display()))?;
     Ok(())
@@ -238,6 +289,145 @@ fn merge_stability(results_path: &Path, section: StabilitySection) -> Result<()>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The committed sample artifact, used as a realistic input for the
+    /// merge tests.
+    fn committed_sample() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../docs/sample-output/climb-results.json")
+    }
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-stability-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir
+    }
+
+    fn section() -> StabilitySection {
+        StabilitySection {
+            runs: vec![StabilityRatioStats {
+                ratio_name: "signing_speedup_model_small".to_string(),
+                median: 100.0,
+                min: 99.0,
+                max: 101.0,
+                cv: 0.01,
+                n_runs: 5,
+            }],
+        }
+    }
+
+    /// The merge is additive and nothing else: every field of the artifact
+    /// outside `derived.stability` survives the merge unchanged, and the
+    /// stability section lands where it belongs.
+    #[test]
+    fn the_merge_adds_the_stability_section_and_changes_nothing_else() {
+        let dir = temp_dir("additive");
+        let path = dir.join("climb-results.json");
+        let source = std::fs::read_to_string(committed_sample()).expect("read committed sample");
+        std::fs::write(&path, &source).expect("write copy");
+
+        merge_stability(&path, section()).expect("merge");
+
+        let mut before: serde_json::Value = serde_json::from_str(&source).expect("valid JSON");
+        let mut after: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read merged"))
+                .expect("valid JSON");
+
+        // The section the merge wrote is the one it was given.
+        let written = after["derived"]["stability"].clone();
+        assert_eq!(
+            written["runs"][0]["ratio_name"],
+            "signing_speedup_model_small"
+        );
+        assert_eq!(written["runs"][0]["n_runs"], 5);
+
+        // Remove the section from both documents: the rest of the artifact
+        // must be identical, field for field.
+        for doc in [&mut before, &mut after] {
+            doc["derived"]
+                .as_object_mut()
+                .expect("derived object")
+                .remove("stability");
+        }
+        assert_eq!(before, after, "the merge must not disturb any other field");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The merge writes the artifact in the consolidator's field order: the
+    /// merged document lists its top-level keys exactly as the results model
+    /// declares them, so the two writers agree on the layout of the file and a
+    /// merge never reshapes the artifact around it.
+    #[test]
+    fn the_merge_keeps_the_consolidators_field_order() {
+        let dir = temp_dir("order");
+        let path = dir.join("climb-results.json");
+        let source = std::fs::read_to_string(committed_sample()).expect("read committed sample");
+        std::fs::write(&path, &source).expect("write copy");
+
+        merge_stability(&path, section()).expect("merge");
+        let merged = std::fs::read_to_string(&path).expect("read merged");
+
+        let top_level_keys = |text: &str| -> Vec<String> {
+            text.lines()
+                .filter_map(|line| {
+                    let rest = line.strip_prefix("  \"")?;
+                    let end = rest.find('"')?;
+                    Some(rest[..end].to_string())
+                })
+                .collect()
+        };
+        assert_eq!(
+            top_level_keys(&merged),
+            vec![
+                "version",
+                "generated_at",
+                "workspace_root",
+                "benchmark",
+                "wire_size",
+                "memory",
+                "environment",
+                "dns_pipeline",
+                "dns_anatomy",
+                "ladder",
+                "plain",
+                "classical",
+                "comparisons",
+                "derived",
+                "warnings",
+            ],
+            "the merge must write the artifact in the model's field order"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A file that is not a consolidated results artifact is a hard error that
+    /// names the path — the merge never rewrites a document it cannot read.
+    #[test]
+    fn the_merge_rejects_a_file_that_is_not_a_results_artifact() {
+        let dir = temp_dir("invalid");
+        let path = dir.join("climb-results.json");
+        std::fs::write(&path, "{ \"not\": \"an artifact\" }").expect("write invalid file");
+
+        let err = merge_stability(&path, section())
+            .expect_err("an unreadable artifact must be a hard error")
+            .to_string();
+        assert!(
+            err.contains("climb-results.json"),
+            "the error must name the path: {err}"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn parses_the_default_size_list() {
@@ -275,6 +465,24 @@ mod tests {
     fn stats_on_an_even_sample_average_the_two_middle_values() {
         let (median, _, _, _) = compute_stats(&[1.0, 2.0, 3.0, 4.0]);
         assert_eq!(median, 2.5);
+    }
+
+    #[test]
+    fn model_speedup_is_close_to_the_batch_size() {
+        // The ladder signing already contains the one underlying signature, so
+        // the modelled ratio is the batch size (times the ratio of the two
+        // signing costs) — not half of it.
+        let speedup = model_speedup(1_000, 1_360_219_000.0, 1_379_698_000.0).expect("a ratio");
+        assert!(
+            (speedup - 985.9).abs() < 0.5,
+            "unexpected model ratio: {speedup}"
+        );
+    }
+
+    #[test]
+    fn model_speedup_rejects_a_non_positive_ladder_cost() {
+        assert!(model_speedup(100, 1_360_219_000.0, 0.0).is_none());
+        assert!(model_speedup(100, 1_360_219_000.0, -1.0).is_none());
     }
 
     #[test]

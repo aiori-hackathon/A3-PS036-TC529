@@ -31,7 +31,8 @@ pub use results::{
     consolidate_results, ClimbResults, ConsolidateOptions, DnsAnatomyRecord, DnsAnatomySection,
     DnsCapture, DnsCaptureFlags, DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery,
     DnsCaptureSource, DnsPipelineHeadline, PrimitivesFreq, PrimitivesSection, StabilityRatioStats,
-    StabilitySection, HEADLINE_QNAME, HEADLINE_QTYPE,
+    StabilitySection, BASELINE_SPREAD_LIMIT, BOUND_POINTER, CONSOLIDATE_COMMAND, HEADLINE_QNAME,
+    HEADLINE_QTYPE,
 };
 pub use summary::{
     condition_label, condition_short_label, parse_group_id, summarize, BenchKind, MtlMode, Size,

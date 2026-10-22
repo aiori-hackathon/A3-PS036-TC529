@@ -22,7 +22,9 @@ use serde_json::Value;
 
 use crate::charts::{fmt_count, CHART_FILES};
 use crate::error::ReportError;
-use crate::results::{size_display, ClimbResults, DnsCaptureSource};
+use crate::results::{
+    size_display, ClimbResults, DnsCaptureSource, BOUND_POINTER, CONSOLIDATE_COMMAND,
+};
 
 /// Opening tag of the embedded claims registry; [`check_report`] locates
 /// the payload by searching for this exact marker.
@@ -260,14 +262,10 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         &root,
         "signing-speedup-bound",
         "/derived/bound_ok",
-        Some(
-            if results.derived.bound_ok {
-                "ok"
-            } else {
-                "violated"
-            }
-            .to_string(),
-        ),
+        results
+            .derived
+            .bound_ok
+            .map(|ok| if ok { "ok" } else { "violated" }.to_string()),
     );
     for (idx, comp) in results.comparisons.iter().enumerate() {
         let base = format!("/comparisons/{idx}");
@@ -1443,6 +1441,16 @@ fn extract_registry(html: &str) -> Registry {
 /// embedded chart data URIs.
 fn check_html(html: &str, results: &ClimbResults, with_chart_count: bool) -> CheckReport {
     let mut problems = Vec::new();
+    // A results artifact that carries no bound check must not pass silently.
+    // The bound is a rigour guard: absent means "never checked", and the
+    // message names the command that produces it.
+    if results.derived.bound_ok.is_none() {
+        problems.push(format!(
+            "results artifact carries no `{}` — the signing speed-up bound was never checked; \
+             regenerate it with `{}`",
+            BOUND_POINTER, CONSOLIDATE_COMMAND
+        ));
+    }
     let embedded = match extract_registry(html) {
         Registry::MissingMarker => {
             problems.push("claims registry (#climb-claims) missing from HTML".to_string());
@@ -1759,8 +1767,10 @@ mod tests {
                 signature_context: Vec::new(),
                 stability: None,
                 primitives: None,
-                bound_ok: true,
+                bound_ok: Some(true),
+                baseline_ok: Some(true),
                 bound_offenders: Vec::new(),
+                baseline_offenders: Vec::new(),
             },
             warnings: Vec::new(),
         }
@@ -1824,6 +1834,20 @@ mod tests {
         let (results, html) = render_fixture();
         let failures = check_report(&html, &results);
         assert_eq!(failures, Vec::<String>::new());
+    }
+
+    #[test]
+    fn check_fails_when_the_results_carry_no_bound_check() {
+        let (mut results, html) = render_fixture();
+        // The bound was never checked: the document says nothing about it.
+        results.derived.bound_ok = None;
+        let failures = check_report(&html, &results);
+        assert!(
+            failures
+                .iter()
+                .any(|f| f.contains(BOUND_POINTER) && f.contains(CONSOLIDATE_COMMAND)),
+            "the failure must name the pointer and the regenerating command, got {failures:?}"
+        );
     }
 
     #[test]
@@ -2136,8 +2160,10 @@ mod tests {
             signature_context: Vec::new(),
             stability: None,
             primitives: None,
-            bound_ok: true,
+            bound_ok: Some(true),
+            baseline_ok: Some(true),
             bound_offenders: Vec::new(),
+            baseline_offenders: Vec::new(),
         };
         results.dns_pipeline = None;
         let dir = unique_temp_dir("html-empty");

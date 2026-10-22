@@ -309,6 +309,22 @@ fn parse_size(s: &str) -> Option<Size> {
 // Summarize
 // ---------------------------------------------------------------------------
 
+/// True when a summary row comes from the current benchmark layout.
+///
+/// The non-amortised **signing** baseline is measured as one complete MTL
+/// signature per iteration at every dataset size, so its row reports exactly
+/// one message. A row that reports a batch is left over from the superseded
+/// layout — one iteration used to sign the whole dataset — and mixing the two
+/// would compare a batch total against a per-message cost.
+///
+/// The verifying baseline is unaffected: it verifies a batch of full
+/// signatures per iteration, which is the operation it is meant to measure.
+pub fn is_current_layout(row: &SummaryRow) -> bool {
+    !(row.kind == BenchKind::Signing
+        && row.mode == MtlMode::WithoutMtl
+        && row.elements.unwrap_or(0) != 1)
+}
+
 /// Convert raw Criterion records into categorized summary rows.
 ///
 /// Every record's group_id must parse via [`parse_group_id`]; unrecognized
@@ -430,6 +446,75 @@ mod tests {
     }
 
     // -- parse_plain_group_id ---------------------------------------------
+
+    #[test]
+    fn is_current_layout_accepts_a_per_message_signing_baseline() {
+        let row = SummaryRow {
+            kind: BenchKind::Signing,
+            size: Size::Small,
+            mode: MtlMode::WithoutMtl,
+            mean_ns: 500_000_000.0,
+            ci_lower_ns: 490_000_000.0,
+            ci_upper_ns: 510_000_000.0,
+            elements: Some(1),
+        };
+        assert!(is_current_layout(&row));
+    }
+
+    #[test]
+    fn is_current_layout_rejects_a_batch_shaped_signing_baseline() {
+        let row = SummaryRow {
+            kind: BenchKind::Signing,
+            size: Size::Small,
+            mode: MtlMode::WithoutMtl,
+            mean_ns: 50_000_000_000.0,
+            ci_lower_ns: 49_000_000_000.0,
+            ci_upper_ns: 51_000_000_000.0,
+            elements: Some(100),
+        };
+        assert!(
+            !is_current_layout(&row),
+            "a leftover batch-shaped signing baseline must be dropped"
+        );
+    }
+
+    #[test]
+    fn is_current_layout_keeps_batch_shaped_verifying_and_with_mtl_rows() {
+        let verifying = SummaryRow {
+            kind: BenchKind::Verifying,
+            size: Size::Small,
+            mode: MtlMode::WithoutMtl,
+            mean_ns: 149_253_433.87,
+            ci_lower_ns: 140_000_000.0,
+            ci_upper_ns: 160_000_000.0,
+            elements: Some(100),
+        };
+        assert!(is_current_layout(&verifying));
+        let with_mtl = SummaryRow {
+            kind: BenchKind::Signing,
+            size: Size::Small,
+            mode: MtlMode::WithMtlFullVerify,
+            mean_ns: 559_474_890.43,
+            ci_lower_ns: 540_000_000.0,
+            ci_upper_ns: 580_000_000.0,
+            elements: Some(100),
+        };
+        assert!(is_current_layout(&with_mtl));
+    }
+
+    #[test]
+    fn is_current_layout_rejects_a_signing_baseline_without_an_element_count() {
+        let row = SummaryRow {
+            kind: BenchKind::Signing,
+            size: Size::Small,
+            mode: MtlMode::WithoutMtl,
+            mean_ns: 500_000_000.0,
+            ci_lower_ns: 490_000_000.0,
+            ci_upper_ns: 510_000_000.0,
+            elements: None,
+        };
+        assert!(!is_current_layout(&row));
+    }
 
     #[test]
     fn parse_plain_group_id_accepts_measured_sizes() {

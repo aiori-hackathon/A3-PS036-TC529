@@ -51,7 +51,12 @@ fn committed_isolated_fixture_consolidates_and_survives_every_consumer() {
     assert_eq!(expected_runs.len(), 3);
 
     let root = temp_root("isolated");
-    let results = consolidate_memory(&root, Some(fixture)).unwrap();
+    let mut results = consolidate_memory(&root, Some(fixture)).unwrap();
+    // This fixture carries no Criterion measurements, so the signing speed-up
+    // bound was never checked. The report self-check rejects an artifact
+    // without a bound check — that guard has its own tests — so the field is
+    // filled in here to keep this test about the memory section.
+    results.derived.bound_ok = Some(true);
     assert_eq!(results.memory.measured.len(), expected_runs.len());
 
     // Every consolidated field is cross-checked against the committed

@@ -18,10 +18,23 @@ struct BenchmarkJson {
     group_id: String,
     #[serde(default)]
     function_id: Option<String>,
+    /// The parameter-string value. Criterion writes `null` for a benchmark
+    /// declared with `bench_function` (no parameter) and a string for one
+    /// declared with `bench_with_input`, so both forms are accepted.
+    #[serde(default, deserialize_with = "null_to_empty_string")]
     value_str: String,
     #[serde(default)]
     throughput: Option<Throughput>,
     full_id: String,
+}
+
+/// Deserialize a JSON string-or-null into a `String`, mapping `null` to the
+/// empty string.
+fn null_to_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
 }
 
 /// Throughput in `benchmark.json` — either element count or byte count.
@@ -83,7 +96,8 @@ pub struct CriterionRecord {
     /// Criterion benchmark function id (e.g. `"sign_batch"`). Absent for a
     /// single benchmarks-per-group layout, where Criterion writes `null`.
     pub function_id: Option<String>,
-    /// The parameter-string value (e.g. `"100"`).
+    /// The parameter-string value (e.g. `"100"`). Empty for a benchmark
+    /// declared without a parameter, which Criterion records as `null`.
     pub value_str: String,
     /// Fully-qualified Criterion benchmark id.
     pub full_id: String,
@@ -261,4 +275,77 @@ pub fn scan_criterion(root: &Path, baseline: &str) -> Result<Vec<CriterionRecord
     });
 
     Ok(records)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Write one Criterion leaf — `benchmark.json` and `estimates.json` —
+    /// into a fresh temporary directory and hand back the directory.
+    fn write_leaf(tag: &str, benchmark: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-record-{tag}-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("create the temporary directory");
+        std::fs::write(dir.join(BENCHMARK_JSON), benchmark).expect("write benchmark.json");
+        std::fs::write(
+            dir.join(ESTIMATES_JSON),
+            r#"{
+              "mean": {
+                "confidence_interval": {
+                  "lower_bound": 100.0,
+                  "upper_bound": 300.0,
+                  "confidence_level": 0.95
+                },
+                "point_estimate": 200.0
+              }
+            }"#,
+        )
+        .expect("write estimates.json");
+        dir
+    }
+
+    /// Criterion writes `"value_str": null` for a benchmark declared without
+    /// a parameter; such a leaf must parse, with an empty parameter string.
+    #[test]
+    fn a_null_value_str_parses_as_an_empty_parameter_string() {
+        let dir = write_leaf(
+            "null-value-str",
+            r#"{
+              "group_id": "signing_small_without_mtl",
+              "function_id": "sign_one",
+              "value_str": null,
+              "full_id": "signing_small_without_mtl/sign_one",
+              "throughput": { "Elements": 1 }
+            }"#,
+        );
+        let record = read_leaf(&dir).expect("the leaf parses");
+        assert_eq!(record.value_str, "");
+        assert_eq!(record.function_id.as_deref(), Some("sign_one"));
+        assert_eq!(record.elements, Some(1));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A benchmark declared *with* a parameter keeps its parameter string.
+    #[test]
+    fn a_present_value_str_is_kept_verbatim() {
+        let dir = write_leaf(
+            "present-value-str",
+            r#"{
+              "group_id": "signing_onek_with_mtl",
+              "function_id": "sign_batch",
+              "value_str": "1000",
+              "full_id": "signing_onek_with_mtl/sign_batch/1000",
+              "throughput": { "Elements": 1000 }
+            }"#,
+        );
+        let record = read_leaf(&dir).expect("the leaf parses");
+        assert_eq!(record.value_str, "1000");
+        assert_eq!(record.elements, Some(1000));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -40,6 +40,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::readme_badges;
+use climb_report::{BOUND_POINTER, CONSOLIDATE_COMMAND};
 
 /// Marker line that exempts its own line from the numeric-result check.
 const ALLOW_NUMBER_MARKER: &str = "<!-- docs-check:allow-number -->";
@@ -999,19 +1000,31 @@ pub(crate) fn workspace_names(root: &Path) -> Result<HashSet<String>> {
     Ok(names)
 }
 
-/// Treat `bound_ok == false` in a consolidated results artifact as a failing
-/// claim: the documented numbers must not rest on a signing speed-up that
-/// exceeds the 1.05xN bound. Names every offending ratio.
+/// Treat the signing speed-up bound in a consolidated results artifact as a
+/// hard honesty claim.
+///
+/// Two failure modes, both fatal:
+///
+/// * the artifact carries no bound check at all — the bound was never
+///   checked, so nothing in the documentation may rest on it. The message
+///   names the command that regenerates the artifact.
+/// * the bound was checked and violated — the documented numbers must not
+///   rest on a signing speed-up that exceeds the 1.05xN bound. Every
+///   offending ratio is named.
 fn check_signing_bound(results_path: &Path) -> Result<()> {
     let text = std::fs::read_to_string(results_path)
         .with_context(|| format!("failed to read {}", results_path.display()))?;
     let doc: serde_json::Value = serde_json::from_str(&text)
         .with_context(|| format!("{} is not valid JSON", results_path.display()))?;
-    let bound_ok = doc
-        .pointer("/derived/bound_ok")
-        .and_then(|v| v.as_bool())
-        // A missing bound field is treated as unchecked, not as a pass.
-        .unwrap_or(true);
+    // An absent field — and a field that is present but not a boolean — means
+    // the bound was never checked. It is not a pass.
+    let Some(bound_ok) = doc.pointer(BOUND_POINTER).and_then(|value| value.as_bool()) else {
+        bail!(
+            "{}: the results artifact carries no `{BOUND_POINTER}` — the signing speed-up \
+             bound was never checked; regenerate it with `{CONSOLIDATE_COMMAND}`",
+            results_path.display()
+        );
+    };
     if bound_ok {
         return Ok(());
     }
@@ -1219,6 +1232,31 @@ mod tests {
             .to_string();
         assert!(err.contains("bound violated"), "unexpected message: {err}");
         assert!(err.contains("Small"), "the offender must be named: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_bound_guard_fails_when_the_bound_was_never_checked() {
+        let dir =
+            std::env::temp_dir().join(format!("climb-docs-bound-absent-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // A results document that never carried the bound check: the field is
+        // absent altogether, not `false`.
+        let doc = serde_json::json!({ "derived": { "bound_offenders": [] } });
+        let path = dir.join("climb-results.json");
+        std::fs::write(&path, serde_json::to_vec_pretty(&doc).expect("json"))
+            .expect("write temp results");
+        let err = check_signing_bound(&path)
+            .expect_err("an unchecked bound must be a failing claim")
+            .to_string();
+        assert!(
+            err.contains(BOUND_POINTER),
+            "the pointer must be named: {err}"
+        );
+        assert!(
+            err.contains(CONSOLIDATE_COMMAND),
+            "the regenerating command must be named: {err}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

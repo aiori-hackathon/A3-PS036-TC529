@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-10-20T14:30:48+05:30",
+  "generated_at": "2026-10-22T13:39:40+05:30",
   "workspace_root": "/home/pratyay/Documents/My Codes/climb",
   "benchmark": {
     "signing": [
@@ -8,54 +8,72 @@
         "size": "Small",
         "condition": "With MTL",
         "messages": 100,
-        "mean_ns": 559474890.43,
-        "ci_lower_ns": 552389795.331,
-        "ci_upper_ns": 567052995.0582501,
+        "mean_ns": 535164000.65,
+        "ci_lower_ns": 532061043.0185,
+        "ci_upper_ns": 538991385.4895,
         "speedup": null
       },
       {
         "size": "Small",
         "condition": "Without MTL",
-        "messages": 100,
-        "mean_ns": 97904505062.6,
-        "ci_lower_ns": 68068734349.1,
-        "ci_upper_ns": 128913734076.9875,
+        "messages": 1,
+        "mean_ns": 536843411.4,
+        "ci_lower_ns": 532948949.9055,
+        "ci_upper_ns": 541531259.539,
         "speedup": null
       },
       {
         "size": "OneK",
         "condition": "With MTL",
         "messages": 1000,
-        "mean_ns": 716176020.81,
-        "ci_lower_ns": 695266629.962,
-        "ci_upper_ns": 741940671.13725,
+        "mean_ns": 547916436.9,
+        "ci_lower_ns": 542387237.45975,
+        "ci_upper_ns": 554731349.0719999,
         "speedup": null
       },
       {
         "size": "OneK",
         "condition": "Without MTL",
-        "messages": 1000,
-        "mean_ns": 688242643237.8,
-        "ci_lower_ns": 655274818387.1649,
-        "ci_upper_ns": 717043245383.5,
+        "messages": 1,
+        "mean_ns": 538263423.41,
+        "ci_lower_ns": 534462007.38775,
+        "ci_upper_ns": 542622714.46225,
         "speedup": null
       },
       {
         "size": "Medium",
         "condition": "With MTL",
         "messages": 10000,
-        "mean_ns": 552656773.93,
-        "ci_lower_ns": 550381028.54725,
-        "ci_upper_ns": 555177089.314,
+        "mean_ns": 571175488.69,
+        "ci_lower_ns": 567496652.4469999,
+        "ci_upper_ns": 575354824.62375,
+        "speedup": null
+      },
+      {
+        "size": "Medium",
+        "condition": "Without MTL",
+        "messages": 1,
+        "mean_ns": 535593385.06,
+        "ci_lower_ns": 532576664.38725,
+        "ci_upper_ns": 538948183.0042499,
         "speedup": null
       },
       {
         "size": "Large",
         "condition": "With MTL",
         "messages": 1000000,
-        "mean_ns": 4306743022.25,
-        "ci_lower_ns": 4294781304.32875,
-        "ci_upper_ns": 4319775629.86575,
+        "mean_ns": 4620611063.57,
+        "ci_lower_ns": 4599796247.1165,
+        "ci_upper_ns": 4643945563.29525,
+        "speedup": null
+      },
+      {
+        "size": "Large",
+        "condition": "Without MTL",
+        "messages": 1,
+        "mean_ns": 537252555.08,
+        "ci_lower_ns": 533053887.503,
+        "ci_upper_ns": 542219029.1915001,
         "speedup": null
       }
     ],
@@ -179,9 +197,9 @@
         "harness_buffers_bytes": 27656,
         "analytical_total_bytes": 2178594,
         "residual_bytes": 1966558,
-        "residual_percent": 90.26730083714543,
+        "residual_percent": 90.26730083714544,
         "ratio": 1.9765625,
-        "measured_analytical_total_ratio": 1.9026730083714543,
+        "measured_analytical_total_ratio": 1.9026730083714545,
         "measured_range_min_bytes": 4087808,
         "measured_range_max_bytes": 4227072,
         "measured_stddev_bytes": 47110.359819106816,
@@ -247,7 +265,7 @@
         "harness_buffers_bytes": 399067864,
         "analytical_total_bytes": 984351122,
         "residual_bytes": 102788718,
-        "residual_percent": 10.442281793833319,
+        "residual_percent": 10.44228179383332,
         "ratio": 22.059092420212767,
         "measured_analytical_total_ratio": 1.104422817938333,
         "measured_range_min_bytes": 1087107072,
@@ -379,7 +397,7 @@
   "dns_pipeline": {
     "full_signature_bytes_www_a": 24438,
     "condensed_proof_bytes_www_a": 658,
-    "reduction_percent_www_a": 97.30747196988297,
+    "reduction_percent_www_a": 97.30747196988295,
     "notes": "From live DNS demo (www.climb.example. A)",
     "source": "live",
     "recorded_at": "2026-10-20T14:30:35+05:30",
@@ -601,9 +619,9 @@
     {
       "size": "Small",
       "messages": 100,
-      "signing_mean_ns": 526583170.55,
-      "signing_ci_lower_ns": 520549028.77175,
-      "signing_ci_upper_ns": 534092027.59925,
+      "signing_mean_ns": 533915948.45,
+      "signing_ci_lower_ns": 530881315.0010001,
+      "signing_ci_upper_ns": 537388765.682,
       "verifying_mean_ns": 1388591.9235840305,
       "verifying_ci_lower_ns": 1356365.2318701895,
       "verifying_ci_upper_ns": 1426546.848273957,
@@ -613,7 +631,7 @@
     {
       "size": "OneK",
       "messages": 1000,
-      "signing_mean_ns": 524945692.38,
+      "signing_mean_ns": 534491696.49,
       "signing_ci_lower_ns": null,
       "signing_ci_upper_ns": null,
       "verifying_mean_ns": 1406359.1417783257,
@@ -625,9 +643,9 @@
     {
       "size": "Medium",
       "messages": 10000,
-      "signing_mean_ns": 523308214.21,
-      "signing_ci_lower_ns": 519952747.849,
-      "signing_ci_upper_ns": 527189891.514,
+      "signing_mean_ns": 535067444.53,
+      "signing_ci_lower_ns": 531983132.88875,
+      "signing_ci_upper_ns": 538682363.525,
       "verifying_mean_ns": 1424126.3599726206,
       "verifying_ci_lower_ns": 1389154.2245719822,
       "verifying_ci_upper_ns": 1463355.459418141,
@@ -637,7 +655,7 @@
     {
       "size": "Large",
       "messages": 1000000,
-      "signing_mean_ns": 524945692.38,
+      "signing_mean_ns": 534491696.49,
       "signing_ci_lower_ns": null,
       "signing_ci_upper_ns": null,
       "verifying_mean_ns": 1406359.1417783257,
@@ -732,8 +750,8 @@
       "size": "Small",
       "wire_reduction_c_vs_a_percent": 96.89103869653768,
       "wire_reduction_c_vs_b_percent": 97.0055122898562,
-      "signing_speedup_c_vs_a": 94.12096584804367,
-      "signing_speedup_c_vs_b": 174.99356403171691,
+      "signing_speedup_c_vs_a": 99.7667907036938,
+      "signing_speedup_c_vs_b": 100.31381235433628,
       "verifying_speedup_cached_vs_a": 402.15197344678575,
       "verifying_speedup_cold_vs_a": 0.925218329794511,
       "class": "derived"
@@ -742,38 +760,38 @@
       "size": "OneK",
       "wire_reduction_c_vs_a_percent": null,
       "wire_reduction_c_vs_b_percent": null,
-      "signing_speedup_c_vs_a": 732.9841786468679,
-      "signing_speedup_c_vs_b": 960.9964914203535,
+      "signing_speedup_c_vs_a": 975.4985623611616,
+      "signing_speedup_c_vs_b": 982.3823254060148,
       "verifying_speedup_cached_vs_a": 156.5303350300352,
-      "verifying_speedup_cold_vs_a": 0.9394715080198481,
+      "verifying_speedup_cold_vs_a": 0.939471508019848,
       "class": "extrapolated"
     },
     {
       "size": "Medium",
-      "wire_reduction_c_vs_a_percent": 96.50795315682281,
+      "wire_reduction_c_vs_a_percent": 96.5079531568228,
       "wire_reduction_c_vs_b_percent": 96.70647427677068,
-      "signing_speedup_c_vs_a": 9468.95503494331,
-      "signing_speedup_c_vs_b": 15084.296189907736,
+      "signing_speedup_c_vs_a": 9367.829242063335,
+      "signing_speedup_c_vs_b": 9377.03727953018,
       "verifying_speedup_cached_vs_a": 215.31112108696615,
       "verifying_speedup_cold_vs_a": 0.9537983397315546,
-      "class": "extrapolated"
+      "class": "derived"
     },
     {
       "size": "Large",
       "wire_reduction_c_vs_a_percent": 95.32754796334012,
       "wire_reduction_c_vs_b_percent": 95.67497054980068,
-      "signing_speedup_c_vs_a": 121889.25358860841,
-      "signing_speedup_c_vs_b": 193567.1208207761,
+      "signing_speedup_c_vs_a": 115675.5435886089,
+      "signing_speedup_c_vs_b": 116273.05299851517,
       "verifying_speedup_cached_vs_a": 83.28274416480205,
-      "verifying_speedup_cold_vs_a": 0.9394715080198481,
+      "verifying_speedup_cold_vs_a": 0.939471508019848,
       "class": "extrapolated"
     }
   ],
   "derived": {
     "overall_wire_reduction_percent": 96.46231903880918,
     "largest_wire_reduction_percent": 97.0055122898562,
-    "overall_verifying_trust_cached_speedup_avg": 542.9711030085431,
-    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B \u2192 658 B)",
+    "overall_verifying_trust_cached_speedup_avg": 519.6015941190822,
+    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)",
     "reuse": [
       {
         "size": "small",
@@ -830,7 +848,7 @@
           {
             "reuse": 5,
             "effective_time_ns": 303913.5269844,
-            "effective_bytes": 1884.7296000000001
+            "effective_bytes": 1884.7296
           },
           {
             "reuse": 10,
@@ -839,7 +857,7 @@
           },
           {
             "reuse": 100,
-            "effective_time_ns": 21479.234927819998,
+            "effective_time_ns": 21479.23492782,
             "effective_bytes": 354.0896
           },
           {
@@ -892,7 +910,7 @@
           },
           {
             "reuse": 1000,
-            "effective_time_ns": 18366.642845678678,
+            "effective_time_ns": 18366.64284567868,
             "effective_bytes": 375.179712
           },
           {
@@ -2481,7 +2499,7 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 7856.0,
-        "signing_mean_ns": 523308214.21,
+        "signing_mean_ns": 535067444.53,
         "verifying_mean_ns": 1424126.3599726206,
         "fits_1232_percent": 0.0,
         "class": "measured"
@@ -2492,10 +2510,10 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 8329.5296,
-        "signing_mean_ns": 833643846.9319,
-        "verifying_mean_ns": 1450711.4595299999,
+        "signing_mean_ns": 535593385.06,
+        "verifying_mean_ns": 1450711.45953,
         "fits_1232_percent": 0.0,
-        "class": "extrapolated"
+        "class": "measured"
       },
       {
         "config": "mtl-amortised",
@@ -2503,42 +2521,44 @@
         "family": "post-quantum",
         "size": "Medium",
         "signature_bytes": 274.3352,
-        "signing_mean_ns": 55265.677393,
+        "signing_mean_ns": 57117.548869000006,
         "verifying_mean_ns": 1493110.54617,
         "fits_1232_percent": 100.0,
         "class": "measured"
       }
     ],
-    "bound_ok": true,
-    "bound_offenders": [],
     "stability": {
       "runs": [
         {
-          "ratio_name": "signing_speedup_model_small",
-          "median": 50.12,
-          "min": 49.81,
-          "max": 50.44,
-          "cv": 0.0031,
+          "ratio_name": "signing_speedup_model_medium",
+          "median": 9538.453781252483,
+          "min": 9112.096158637225,
+          "max": 9737.231768522808,
+          "cv": 0.021924586251424714,
           "n_runs": 5
         },
         {
           "ratio_name": "signing_speedup_model_onek",
-          "median": 499.37,
-          "min": 496.02,
-          "max": 502.11,
-          "cv": 0.0028,
+          "median": 997.9122515757291,
+          "min": 949.8528484538429,
+          "max": 1062.152080852159,
+          "cv": 0.03563497252634796,
           "n_runs": 5
         },
         {
-          "ratio_name": "signing_speedup_model_medium",
-          "median": 4836.55,
-          "min": 4801.9,
-          "max": 4872.44,
-          "cv": 0.0035,
+          "ratio_name": "signing_speedup_model_small",
+          "median": 101.37666218941115,
+          "min": 99.26825955823966,
+          "max": 105.82268593719921,
+          "cv": 0.02241905835031994,
           "n_runs": 5
         }
       ]
-    }
+    },
+    "bound_ok": true,
+    "baseline_ok": true
   },
-  "warnings": []
+  "warnings": [
+    "dropped superseded benchmark row `Signing OneK Without MTL`: it measured a batch of 1000 messages instead of one signature per iteration"
+  ]
 }

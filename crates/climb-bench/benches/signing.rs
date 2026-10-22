@@ -4,6 +4,32 @@
 //! signature) against `N × sign_batch(&[1 message])` (fresh ladder, N underlying
 //! OQS signatures).  This is exactly the with-MTL / without-MTL comparison.
 //!
+//! # What each condition measures
+//!
+//! | Condition | One measured iteration | Messages per iteration |
+//! |---|---|---|
+//! | With MTL | `sign_batch(&[N messages])` — the whole batch under one ladder | `N` |
+//! | Without MTL | `sign_batch(&[1 message])` — one complete MTL signature | `1` |
+//!
+//! The non-amortised baseline is measured as **one complete MTL signature per
+//! iteration at every dataset size**.  That is the whole point of the
+//! baseline: signing `N` messages without amortisation costs `N` independent
+//! MTL signatures, so one signature is the unit of work and its cost must not
+//! depend on how many messages the dataset holds.  Measuring a whole batch
+//! per iteration instead would make the reported per-message cost depend on
+//! the batch size, and a batch-shaped row could not be compared against a
+//! per-message row at all.
+//!
+//! The two conditions therefore differ in *how much work one iteration
+//! covers*, never in *which operation* is timed.  The shared invariant for
+//! every consumer of the results artifact is:
+//!
+//! > `mean_ns` is the total time of one measured iteration, and that
+//! > iteration signed `messages` messages.
+//!
+//! So the per-message cost is `mean_ns / messages` and the cost of signing a
+//! batch of `N` messages is `mean_ns × N / messages`.
+//!
 //! # Benchmark seed
 //!
 //! All datasets are generated from a fixed seed so every run hits the same byte
@@ -13,42 +39,44 @@
 //! 0x434C494D425F5635
 //! ```
 //!
+//! The baseline signs the *first* message of that stream, so the byte string
+//! it signs is identical at every dataset size.
+//!
 //! # Sample-size reasoning
 //!
 //! On this benchmark machine (no AVX2), one SLH-DSA-128s signature takes
-//! ~740 ms.  This drives the without-MTL iteration cost and the sample-size
-//! choices below.  With AVX2, per-signature cost drops to ~5–10 ms and defaults
-//! would suffice — the config is deliberately conservative for the slower
-//! hardware it was first measured on.
+//! ~0.5–1.4 s depending on the machine's clock state.  A whole batch under one
+//! ladder costs roughly the same, so the amortised condition is nearly
+//! independent of the dataset size while the non-amortised baseline costs one
+//! signature per message.
 //!
 //! | Benchmark               | Iter cost (est.) | Sample size | Rationale |
 //! |-------------------------|------------------|-------------|-----------|
-//! | Small with-MTL          | ~0.7 s           | default     | Fast.    |
-//! | Small without-MTL       | ~74 s            | 10          | Criterion minimum; 10 × 74 s ≈ 12 min. |
-//! | Medium with-MTL         | ~seconds         | default     | Fast-ish.   |
-//! | Medium without-MTL      | ~2 h             | 10          | Criterion minimum; 10 × 2 h ≈ 20 h total.  **Skippable** — cross‑validate with Small per‑message cost. |
-//! | Large with-MTL          | ~seconds–minutes | default     | Fast-ish.   |
-//! | Large without-MTL       | ~205 h           | 10          | Criterion minimum; 10 × 205 h ≈ 85 days.  Warmup disabled.  **Always skip** — use analytical estimate. |
+//! | With MTL (every size)   | ~0.5 s – 4 s     | 100         | One ladder per iteration; 100 samples keep the mean dominated by the steady state. |
+//! | Without MTL (every size)| ~0.5 s – 1.4 s   | 100         | One signature per iteration; identical cost at every size by construction. |
+//! | Plain SLH-DSA          | ~0.5 s           | 100         | Configuration A: one full signature per message, no ladder. |
 //!
-//! # Large (1M-message) without-MTL — wall-clock trade-off
+//! Both conditions use the same sample count so the two sides of every
+//! ratio are measured with the same statistical weight.
 //!
-//! The without-MTL path for Large does 1,000,000 individual `sign_batch` calls,
-//! each paying for one full SLH-DSA-128s signature.  At ~740 ms/sig on this
-//! machine, a single iteration takes ~205 hours.  Criterion is configured with
-//! `sample_size(1)` and a 3-second `warm_up_time` (shorter than one iteration,
-//! so warmup is skipped).  The benchmark is present for completeness but should
-//! be skipped in practice — the per-message cost measured on Small / Medium is a
-//! more useful estimate.
+//! # Warm-up
 //!
-//! **Practical recommendation:** Derive Large without-MTL analytically from the
-//! per-message cost measured on Small/Medium.  The benchmark exists for future
-//! hardware validation.
+//! A laptop that is not on mains power spends its first seconds of load at a
+//! reduced clock, and the first samples of a run are then up to three times
+//! slower than the steady state.  The baseline's warm-up is therefore set
+//! explicitly and generously: Criterion doubles the iteration count per
+//! warm-up round, so a ten-second warm-up runs roughly thirty signatures
+//! before the first sample is recorded.  The with-MTL and plain groups use
+//! Criterion's default warm-up.
 //!
 //! # Running
 //!
 //! ```bash
-//! # Small + Medium only (practical default):
-//! cargo bench -p climb-bench -- signing_small signing_medium
+//! # The whole signing bench (about 20 minutes on this machine):
+//! cargo bench -p climb-bench --bench signing
+//!
+//! # Just the non-amortised baseline (about 6 minutes):
+//! cargo bench -p climb-bench --bench signing -- signing_small_without_mtl
 //!
 //! # Save baseline for CI / regression tracking:
 //! cargo bench -p climb-bench -- --save-baseline batch2-signing
@@ -56,9 +84,9 @@
 
 use std::time::Duration;
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{black_box, criterion_group, criterion_main, Criterion, Throughput};
 
-use climb_dns::{generate_dataset, DatasetSize};
+use climb_dns::{generate_dataset, generate_dataset_count, DatasetSize};
 use climb_mtl::{MtlKeyPair, PlainSlhDsa};
 
 /// Fixed seed for benchmark reproducibility.
@@ -68,6 +96,22 @@ use climb_mtl::{MtlKeyPair, PlainSlhDsa};
 /// baseline comparisons valid.
 pub const BENCH_SEED: u64 = 0x434C494D425F5635;
 
+/// Number of measured samples per benchmark.
+///
+/// Both signing conditions use the same count so neither side of a speed-up
+/// ratio carries more statistical weight than the other.  Criterion's default
+/// is 100; it is named here so the choice is visible in the source rather
+/// than inherited.
+const SAMPLE_SIZE: usize = 100;
+
+/// Warm-up of the non-amortised baseline.
+///
+/// Ten seconds of warm-up is roughly thirty signatures on this machine, which
+/// is what it takes for a laptop clock to reach its steady state.  Without it
+/// the first samples of a run are inflated, and a mean that mixes the ramp
+/// with the steady state overstates the baseline by up to threefold.
+const BASELINE_WARM_UP: Duration = Duration::from_secs(10);
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -76,17 +120,17 @@ fn bench_signing(c: &mut Criterion) {
     let keypair = MtlKeyPair::generate().expect("benchmark key generation must succeed");
     let signer = keypair.signer();
 
-    bench_with_mtl(c, &signer, DatasetSize::Small, None);
-    bench_without_mtl(c, &signer, DatasetSize::Small, Some(10));
+    bench_with_mtl(c, &signer, DatasetSize::Small);
+    bench_without_mtl(c, &signer, DatasetSize::Small);
 
-    bench_with_mtl(c, &signer, DatasetSize::OneK, None);
-    bench_without_mtl(c, &signer, DatasetSize::OneK, Some(10));
+    bench_with_mtl(c, &signer, DatasetSize::OneK);
+    bench_without_mtl(c, &signer, DatasetSize::OneK);
 
-    bench_with_mtl(c, &signer, DatasetSize::Medium, None);
-    bench_without_mtl(c, &signer, DatasetSize::Medium, Some(10));
+    bench_with_mtl(c, &signer, DatasetSize::Medium);
+    bench_without_mtl(c, &signer, DatasetSize::Medium);
 
-    bench_with_mtl(c, &signer, DatasetSize::Large, None);
-    bench_without_mtl(c, &signer, DatasetSize::Large, Some(10));
+    bench_with_mtl(c, &signer, DatasetSize::Large);
+    bench_without_mtl(c, &signer, DatasetSize::Large);
 
     bench_plain_slh_dsa(c, DatasetSize::Small);
     bench_plain_slh_dsa(c, DatasetSize::Medium);
@@ -102,13 +146,9 @@ criterion_main!(benches);
 /// Benchmark `sign_batch(&[N messages])` — the amortized path.
 ///
 /// One shared ladder, one underlying OQS signature, one condensed signature per
-/// message.  `sample_size` uses criterion's default when `None`.
-fn bench_with_mtl(
-    c: &mut Criterion,
-    signer: &climb_mtl::MtlSigner,
-    size: DatasetSize,
-    sample_size: Option<usize>,
-) {
+/// message.  One iteration signs the whole batch, so the row reports `N`
+/// messages.
+fn bench_with_mtl(c: &mut Criterion, signer: &climb_mtl::MtlSigner, size: DatasetSize) {
     let label = size_label(size);
     let dataset = generate_dataset(size, BENCH_SEED);
     let messages: Vec<&[u8]> = dataset.iter().map(|m| m.as_slice()).collect();
@@ -116,12 +156,10 @@ fn bench_with_mtl(
 
     let mut group = c.benchmark_group(format!("signing_{}_with_mtl", label));
     group.throughput(Throughput::Elements(count as u64));
-    if let Some(n) = sample_size {
-        group.sample_size(n);
-    }
+    group.sample_size(SAMPLE_SIZE);
 
     group.bench_with_input(
-        BenchmarkId::new("sign_batch", count),
+        criterion::BenchmarkId::new("sign_batch", count),
         &messages,
         |b, msgs| {
             b.iter(|| {
@@ -136,56 +174,43 @@ fn bench_with_mtl(
 }
 
 // ---------------------------------------------------------------------------
-// Without MTL — N × sign_batch(1)
+// Without MTL — one complete MTL signature per iteration
 // ---------------------------------------------------------------------------
 
-/// Benchmark `N × sign_batch(&[1 message])` — the non-amortized baseline.
+/// Benchmark one complete MTL signature — the non-amortized baseline.
 ///
-/// Each call creates a fresh context, builds a new ladder, pays for one full
+/// The call builds a fresh context, builds a new ladder, pays for one full
 /// OQS signature, and emits one full signature (~8 KB).  No amortization.
 ///
-/// `sample_size` is **required** because the per-iteration cost is `N ×
-/// SLH-DSA-128s signing time`, which can be multiple hours for Medium/Large.
-fn bench_without_mtl(
-    c: &mut Criterion,
-    signer: &climb_mtl::MtlSigner,
-    size: DatasetSize,
-    sample_size: Option<usize>,
-) {
+/// The same operation is measured at every dataset size: one signature over
+/// one message.  The dataset size only selects the group name, so the
+/// per-message cost of the baseline is a property of the algorithm and not of
+/// the batch — which is exactly the property the results artifact checks.
+fn bench_without_mtl(c: &mut Criterion, signer: &climb_mtl::MtlSigner, size: DatasetSize) {
     let label = size_label(size);
-    let dataset = generate_dataset(size, BENCH_SEED);
-    let messages: Vec<&[u8]> = dataset.iter().map(|m| m.as_slice()).collect();
-    let count = size.count();
+
+    // The first message of the seeded stream: the same bytes at every size.
+    let mut dataset = generate_dataset_count(1, BENCH_SEED);
+    let message = dataset
+        .pop()
+        .expect("seeded dataset of one message is non-empty");
+    let message: &[u8] = &message;
 
     let mut group = c.benchmark_group(format!("signing_{}_without_mtl", label));
-    group.throughput(Throughput::Elements(count as u64));
+    // One message per iteration.
+    group.throughput(Throughput::Elements(1));
+    group.sample_size(SAMPLE_SIZE);
+    group.warm_up_time(BASELINE_WARM_UP);
 
-    let sample_size = sample_size.unwrap_or(10);
-    group.sample_size(sample_size);
-
-    // Without MTL at large sizes can take hours. Skip warmup.
-    if matches!(
-        size,
-        DatasetSize::OneK | DatasetSize::Medium | DatasetSize::Large
-    ) {
-        group.warm_up_time(Duration::from_secs(3));
-    }
-
-    group.bench_with_input(
-        BenchmarkId::new("sign_batch_x1", count),
-        &messages,
-        |b, msgs| {
-            b.iter(|| {
-                for msg in msgs.iter() {
-                    black_box(
-                        signer
-                            .sign_batch(&[msg])
-                            .expect("individual sign_batch must not fail"),
-                    );
-                }
-            })
-        },
-    );
+    group.bench_function("sign_one", |b| {
+        b.iter(|| {
+            black_box(
+                signer
+                    .sign_batch(black_box(&[message]))
+                    .expect("individual sign_batch must not fail"),
+            );
+        })
+    });
 
     group.finish();
 }
@@ -214,7 +239,8 @@ fn bench_plain_slh_dsa(c: &mut Criterion, size: DatasetSize) {
 
     let mut group = c.benchmark_group(format!("signing_{}_plain_slh_dsa", label));
     group.throughput(Throughput::Elements(1));
-    group.bench_function(BenchmarkId::from_parameter("sign"), |b| {
+    group.sample_size(SAMPLE_SIZE);
+    group.bench_function(criterion::BenchmarkId::from_parameter("sign"), |b| {
         b.iter(|| {
             black_box(
                 keypair

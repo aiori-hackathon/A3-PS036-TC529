@@ -10,11 +10,24 @@ use crate::memory::{parse_memory_artifact, MemoryArtifact};
 use crate::record::{scan_criterion, CriterionRecord};
 use crate::summary::{summarize, SummaryRow};
 
+/// One measured signing row.
+///
+/// The invariant every consumer relies on: `mean_ns` is the total time of
+/// **one measured iteration**, and that iteration signed `messages` messages.
+/// The per-message cost is therefore `mean_ns / messages`, and the cost of
+/// signing a batch of `N` messages is `mean_ns × N / messages`.
+///
+/// The two signing conditions differ in what one iteration covers, not in
+/// the invariant: the amortised condition signs the whole batch in one
+/// iteration (`messages == N`), while the non-amortised condition signs
+/// exactly one complete MTL signature per iteration (`messages == 1`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SigningBenchmarkResult {
     pub size: String,
     pub condition: String,
+    /// Messages signed in one measured iteration.
     pub messages: u64,
+    /// Total time of one measured iteration, in nanoseconds.
     pub mean_ns: f64,
     pub ci_lower_ns: f64,
     pub ci_upper_ns: f64,
@@ -557,11 +570,31 @@ pub struct DerivedSummary {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub primitives: Option<PrimitivesSection>,
     /// Whether all signing speed-ups satisfy speed-up ≤ 1.05×N.
-    #[serde(default)]
-    pub bound_ok: bool,
+    ///
+    /// `None` when the bound was not checked at every size it covers — at
+    /// least one comparison has no measured C-vs-B ratio, or there is no
+    /// measured ratio at all — so a consumer never reads "the bound holds"
+    /// out of an artifact that never checked it. Absent from the serialized
+    /// document in that case, which is what makes the downstream guards fail
+    /// loudly instead of skipping.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bound_ok: Option<bool>,
     /// Offending ratio names when bound_ok is false.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub bound_offenders: Vec<String>,
+    /// Whether the measured per-message cost of the non-amortised baseline
+    /// agrees across the dataset sizes it was measured at.
+    ///
+    /// The baseline signs one complete MTL signature per message, so its
+    /// per-message cost must not depend on the dataset size; a spread wider
+    /// than [`BASELINE_SPREAD_LIMIT`] means the sizes do not measure the
+    /// same operation. `None` when fewer than two sizes were measured, so
+    /// the check is never vacuously green.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub baseline_ok: Option<bool>,
+    /// Sizes whose per-message baseline cost disagrees with the others.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub baseline_offenders: Vec<String>,
 }
 
 /// One row of the compact signature-context table: a classical baseline or
@@ -833,7 +866,14 @@ type SummaryScan = (Vec<SummaryRow>, Vec<CriterionRecord>, Vec<CriterionRecord>)
 ///
 /// Returns the batch-oriented summary rows plus the configuration-A plain
 /// records, which are parsed separately because they carry a per-message cost.
-fn read_summary_rows(criterion_dir: &Path, baseline: &str) -> Result<SummaryScan, ReportError> {
+///
+/// Rows left over from a superseded benchmark layout are dropped and named in
+/// `warnings` — see [`crate::summary::is_current_layout`].
+fn read_summary_rows(
+    criterion_dir: &Path,
+    baseline: &str,
+    warnings: &mut Vec<String>,
+) -> Result<SummaryScan, ReportError> {
     let records = scan_criterion(criterion_dir, baseline)?;
     let mut plain: Vec<CriterionRecord> = Vec::new();
     let mut classical: Vec<CriterionRecord> = Vec::new();
@@ -851,7 +891,19 @@ fn read_summary_rows(criterion_dir: &Path, baseline: &str) -> Result<SummaryScan
         .into_iter()
         .filter(|rec| crate::summary::parse_group_id(&rec.group_id).is_ok())
         .collect();
-    Ok((summarize(&known)?, plain, classical))
+    let rows = summarize(&known)?;
+    let mut current = Vec::with_capacity(rows.len());
+    for row in rows {
+        if crate::summary::is_current_layout(&row) {
+            current.push(row);
+        } else {
+            warnings.push(format!(
+                "dropped superseded benchmark row `{:?} {} {}`: it measured a batch of {} messages instead of one signature per iteration",
+                row.kind, row.size, row.mode, row.elements.unwrap_or(0)
+            ));
+        }
+    }
+    Ok((current, plain, classical))
 }
 
 /// Pure derivation of the headline metrics from the collected sections; every
@@ -916,8 +968,12 @@ fn derive_summary(
         signature_context: Vec::new(),
         stability: None,
         primitives: None,
-        bound_ok: true,
+        // Both checks are attached by `consolidate_results`, which owns the
+        // measured comparison rows. `None` means "not checked", never "ok".
+        bound_ok: None,
         bound_offenders: Vec::new(),
+        baseline_ok: None,
+        baseline_offenders: Vec::new(),
     }
 }
 
@@ -1247,12 +1303,36 @@ const COMPARISON_SIZES: [(crate::summary::Size, &str, u64); 4] = [
     (crate::summary::Size::Large, "Large", 1_000_000),
 ];
 
+/// JSON Pointer of the signing speed-up bound check inside the results
+/// document.
+///
+/// Shared by every consumer that has to reason about the bound (the report's
+/// claims registry, the dashboard's integrity banner, the documentation
+/// check) so the pointer is spelled the same way everywhere.
+pub const BOUND_POINTER: &str = "/derived/bound_ok";
+
+/// Command that regenerates the consolidated results artifact.
+///
+/// Named by every message that reports a missing bound check, so the reader
+/// is told exactly how to produce the artifact that carries it.
+pub const CONSOLIDATE_COMMAND: &str = "cargo xtask consolidate --force";
+
 /// Per-message cost for one condition: measured for its own size when a row
 /// exists, otherwise the mean of the condition's measured per-message costs.
 struct PerMessage {
     value: Option<f64>,
     extrapolated: bool,
 }
+
+/// Largest tolerated spread between the per-message costs of the
+/// non-amortised signing baseline at two different dataset sizes.
+/// The baseline signs one complete MTL signature per message, so its
+/// per-message cost is a property of the algorithm and not of the dataset
+/// size: the sizes must agree. A factor of three is a deliberately loose
+/// tolerance — wide enough to absorb a frequency-scaling artefact on a
+/// laptop, tight enough to catch a baseline that quietly measures something
+/// else at one of the sizes.
+pub const BASELINE_SPREAD_LIMIT: f64 = 3.0;
 
 fn average(values: impl Iterator<Item = f64>) -> Option<f64> {
     let (sum, count) = values.fold((0.0_f64, 0u32), |(s, n), v| (s + v, n + 1));
@@ -1313,6 +1393,118 @@ fn signing_per_message(rows: &[SigningBenchmarkResult], size: &str, condition: &
         size,
         condition,
     )
+}
+
+/// Per-message cost of one condition **measured at that very size**.
+///
+/// The non-amortised signing baseline signs one complete MTL signature per
+/// message and is measured that way at every dataset size, so its
+/// per-message cost is read from the row of that size and nowhere else.
+/// There is deliberately no cross-size fallback: a value carried over from
+/// another size would hide a baseline that measures something different at
+/// different sizes — the failure mode this check exists to catch.
+fn per_message_at_size<'a>(
+    mut rows: impl Iterator<Item = (&'a str, &'a str, u64, f64)>,
+    size: &str,
+    condition: &str,
+) -> Option<f64> {
+    rows.find(|(s, c, m, mean)| {
+        s.eq_ignore_ascii_case(size) && *c == condition && *m > 0 && *mean > 0.0
+    })
+    .map(|(_, _, messages, mean)| mean / messages as f64)
+}
+
+/// Per-message cost of the non-amortised signing baseline at the size it was
+/// measured at, or `None` when that size has no baseline row.
+fn signing_per_message_at_size(
+    rows: &[SigningBenchmarkResult],
+    size: &str,
+    condition: &str,
+) -> Option<f64> {
+    per_message_at_size(
+        rows.iter()
+            .map(|r| (r.size.as_str(), r.condition.as_str(), r.messages, r.mean_ns)),
+        size,
+        condition,
+    )
+}
+
+/// Outcome of the cross-size agreement check for the non-amortised baseline.
+struct BaselineSpread {
+    /// `Some(true)`/`Some(false)` when the check ran, `None` when fewer
+    /// than two sizes were measured and there was nothing to compare.
+    ok: Option<bool>,
+    /// Human-readable description of every disagreement.
+    offenders: Vec<String>,
+}
+
+/// Per-message cost of the non-amortised baseline at every size it was
+/// measured at, as `(size label, message count, nanoseconds per message)`.
+fn measured_baseline_per_message(signing: &[SigningBenchmarkResult]) -> Vec<(String, u64, f64)> {
+    let mut out: Vec<(String, u64, f64)> = Vec::new();
+    for row in signing {
+        if row.condition != "Without MTL" || row.mean_ns <= 0.0 || row.messages == 0 {
+            continue;
+        }
+        let Some((_, _, n)) = COMPARISON_SIZES
+            .iter()
+            .find(|(_, label, _)| label.eq_ignore_ascii_case(&row.size))
+        else {
+            continue;
+        };
+        if out
+            .iter()
+            .any(|(size, _, _)| size.eq_ignore_ascii_case(&row.size))
+        {
+            continue;
+        }
+        out.push((row.size.clone(), *n, row.mean_ns / row.messages as f64));
+    }
+    out.sort_by_key(|(_, n, _)| *n);
+    out
+}
+
+/// Check that the non-amortised baseline measures the same operation at
+/// every size it was measured at.
+///
+/// The baseline signs one complete MTL signature per message, so the
+/// per-message cost must not depend on the dataset size. A spread wider than
+/// [`BASELINE_SPREAD_LIMIT`] means one of the sizes measures something else.
+fn check_baseline_spread(signing: &[SigningBenchmarkResult]) -> BaselineSpread {
+    let rows = measured_baseline_per_message(signing);
+    if rows.len() < 2 {
+        return BaselineSpread {
+            ok: None,
+            offenders: Vec::new(),
+        };
+    }
+    let fastest = rows
+        .iter()
+        .min_by(|a, b| a.2.total_cmp(&b.2))
+        .expect("at least two measured sizes");
+    let slowest = rows
+        .iter()
+        .max_by(|a, b| a.2.total_cmp(&b.2))
+        .expect("at least two measured sizes");
+    let spread = slowest.2 / fastest.2;
+    if spread > BASELINE_SPREAD_LIMIT {
+        return BaselineSpread {
+            ok: Some(false),
+            offenders: vec![format!(
+                "per-message baseline spread {:.2}x between {} ({:.3} ms/msg) and {} ({:.3} ms/msg) exceeds the {:.0}x limit",
+                spread,
+                fastest.0,
+                fastest.2 / 1e6,
+                slowest.0,
+                slowest.2 / 1e6,
+                BASELINE_SPREAD_LIMIT
+            )],
+        };
+    }
+    BaselineSpread {
+        ok: Some(true),
+        offenders: Vec::new(),
+    }
 }
 
 fn verifying_per_message(
@@ -1406,12 +1598,15 @@ fn build_comparisons(
                 wire.and_then(|w| percent_reduction(w.plain_total_bytes, w.with_mtl_total_bytes));
 
             let c_sign = signing_per_message(signing, size, "With MTL");
-            let b_sign = signing_per_message(signing, size, "Without MTL");
+            // The baseline is measured per message at every size, so its
+            // per-message cost comes from the row of this very size — never
+            // from another size.
+            let b_sign = signing_per_message_at_size(signing, size, "Without MTL");
             let c_cached = verifying_per_message(verifying, size, "MTL (trust cached)");
             let c_cold = verifying_per_message(verifying, size, "With MTL");
 
             let extrapolated = p.class == EvidenceClass::Extrapolated
-                || b_sign.extrapolated
+                || b_sign.is_none()
                 || c_sign.extrapolated
                 || c_cached.extrapolated
                 || c_cold.extrapolated;
@@ -1420,7 +1615,7 @@ fn build_comparisons(
                 wire_reduction_c_vs_a_percent: wire_c_vs_a,
                 wire_reduction_c_vs_b_percent: wire_c_vs_b,
                 signing_speedup_c_vs_a: ratio(p.signing_mean_ns, c_sign.value),
-                signing_speedup_c_vs_b: ratio(b_sign.value, c_sign.value),
+                signing_speedup_c_vs_b: ratio(b_sign, c_sign.value),
                 verifying_speedup_cached_vs_a: ratio(p.verifying_mean_ns, c_cached.value),
                 verifying_speedup_cold_vs_a: ratio(p.verifying_mean_ns, c_cold.value),
                 class: if extrapolated {
@@ -1898,7 +2093,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         .to_string();
 
     let (summary_rows, plain_records, classical_records) =
-        read_summary_rows(&opts.criterion_dir, &opts.baseline)?;
+        read_summary_rows(&opts.criterion_dir, &opts.baseline, &mut warnings)?;
 
     let mut signing: Vec<SigningBenchmarkResult> = Vec::new();
     let mut verifying: Vec<VerifyingBenchmarkResult> = Vec::new();
@@ -2048,33 +2243,63 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         dns_pipeline.as_ref(),
     );
 
-    // Check signing speed-up bound: speed-up ≤ 1.05×N
+    // Check signing speed-up bound: speed-up ≤ 1.05×N.
+    //
+    // The bound is only checked where both sides of the ratio were measured
+    // at that size. A comparison without a measured baseline is not a
+    // violation, but it does mean the bound was not checked everywhere — so
+    // the result is `None` ("not checked") rather than a vacuous `true`.
     let mut bound_ok = true;
     let mut bound_offenders = Vec::new();
+    let mut bound_checked = 0usize;
+    let mut bound_unchecked: Vec<String> = Vec::new();
     for comp in &comparisons {
-        if let Some(sp) = comp.signing_speedup_c_vs_b {
-            // Find N for this size
-            if let Some((_, _, n)) = COMPARISON_SIZES
-                .iter()
-                .find(|(_, label, _)| label.eq_ignore_ascii_case(&comp.size))
-            {
-                let limit = 1.05_f64 * (*n as f64);
-                if sp > limit + 1e-12 {
-                    bound_ok = false;
-                    bound_offenders.push(format!(
-                        "signing_speedup_c_vs_b {} (N={}): {:.3} > {:.3}",
-                        comp.size, n, sp, limit
-                    ));
-                    warnings.push(format!(
-                        "signing speed-up bound violated for {}: {:.3} > {:.3}×{}",
-                        comp.size, sp, 1.05, n
-                    ));
-                }
-            }
+        let Some((_, _, n)) = COMPARISON_SIZES
+            .iter()
+            .find(|(_, label, _)| label.eq_ignore_ascii_case(&comp.size))
+        else {
+            continue;
+        };
+        let Some(sp) = comp.signing_speedup_c_vs_b else {
+            bound_unchecked.push(comp.size.clone());
+            warnings.push(format!(
+                "signing speed-up bound not checked for {}: no measured C-vs-B ratio",
+                comp.size
+            ));
+            continue;
+        };
+        bound_checked += 1;
+        let limit = 1.05_f64 * (*n as f64);
+        if sp > limit + 1e-12 {
+            bound_ok = false;
+            bound_offenders.push(format!(
+                "signing_speedup_c_vs_b {} (N={}): {:.3} > {:.3}",
+                comp.size, n, sp, limit
+            ));
+            warnings.push(format!(
+                "signing speed-up bound violated for {}: {:.3} > {:.3}×{}",
+                comp.size, sp, 1.05, n
+            ));
         }
     }
-    derived.bound_ok = bound_ok;
+    derived.bound_ok = if bound_checked == 0 || !bound_unchecked.is_empty() {
+        None
+    } else {
+        Some(bound_ok)
+    };
     derived.bound_offenders = bound_offenders;
+
+    // The non-amortised baseline must measure the same operation at every
+    // size: one complete MTL signature per message, so the per-message cost
+    // cannot depend on the dataset size.
+    let baseline = check_baseline_spread(&signing);
+    derived.baseline_ok = baseline.ok;
+    derived.baseline_offenders = baseline.offenders.clone();
+    for offender in &baseline.offenders {
+        warnings.push(format!(
+            "non-amortised baseline disagrees across sizes: {offender}"
+        ));
+    }
 
     derived.udp_fit = build_udp_fit(
         &wire_size,
@@ -2724,8 +2949,10 @@ mod tests {
                 signature_context: Vec::new(),
                 stability: None,
                 primitives: None,
-                bound_ok: true,
+                bound_ok: Some(true),
+                baseline_ok: Some(true),
                 bound_offenders: Vec::new(),
+                baseline_offenders: Vec::new(),
             },
             warnings: Vec::new(),
         };
@@ -2814,7 +3041,8 @@ mod tests {
             1,
         );
 
-        let (rows, _plain, _classical) = read_summary_rows(&root, "new").unwrap();
+        let mut warnings = Vec::new();
+        let (rows, _plain, _classical) = read_summary_rows(&root, "new", &mut warnings).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Signing);
         assert_eq!(rows[0].size, crate::summary::Size::Small);
@@ -2847,7 +3075,8 @@ mod tests {
         )
         .unwrap();
 
-        let (rows, _plain, _classical) = read_summary_rows(&root, "new").unwrap();
+        let mut warnings = Vec::new();
+        let (rows, _plain, _classical) = read_summary_rows(&root, "new", &mut warnings).unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].kind, crate::summary::BenchKind::Verifying);
         assert_eq!(rows[0].size, crate::summary::Size::Medium);
@@ -3739,6 +3968,137 @@ mod tests {
         assert_eq!(c.class, EvidenceClass::Extrapolated);
         assert_eq!(c.signing_speedup_c_vs_a, None);
         assert_eq!(c.wire_reduction_c_vs_a_percent, None);
+    }
+
+    /// A signing row: one iteration covered `messages` messages and cost
+    /// `mean_ns` in total.
+    fn batch_row(
+        size: &str,
+        condition: &str,
+        messages: u64,
+        mean_ns: f64,
+    ) -> SigningBenchmarkResult {
+        SigningBenchmarkResult {
+            size: size.to_string(),
+            condition: condition.to_string(),
+            messages,
+            mean_ns,
+            ci_lower_ns: mean_ns - 10.0,
+            ci_upper_ns: mean_ns + 10.0,
+            speedup: None,
+        }
+    }
+
+    /// One row of the non-amortised baseline: a single MTL signature, so one
+    /// iteration covered exactly one message.
+    fn baseline_row(size: &str, mean_ns: f64) -> SigningBenchmarkResult {
+        batch_row(size, "Without MTL", 1, mean_ns)
+    }
+
+    /// The non-amortised baseline signs one complete MTL signature per
+    /// message, so its per-message cost is a property of the algorithm and
+    /// not of the dataset size. Sizes whose per-message costs agree within
+    /// the limit pass the cross-size check.
+    #[test]
+    fn check_baseline_spread_accepts_sizes_that_agree_within_the_limit() {
+        let rows = vec![
+            baseline_row("Small", 500_000_000.0),
+            baseline_row("OneK", 520_000_000.0),
+            baseline_row("Medium", 480_000_000.0),
+        ];
+        let spread = check_baseline_spread(&rows);
+        assert_eq!(spread.ok, Some(true), "offenders: {:?}", spread.offenders);
+        assert!(spread.offenders.is_empty());
+    }
+
+    /// A baseline that quietly measures something else at one size — here a
+    /// per-message cost ten times the others — is caught by the cross-size
+    /// check, and the offender names both sizes and the limit.
+    #[test]
+    fn check_baseline_spread_rejects_a_baseline_that_measures_something_else() {
+        let rows = vec![
+            baseline_row("Small", 500_000_000.0),
+            baseline_row("OneK", 500_000_000.0),
+            baseline_row("Medium", 5_000_000_000.0),
+        ];
+        let spread = check_baseline_spread(&rows);
+        assert_eq!(spread.ok, Some(false));
+        assert_eq!(spread.offenders.len(), 1);
+        let offender = &spread.offenders[0];
+        assert!(offender.contains("10.00x"), "offender: {offender}");
+        assert!(offender.contains("Small"), "offender: {offender}");
+        assert!(offender.contains("Medium"), "offender: {offender}");
+        assert!(
+            offender.contains(&format!("{BASELINE_SPREAD_LIMIT:.0}x")),
+            "the limit must be named: {offender}"
+        );
+    }
+
+    /// Fewer than two measured sizes leave nothing to compare, so the check
+    /// reports "not checked" rather than a vacuous pass.
+    #[test]
+    fn check_baseline_spread_is_unchecked_below_two_sizes() {
+        let spread = check_baseline_spread(&[baseline_row("Small", 500_000_000.0)]);
+        assert_eq!(spread.ok, None);
+        assert!(spread.offenders.is_empty());
+    }
+
+    /// The baseline is measured per message at every size, so a size without
+    /// its own baseline row has no C-vs-B ratio at all: the value is never
+    /// carried over from another size, which is what would hide a baseline
+    /// that measures a different operation.
+    #[test]
+    fn build_comparisons_does_not_carry_the_baseline_across_sizes() {
+        let signing = vec![
+            baseline_row("Small", 500_000_000.0),
+            batch_row("Small", "With MTL", 100, 500_000_000.0),
+            batch_row("Medium", "With MTL", 10_000, 50_000_000_000.0),
+        ];
+        let plain = vec![
+            PlainTimingResult {
+                size: "Small".to_string(),
+                messages: 100,
+                signing_mean_ns: Some(5_000_000.0),
+                signing_ci_lower_ns: None,
+                signing_ci_upper_ns: None,
+                verifying_mean_ns: None,
+                verifying_ci_lower_ns: None,
+                verifying_ci_upper_ns: None,
+                class: EvidenceClass::Measured,
+                samples: None,
+            },
+            PlainTimingResult {
+                size: "Medium".to_string(),
+                messages: 10_000,
+                signing_mean_ns: Some(5_000_000.0),
+                signing_ci_lower_ns: None,
+                signing_ci_upper_ns: None,
+                verifying_mean_ns: None,
+                verifying_ci_lower_ns: None,
+                verifying_ci_upper_ns: None,
+                class: EvidenceClass::Measured,
+                samples: None,
+            },
+        ];
+
+        let comparisons = build_comparisons(&[], &signing, &[], &plain);
+        assert_eq!(comparisons.len(), 2);
+        let small = comparisons
+            .iter()
+            .find(|c| c.size == "Small")
+            .expect("the Small comparison");
+        // 500 ms/msg against 5 ms/msg.
+        assert_eq!(small.signing_speedup_c_vs_b, Some(100.0));
+        assert_eq!(small.class, EvidenceClass::Derived);
+
+        let medium = comparisons
+            .iter()
+            .find(|c| c.size == "Medium")
+            .expect("the Medium comparison");
+        // No baseline row at Medium: the ratio is absent, not borrowed from
+        // the Small row, and the comparison is marked extrapolated.
+        assert_eq!(medium.signing_speedup_c_vs_b, None);
+        assert_eq!(medium.class, EvidenceClass::Extrapolated);
     }
 
     #[test]

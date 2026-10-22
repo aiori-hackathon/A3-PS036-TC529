@@ -17,7 +17,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::Value;
 
-use climb_report::{CheckReport, CheckStatus, ClimbResults};
+use climb_report::{CheckReport, CheckStatus, ClimbResults, CONSOLIDATE_COMMAND};
 
 use super::{mtime, report_path, MAX_FRESH_AGE};
 
@@ -106,6 +106,34 @@ pub enum BannerTone {
     Bad,
 }
 
+/// State of the signing speed-up bound inside the loaded results document.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BoundState {
+    /// The bound was checked and holds.
+    Ok,
+    /// The bound was checked and violated.
+    Violated,
+    /// The document carries no bound check at all — the bound was never
+    /// checked, which is not a pass.
+    Unchecked,
+    /// No results document is loaded, so there is no bound to read.
+    NotApplicable,
+}
+
+impl BoundState {
+    /// Read the bound state out of a results document.
+    ///
+    /// A document without the bound field reports [`BoundState::Unchecked`]:
+    /// absent means "never checked", never "ok".
+    pub fn of(results: &ClimbResults) -> Self {
+        match results.derived.bound_ok {
+            Some(true) => BoundState::Ok,
+            Some(false) => BoundState::Violated,
+            None => BoundState::Unchecked,
+        }
+    }
+}
+
 /// Provenance block: where the checked numbers came from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Provenance {
@@ -129,6 +157,7 @@ pub struct IntegrityView {
     check: CheckState,
     artifacts: Vec<ArtifactRow>,
     provenance: Provenance,
+    bound: BoundState,
 }
 
 impl IntegrityView {
@@ -145,6 +174,9 @@ impl IntegrityView {
                 host_fingerprint: String::new(),
                 generated_at: String::new(),
             },
+            // No document is loaded, so there is no bound to read — this is
+            // not an unchecked bound and must not read as one.
+            bound: BoundState::NotApplicable,
         }
     }
 
@@ -168,7 +200,13 @@ impl IntegrityView {
             check,
             artifacts: inventory(results_path),
             provenance: Provenance::of(results),
+            bound: BoundState::of(results),
         }
+    }
+
+    /// The state of the signing speed-up bound in the loaded document.
+    pub fn bound_state(&self) -> BoundState {
+        self.bound
     }
 
     /// The outcome of the check.
@@ -217,6 +255,15 @@ impl IntegrityView {
 
     /// The banner text and its colour class.
     pub fn banner(&self) -> (BannerTone, String) {
+        // A document that never checked the signing speed-up bound cannot back
+        // any claim, whatever the report says. The banner says so and names
+        // the command that produces a document that does carry the check.
+        if self.bound == BoundState::Unchecked {
+            return (
+                BannerTone::Bad,
+                format!("BOUND NOT CHECKED \u{2014} regenerate with `{CONSOLIDATE_COMMAND}`"),
+            );
+        }
         match &self.check {
             CheckState::NotRun => (BannerTone::Warn, "CHECK NOT RUN".to_string()),
             CheckState::ReportMissing { path, .. } => (
@@ -538,6 +585,41 @@ mod tests {
         let (tone, banner) = integrity.banner();
         assert_eq!(tone, BannerTone::Bad, "banner: {banner}");
         assert_eq!(banner, "BOUND VIOLATION");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A results document that never checked the signing speed-up bound
+    /// cannot back any claim: the banner is Bad and names the command that
+    /// produces a document which does carry the check.
+    #[test]
+    fn an_unchecked_bound_flips_the_banner_to_bad() {
+        let root = sample_dir("unchecked");
+        let results_path = root.join("climb-results.json");
+        let text = std::fs::read_to_string(&results_path).expect("read sample results");
+        let mut doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        doc["derived"]
+            .as_object_mut()
+            .expect("derived object")
+            .remove("bound_ok");
+        std::fs::write(
+            &results_path,
+            serde_json::to_vec_pretty(&doc).expect("serialize"),
+        )
+        .expect("write stripped results");
+
+        let state = super::super::load(&results_path);
+        let super::super::LoadState::Loaded(view) = state else {
+            panic!("expected the stripped sample results to load, got {state:?}");
+        };
+        let integrity = view.integrity();
+        assert_eq!(integrity.bound_state(), BoundState::Unchecked);
+        let (tone, banner) = integrity.banner();
+        assert_eq!(tone, BannerTone::Bad, "banner: {banner}");
+        assert!(banner.contains("BOUND NOT CHECKED"), "banner: {banner}");
+        assert!(
+            banner.contains(CONSOLIDATE_COMMAND),
+            "the regenerating command must be named: {banner}"
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

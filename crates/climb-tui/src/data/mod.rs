@@ -503,8 +503,10 @@ pub(crate) mod test_support {
             signature_context: Vec::new(),
             stability: None,
             primitives: None,
-            bound_ok: true,
+            bound_ok: Some(true),
+            baseline_ok: Some(true),
             bound_offenders: Vec::new(),
+            baseline_offenders: Vec::new(),
         }
     }
 

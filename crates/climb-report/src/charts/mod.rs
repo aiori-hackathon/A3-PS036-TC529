@@ -626,6 +626,11 @@ fn add_plain_timing_series(
 /// per-message cost of that condition's measured rows). Trust-cached series
 /// are measured-only and never extrapolated. When `annotate_extrapolated` is
 /// set, extrapolated bars are labelled with their formatted value.
+///
+/// Every bar is the cost of the **whole batch** at that size: a measured
+/// row's mean is scaled by `n / messages` (see the scaling rule in the
+/// measured-series lookup), which leaves a whole-batch row untouched and
+/// turns a per-message row into its batch total.
 pub fn timing_bar_data<T: BenchRow>(
     rows: &[T],
     trust: bool,
@@ -643,17 +648,31 @@ pub fn timing_bar_data<T: BenchRow>(
     universe.sort_unstable();
     universe.dedup();
 
-    // Measured lookups per condition: n -> (mean, ci_lower, ci_upper).
+    // Measured lookups per condition: n -> (mean, ci_lower, ci_upper),
+    // each already scaled to the cost of the whole batch of `n` messages.
+    //
+    // A row's mean is the total of one measured iteration, and that
+    // iteration covered `messages` messages, so the batch total is
+    // `mean x n / messages`. The rule is uniform: for a row that already
+    // measured the whole batch (`messages == n`) it is a no-op, and for the
+    // per-message baseline (`messages == 1`) it turns one signature into
+    // the cost of signing all `n` messages.
     let measured = |condition: &str| -> Vec<(u64, f64, f64, f64)> {
         let mut out = Vec::new();
         for row in rows {
-            if row.condition() != condition || row.mean_ns() <= 0.0 {
+            if row.condition() != condition || row.mean_ns() <= 0.0 || row.messages() == 0 {
                 continue;
             }
             let Some(n) = size_n(row.size()) else {
                 continue;
             };
-            out.push((n, row.mean_ns(), row.ci_lower_ns(), row.ci_upper_ns()));
+            let scale = n as f64 / row.messages() as f64;
+            out.push((
+                n,
+                row.mean_ns() * scale,
+                row.ci_lower_ns() * scale,
+                row.ci_upper_ns() * scale,
+            ));
         }
         out.sort_by_key(|p| p.0);
         out
@@ -853,7 +872,9 @@ pub fn amortization_data(rows: &[SigningBenchmarkResult]) -> AmortizationData {
         match row.condition.as_str() {
             "With MTL" => {
                 with_points.push((n, per_msg));
-                fit_pts.push((n as f64, row.mean_ns));
+                // The fit line is over the batch total: the same `n /
+                // messages` scaling the bar chart uses.
+                fit_pts.push((n as f64, row.mean_ns * n as f64 / row.messages as f64));
             }
             "Without MTL" => without_points.push((n, per_msg)),
             _ => {}
@@ -1421,6 +1442,73 @@ mod tests {
         assert_eq!(ann, vec!["≈1.96 h", "≈8.18 d"]);
     }
 
+    /// The uniform scaling rule: a row's mean is the cost of one measured
+    /// iteration, so the cost of the whole batch is `mean x n / messages`. A
+    /// whole-batch row (`messages == n`) is left untouched by the same rule,
+    /// and a per-message baseline row (`messages == 1`) becomes the cost of
+    /// signing all `n` messages.
+    #[test]
+    fn timing_bars_scale_a_per_message_baseline_to_the_batch_total() {
+        let rows = vec![
+            SigningBenchmarkResult {
+                size: "Small".to_string(),
+                condition: "With MTL".to_string(),
+                messages: 100,
+                mean_ns: 500_000_000.0,
+                ci_lower_ns: 490_000_000.0,
+                ci_upper_ns: 510_000_000.0,
+                speedup: None,
+            },
+            SigningBenchmarkResult {
+                size: "Small".to_string(),
+                condition: "Without MTL".to_string(),
+                messages: 1,
+                mean_ns: 500_000_000.0,
+                ci_lower_ns: 490_000_000.0,
+                ci_upper_ns: 510_000_000.0,
+                speedup: None,
+            },
+        ];
+        let data = timing_bar_data(&rows, false, false);
+        let point = |label: &str| {
+            data.series
+                .iter()
+                .find(|s| s.label == label)
+                .unwrap_or_else(|| panic!("series {label}"))
+                .points
+                .iter()
+                .find(|p| p.n == 100)
+                .unwrap_or_else(|| panic!("the Small point of {label}"))
+                .clone()
+        };
+
+        // One signature per iteration: the batch of 100 costs 100 signatures.
+        let without = point("Without MTL (measured)");
+        assert!(
+            (without.value - 50_000_000_000.0).abs() < 1e-6,
+            "value: {}",
+            without.value
+        );
+        assert!(
+            (without.ci_lower.unwrap() - 49_000_000_000.0).abs() < 1e-6,
+            "ci lower: {:?}",
+            without.ci_lower
+        );
+        assert!(
+            (without.ci_upper.unwrap() - 51_000_000_000.0).abs() < 1e-6,
+            "ci upper: {:?}",
+            without.ci_upper
+        );
+
+        // A whole-batch row is left untouched by the same rule.
+        let with_mtl = point("With MTL (measured)");
+        assert!(
+            (with_mtl.value - 500_000_000.0).abs() < 1e-6,
+            "value: {}",
+            with_mtl.value
+        );
+    }
+
     #[test]
     fn verifying_series_counts_trust_has_no_extrapolation() {
         let data = timing_bar_data(&verifying_rows(), true, false);
@@ -1731,8 +1819,10 @@ mod tests {
                 signature_context: Vec::new(),
                 stability: None,
                 primitives: None,
-                bound_ok: true,
+                bound_ok: Some(true),
+                baseline_ok: Some(true),
                 bound_offenders: Vec::new(),
+                baseline_offenders: Vec::new(),
             },
             warnings: Vec::new(),
         }

@@ -160,7 +160,12 @@ fn consolidated_ladder_section_reproduces_every_committed_fixture_row() {
 #[test]
 fn charts_and_report_render_the_ladder_section_and_check_stays_clean() {
     let root = temp_root("render");
-    let results = consolidate_from_committed_fixture(&root);
+    let mut results = consolidate_from_committed_fixture(&root);
+    // This fixture carries no Criterion measurements, so the signing speed-up
+    // bound was never checked. The report self-check rejects an artifact
+    // without a bound check — that guard has its own tests — so the field is
+    // filled in here to keep this test about the ladder section.
+    results.derived.bound_ok = Some(true);
 
     let charts = root.join("charts");
     std::fs::create_dir_all(&charts).expect("charts dir");

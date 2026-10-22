@@ -288,6 +288,26 @@ fn load_config(path: &Path) -> Result<ConfigFile> {
     toml::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
 }
 
+/// The claims of `registry` that re-resolve inside `raw`.
+///
+/// A claim counts as verified only when its pointer resolves in the
+/// document the registry was read from and resolves to the value the
+/// registry recorded. A pointer that does not resolve there, or that
+/// resolves to another value, leaves the claim unverified — the badge count
+/// must never over-report what the artifact itself proves.
+fn verified_claims<'a>(
+    registry: &'a [climb_report::html::Claim],
+    raw: &Value,
+) -> Vec<&'a climb_report::html::Claim> {
+    registry
+        .iter()
+        .filter(|claim| {
+            raw.pointer(&claim.pointer)
+                .is_some_and(|found| values_match(&claim.value, found))
+        })
+        .collect()
+}
+
 /// Count the claims of the results artifact that re-resolve inside it.
 ///
 /// The registry is built exactly as the report builds it, and every claim is
@@ -318,13 +338,7 @@ pub(crate) fn claims_count(results_path: &Path) -> Result<ClaimsCount> {
     if total == 0 {
         return Ok(ClaimsCount::Empty);
     }
-    let passed = registry
-        .iter()
-        .filter(|claim| {
-            raw.pointer(&claim.pointer)
-                .is_some_and(|found| values_match(&claim.value, found))
-        })
-        .count();
+    let passed = verified_claims(&registry, &raw).len();
     Ok(ClaimsCount::Count { passed, total })
 }
 
@@ -1075,29 +1089,73 @@ message_color = "orange"
             .to_path_buf()
     }
 
+    /// A claim the artifact cannot prove is not counted as verified.
+    ///
+    /// The registry is built from the parsed document, so a claim whose
+    /// pointer the artifact does not carry — or carries with another value —
+    /// cannot re-resolve and must not be counted. The badge must never
+    /// over-report what the artifact proves.
     #[test]
-    fn a_claim_whose_value_is_absent_from_the_artifact_is_not_verified() {
+    fn a_claim_that_cannot_re_resolve_in_the_artifact_is_not_verified() {
+        // Test data: a registry of three claims and a document that resolves
+        // one of them, resolves another to a different value, and does not
+        // carry the third at all.
+        let registry = vec![
+            climb_report::html::Claim {
+                id: "resolved".to_string(),
+                pointer: "/derived/headline".to_string(),
+                value: Value::String("a headline".to_string()),
+                formatted: "a headline".to_string(),
+            },
+            climb_report::html::Claim {
+                id: "drifted".to_string(),
+                pointer: "/version".to_string(),
+                value: Value::String("1.0".to_string()),
+                formatted: "1.0".to_string(),
+            },
+            climb_report::html::Claim {
+                id: "absent".to_string(),
+                pointer: "/derived/bound_ok".to_string(),
+                value: Value::Bool(true),
+                formatted: "ok".to_string(),
+            },
+        ];
+        let raw: Value = serde_json::json!({
+            "version": "2.0",
+            "derived": { "headline": "a headline" },
+        });
+        let verified: Vec<&str> = verified_claims(&registry, &raw)
+            .into_iter()
+            .map(|claim| claim.id.as_str())
+            .collect();
+        assert_eq!(
+            verified,
+            vec!["resolved"],
+            "only the claim that re-resolves to the recorded value is verified"
+        );
+    }
+
+    /// The claims count of a real artifact is the number of its claims that
+    /// re-resolve inside it.
+    /// The claims count of a real artifact is the number of its claims that
+    /// re-resolve inside it.
+    #[test]
+    fn the_claims_count_counts_the_claims_that_re_resolve_in_the_artifact() {
         let dir = temp_dir("claims");
         let results = write_results(&dir);
         let count = claims_count(&results).expect("the fixture parses");
 
-        // The registry is built from the parsed document, so a field the
-        // parser defaults is a claim; when the file itself does not carry
-        // that field, the claim cannot re-resolve and is not verified.
         let raw: Value =
             serde_json::from_str(&std::fs::read_to_string(&results).expect("read the fixture"))
                 .expect("the fixture is JSON");
         let parsed: ClimbResults = serde_json::from_value(raw.clone()).expect("the fixture parses");
         let registry = climb_report::claims(&parsed).expect("the registry builds");
-        let absent = registry
-            .iter()
-            .filter(|claim| raw.pointer(&claim.pointer).is_none())
-            .count();
-        assert!(absent > 0, "the fixture must carry a defaulted field");
+        assert!(!registry.is_empty(), "the fixture must carry claims");
+        let re_resolved = verified_claims(&registry, &raw).len();
         assert_eq!(
             count,
             ClaimsCount::Count {
-                passed: registry.len() - absent,
+                passed: re_resolved,
                 total: registry.len(),
             }
         );

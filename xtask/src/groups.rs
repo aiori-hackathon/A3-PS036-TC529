@@ -26,6 +26,10 @@ pub struct GroupSpec {
     pub size: DatasetSize,
     pub target: BenchTarget,
     /// True when a single iteration takes hours to days on the reference laptop.
+    ///
+    /// No signing group is slow any more: the non-amortised baseline signs one
+    /// MTL signature per iteration, so its cost does not grow with the
+    /// dataset size.
     pub slow: bool,
 }
 
@@ -36,6 +40,10 @@ pub const GROUPS: &[GroupSpec] = &[
         target: BenchTarget::Signing,
         slow: false,
     },
+    // The non-amortised baseline signs one complete MTL signature per
+    // iteration, so one iteration costs one signature (~0.7–1.4 s) whatever
+    // the dataset size. Every one of these groups is therefore as cheap as
+    // the with-MTL group beside it.
     GroupSpec {
         name: "signing_small_without_mtl",
         size: DatasetSize::Small,
@@ -48,12 +56,11 @@ pub const GROUPS: &[GroupSpec] = &[
         target: BenchTarget::Signing,
         slow: false,
     },
-    // 1,000 × ~670 ms/sig = ~670 s per iteration (~111 min for a 10-sample run).
     GroupSpec {
         name: "signing_onek_without_mtl",
         size: DatasetSize::OneK,
         target: BenchTarget::Signing,
-        slow: true,
+        slow: false,
     },
     GroupSpec {
         name: "signing_medium_with_mtl",
@@ -61,12 +68,11 @@ pub const GROUPS: &[GroupSpec] = &[
         target: BenchTarget::Signing,
         slow: false,
     },
-    // 10,000 x ~670 ms/sig = ~1.9 h per iteration (~19 h for a 10-sample run).
     GroupSpec {
         name: "signing_medium_without_mtl",
         size: DatasetSize::Medium,
         target: BenchTarget::Signing,
-        slow: true,
+        slow: false,
     },
     GroupSpec {
         name: "signing_large_with_mtl",
@@ -74,12 +80,11 @@ pub const GROUPS: &[GroupSpec] = &[
         target: BenchTarget::Signing,
         slow: false,
     },
-    // 1,000,000 x ~670 ms/sig = ~7.8 days per iteration (~78 days for a 10-sample run).
     GroupSpec {
         name: "signing_large_without_mtl",
         size: DatasetSize::Large,
         target: BenchTarget::Signing,
-        slow: true,
+        slow: false,
     },
     // Configuration A: one plain SLH-DSA signature per message, measured on a
     // single message from the seeded dataset. Large is not scheduled — its
