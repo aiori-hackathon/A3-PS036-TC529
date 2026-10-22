@@ -605,6 +605,29 @@ mod tests {
     }
 
     #[test]
+    fn commit_graph_defaults_to_the_media_directory_and_off_check() {
+        let cli = Cli::try_parse_from(["xtask", "commit-graph"]).expect("commit-graph parses");
+        match cli.command {
+            Commands::CommitGraph(args) => {
+                assert_eq!(args.out_dir, PathBuf::from("docs/media"));
+                assert!(!args.check);
+                assert!(args.as_of.is_none());
+            }
+            _ => panic!("expected the commit-graph subcommand"),
+        }
+    }
+
+    #[test]
+    fn commit_graph_check_flag_parses() {
+        let cli = Cli::try_parse_from(["xtask", "commit-graph", "--check"])
+            .expect("commit-graph --check parses");
+        match cli.command {
+            Commands::CommitGraph(args) => assert!(args.check),
+            _ => panic!("expected the commit-graph subcommand"),
+        }
+    }
+
+    #[test]
     fn package_defaults_to_the_recorded_artifact_paths() {
         let cli = Cli::try_parse_from(["xtask", "package"]).expect("package parses");
         match cli.command {

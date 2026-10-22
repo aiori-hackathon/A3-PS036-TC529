@@ -486,6 +486,17 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
 const LOGO_BEGIN: &str = "<!-- logo:begin -->";
 const LOGO_END: &str = "<!-- logo:end -->";
 
+/// Markers bracketing the README's "Built in the open" commit-graph block.
+const COMMIT_GRAPH_BEGIN: &str = "<!-- commit-graph:begin -->";
+const COMMIT_GRAPH_END: &str = "<!-- commit-graph:end -->";
+
+/// The fragment of the commit-graph caption that states the provenance a
+/// reader is owed: the picture is generated from git history, and the stamp
+/// inside it names the commit it was generated at. Matched case-insensitively
+/// as a substring so the surrounding wording can change without silently
+/// dropping the provenance note.
+const COMMIT_GRAPH_CAPTION: &str = "generated at";
+
 /// The line range of the managed badge block, exclusive of the markers.
 /// `None` when the markers are absent or the end marker comes first.
 pub(crate) fn badge_block_lines(text: &str) -> Option<(usize, usize)> {
@@ -620,6 +631,72 @@ pub(crate) fn check_logo_block(file: &str, text: &str) -> Vec<Violation> {
             file: file.to_string(),
             line,
             message: "the logo block names no image".to_string(),
+        });
+    }
+    violations
+}
+
+/// The body of the marker-bracketed commit-graph block of the README, and the
+/// line it starts on. `None` when a marker is missing or the end marker comes
+/// first.
+pub(crate) fn parse_commit_graph_block(text: &str) -> Option<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines
+        .iter()
+        .position(|line| line.trim() == COMMIT_GRAPH_BEGIN)?;
+    let end = lines
+        .iter()
+        .position(|line| line.trim() == COMMIT_GRAPH_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, lines[begin + 1..end].join("\n")))
+}
+
+/// Check the README's commit-graph block: both markers must be present and in
+/// order, the block must name the full card (an image), and it must carry the
+/// provenance caption. The image path itself is checked by
+/// [`check_image_paths`]. Pure: no filesystem, no subprocesses.
+pub(crate) fn check_commit_graph_block(file: &str, text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for marker in [COMMIT_GRAPH_BEGIN, COMMIT_GRAPH_END] {
+        if !text.contains(marker) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("missing the `{marker}` commit-graph block marker"),
+            });
+        }
+    }
+    if !violations.is_empty() {
+        return violations;
+    }
+    let Some((line, body)) = parse_commit_graph_block(text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!(
+                "the `{COMMIT_GRAPH_BEGIN}` marker comes after the `{COMMIT_GRAPH_END}` marker"
+            ),
+        });
+        return violations;
+    };
+    if extract_image_paths(&body).is_empty() {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the commit-graph block names no image".to_string(),
+        });
+    }
+    if !body.to_ascii_lowercase().contains(COMMIT_GRAPH_CAPTION) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "the commit-graph block carries no provenance caption \
+                 (must state that the image is generated from git history and \
+                 that the stamp shows the commit it was {COMMIT_GRAPH_CAPTION})"
+            ),
         });
     }
     violations
@@ -1021,6 +1098,11 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .display()
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
+
+    // The README's "Built in the open" block is marker-bracketed and must name
+    // the full commit-graph card with its provenance caption; the image path
+    // itself is checked with every other relative image path below.
+    violations.extend(check_commit_graph_block(&readme_label, &readme_text));
 
     // The badge block is generated: rebuild it in memory and fail when the
     // committed copy has drifted from the fresh generation.
@@ -1485,6 +1567,62 @@ mod tests {
             "{LOGO_BEGIN}\n<picture><img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\"></picture>\n{LOGO_END}\n"
         );
         assert!(check_logo_block("README.md", &text).is_empty());
+    }
+
+    #[test]
+    fn the_committed_readme_carries_the_commit_graph_block() {
+        let root = workspace_root();
+        let text = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let violations = check_commit_graph_block("README.md", &text);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_document_without_the_commit_graph_markers_is_a_violation() {
+        let violations = check_commit_graph_block("README.md", "# Title\n\nno graph here\n");
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            violations[0].message.contains(COMMIT_GRAPH_BEGIN),
+            "{violations:?}"
+        );
+        assert!(
+            violations[1].message.contains(COMMIT_GRAPH_END),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_commit_graph_block_without_an_image_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\nno image, but the stamp shows the commit it was generated at\n{COMMIT_GRAPH_END}\n"
+        );
+        let violations = check_commit_graph_block("README.md", &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("names no image"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_commit_graph_block_without_the_caption_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n<img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n{COMMIT_GRAPH_END}\n"
+        );
+        let violations = check_commit_graph_block("README.md", &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("provenance caption"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_complete_commit_graph_block_passes() {
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n<img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\nGenerated from git history; the stamp shows the commit it was generated at.\n{COMMIT_GRAPH_END}\n"
+        );
+        assert!(check_commit_graph_block("README.md", &text).is_empty());
     }
 
     #[test]

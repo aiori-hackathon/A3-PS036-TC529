@@ -48,6 +48,16 @@ pub(crate) struct CommitGraphArgs {
     /// Directory that receives the JSON and both SVG cards.
     #[arg(long, default_value = "docs/media")]
     pub(crate) out_dir: PathBuf,
+
+    /// Verify the committed artifacts instead of regenerating them.
+    ///
+    /// Exits non-zero only when the graph is inconsistent (it does not
+    /// reproduce from its own as-of commit, a card disagrees with the
+    /// document, or a shape/budget rule fails). A graph that is merely behind
+    /// `HEAD` prints a warning and still exits zero, so a pre-push hook can
+    /// flag a stale graph without blocking the push.
+    #[arg(long)]
+    pub(crate) check: bool,
 }
 
 /// One `[commit_graph]` table. Unknown keys are rejected so a typo cannot
@@ -668,6 +678,9 @@ fn size_label(bytes: usize) -> String {
 /// Generate the JSON and both cards, then write them.
 pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     ensure_full_history(&args.root)?;
+    if args.check {
+        return cmd_commit_graph_check(&args);
+    }
     let config_path = args.root.join(&args.config);
     let config = load_config(&config_path)?;
     let as_of = args.as_of.as_deref().unwrap_or("HEAD");
@@ -741,6 +754,47 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         config.budget_kb
     );
     Ok(())
+}
+
+/// Verify the committed artifacts without writing anything.
+///
+/// Consistency violations (a document that does not reproduce, a card that
+/// disagrees, a broken shape or budget rule) are a hard failure. Staleness
+/// relative to `HEAD` is reported as a warning and does not change the exit
+/// status: a graph one commit behind is the normal state immediately after a
+/// commit, so a hook must not block a push for it.
+pub(crate) fn cmd_commit_graph_check(args: &CommitGraphArgs) -> Result<()> {
+    let out_dir = args.root.join(&args.out_dir);
+    let outcome = check::check_with_paths(
+        &args.root,
+        &out_dir.join("commit-graph.json"),
+        &out_dir.join("commit-graph.svg"),
+        &out_dir.join("commit-graph-compact.svg"),
+    )?;
+    for warning in &outcome.warnings {
+        eprintln!("warning: {warning}");
+    }
+    if let Some(note) = &outcome.note {
+        eprintln!("note: {note}");
+    }
+    if outcome.violations.is_empty() {
+        println!(
+            "commit-graph --check: the committed graph is consistent with its as-of commit{}",
+            if outcome.warnings.is_empty() {
+                ""
+            } else {
+                " (stale relative to HEAD; run `cargo xtask commit-graph` to refresh)"
+            }
+        );
+        return Ok(());
+    }
+    for violation in &outcome.violations {
+        eprintln!("{violation}");
+    }
+    bail!(
+        "commit-graph --check: {} inconsistent artifact(s)",
+        outcome.violations.len()
+    )
 }
 
 #[cfg(test)]

@@ -664,3 +664,88 @@ fn since_bounds_the_range_and_rejects_a_future_start() {
     config.since = Some("2027-01-01".to_string());
     assert!(generate(repo.path(), &config, Some("HEAD")).is_err());
 }
+
+/// Write a complete, consistent set of artifacts for `repo` at `as_of`, so the
+/// `--check` command has something to read.
+fn write_artifacts(repo: &TempRepo, as_of: &str) {
+    std::fs::create_dir_all(repo.path().join("docs/media")).expect("create the media directory");
+    std::fs::write(
+        repo.path().join(CONFIG_PATH),
+        "[commit_graph]\ntimezone = \"Asia/Kolkata\"\nbudget_kb = 50\n",
+    )
+    .expect("write the configuration");
+    let (graph, json) = generate(repo.path(), &config(), Some(as_of)).expect("generate");
+    let palette = svg::Palette::default();
+    let full = svg::render_full(&graph, &palette).expect("full card");
+    let compact = svg::render_compact(&graph, &palette).expect("compact card");
+    std::fs::write(repo.path().join(JSON_PATH), json).expect("write the JSON");
+    std::fs::write(repo.path().join(SVG_PATH), full).expect("write the full card");
+    std::fs::write(repo.path().join(COMPACT_PATH), compact).expect("write the compact card");
+}
+
+/// A `commit-graph` invocation rooted at `repo` whose `--check` flag is set.
+fn check_args(repo: &TempRepo) -> CommitGraphArgs {
+    CommitGraphArgs {
+        root: repo.path().to_path_buf(),
+        as_of: None,
+        config: PathBuf::from(CONFIG_PATH),
+        out_dir: PathBuf::from("docs/media"),
+        check: true,
+    }
+}
+
+#[test]
+fn the_check_command_accepts_a_consistent_graph_at_head() {
+    let repo = TempRepo::new("check-consistent");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    write_artifacts(&repo, "HEAD");
+    cmd_commit_graph_check(&check_args(&repo)).expect("a consistent graph passes --check");
+}
+
+#[test]
+fn the_check_command_warns_but_passes_when_the_graph_is_behind_head() {
+    let repo = TempRepo::new("check-stale");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    // The graph is written at the first commit, then one more commit lands.
+    write_artifacts(&repo, "HEAD");
+    for index in 0..25 {
+        repo.commit(
+            "2026-10-11T09:00:00+05:30",
+            "Pratyay Mukherjee",
+            &[(format!("b{index}.txt").as_str(), "b\n")],
+        );
+    }
+    // Staleness is a warning, never a failure: a push must not be blocked.
+    cmd_commit_graph_check(&check_args(&repo)).expect("staleness does not fail --check");
+}
+
+#[test]
+fn the_check_command_rejects_an_inconsistent_graph() {
+    let repo = TempRepo::new("check-inconsistent");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    write_artifacts(&repo, "HEAD");
+    // Corrupt one card's <desc> so it disagrees with the document.
+    let card = std::fs::read_to_string(repo.path().join(SVG_PATH)).expect("the full card");
+    let graph: CommitGraph =
+        serde_json::from_str(&std::fs::read_to_string(repo.path().join(JSON_PATH)).expect("json"))
+            .expect("valid graph");
+    let edited = card.replacen(
+        &format!("commits={}", graph.totals.commits),
+        &format!("commits={}", graph.totals.commits + 1),
+        1,
+    );
+    std::fs::write(repo.path().join(SVG_PATH), edited).expect("rewrite the full card");
+    assert!(cmd_commit_graph_check(&check_args(&repo)).is_err());
+}

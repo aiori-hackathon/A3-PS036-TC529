@@ -21,6 +21,10 @@
 </div>
 <!-- badges:end -->
 
+<div align="center">
+  <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commits/main" target="_blank" rel="noopener"><img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit graph: commits, active days, streaks and contributor activity over time" width="880"></a>
+</div>
+
 **Team Name**: CLIMB
 
 **Team Code**: A3-PS036-TC529
@@ -48,6 +52,18 @@ Unbound in local Docker) that captures real wire bytes. Every number in this
 README, the HTML report and the dashboard is read from a recorded artifact,
 never typed into source, and every claim carries its evidence class: measured,
 derived, analytical or extrapolated.
+
+## Built in the open
+
+<!-- commit-graph:begin -->
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commits/main" target="_blank" rel="noopener"><img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits, a calendar heatmap of activity, headline totals, contributor activity and the milestone roadmap" width="880"></a>
+
+Every commit, every quiet day and the roadmap milestones behind this benchmark
+suite, read straight from the repository's own history.
+
+Generated from git history by `cargo xtask commit-graph`; the stamp in the
+image shows the commit it was generated at.
+<!-- commit-graph:end -->
 
 ## Headline results
 
@@ -143,7 +159,7 @@ Eight workspace packages (seven crates plus the automation binary):
 | `crates/climb-bench/` | Criterion benchmark groups, wire-size and memory probes |
 | `crates/climb-report/` | Consolidation, charts, HTML report, claims registry |
 | `crates/climb-tui/` | Terminal dashboard (live runs and recorded replay) |
-| `xtask/` | `cargo xtask` automation: pin-env, bench-all, report, wire-report, memory-report, ladder-verify, dns-demo, consolidate, charts, deck-facts, docs-check, package, reproduce |
+| `xtask/` | `cargo xtask` automation: pin-env, bench-all, report, wire-report, memory-report, ladder-verify, dns-demo, consolidate, charts, deck-facts, docs-check, readme-badges, commit-graph, package, reproduce |
 
 Supporting directories:
 
@@ -155,7 +171,8 @@ Supporting directories:
   `RESEARCH.md` (reading list), the generated quote sheet `deck-facts.md`, and
   `sample-output/` (committed, provenance-stamped sample artifacts);
 - `data/` — recorded fixtures (DNS capture, ladder verification);
-- `scripts/` — environment pinning and clean-clone check helpers;
+- `scripts/` — environment pinning, clean-clone check helpers, the logo asset
+  build, and the commit-graph refresh and hook-install scripts;
 - `dist/` — release bundles written by `cargo xtask package` (gitignored).
 
 ## Development

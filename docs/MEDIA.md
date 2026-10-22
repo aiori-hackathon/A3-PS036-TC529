@@ -75,3 +75,30 @@ scripts, no external requests and no web fonts. `cargo xtask docs-check`
 regenerates the JSON from its own `as_of_sha`, compares it byte for byte,
 checks the `<desc>` numbers against the document, and enforces the size budget;
 a graph that is merely behind `HEAD` produces a warning, not a failure.
+
+## Refreshing the graph
+
+1. Run `scripts/refresh-commit-graph.sh` after any change worth recording; it
+   runs the generator and stages only `docs/media/commit-graph.*`.
+2. Read the `git diff --stat --cached` it prints, then commit with
+   `docs: refresh commit graph` — the script never commits or pushes.
+3. To check without writing, run `cargo xtask commit-graph --check`: it fails
+   only when the graph is inconsistent, and warns (exit zero) when it is merely
+   behind `HEAD`.
+4. To warn automatically, run `scripts/install-hooks.sh` once; it prints exactly
+   what it installs and adds a pre-push hook that warns on staleness without
+   blocking a push.
+5. The README's `<!-- commit-graph:begin -->` block points at the latest card;
+   it never needs a hand edit, because the card is regenerated, not rewritten.
+
+## Honest limits
+
+- **Stale by design.** The card is anchored to one commit (`as_of_sha`), so the
+  commit that lands it always leaves it one commit behind. Staleness is a
+  warning past the configured thresholds, never a failure.
+- **Activity is not quality.** Commit counts, streaks and lines changed measure
+  how the repository was worked on, not how good the work is; a busy week and a
+  slow week look different in the picture and say nothing about either.
+- **Generated only from this history.** The graph is a pure function of the
+  reachable commits and the `[commit_graph]` rules; it carries no wall-clock
+  date, no e-mail address and no claim that any milestone was met on time.
