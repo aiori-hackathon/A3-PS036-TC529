@@ -1055,12 +1055,25 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         violations.extend(check_numbers_of_record(&label, &text, &facts));
     }
 
+    // The committed commit graph is regenerated from its own as-of commit, and
+    // both cards are checked for shape, size, accessibility text and external
+    // references. Staleness is a warning because a graph one commit behind is
+    // the normal state right after a commit.
+    let graph = crate::commit_graph::check_docs(&args.root)?;
+    for warning in &graph.warnings {
+        eprintln!("warning: {warning}");
+    }
+    if let Some(note) = &graph.note {
+        eprintln!("note: {note}");
+    }
+    let graph_violations = graph.violations;
+
     // The signing speed-up bound is a hard honesty claim: a consolidated
     // artifact whose reported speed-up exceeds 1.05xN must not back the
     // documented numbers. `bound_ok == false` is treated as a failing claim.
     check_signing_bound(&args.root.join(&args.results))?;
 
-    if violations.is_empty() {
+    if violations.is_empty() && graph_violations.is_empty() {
         // A single command guards the whole documentation surface, so the
         // source-tree hygiene scan and the pinned-dependency agreement check
         // run alongside the documentation rules.
@@ -1077,7 +1090,13 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     for violation in &violations {
         eprintln!("{violation}");
     }
-    bail!("docs-check: {} violation(s)", violations.len());
+    for message in &graph_violations {
+        eprintln!("{message}");
+    }
+    bail!(
+        "docs-check: {} violation(s)",
+        violations.len() + graph_violations.len()
+    );
 }
 
 #[cfg(test)]

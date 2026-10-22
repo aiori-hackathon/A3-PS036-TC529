@@ -36,7 +36,7 @@ dark_theme_contrast = 5.14
 [dark_theme]
 background = "#0D1117"
 preview_background = "#0B0D10"
-slate = "#E6EDF3"
+ink = "#E6EDF3"
 minimum_contrast = 3.0
 
 [dark_theme.slate]

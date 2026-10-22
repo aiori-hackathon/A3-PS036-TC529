@@ -74,6 +74,11 @@ const SLOT_KEYS: [(Row, &str); 6] = [
 #[serde(deny_unknown_fields)]
 struct ConfigFile {
     badges: Badges,
+    /// The shared file also carries the commit-graph table, which has its own
+    /// typed reader; the badge renderer only has to tolerate it here.
+    #[allow(dead_code)] // read by serde to satisfy deny_unknown_fields, not by this module
+    #[serde(default)]
+    commit_graph: Option<toml::Value>,
 }
 
 /// The `badges` table of the configuration file.

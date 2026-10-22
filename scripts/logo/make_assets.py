@@ -691,7 +691,7 @@ def write_brand_toml(analysis: dict, palette, dark_report) -> None:
         "[dark_theme]",
         f'background = "{hex_of(DARK_BACKGROUND)}"',
         f'preview_background = "{hex_of(PREVIEW_BACKGROUND)}"',
-        f'slate = "{hex_of(DARK_SLATE)}"',
+        f'ink = "{hex_of(DARK_SLATE)}"',
         f"minimum_contrast = {MIN_DARK_CONTRAST:.1f}",
         "",
     ]

@@ -1,0 +1,275 @@
+{
+  "schema_version": 1,
+  "as_of_sha": "6adc80ef069358c019dc1caaf460e6c617135888",
+  "as_of_date": "2026-10-22",
+  "timezone": "Asia/Kolkata",
+  "range": {
+    "start": "2026-09-26",
+    "end": "2026-10-22"
+  },
+  "totals": {
+    "commits": 74,
+    "active_days": 18,
+    "longest_streak": 12,
+    "current_streak": 12,
+    "lines_added": 87401,
+    "lines_removed": 11976,
+    "files_touched": 728
+  },
+  "per_day": [
+    {
+      "date": "2026-09-26",
+      "commits": 7,
+      "added": 4526,
+      "removed": 62,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-09-27",
+      "commits": 4,
+      "added": 4699,
+      "removed": 78,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-09-28",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-09-29",
+      "commits": 4,
+      "added": 2145,
+      "removed": 47,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-09-30",
+      "commits": 5,
+      "added": 3236,
+      "removed": 202,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-01",
+      "commits": 1,
+      "added": 2051,
+      "removed": 148,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-02",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-03",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-04",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-05",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-06",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-07",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-08",
+      "commits": 3,
+      "added": 3674,
+      "removed": 53,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-09",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-10",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-11",
+      "commits": 1,
+      "added": 1,
+      "removed": 3,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-12",
+      "commits": 8,
+      "added": 10681,
+      "removed": 300,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-13",
+      "commits": 6,
+      "added": 7931,
+      "removed": 5848,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-14",
+      "commits": 9,
+      "added": 9256,
+      "removed": 1298,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-15",
+      "commits": 1,
+      "added": 1698,
+      "removed": 198,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-16",
+      "commits": 8,
+      "added": 7193,
+      "removed": 637,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-17",
+      "commits": 1,
+      "added": 2043,
+      "removed": 142,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-18",
+      "commits": 2,
+      "added": 5225,
+      "removed": 229,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-19",
+      "commits": 3,
+      "added": 9081,
+      "removed": 770,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-20",
+      "commits": 5,
+      "added": 6975,
+      "removed": 1040,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-21",
+      "commits": 4,
+      "added": 3482,
+      "removed": 695,
+      "authors": [
+        "Pratyay"
+      ]
+    },
+    {
+      "date": "2026-10-22",
+      "commits": 2,
+      "added": 3504,
+      "removed": 226,
+      "authors": [
+        "Pratyay"
+      ]
+    }
+  ],
+  "per_author": [
+    {
+      "display": "Pratyay",
+      "commits": 74
+    }
+  ],
+  "milestones": [
+    {
+      "date": "2026-10-14",
+      "label": "Round 1 submission",
+      "future": false
+    },
+    {
+      "date": "2026-10-20",
+      "label": "Level 2 qualified",
+      "future": false
+    },
+    {
+      "date": "2026-11-24",
+      "label": "Regional hackathon",
+      "future": true
+    },
+    {
+      "date": "2026-12-17",
+      "label": "Finals, IIT Jammu",
+      "future": true
+    }
+  ],
+  "config_hash": "1abd20e2af9cb0fe4a0075f8d87bb3b3145515c70113989fc348958d6cd48360"
+}

@@ -9,6 +9,7 @@ use climb_report::{parse_group_id, render_text_summary, scan_criterion, summariz
 
 mod charts;
 mod check_pins;
+mod commit_graph;
 mod consolidate;
 mod deck_facts;
 mod dns_demo;
@@ -26,6 +27,7 @@ mod verify_consolidated;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
+use commit_graph::{cmd_commit_graph, CommitGraphArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
@@ -132,6 +134,14 @@ enum Commands {
     /// artifact, never typed in. `--check` compares the committed block with a
     /// fresh generation instead of writing.
     ReadmeBadges(ReadmeBadgesArgs),
+    /// Render the commit graph: one JSON document and two SVG cards.
+    ///
+    /// Reads the history reachable from `--as-of` (default HEAD) with a pinned
+    /// log format and writes `docs/media/commit-graph.json`,
+    /// `docs/media/commit-graph.svg` and `docs/media/commit-graph-compact.svg`.
+    /// Dates are bucketed in the configured fixed-offset zone, so rerunning the
+    /// command for the same commit produces identical bytes.
+    CommitGraph(CommitGraphArgs),
     /// Scan the shipped source tree for process-history references.
     ///
     /// A comment that cites a planning/process document by name, or the phase
@@ -247,6 +257,7 @@ fn main() -> Result<()> {
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::ReadmeBadges(args) => cmd_readme_badges(args),
+        Commands::CommitGraph(args) => cmd_commit_graph(args),
         Commands::SourceHygiene(args) => cmd_source_hygiene(args),
         Commands::CheckPins(args) => check_pins::run(&args.root),
         Commands::Package(args) => cmd_package(args),

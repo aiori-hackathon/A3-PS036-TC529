@@ -45,3 +45,33 @@ In strict mode the generator does not write; a drifted block fails with a non-ze
 ### Asset tracking
 
 Generated PNG/SVG/brand assets live in `docs/media/`. `docs/media/README.md` documents how they were produced and the palette.
+
+## Commit graph card
+
+`cargo xtask commit-graph` reads the repository's own history and writes three
+artifacts into `docs/media/`:
+
+- `commit-graph.json` — the machine-readable document: totals, one row per day
+  (including days with no commits), one row per author (display names only,
+  never e-mail addresses), and the milestone list.
+- `commit-graph.svg` — the full card: cumulative staircase, calendar heatmap,
+  headline figures, contributors and the roadmap.
+- `commit-graph-compact.svg` — the same data in a short banner, for the top of
+  the README.
+
+The rules live in the `[commit_graph]` table of `docs/readme-config.toml`: the
+timezone (fixed offset only), an optional start date, excluded authors, display
+names, the path-only commit filter, the milestones and the size budget.
+
+Dates are bucketed in the configured zone from each commit's author timestamp,
+and the document is anchored to one commit: `as_of_sha`, with `as_of_date` taken
+from that commit rather than from the wall clock. Generation is deterministic —
+the same history and configuration produce the same bytes — and it refuses to
+run in a shallow clone, where the history is incomplete.
+
+Every label is drawn as vector outlines from an embedded font, and both cards
+carry their text as `<title>`/`<desc>` for assistive technology. There are no
+scripts, no external requests and no web fonts. `cargo xtask docs-check`
+regenerates the JSON from its own `as_of_sha`, compares it byte for byte,
+checks the `<desc>` numbers against the document, and enforces the size budget;
+a graph that is merely behind `HEAD` produces a warning, not a failure.

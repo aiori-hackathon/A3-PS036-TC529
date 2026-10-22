@@ -86,3 +86,60 @@ alt = "Claims verified: {claims}"
 link = "claims"
 label_color = "teal"
 message_color = "orange"
+
+# ── Commit graph ─────────────────────────────────────────────────────────────
+#
+# `cargo xtask commit-graph` reads the repository's git history up to one
+# commit and writes docs/media/commit-graph.json plus the two SVG cards. The
+# output is a pure function of the history and everything below: rerunning it
+# for the same commit produces identical bytes.
+
+[commit_graph]
+# Dates are bucketed in this zone. Only fixed-offset zones are accepted
+# (Asia/Kolkata is UTC+05:30 all year), so the bucketing cannot depend on the
+# tz database installed on the machine that runs the generator.
+timezone = "Asia/Kolkata"
+
+# Optional lower bound for the graph, as an ISO date. When omitted the graph
+# starts at the first commit.
+# since = "2026-09-26"
+
+# Bot accounts are excluded by git author NAME, never by email address.
+exclude_authors = ["dependabot[bot]", "github-actions[bot]", "renovate[bot]"]
+
+# A commit whose every changed file matches one of these patterns is not part
+# of the graph. This keeps the commits that only refresh the graph itself from
+# feeding back into the numbers they refresh.
+ignore_commits_whose_files_all_match = ["docs/media/commit-graph*"]
+
+# Both SVG files stay at or below this size. Generation fails rather than
+# writing an oversized card.
+budget_kb = 50
+
+# `cargo xtask docs-check` warns (never fails) when the committed graph is
+# further than this behind HEAD.
+staleness_commits = 20
+staleness_days = 7
+
+# Display names are keyed by git author NAME (names only, never emails). An
+# author with no mapping is shown under the name git reports.
+[commit_graph.display_names]
+"Pratyay Mukherjee" = "Pratyay"
+
+# Milestones appear as flags on the timeline. Dates after the graph's as-of
+# date are drawn dimmed and dashed.
+[[commit_graph.milestones]]
+date = "2026-10-14"
+label = "Round 1 submission"
+
+[[commit_graph.milestones]]
+date = "2026-10-20"
+label = "Level 2 qualified"
+
+[[commit_graph.milestones]]
+date = "2026-11-24"
+label = "Regional hackathon"
+
+[[commit_graph.milestones]]
+date = "2026-12-17"
+label = "Finals, IIT Jammu"
