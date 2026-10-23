@@ -134,13 +134,14 @@ enum Commands {
     /// artifact, never typed in. `--check` compares the committed block with a
     /// fresh generation instead of writing.
     ReadmeBadges(ReadmeBadgesArgs),
-    /// Render the commit graph: one JSON document and two SVG cards.
+    /// Refresh the commit graph: one JSON document and four SVG cards.
     ///
     /// Reads the history reachable from `--as-of` (default HEAD) with a pinned
-    /// log format and writes `docs/media/commit-graph.json`,
-    /// `docs/media/commit-graph.svg` and `docs/media/commit-graph-narrow.svg`.
-    /// Dates are bucketed in the configured fixed-offset zone, so rerunning the
-    /// command for the same commit produces identical bytes.
+    /// log format and writes `docs/media/commit-graph.json` and its wide,
+    /// narrow and compact cards. Dates are bucketed in the configured
+    /// fixed-offset zone, so rerunning the command for the same commit produces
+    /// identical bytes. `--auto` refreshes only when the public tip has moved
+    /// and exits 10 when it staged a change.
     CommitGraph(CommitGraphArgs),
     /// Scan the shipped source tree for process-history references.
     ///
@@ -612,11 +613,26 @@ mod tests {
             Commands::CommitGraph(args) => {
                 assert_eq!(args.out_dir, PathBuf::from("docs/media"));
                 assert!(!args.check);
+                assert!(!args.auto);
                 assert!(args.as_of.is_none());
                 assert_eq!(args.source, HistorySource::Auto);
             }
             _ => panic!("expected the commit-graph subcommand"),
         }
+    }
+
+    #[test]
+    fn commit_graph_auto_flag_parses_and_conflicts_with_check() {
+        let cli = Cli::try_parse_from(["xtask", "commit-graph", "--auto"])
+            .expect("commit-graph --auto parses");
+        match cli.command {
+            Commands::CommitGraph(args) => assert!(args.auto),
+            _ => panic!("expected the commit-graph subcommand"),
+        }
+        assert!(
+            Cli::try_parse_from(["xtask", "commit-graph", "--auto", "--check"]).is_err(),
+            "--auto and --check are mutually exclusive"
+        );
     }
 
     #[test]

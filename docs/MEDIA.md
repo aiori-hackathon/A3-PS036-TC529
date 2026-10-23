@@ -54,8 +54,9 @@ artifacts into `docs/media/`:
 - `commit-graph.json` — the machine-readable document: totals, one row per day
   (including quiet days), one row per author (display names only, never e-mail
   addresses) and the milestone list with a `done` or `upcoming` status. Schema
-  version 3 adds the first and last commit dates, the busiest day, the longest
-  streak's range and the milestone status.
+  version 4 adds `pending_refresh` and `pending_date`, which record the refresh
+  commit the totals already count; version 3 added the first and last commit
+  dates, the busiest day, the longest streak's range and the milestone status.
 - `commit-graph.svg` — the wide card (840 by 540, shown at 840 px).
 - `commit-graph-narrow.svg` — the phone card (400 by 640, shown at 390 px).
 - `commit-graph-compact.svg` — the wide strip (840 by 156).
@@ -108,9 +109,13 @@ The rules live in the `[commit_graph]` table of `docs/readme-config.toml`: the
 timezone (fixed offset only), the public `source_url`, `source_ref` and
 `source_cache`, the `repo_web_url` used for the README permalink, hidden author
 names, the refresh-commit pattern, the milestones (with an optional short
-label), the size budgets and the staleness thresholds. The
-`[commit_graph.style]` table carries the presentation knobs: `accent`, `title`,
-`show_flags`, `show_bars` and `display_font`.
+label), the size budgets and the staleness thresholds. `self_count` (default
+true) makes the totals include the refresh commit that will carry the document;
+`refresh_commits_allow_readme` (default true) lets that commit carry the README
+permalink beside the graph artifacts, while a README-only commit is never
+classified as a refresh. The `[commit_graph.style]` table carries the
+presentation knobs: `accent`, `title`, `show_flags`, `show_bars` and
+`display_font`.
 
 ### Provenance
 
@@ -123,12 +128,17 @@ and `--source local` reads this checkout for offline inspection; a graph built
 with `--source local` must not be committed, because it may describe a private
 log whose commit ids do not exist publicly.
 
-`totals.commits` counts **every** commit reachable from the stamped
-`as_of_sha`, so it equals `git rev-list --count <as_of_sha>` and therefore the
-number the public repository shows at that commit. Media-only graph refreshes
-are included in that total and reported separately as `totals.refresh_commits`
-(“of which N graph refreshes” in the footer); active days, streaks and per-day
-counts include them too. Nothing is hidden.
+`as_of_sha` is the public tip the card was generated from, and it stays a real,
+linkable commit. When `self_count` is enabled (the default), the totals also
+count the refresh commit that will carry the document. Before that commit
+exists `totals.commits` equals `git rev-list --count <as_of_sha> + 1`; once it
+lands it equals the number the public repository shows. The document records
+`pending_refresh: true` and `pending_date` in the configured zone, and the
+documentation check replays that recorded day instead of reading the wall
+clock, so the bytes reproduce later. Media-only graph refreshes are included in
+that total and reported separately as `totals.refresh_commits` (“includes N
+graph refreshes” in the footer); active days, streaks and per-day counts
+include them too. Nothing is hidden.
 
 Dates are bucketed in the configured zone from each commit's author timestamp,
 and the document is anchored to one commit: `as_of_sha`, with `as_of_date` taken
@@ -170,39 +180,120 @@ carries its own `data-bbox`. The tests parse the committed artifacts and check:
 - byte-identical regeneration, and the size budgets: fifty kilobytes per card
   and twenty-five kilobytes per strip.
 
-## Refreshing the graph
+## Publishing the card
 
-1. Commit the work locally.
-2. Run `tools/sync-aiori.sh` to publish it to the public repository.
-3. Run `scripts/refresh-commit-graph.sh`. It fetches the public history first,
-   prints the public SHA and the commit count at that SHA, regenerates the
-   artwork (so it includes the commits just synced) and stages only the five
-   media artifacts plus the README permalinks the generator rewrites.
-4. Read the `git diff --stat --cached` it prints, then commit with
-   `docs: refresh commit graph` — the script never commits or pushes.
-5. The next `tools/sync-aiori.sh` publishes the refreshed artwork.
-6. To check without writing, run `cargo xtask commit-graph --check`: it fails
-   only when the graph is inconsistent, warns (exit zero) when it is merely
-   behind `HEAD`, and skips the history checks with a reason when the as-of
-   commit is in neither this checkout nor the cache.
-7. To warn automatically, run `scripts/install-hooks.sh` once; it prints exactly
-   what it installs and adds a pre-push hook that warns on staleness without
-   blocking a push and never fetches.
-8. The README's `<!-- commit-graph-strip:begin -->` and
-   `<!-- commit-graph:begin -->` blocks point at the public commit the artwork
-   was generated from; their captions never need a hand edit, because the
-   generator rewrites the permalinks, not the prose.
+`scripts/publish.sh` publishes the branch, refreshes the card when needed, and
+proves the card and the public repository agree. It prints every step and
+appends the whole run to `target/publish.log`:
+
+1. Push the private commits. The sync script clones the private *remote*, not
+   the working tree, so an unpushed commit would be invisible to it.
+2. Run `tools/sync-aiori.sh` to publish a cleaned copy. If its gate refuses,
+   the publish stops before anything is committed.
+3. Run `cargo xtask commit-graph --auto --source public`. The command compares
+   the committed document with the public tip. When the tip is already the
+   refresh commit the document counted — its first parent is `as_of_sha` — it
+   prints `up to date`, touches nothing and exits 0. Otherwise it regenerates
+   from the tip, stages the five artifacts and `README.md`, prints the old and
+   new counts, and exits 10.
+4. On exit 10, commit the generated files as `docs: refresh commit graph`,
+   push, and sync again. Then run `--auto` again and require `up to date`. This
+   second pass is the convergence proof: the refresh commit the card counted
+   now exists, so there is nothing left to stage.
+5. Compare `totals.commits` in the JSON with `git rev-list --count` on the
+   cached public branch, print the two numbers side by side, and fail if they
+   differ.
+
+The script takes a lock (`target/publish.lock`), refuses a dirty working tree,
+requires an upstream branch, never force-pushes, never rewrites history and
+never edits the sync script. Its only commit is the generated refresh.
+
+### Failure modes
+
+- **Dirty tree** — refused before anything is pushed. Commit or stash first.
+- **No upstream** — refused: the sync reads the private remote, not this tree.
+- **Another publish running** — the lock makes the second invocation exit
+  immediately instead of interleaving pushes.
+- **Sync gate failure** — the publish stops; nothing is committed or pushed
+  after that point.
+- **Generator failure** (an exit status other than 0 or 10) — the publish stops
+  and prints the generator's output.
+- **No convergence** — the second `--auto` did not print `up to date`, so the
+  public tip is not the refresh the document counted. Inspect the public branch
+  before retrying rather than editing the card by hand.
+- **Card and repository disagree** — step 5 prints both counts and fails.
+- **Missing history** — a clone without the public as-of commit and without the
+  cache skips the exactness comparison with a printed reason. Publishing still
+  needs the cache, because the card must describe public history.
+
+`cargo xtask commit-graph --check` remains the offline checker. It reproduces
+the document and, in a public clone whose `HEAD` is the refresh commit,
+requires `totals.commits == git rev-list --count HEAD`. In a private checkout
+it finds the unique refresh child of `as_of_sha` in the cache and compares
+against that child's count, or skips with a printed reason when the cache does
+not hold it. A present but unparseable artifact is a hard failure that names
+the path; an absent cache is not.
+
+### Hooks
+
+`scripts/install-hooks.sh` installs the pre-push consistency check.
+`scripts/install-hooks.sh --autopublish` also installs a post-commit hook that
+runs `scripts/publish.sh` after every commit. It is off by default and carries
+a recursion guard, because the refresh commit would otherwise start another
+publish. A hook failure cannot undo a commit, so it prints a warning and
+appends the full output to `target/autopublish.log`.
+`scripts/install-hooks.sh --remove` deletes the hooks this script installed and
+leaves any other hook untouched.
+
+### The honest side effect
+
+One publish with new work adds one small refresh commit to the public history.
+That commit is counted in the card, which is why `--auto` needs the second pass
+to converge, and it appears as a graph refresh rather than being hidden.
+Publishing after every commit therefore adds a refresh commit to the public
+history every time. Publishing in batches is cheaper: collect several commits,
+publish once, and the card gains one row.
+
+### Variants not built here
+
+**CI variant (described, not built).** Five trade-offs:
+
+- It runs the same sync → `--auto` → commit → sync → `--auto` sequence on a
+  runner, so no developer machine needs repository credentials.
+- It needs a full clone or the bare cache for the exactness check, plus a
+  concurrency group: two runs must never publish at once.
+- A failed gate is a red build with the previous public tip intact, which is
+  easier to audit than a half-finished laptop publish.
+- A run with no new work adds no refresh commit, because `--auto` exits 0 and
+  the publish does nothing further.
+- Its token needs push rights to both repositories, a larger scope than a
+  read-only dashboard job.
+
+**Live Cloudflare Worker variant (described, not built).** Five trade-offs:
+
+- It serves the counts on request, so the card is never stale, at the cost of a
+  runtime dependency and GitHub API rate limits.
+- It must label every number with the commit it was computed from, or a reader
+  cannot tell which history the count describes.
+- It needs its own cache and authentication; a failed fetch must show the last
+  good commit rather than a blank card.
+- It duplicates the counting rules unless both paths read the same committed
+  JSON, so drift is the main risk.
+- It removes the refresh commit entirely, which also removes the public history
+  row that shows the card was regenerated; the trade is freshness for a smaller
+  audit trail.
 
 ## Honest limits
 
-- **Stale by design.** The card is anchored to one commit (`as_of_sha`), so the
-  commit that lands it always leaves it one commit behind. Staleness is a
-  warning past the configured thresholds, never a failure.
+- **Exact after convergence, not before.** While the refresh commit is pending
+  the card is one commit ahead of `as_of_sha`; once published it equals the
+  public tip. `--auto` reports that difference instead of guessing, and a card
+  that is merely behind `HEAD` is a warning, never a failure.
 - **Activity is not quality.** Commit counts, streaks and lines changed measure
   how the repository was worked on, not how good the work is; a busy week and a
   slow week look different in the picture and say nothing about either.
 - **Public history only.** The graph is a pure function of the public commits
-  reachable from `as_of_sha` and the `[commit_graph]` rules; it carries no
-  wall-clock date, no e-mail address and no claim that any milestone was met on
-  time. An offline `--source local` graph describes the local checkout instead
-  and must not be committed.
+  reachable from `as_of_sha`, the recorded pending day and the `[commit_graph]`
+  rules; it carries no wall-clock date, no e-mail address and no claim that any
+  milestone was met on time. An offline `--source local` graph describes the
+  local checkout instead and must not be committed.

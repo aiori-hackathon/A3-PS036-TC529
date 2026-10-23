@@ -872,15 +872,27 @@ fn the_final_state_is_complete_without_animation() {
 fn the_refresh_note_appears_only_when_refreshes_exist() {
     let graph = committed_graph();
     let palette = Palette::default();
-    assert_eq!(
-        graph.totals.refresh_commits, 0,
-        "the committed history has no refreshes"
-    );
-    let quiet = render_full(&graph, &palette, &style()).expect("a card");
+    let mut quiet_graph = graph.clone();
+    quiet_graph.totals.refresh_commits = 0;
+    let quiet = render_full(&quiet_graph, &palette, &style()).expect("a card");
     assert_eq!(
         runs_in_group(&parse(&quiet), "footer-source"),
         1,
         "zero refreshes prints nothing"
+    );
+
+    let mut one = graph.clone();
+    one.totals.refresh_commits = 1;
+    let single = render_full(&one, &palette, &style()).expect("a card");
+    assert_eq!(
+        refresh_note(one.totals.refresh_commits).as_deref(),
+        Some("includes 1 graph refresh"),
+        "one refresh is singular"
+    );
+    assert_eq!(
+        runs_in_group(&parse(&single), "footer-source"),
+        2,
+        "a single refresh still prints a note"
     );
 
     let mut refreshed = graph.clone();

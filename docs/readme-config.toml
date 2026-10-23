@@ -123,6 +123,17 @@ exclude_authors = ["dependabot[bot]", "github-actions[bot]", "renovate[bot]"]
 # separately with `totals.refresh_commits`, never hidden.
 refresh_commits_whose_files_all_match = ["docs/media/commit-graph*"]
 
+# The refresh commit also carries the README permalink rewrite, because that
+# permalink names the same as-of commit. `README.md` is allowed beside a graph
+# artifact; a README-only commit is never classified as a refresh.
+refresh_commits_allow_readme = true
+
+# Count the refresh commit that will carry this document. `as_of_sha` stays the
+# public tip (the refresh commit's parent), the totals include that commit, the
+# per-day counts show it on its own day and `totals.refresh_commits` includes
+# it. The document records `pending_refresh` and `pending_date`.
+self_count = true
+
 # Both SVG cards stay at or below this size. Generation fails rather than
 # writing an oversized card.
 budget_kb = 50

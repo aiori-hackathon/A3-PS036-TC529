@@ -79,10 +79,22 @@ impl TempRepo {
             std::fs::write(&full, content).expect("write a fixture file");
         }
         self.git(&["add", "-A"]);
+        self.commit_staged(date, author, "fixture")
+    }
+
+    /// Stage exactly `paths` and commit them with `message`.
+    fn commit_paths(&self, date: &str, author: &str, message: &str, paths: &[&str]) -> String {
+        let mut args = vec!["add", "--"];
+        args.extend(paths);
+        self.git(&args);
+        self.commit_staged(date, author, message)
+    }
+
+    fn commit_staged(&self, date: &str, author: &str, message: &str) -> String {
         let output = Command::new("git")
             .arg("-C")
             .arg(&self.dir.root)
-            .args(["commit", "-q", "--allow-empty", "-m", "fixture"])
+            .args(["commit", "-q", "--allow-empty", "-m", message])
             .env("GIT_CONFIG_GLOBAL", "/dev/null")
             .env("GIT_CONFIG_SYSTEM", "/dev/null")
             .env("GIT_AUTHOR_DATE", date)
@@ -112,6 +124,8 @@ fn config() -> CommitGraphConfig {
         exclude_authors: Vec::new(),
         display_names: BTreeMap::new(),
         refresh_commits_whose_files_all_match: Vec::new(),
+        refresh_commits_allow_readme: true,
+        self_count: false,
         milestones: Vec::new(),
         style: StyleConfig::default(),
         budget_kb: 50,
@@ -756,6 +770,8 @@ fn write_config(root: &Path, config: &CommitGraphConfig) {
          source_cache = \"{}\"\n\
          repo_web_url = \"{}\"\n\
          refresh_commits_whose_files_all_match = [{patterns}]\n\
+         refresh_commits_allow_readme = {}\n\
+         self_count = {}\n\
          budget_kb = {}\n\
          staleness_commits = {}\n\
          staleness_days = {}\n",
@@ -764,6 +780,8 @@ fn write_config(root: &Path, config: &CommitGraphConfig) {
         config.source_ref,
         config.source_cache,
         config.repo_web_url,
+        config.refresh_commits_allow_readme,
+        config.self_count,
         config.budget_kb,
         config.staleness_commits,
         config.staleness_days,
@@ -809,15 +827,36 @@ fn write_artifacts_from(
     config: &CommitGraphConfig,
     as_of: &str,
 ) -> CommitGraph {
+    let pending = if config.self_count {
+        Pending::Today
+    } else {
+        Pending::Disabled
+    };
+    write_artifacts_at(history, repo, config, as_of, pending)
+}
+
+/// [`write_artifacts_from`] with an explicit pending-refresh mode.
+fn write_artifacts_at(
+    history: &Path,
+    repo: &TempRepo,
+    config: &CommitGraphConfig,
+    as_of: &str,
+    pending: Pending,
+) -> CommitGraph {
     std::fs::create_dir_all(repo.path().join("docs/media")).expect("create the media directory");
     write_config(repo.path(), config);
-    let (graph, json) = generate(history, config, Some(as_of)).expect("generate");
+    let (graph, json) = generate_with(history, config, Some(as_of), pending).expect("generate");
     std::fs::write(repo.path().join(JSON_PATH), json).expect("write the JSON");
     write_cards(repo.path(), &graph, &config.style);
     let permalink = commit_permalink(config, &graph.as_of_sha);
     std::fs::write(repo.path().join("README.md"), readme_text(&permalink))
         .expect("write the README");
     graph
+}
+
+/// The day (days since the epoch) of an ISO date, for pinned pending dates.
+fn day_of(date: &str) -> i64 {
+    parse_iso_date(date).expect("a fixture date")
 }
 
 fn write_artifacts(repo: &TempRepo, as_of: &str) -> CommitGraph {
@@ -833,6 +872,7 @@ fn check_args(repo: &TempRepo) -> CommitGraphArgs {
         out_dir: PathBuf::from("docs/media"),
         source: HistorySource::Auto,
         check: true,
+        auto: false,
     }
 }
 
@@ -1163,4 +1203,383 @@ fn remote_urls_compare_across_clone_forms() {
         normalize_remote("https://github.com/someone/CLIMB.git"),
         normalize_remote("https://github.com/aiori-hackathon/A3-PS036-TC529.git")
     );
+}
+
+/// A public history whose tip is the self-counted refresh commit.
+///
+/// Returns the work repository (which is also the checkout `--auto` runs in),
+/// the sandbox that owns the bare public repository, the bare path, the
+/// configuration, the as-of commit and the refresh commit.
+fn public_with_refresh(
+    label: &str,
+) -> (
+    TempRepo,
+    TempDir,
+    PathBuf,
+    CommitGraphConfig,
+    String,
+    String,
+) {
+    let work = TempRepo::new(label);
+    work.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    let as_of = work.commit(
+        "2026-10-11T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("b.txt", "b\n")],
+    );
+    let sandbox = TempDir::new(&format!("{label}-public"));
+    let bare = sandbox.root.join("public.git");
+    bare_clone(&work, &bare);
+
+    let mut config = config();
+    config.source_url = format!("file://{}", bare.display());
+    config.source_cache = "target/public-cache.git".to_string();
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    config.refresh_commits_allow_readme = true;
+    config.self_count = true;
+
+    write_artifacts_at(
+        work.path(),
+        &work,
+        &config,
+        &as_of,
+        Pending::On(day_of("2026-10-12")),
+    );
+    let refresh = work.commit_paths(
+        "2026-10-12T10:00:00+05:30",
+        "Pratyay Mukherjee",
+        "docs: refresh commit graph",
+        &[
+            JSON_PATH,
+            SVG_PATH,
+            NARROW_PATH,
+            COMPACT_PATH,
+            COMPACT_NARROW_PATH,
+            "README.md",
+        ],
+    );
+    let url = format!("file://{}", bare.display());
+    work.git(&["push", "--quiet", &url, "main:main"]);
+    (work, sandbox, bare, config, as_of, refresh)
+}
+
+/// A `commit-graph --auto` invocation rooted at `repo` reading the public
+/// history through the cache.
+fn auto_args(repo: &TempRepo) -> CommitGraphArgs {
+    CommitGraphArgs {
+        root: repo.path().to_path_buf(),
+        as_of: None,
+        config: PathBuf::from(CONFIG_PATH),
+        out_dir: PathBuf::from("docs/media"),
+        source: HistorySource::Public,
+        check: false,
+        auto: true,
+    }
+}
+
+#[test]
+fn a_self_counted_card_matches_rev_list_once_its_refresh_commit_exists() {
+    let (work, _sandbox, _bare, config, as_of, refresh) = public_with_refresh("self-count");
+    let committed = std::fs::read_to_string(work.path().join(JSON_PATH)).expect("the document");
+    let graph: CommitGraph = serde_json::from_str(&committed).expect("a valid document");
+    assert!(graph.pending_refresh, "the card counted its own refresh");
+    assert_eq!(graph.pending_date.as_deref(), Some("2026-10-12"));
+    assert_eq!(graph.totals.refresh_commits, 1);
+    assert_eq!(graph.totals.commits, 3, "two commits plus the refresh");
+    assert_eq!(
+        rev_list_count(work.path(), "HEAD").expect("a count"),
+        graph.totals.commits,
+        "the number GitHub shows at the refresh commit"
+    );
+    assert_eq!(refresh, work.git(&["rev-parse", "HEAD"]).trim());
+
+    // Regenerating from the parent with the recorded pending day reproduces
+    // the committed bytes, even though the refresh commit now exists.
+    let (_, again) = generate_with(
+        work.path(),
+        &config,
+        Some(&as_of),
+        Pending::On(day_of("2026-10-12")),
+    )
+    .expect("regenerate");
+    assert_eq!(again, committed);
+}
+
+#[test]
+fn auto_is_a_no_op_on_the_refresh_tip() {
+    let (work, _sandbox, _bare, _config, _as_of, _refresh) = public_with_refresh("auto-current");
+    let before = std::fs::read(work.path().join(JSON_PATH)).expect("the document");
+    let outcome = run_auto(&auto_args(&work)).expect("auto runs");
+    match outcome {
+        AutoOutcome::UpToDate { tip, as_of } => {
+            assert_eq!(tip, _refresh);
+            assert_eq!(as_of, _as_of);
+        }
+        other => panic!("expected up to date, got {other:?}"),
+    }
+    let after = std::fs::read(work.path().join(JSON_PATH)).expect("the document");
+    assert_eq!(before, after, "the no-op must not rewrite the document");
+}
+
+#[test]
+fn a_new_commit_makes_the_card_stale_and_one_refresh_cycle_converges() {
+    let (work, _sandbox, _bare, _config, _as_of, _refresh) = public_with_refresh("auto-converge");
+    let real = work.commit(
+        "2026-10-13T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("c.txt", "c\n")],
+    );
+    let url = {
+        let config = load_config(&work.path().join(CONFIG_PATH)).expect("the configuration");
+        config.source_url
+    };
+    work.git(&["push", "--quiet", &url, "main:main"]);
+
+    let outcome = run_auto(&auto_args(&work)).expect("auto runs");
+    match outcome {
+        AutoOutcome::Changed {
+            old_commits,
+            new_commits,
+            tip,
+        } => {
+            assert_eq!(tip, real);
+            assert_eq!(old_commits, 3);
+            assert_eq!(new_commits, 5, "four existing commits plus the new refresh");
+        }
+        other => panic!("expected a change, got {other:?}"),
+    }
+    let staged = work.git(&["diff", "--cached", "--name-only"]);
+    assert!(staged.contains("docs/media/commit-graph.json"), "{staged}");
+    assert!(
+        staged.contains("README.md"),
+        "the permalink travels with it"
+    );
+
+    // The publishing script commits exactly the staged files and publishes the
+    // refresh commit; the next decision must converge.
+    let refresh = work.commit_staged(
+        "2026-10-13T10:00:00+05:30",
+        "Pratyay Mukherjee",
+        "docs: refresh commit graph",
+    );
+    work.git(&["push", "--quiet", &url, "main:main"]);
+    let outcome = run_auto(&auto_args(&work)).expect("auto runs again");
+    match outcome {
+        AutoOutcome::UpToDate { tip, .. } => assert_eq!(tip, refresh),
+        other => panic!("expected convergence, got {other:?}"),
+    }
+    let graph: CommitGraph = serde_json::from_str(
+        &std::fs::read_to_string(work.path().join(JSON_PATH)).expect("the document"),
+    )
+    .expect("a valid document");
+    assert_eq!(
+        graph.totals.commits,
+        rev_list_count(work.path(), "HEAD").expect("a count")
+    );
+}
+
+#[test]
+fn a_refresh_tip_whose_parent_is_not_the_as_of_commit_is_stale() {
+    let (work, _sandbox, _bare, _config, as_of, _refresh) =
+        public_with_refresh("auto-wrong-parent");
+    // Claim the card describes an older commit than the one the refresh tip was
+    // built on. The tip is media-only, but it is not *this* card's refresh.
+    let path = work.path().join(JSON_PATH);
+    let text = std::fs::read_to_string(&path).expect("the document");
+    let mut value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+    *value.pointer_mut("/as_of_sha").expect("as_of_sha") =
+        serde_json::json!("0000000000000000000000000000000000000000");
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).expect("serialise")
+        ),
+    )
+    .expect("rewrite the document");
+    assert_ne!(
+        value.pointer("/as_of_sha").and_then(|v| v.as_str()),
+        Some(as_of.as_str())
+    );
+    let outcome = run_auto(&auto_args(&work)).expect("auto runs");
+    assert!(
+        matches!(outcome, AutoOutcome::Changed { .. }),
+        "a refresh with the wrong parent is stale"
+    );
+}
+
+#[test]
+fn the_exactness_check_rejects_a_card_that_omits_its_refresh_commit() {
+    let (work, _sandbox, _bare, _config, _as_of, refresh) = public_with_refresh("exactness");
+    // The public clone's tip is the refresh commit and its first parent is the
+    // as-of commit, so docs-check requires the count GitHub would show.
+    let outcome = check::check_docs(work.path()).expect("the check runs");
+    assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
+
+    let path = work.path().join(JSON_PATH);
+    let text = std::fs::read_to_string(&path).expect("the document");
+    let mut value: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+    let count = value
+        .pointer("/totals/commits")
+        .and_then(|v| v.as_u64())
+        .expect("a count");
+    *value.pointer_mut("/totals/commits").expect("commits") = serde_json::json!(count - 1);
+    std::fs::write(
+        &path,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).expect("serialise")
+        ),
+    )
+    .expect("rewrite the document");
+    let outcome = check::check_docs(work.path()).expect("the check runs");
+    let message = outcome
+        .violations
+        .iter()
+        .find(|violation| violation.contains("the card must count its own refresh commit"))
+        .unwrap_or_else(|| panic!("no exactness violation in {:#?}", outcome.violations));
+    assert!(message.contains("git rev-list --count HEAD"), "{message}");
+    assert!(message.contains(&(count - 1).to_string()), "{message}");
+    assert!(message.contains(&count.to_string()), "{message}");
+    assert_eq!(
+        rev_list_count(work.path(), "HEAD").expect("a count"),
+        count,
+        "the fixture's refresh commit is {}",
+        &refresh[..7]
+    );
+}
+
+#[test]
+fn a_refresh_may_carry_the_readme_permalink_but_a_readme_only_commit_may_not() {
+    let repo = TempRepo::new("refresh-readme");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[
+            ("docs/media/commit-graph.json", "{}"),
+            ("README.md", "permalink\n"),
+        ],
+    );
+    repo.commit(
+        "2026-10-11T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("README.md", "prose only\n")],
+    );
+    let mut config = config();
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    config.refresh_commits_allow_readme = true;
+    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    assert_eq!(
+        graph.totals.refresh_commits, 1,
+        "the graph artifact plus README is one refresh; README alone is not"
+    );
+
+    config.refresh_commits_allow_readme = false;
+    let (strict, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    assert_eq!(
+        strict.totals.refresh_commits, 0,
+        "without the allowance a README rewrite makes the commit something else"
+    );
+}
+
+#[test]
+fn self_count_adds_one_commit_on_the_pending_day_and_records_it() {
+    let repo = TempRepo::new("self-count-fields");
+    for day in 10..=12 {
+        repo.commit(
+            &format!("2026-10-{day}T09:00:00+05:30"),
+            "Pratyay Mukherjee",
+            &[(format!("f{day}.txt").as_str(), "a\n")],
+        );
+    }
+    let mut config = config();
+    config.self_count = true;
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    let pending = day_of("2026-10-13");
+    let (graph, json) =
+        generate_with(repo.path(), &config, Some("HEAD"), Pending::On(pending)).expect("generate");
+    assert_eq!(graph.totals.commits, 4);
+    assert_eq!(graph.totals.refresh_commits, 1);
+    assert_eq!(graph.totals.active_days, 4);
+    assert_eq!(graph.totals.longest_streak, 4);
+    assert_eq!(graph.totals.current_streak, 4);
+    assert_eq!(graph.pending_date.as_deref(), Some("2026-10-13"));
+    assert_eq!(graph.range.end, "2026-10-13");
+    assert_eq!(day(&graph, "2026-10-13").commits, 1);
+    assert!(day(&graph, "2026-10-13").authors.is_empty());
+    assert!(json.contains("\"pending_refresh\": true"));
+    assert!(json.contains("\"pending_date\": \"2026-10-13\""));
+
+    // The pending commit lands on an existing day without extending the range.
+    let (same_day, _) = generate_with(
+        repo.path(),
+        &config,
+        Some("HEAD"),
+        Pending::On(day_of("2026-10-12")),
+    )
+    .expect("generate");
+    assert_eq!(same_day.totals.commits, 4);
+    assert_eq!(same_day.range.end, "2026-10-12");
+    assert_eq!(day(&same_day, "2026-10-12").commits, 2);
+    assert_eq!(same_day.totals.active_days, 3);
+
+    // Disabled keeps the historical shape.
+    let (plain, plain_json) =
+        generate_with(repo.path(), &config, Some("HEAD"), Pending::Disabled).expect("generate");
+    assert_eq!(plain.totals.commits, 3);
+    assert_eq!(plain.totals.refresh_commits, 0);
+    assert!(!plain.pending_refresh);
+    assert!(plain.pending_date.is_none());
+    assert!(plain_json.contains("\"pending_refresh\": false"));
+    assert!(!plain_json.contains("pending_date"));
+}
+
+#[test]
+fn a_config_without_self_count_keeps_the_historical_default() {
+    let repo = TempRepo::new("defaults");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    let text = "[commit_graph]\n\
+                timezone = \"Asia/Kolkata\"\n\
+                budget_kb = 50\n";
+    std::fs::create_dir_all(repo.path().join("docs")).expect("create the docs directory");
+    std::fs::write(repo.path().join(CONFIG_PATH), text).expect("write the configuration");
+    let config = load_config(&repo.path().join(CONFIG_PATH)).expect("load the configuration");
+    assert!(config.self_count);
+    assert!(config.refresh_commits_allow_readme);
+    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    assert!(graph.pending_refresh);
+    assert_eq!(graph.totals.commits, 2);
+}
+
+#[test]
+fn a_card_without_self_count_is_not_checked_against_its_refresh_tip() {
+    let (work, _sandbox, _bare, config, as_of, _refresh) = public_with_refresh("no-self-count");
+    // Replace the self-counted card with one that counts only commits that
+    // exist, then amend the refresh commit so HEAD still carries it. The card
+    // is consistent, and the exactness rule must not demand a pending commit
+    // the document never claimed.
+    write_artifacts_at(work.path(), &work, &config, &as_of, Pending::Disabled);
+    work.git(&["add", "-A"]);
+    work.git(&["commit", "--quiet", "--amend", "--no-edit"]);
+
+    let graph: CommitGraph =
+        serde_json::from_str(&std::fs::read_to_string(work.path().join(JSON_PATH)).expect("doc"))
+            .expect("valid JSON");
+    assert!(!graph.pending_refresh);
+    assert_eq!(
+        rev_list_count(work.path(), "HEAD").expect("a count"),
+        graph.totals.commits + 1,
+        "the refresh commit is one ahead of a document that does not count it"
+    );
+
+    let outcome = check::check_docs(work.path()).expect("the check runs");
+    assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
 }

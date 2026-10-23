@@ -1458,6 +1458,15 @@ fn draw_kpi(
     Ok(())
 }
 
+/// Footer wording for the refresh count. Absent when the history has none.
+fn refresh_note(count: u64) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("includes 1 graph refresh".to_string()),
+        count => Some(format!("includes {count} graph refreshes")),
+    }
+}
+
 fn draw_footer(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -1563,31 +1572,29 @@ fn draw_footer(
     }
 
     let mut source_runs = Vec::new();
-    let refresh = graph.totals.refresh_commits;
+    let refresh_note = refresh_note(graph.totals.refresh_commits);
     if footer.stacked {
         source_runs.push(run(
             source_text,
             margin,
             footer.baseline + footer.source_size + 5.0,
         ));
-        if refresh > 0 {
-            let note = format!("includes {} graph refreshes", refresh);
+        if let Some(note) = &refresh_note {
             source_runs.push(run(
                 note,
                 margin,
                 footer.baseline + 2.0 * (footer.source_size + 5.0),
             ));
         }
-    } else if refresh > 0 {
+    } else if let Some(note) = &refresh_note {
         source_runs.push(run(
             source_text,
             source_x,
             footer.baseline - footer.source_size - 4.0,
         ));
-        let note = format!("includes {} graph refreshes", refresh);
         let x = canvas.right_x(
             Typeface::Mono,
-            &note,
+            note,
             width - margin,
             footer.source_size,
             0.0,

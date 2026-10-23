@@ -29,7 +29,11 @@ use std::process::Command;
 pub(crate) use check::check_docs;
 
 /// Version of the JSON document shape.
-pub(crate) const SCHEMA_VERSION: u32 = 3;
+pub(crate) const SCHEMA_VERSION: u32 = 4;
+
+/// Exit status of `commit-graph --auto` when it rewrote the artifacts, so a
+/// publishing script can tell "the card changed" from "nothing to do".
+pub(crate) const AUTO_CHANGED_EXIT: i32 = 10;
 
 /// Configuration file, relative to the workspace root.
 pub(crate) const CONFIG_PATH: &str = "docs/readme-config.toml";
@@ -98,6 +102,17 @@ pub(crate) struct CommitGraphArgs {
     /// a hook can never fail offline.
     #[arg(long)]
     pub(crate) check: bool,
+
+    /// Refresh the card only when it is stale, and exit 10 when it changed.
+    ///
+    /// The committed document is read first. When the public tip is already the
+    /// refresh commit that carries it (a commit whose first parent is the
+    /// document's as-of commit) nothing is written and the command exits zero.
+    /// Otherwise the document is regenerated from that tip, counting the
+    /// refresh commit that will carry it, the generated files are staged, and
+    /// the command exits with status 10 so a publishing script can commit.
+    #[arg(long, conflicts_with = "check")]
+    pub(crate) auto: bool,
 }
 
 /// One `[commit_graph]` table. Unknown keys are rejected so a typo cannot
@@ -131,6 +146,25 @@ pub(crate) struct CommitGraphConfig {
     /// counted and reported as a graph refresh rather than hidden.
     #[serde(default)]
     pub(crate) refresh_commits_whose_files_all_match: Vec<String>,
+    /// Allow the README to change in the same commit as a graph artifact.
+    ///
+    /// The document's as-of commit is the refresh commit's parent, and the
+    /// README permalink must name that commit, so the refresh commit carries
+    /// the README rewrite too. With this enabled a commit that matches the
+    /// refresh patterns plus `README.md` is still classified as a graph refresh;
+    /// a README-only commit never is.
+    #[serde(default = "default_true")]
+    pub(crate) refresh_commits_allow_readme: bool,
+    /// Treat the refresh commit that will carry this document as part of the
+    /// history the document counts.
+    ///
+    /// With this enabled `totals.commits` is `git rev-list --count <as_of>`
+    /// plus one, the pending commit appears on its own day, and
+    /// `totals.refresh_commits` includes it. The document records
+    /// `pending_refresh: true` and the pending date so a later check can
+    /// reproduce the same bytes.
+    #[serde(default = "default_true")]
+    pub(crate) self_count: bool,
     /// Milestones drawn on the timeline.
     #[serde(default)]
     pub(crate) milestones: Vec<MilestoneConfig>,
@@ -239,8 +273,20 @@ pub(crate) struct MilestoneConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct CommitGraph {
     pub(crate) schema_version: u32,
+    /// The public commit the graph was generated from. When
+    /// `pending_refresh` is true this is the parent of the refresh commit that
+    /// carries this document.
     pub(crate) as_of_sha: String,
     pub(crate) as_of_date: String,
+    /// True when the totals include the refresh commit that will carry this
+    /// document. Such a commit does not exist yet, so its lines and files are
+    /// not counted.
+    #[serde(default)]
+    pub(crate) pending_refresh: bool,
+    /// Day of the pending refresh commit in the configured zone, recorded so
+    /// the document reproduces byte for byte after the commit exists.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) pending_date: Option<String>,
     pub(crate) timezone: String,
     pub(crate) range: GraphRange,
     pub(crate) totals: GraphTotals,
@@ -857,6 +903,50 @@ fn commit_timestamp(root: &Path, sha: &str) -> Result<i64> {
         .with_context(|| format!("commit {sha} carries no numeric author timestamp"))
 }
 
+/// The first parent of `sha`, or `None` when it is a root commit.
+pub(crate) fn first_parent(root: &Path, sha: &str) -> Result<Option<String>> {
+    let output = run_git(root, &["rev-list", "--parents", "-n", "1", sha])?;
+    let text = String::from_utf8_lossy(&output);
+    let mut fields = text.split_whitespace();
+    let _ = fields.next();
+    Ok(fields.next().map(|parent| parent.to_string()))
+}
+
+/// Repository-relative paths a single commit changed.
+pub(crate) fn commit_files(root: &Path, sha: &str) -> Result<Vec<String>> {
+    let output = run_git(
+        root,
+        &[
+            "show",
+            "--no-color",
+            "--no-renames",
+            "--name-only",
+            "--format=",
+            sha,
+        ],
+    )?;
+    Ok(String::from_utf8_lossy(&output)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// `git rev-list --count <spec>`.
+pub(crate) fn rev_list_count(root: &Path, spec: &str) -> Result<u64> {
+    let output = run_git(root, &["rev-list", "--count", spec])?;
+    String::from_utf8_lossy(&output)
+        .trim()
+        .parse()
+        .with_context(|| format!("git rev-list --count {spec} printed no number"))
+}
+
+/// The seven-character form used in messages and stamps.
+pub(crate) fn short_sha(sha: &str) -> &str {
+    &sha[..7.min(sha.len())]
+}
+
 struct RawCommit {
     ts: i64,
     author: String,
@@ -952,17 +1042,31 @@ pub(crate) fn glob_match(pattern: &str, path: &str) -> bool {
     helper(pattern.as_bytes(), path.as_bytes())
 }
 
-/// True when every path a commit touched is a graph artifact, so the commit is
-/// a media-only graph refresh. Such commits are counted like any other and
+/// True when every path a commit touched is a generated graph artifact, so the
+/// commit is a graph refresh. Such commits are counted like any other and
 /// reported separately instead of being hidden.
+///
+/// A refresh commit may also carry the README permalink rewrite, because the
+/// permalink names the document's as-of commit and the two must agree. At least
+/// one graph artifact must be present, so a README-only commit is never a
+/// refresh.
 fn is_refresh_commit(config: &CommitGraphConfig, files: &[String]) -> bool {
-    !files.is_empty()
-        && files.iter().all(|path| {
-            config
-                .refresh_commits_whose_files_all_match
-                .iter()
-                .any(|pattern| glob_match(pattern, path))
-        })
+    if files.is_empty() {
+        return false;
+    }
+    let mut graph_artifact = false;
+    for path in files {
+        if config
+            .refresh_commits_whose_files_all_match
+            .iter()
+            .any(|pattern| glob_match(pattern, path))
+        {
+            graph_artifact = true;
+        } else if !(config.refresh_commits_allow_readme && path == "README.md") {
+            return false;
+        }
+    }
+    graph_artifact
 }
 
 #[derive(Default)]
@@ -973,22 +1077,63 @@ struct DayAccumulator {
     authors: BTreeSet<String>,
 }
 
+/// Whether a graph counts the refresh commit that will carry it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Pending {
+    /// Count only commits that exist.
+    Disabled,
+    /// Count a refresh commit that lands today in the configured zone.
+    Today,
+    /// Count a refresh commit on this day (days since the epoch). Used to
+    /// reproduce a committed document byte for byte.
+    On(i64),
+}
+
+/// Seconds since the Unix epoch, or an error when the clock is before it.
+fn now_unix_seconds() -> Result<i64> {
+    let since = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .context("the system clock is before the Unix epoch")?;
+    i64::try_from(since.as_secs()).context("the system clock is out of range")
+}
+
 /// Build the graph document and its serialised JSON form.
 ///
 /// Every commit reachable from `as_of` is counted: the totals are what the
-/// public repository shows at that commit, so nothing (a graph refresh, a bot
-/// commit or an excluded display name) can make them disagree with
-/// `git rev-list --count`. The author breakdown is the only place a name is
-/// hidden, and that never removes a commit from the totals or the per-day
-/// counts.
+/// public repository shows at that commit, plus (when the configuration asks
+/// for it) the refresh commit that will carry the document. Nothing (a graph
+/// refresh, a bot commit or an excluded display name) can make the totals
+/// disagree with `git rev-list --count`. The author breakdown is the only place
+/// a name is hidden, and that never removes a commit from the totals or the
+/// per-day counts.
 pub(crate) fn generate(
     root: &Path,
     config: &CommitGraphConfig,
     as_of: Option<&str>,
 ) -> Result<(CommitGraph, String)> {
+    let pending = if config.self_count {
+        Pending::Today
+    } else {
+        Pending::Disabled
+    };
+    generate_with(root, config, as_of, pending)
+}
+
+/// [`generate`] with an explicit pending-refresh mode.
+pub(crate) fn generate_with(
+    root: &Path,
+    config: &CommitGraphConfig,
+    as_of: Option<&str>,
+    pending: Pending,
+) -> Result<(CommitGraph, String)> {
     let offset = tz_offset_minutes(&config.timezone)?;
     let sha = resolve_commit(root, as_of.unwrap_or("HEAD"))?;
     let as_of_day = local_day(commit_timestamp(root, &sha)?, offset);
+    let pending_day = match pending {
+        Pending::Disabled => None,
+        Pending::Today => Some(local_day(now_unix_seconds()?, offset)),
+        Pending::On(day) => Some(day),
+    };
 
     let mut days: BTreeMap<i64, DayAccumulator> = BTreeMap::new();
     let mut authors: BTreeMap<String, u64> = BTreeMap::new();
@@ -1037,19 +1182,30 @@ pub(crate) fn generate(
         first_day = Some(first_day.map_or(day, |current| current.min(day)));
     }
 
+    // The refresh commit does not exist yet. It is counted, but it carries no
+    // known line or file counts and no author breakdown (a display name here
+    // would depend on who runs the generator).
+    if let Some(day) = pending_day {
+        let entry = days.entry(day).or_default();
+        entry.commits += 1;
+        commits += 1;
+        refresh_commits += 1;
+    }
+
     let start = first_day.with_context(|| format!("no commits to graph at {sha}"))?;
-    if start > as_of_day {
+    let end_day = pending_day.map_or(as_of_day, |day| day.max(as_of_day));
+    if start > end_day {
         bail!(
-            "the graph start date ({}) is after the as-of date ({})",
+            "the graph start date ({}) is after the graph end date ({})",
             format_date(start),
-            format_date(as_of_day)
+            format_date(end_day)
         );
     }
 
-    let streak = streak_stats(&days, as_of_day);
+    let streak = streak_stats(&days, end_day);
     let longest_streak = streak.longest;
     let current_streak = streak.current;
-    let per_day: Vec<DayEntry> = (start..=as_of_day)
+    let per_day: Vec<DayEntry> = (start..=end_day)
         .map(|day| {
             let accumulator = days.remove(&day).unwrap_or_default();
             DayEntry {
@@ -1072,7 +1228,7 @@ pub(crate) fn generate(
             commits: day.commits,
         })
         .unwrap_or(BusiestDay {
-            date: format_date(as_of_day),
+            date: format_date(end_day),
             commits: 0,
         });
     let mut per_author: Vec<AuthorEntry> = authors
@@ -1091,7 +1247,7 @@ pub(crate) fn generate(
         .iter()
         .map(|milestone| {
             let day = parse_iso_date(&milestone.date)?;
-            let status = if day > as_of_day {
+            let status = if day > end_day {
                 MilestoneStatus::Upcoming
             } else {
                 MilestoneStatus::Done
@@ -1113,15 +1269,17 @@ pub(crate) fn generate(
         schema_version: SCHEMA_VERSION,
         as_of_sha: sha,
         as_of_date: format_date(as_of_day),
+        pending_refresh: pending_day.is_some(),
+        pending_date: pending_day.map(format_date),
         timezone: config.timezone.clone(),
         range: GraphRange {
             start: format_date(start),
-            end: format_date(as_of_day),
+            end: format_date(end_day),
         },
         totals: GraphTotals {
             commits,
             first_commit_date: format_date(start),
-            last_commit_date: format_date(as_of_day),
+            last_commit_date: format_date(end_day),
             busiest_day: busiest,
             longest_streak_range: StreakRange {
                 start: format_date(streak.start),
@@ -1212,27 +1370,41 @@ fn size_label(bytes: usize) -> String {
     format!("{:.1} kB", bytes as f64 / 1024.0)
 }
 
-/// Generate the JSON and both cards, then write them.
-pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
-    if args.check {
-        return cmd_commit_graph_check(&args);
-    }
-    let config_path = args.root.join(&args.config);
-    let config = load_config(&config_path)?;
-    let history = acquire_history(&args.root, &config, args.source)?;
-    ensure_full_history(&history.path)?;
-    let default_as_of = if history.public && history.path != args.root {
-        config.source_ref.as_str()
-    } else {
-        "HEAD"
-    };
-    let as_of = args.as_of.as_deref().unwrap_or(default_as_of);
-    let (graph, json) = generate(&history.path, &config, Some(as_of))?;
-    let palette = svg::Palette::load(&args.root, &config.style)?;
-    let full = svg::render_full(&graph, &palette, &config.style)?;
-    let narrow = svg::render_narrow(&graph, &palette, &config.style)?;
-    let compact = svg::render_compact(&graph, &palette, &config.style)?;
-    let compact_narrow = svg::render_compact_narrow(&graph, &palette, &config.style)?;
+/// What `commit-graph --auto` decided to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum AutoOutcome {
+    /// The public tip already is the refresh commit the document counts.
+    UpToDate { tip: String, as_of: String },
+    /// The artifacts were regenerated and staged.
+    Changed {
+        old_commits: u64,
+        new_commits: u64,
+        tip: String,
+    },
+}
+
+/// Render the four cards and the document, then write them and update the
+/// README permalink in both managed blocks.
+struct WrittenArtifacts {
+    json_len: usize,
+    full_len: usize,
+    narrow_len: usize,
+    compact_len: usize,
+    compact_narrow_len: usize,
+}
+
+fn write_artifacts(
+    root: &Path,
+    config: &CommitGraphConfig,
+    out_dir: &Path,
+    graph: &CommitGraph,
+    json: &str,
+) -> Result<WrittenArtifacts> {
+    let palette = svg::Palette::load(root, &config.style)?;
+    let full = svg::render_full(graph, &palette, &config.style)?;
+    let narrow = svg::render_narrow(graph, &palette, &config.style)?;
+    let compact = svg::render_compact(graph, &palette, &config.style)?;
+    let compact_narrow = svg::render_compact_narrow(graph, &palette, &config.style)?;
 
     let card_budget = (config.budget_kb as usize * 1024).min(CARD_BUDGET_BYTES);
     let strip_budget = (config.strip_budget_kb as usize * 1024).min(STRIP_BUDGET_BYTES);
@@ -1254,25 +1426,85 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         );
     }
 
-    let out_dir = args.root.join(&args.out_dir);
-    std::fs::create_dir_all(&out_dir)
+    std::fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
-    let json_path = out_dir.join("commit-graph.json");
-    let full_path = out_dir.join("commit-graph.svg");
-    let narrow_path = out_dir.join("commit-graph-narrow.svg");
-    let compact_path = out_dir.join("commit-graph-compact.svg");
-    let compact_narrow_path = out_dir.join("commit-graph-compact-narrow.svg");
-    std::fs::write(&json_path, &json)
-        .with_context(|| format!("failed to write {}", json_path.display()))?;
-    std::fs::write(&full_path, &full)
-        .with_context(|| format!("failed to write {}", full_path.display()))?;
-    std::fs::write(&narrow_path, &narrow)
-        .with_context(|| format!("failed to write {}", narrow_path.display()))?;
-    std::fs::write(&compact_path, &compact)
-        .with_context(|| format!("failed to write {}", compact_path.display()))?;
-    std::fs::write(&compact_narrow_path, &compact_narrow)
-        .with_context(|| format!("failed to write {}", compact_narrow_path.display()))?;
-    update_readme_permalink(&args.root, &config, &graph.as_of_sha)?;
+    for (name, body) in [
+        ("commit-graph.json", json),
+        ("commit-graph.svg", full.as_str()),
+        ("commit-graph-narrow.svg", narrow.as_str()),
+        ("commit-graph-compact.svg", compact.as_str()),
+        ("commit-graph-compact-narrow.svg", compact_narrow.as_str()),
+    ] {
+        let path = out_dir.join(name);
+        std::fs::write(&path, body)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    update_readme_permalink(root, config, &graph.as_of_sha)?;
+
+    Ok(WrittenArtifacts {
+        json_len: json.len(),
+        full_len: full.len(),
+        narrow_len: narrow.len(),
+        compact_len: compact.len(),
+        compact_narrow_len: compact_narrow.len(),
+    })
+}
+
+/// The generated files a refresh commits, relative to the root. `README.md`
+/// carries the permalink to the same as-of commit and is part of the surface:
+/// the documentation check requires the two to agree, so they travel together.
+fn staged_paths(root: &Path, out_dir: &Path) -> Result<Vec<String>> {
+    let mut paths = Vec::new();
+    for name in [
+        "commit-graph.json",
+        "commit-graph.svg",
+        "commit-graph-narrow.svg",
+        "commit-graph-compact.svg",
+        "commit-graph-compact-narrow.svg",
+        "README.md",
+    ] {
+        let path = if name == "README.md" {
+            root.join(name)
+        } else {
+            out_dir.join(name)
+        };
+        let relative = path
+            .strip_prefix(root)
+            .with_context(|| format!("{} is outside the repository root", path.display()))?;
+        paths.push(relative.to_string_lossy().to_string());
+    }
+    Ok(paths)
+}
+
+fn stage_artifacts(root: &Path, out_dir: &Path) -> Result<Vec<String>> {
+    let paths = staged_paths(root, out_dir)?;
+    let mut args: Vec<&str> = vec!["add", "--"];
+    args.extend(paths.iter().map(String::as_str));
+    run_git(root, &args)?;
+    Ok(paths)
+}
+
+/// Generate the JSON and both cards, then write them.
+pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
+    if args.check {
+        return cmd_commit_graph_check(&args);
+    }
+    if args.auto {
+        return cmd_commit_graph_auto(&args);
+    }
+    let config_path = args.root.join(&args.config);
+    let config = load_config(&config_path)?;
+    let history = acquire_history(&args.root, &config, args.source)?;
+    ensure_full_history(&history.path)?;
+    let default_as_of = if history.public && history.path != args.root {
+        config.source_ref.as_str()
+    } else {
+        "HEAD"
+    };
+    let as_of = args.as_of.as_deref().unwrap_or(default_as_of);
+    let (graph, json) = generate(&history.path, &config, Some(as_of))?;
+    let out_dir = args.root.join(&args.out_dir);
+    let written = write_artifacts(&args.root, &config, &out_dir, &graph, &json)?;
 
     let totals = &graph.totals;
     println!(
@@ -1303,6 +1535,12 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         );
     }
     println!("  public as of {} ({})", graph.as_of_sha, graph.as_of_date);
+    if graph.pending_refresh {
+        println!(
+            "  counts its own refresh commit on {} (pending_refresh)",
+            graph.pending_date.as_deref().unwrap_or("?")
+        );
+    }
     println!(
         "  of which {} graph refresh commit(s)",
         totals.refresh_commits
@@ -1317,31 +1555,31 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     );
     println!(
         "  wrote {} ({})",
-        json_path.display(),
-        size_label(json.len())
+        out_dir.join("commit-graph.json").display(),
+        size_label(written.json_len)
     );
     println!(
         "  wrote {} ({}, budget {} kB)",
-        full_path.display(),
-        size_label(full.len()),
+        out_dir.join("commit-graph.svg").display(),
+        size_label(written.full_len),
         config.budget_kb
     );
     println!(
         "  wrote {} ({}, budget {} kB)",
-        narrow_path.display(),
-        size_label(narrow.len()),
+        out_dir.join("commit-graph-narrow.svg").display(),
+        size_label(written.narrow_len),
         config.budget_kb
     );
     println!(
         "  wrote {} ({}, budget {} kB)",
-        compact_path.display(),
-        size_label(compact.len()),
+        out_dir.join("commit-graph-compact.svg").display(),
+        size_label(written.compact_len),
         config.strip_budget_kb
     );
     println!(
         "  wrote {} ({}, budget {} kB)",
-        compact_narrow_path.display(),
-        size_label(compact_narrow.len()),
+        out_dir.join("commit-graph-compact-narrow.svg").display(),
+        size_label(written.compact_narrow_len),
         config.strip_budget_kb
     );
     println!(
@@ -1349,6 +1587,84 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         commit_permalink(&config, &graph.as_of_sha)
     );
     Ok(())
+}
+
+/// Refresh the card only when it is stale.
+///
+/// The public tip is what the public repository shows now. The card is current
+/// when that tip is a graph refresh whose first parent is the document's
+/// as-of commit: the tip then is exactly the refresh the document already
+/// counted. Anything else regenerates from the tip, counts the refresh commit
+/// that will carry the new document, stages the generated files and reports
+/// [`AutoOutcome::Changed`].
+pub(crate) fn run_auto(args: &CommitGraphArgs) -> Result<AutoOutcome> {
+    if args.as_of.is_some() {
+        bail!("--auto chooses its own as-of commit (the public tip); omit --as-of");
+    }
+    let config = load_config(&args.root.join(&args.config))?;
+    let history = acquire_history(&args.root, &config, args.source)?;
+    ensure_full_history(&history.path)?;
+    if !history.public {
+        bail!(
+            "--auto reads the public history so the card can be published; \
+             this checkout is not the public repository and --source local was requested"
+        );
+    }
+    let out_dir = args.root.join(&args.out_dir);
+    let json_path = out_dir.join("commit-graph.json");
+    let committed_text = std::fs::read_to_string(&json_path)
+        .with_context(|| format!("failed to read {}", json_path.display()))?;
+    let committed: CommitGraph = serde_json::from_str(&committed_text)
+        .with_context(|| format!("{} is not a valid commit graph", json_path.display()))?;
+
+    let tip = if history.path == args.root {
+        resolve_commit(&history.path, "HEAD")?
+    } else {
+        resolve_commit(&history.path, &config.source_ref)?
+    };
+    let parent = first_parent(&history.path, &tip)?;
+    let files = commit_files(&history.path, &tip)?;
+    if committed.pending_refresh
+        && parent.as_deref() == Some(committed.as_of_sha.as_str())
+        && is_refresh_commit(&config, &files)
+    {
+        println!(
+            "commit-graph --auto: up to date; public tip {} is the refresh of {}",
+            short_sha(&tip),
+            short_sha(&committed.as_of_sha)
+        );
+        return Ok(AutoOutcome::UpToDate {
+            tip,
+            as_of: committed.as_of_sha,
+        });
+    }
+
+    let (graph, json) = generate(&history.path, &config, Some(&tip))?;
+    write_artifacts(&args.root, &config, &out_dir, &graph, &json)?;
+    let staged = stage_artifacts(&args.root, &out_dir)?;
+    println!(
+        "commit-graph --auto: changed {} -> {} commits (public tip {}, parent {})",
+        committed.totals.commits,
+        graph.totals.commits,
+        short_sha(&tip),
+        short_sha(&graph.as_of_sha)
+    );
+    println!("  staged {}", staged.join(" "));
+
+    Ok(AutoOutcome::Changed {
+        old_commits: committed.totals.commits,
+        new_commits: graph.totals.commits,
+        tip,
+    })
+}
+
+/// CLI wrapper around [`run_auto`]: exit 10 tells a publishing script that the
+/// staged artifacts need a commit.
+pub(crate) fn cmd_commit_graph_auto(args: &CommitGraphArgs) -> Result<()> {
+    match run_auto(args)? {
+        AutoOutcome::UpToDate { .. } => Ok(()),
+        AutoOutcome::Changed { .. } => std::process::exit(AUTO_CHANGED_EXIT),
+    }
 }
 
 /// Verify the committed artifacts without writing anything.

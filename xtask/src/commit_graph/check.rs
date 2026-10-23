@@ -14,8 +14,9 @@ use anyhow::{Context, Result};
 use std::path::Path;
 
 use super::{
-    cache_path, commit_exists, config_hash, generate, is_ancestor, is_shallow, load_config,
-    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, CARD_BUDGET_BYTES,
+    cache_path, commit_exists, commit_files, config_hash, first_parent, generate_with, is_ancestor,
+    is_refresh_commit, is_shallow, load_config, parse_iso_date, rev_list_count, run_git,
+    tz_offset_minutes, CommitGraph, CommitGraphConfig, Pending, CARD_BUDGET_BYTES,
     COMPACT_NARROW_PATH, COMPACT_PATH, CONFIG_PATH, JSON_PATH, NARROW_PATH, SCHEMA_VERSION,
     STRIP_BUDGET_BYTES, SVG_PATH,
 };
@@ -163,13 +164,28 @@ fn check_history(
 ) -> Result<Option<String>> {
     let sha = &graph.as_of_sha;
     if is_ancestor(root, sha)? {
-        let (_, regenerated) = generate(root, config, Some(sha))
+        let regenerated = regenerate(root, config, graph)
             .with_context(|| format!("{label}: failed to regenerate the graph from as_of_sha"))?;
         if regenerated != json_text {
             violations.push(format!(
                 "{label}: the document does not reproduce byte for byte from its as_of_sha; \
                  regenerate it with `cargo xtask commit-graph`"
             ));
+        }
+        // In a public clone whose tip is the refresh commit the card counted,
+        // the number must be exactly what GitHub shows. This is the one place
+        // where the parent/child pair is visible together. A document that does
+        // not count a pending refresh is checked against its own as-of commit,
+        // not against the child that carries it.
+        if graph.pending_refresh && first_parent(root, "HEAD")?.as_deref() == Some(sha.as_str()) {
+            let head_count = rev_list_count(root, "HEAD")?;
+            if graph.totals.commits != head_count {
+                violations.push(format!(
+                    "{label}: totals.commits is {} but HEAD is {} commits \
+                     (git rev-list --count HEAD); the card must count its own refresh commit",
+                    graph.totals.commits, head_count
+                ));
+            }
         }
         let count = run_git(root, &["rev-list", "--count", &format!("{}..HEAD", sha)])?;
         let ahead: u64 = String::from_utf8_lossy(&count).trim().parse().unwrap_or(0);
@@ -180,7 +196,7 @@ fn check_history(
                 .unwrap_or(0);
         let offset = tz_offset_minutes(&config.timezone)?;
         let head_day = super::local_day(head_stamp, offset);
-        let as_of_day = super::parse_iso_date(&graph.as_of_date)?;
+        let as_of_day = parse_iso_date(&graph.as_of_date)?;
         let days_behind = (head_day - as_of_day).max(0);
         warnings.extend(staleness_warnings(ahead, days_behind, config));
         return Ok(None);
@@ -188,7 +204,7 @@ fn check_history(
 
     let cache = cache_path(root, config);
     if cache.exists() && commit_exists(&cache, sha)? {
-        let (_, regenerated) = generate(&cache, config, Some(sha)).with_context(|| {
+        let regenerated = regenerate(&cache, config, graph).with_context(|| {
             format!("{label}: failed to regenerate the graph from the public-history cache")
         })?;
         if regenerated != json_text {
@@ -198,8 +214,43 @@ fn check_history(
                 cache.display()
             ));
         }
+        let counterpart = if graph.pending_refresh {
+            refresh_child(&cache, config, sha)?
+        } else {
+            None
+        };
+        let exactness = match counterpart {
+            Some(child) => {
+                let count = rev_list_count(&cache, &child)?;
+                if graph.totals.commits != count {
+                    violations.push(format!(
+                        "{label}: totals.commits is {} but the cached refresh commit {} is {} \
+                         commits (git rev-list --count {}); the card must count its own refresh \
+                         commit",
+                        graph.totals.commits,
+                        super::short_sha(&child),
+                        count,
+                        super::short_sha(&child)
+                    ));
+                }
+                format!(
+                    "the count matches the cached refresh commit {}",
+                    super::short_sha(&child)
+                )
+            }
+            None if !graph.pending_refresh => {
+                "the document does not count a pending refresh, so there is no refresh child to \
+                 cross-check"
+                    .to_string()
+            }
+            None => format!(
+                "exactness is not checked because the cache holds no refresh commit whose first \
+                 parent is {}",
+                super::short_sha(sha)
+            ),
+        };
         return Ok(Some(format!(
-            "commit graph: reproduction checked against the public-history cache at {}; \
+            "commit graph: reproduction checked against the public-history cache at {}; {exactness}; \
              staleness is not checked because this checkout does not contain the public as-of \
              commit",
             cache.display()
@@ -213,6 +264,50 @@ fn check_history(
         &sha[..7.min(sha.len())],
         cache.display()
     )))
+}
+
+/// Regenerate a committed document from the history that contains its as-of
+/// commit. A self-counting document records its pending day, so the bytes do
+/// not depend on when the check runs.
+fn regenerate(history: &Path, config: &CommitGraphConfig, graph: &CommitGraph) -> Result<String> {
+    let pending = if graph.pending_refresh {
+        let date = graph
+            .pending_date
+            .as_deref()
+            .context("pending_refresh is true but pending_date is missing")?;
+        Pending::On(parse_iso_date(date)?)
+    } else {
+        Pending::Disabled
+    };
+    let (_, json) = generate_with(history, config, Some(&graph.as_of_sha), pending)?;
+    Ok(json)
+}
+
+/// The cached commit that carries the document: a graph refresh whose first
+/// parent is the document's as-of commit. `None` when the cache has moved on,
+/// has no such commit, or holds more than one candidate (ambiguous).
+fn refresh_child(cache: &Path, config: &CommitGraphConfig, as_of: &str) -> Result<Option<String>> {
+    let output = run_git(cache, &["rev-list", "--all", "--parents"])?;
+    let mut candidates = Vec::new();
+    for line in String::from_utf8_lossy(&output).lines() {
+        let mut fields = line.split_whitespace();
+        let Some(child) = fields.next() else {
+            continue;
+        };
+        if fields.any(|parent| parent == as_of) {
+            candidates.push(child.to_string());
+        }
+    }
+    let mut refreshes = Vec::new();
+    for child in candidates {
+        if is_refresh_commit(config, &commit_files(cache, &child)?) {
+            refreshes.push(child);
+        }
+    }
+    match refreshes.len() {
+        1 => Ok(Some(refreshes.remove(0))),
+        _ => Ok(None),
+    }
 }
 
 fn staleness_warnings(
@@ -389,6 +484,8 @@ mod tests {
             exclude_authors: Vec::new(),
             display_names: Default::default(),
             refresh_commits_whose_files_all_match: Vec::new(),
+            refresh_commits_allow_readme: true,
+            self_count: true,
             milestones: Vec::new(),
             style: Default::default(),
             budget_kb: 50,
