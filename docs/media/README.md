@@ -14,15 +14,15 @@ are described at the end of this file.
 |---|---|---|---|
 | `climb-logo-light.png` | Full lockup on a light background: crest, wordmark and tagline. | 94,908 B | 506 × 633 |
 | `climb-logo-dark.png` | Full lockup on a dark background; the slate ink is lightened. | 94,547 B | 506 × 633 |
-| `climb-mark-light.png` | Crest and wordmark without the tagline, for a light background. | 73,288 B | 506 × 561 |
-| `climb-mark-dark.png` | Crest and wordmark without the tagline, for a dark background. | 73,037 B | 506 × 561 |
+| `climb-mark-light.png` | Crest and wordmark without the tagline, for a light background. | 72,715 B | 506 × 548 |
+| `climb-mark-dark.png` | Crest and wordmark without the tagline, for a dark background. | 72,464 B | 506 × 548 |
 | `climb-icon.png` | The crest alone, on a square transparent canvas. | 154,926 B | 512 × 512 |
 | `climb-icon-32.png` | The crest alone at favicon size. | 2,543 B | 32 × 32 |
 | `climb-icon-180.png` | The crest alone at Apple touch-icon size. | 29,485 B | 180 × 180 |
 | `climb-icon-192.png` | The crest alone at web-app icon size. | 32,319 B | 192 × 192 |
 | `climb-icon.svg` | The crest alone, traced to vector. | 22,761 B | 420 × 420 |
-| `social-preview.png` | The social preview card: the dark mark on a near-black field. | 73,552 B | 1280 × 640 |
-| `brand.toml` | The sampled palette and the dark-background colour decisions. | 1,389 B | — |
+| `social-preview.png` | The social preview card: the dark mark on a near-black field. | 75,415 B | 1280 × 640 |
+| `brand.toml` | The sampled palette and the dark-background colour decisions. | 1,387 B | — |
 <!-- media:end -->
 
 ## How they were produced
@@ -47,9 +47,16 @@ The script turns it into the published assets in five steps.
 4. **Cut the variants.** The tagline is dropped for the marks, the crest is
    cropped out of the master and padded into a square canvas for the icon,
    and every icon derivative is resized from that same square canvas, so the
-   small sizes are the same drawing and not a separate one.
+   small sizes are the same drawing and not a separate one. The mark ends six
+   clear rows below the wordmark's last visible pixel, so none of the
+   tagline's faint upper anti-aliasing survives into it.
 5. **Optimise.** The PNGs are written with the maximum deflate level;
    `oxipng` and `pngquant` are used in their place when they are installed.
+
+`python3 scripts/logo/make_assets.py --check` re-reads the committed marks and
+fails if the bottom six rows contain any non-transparent pixel, or if the image
+no longer ends exactly six rows after its last visible ink. A normal rebuild
+runs the same check on the new marks before writing them.
 
 The vector rendition of the crest is optional: it needs a tracer on the
 path, and the raster icon is the published fallback. When the tracer is

@@ -16,7 +16,8 @@ Pipeline
    thresholding, so anti-aliased edges keep no white fringe.
 3. Derive the published variants: a light and a dark full lockup, a light and
    a dark mark (crest plus wordmark, no tagline), square icon renditions and a
-   social-preview card.
+   social-preview card. The mark is cut six transparent rows below the
+   wordmark, so none of the tagline's faint upper anti-aliasing survives.
 
 Every published asset is written as an sRGB PNG with an alpha channel; the
 dark variants are the master with the ink colours remapped, so the two themes
@@ -25,6 +26,7 @@ share one geometry.
 Usage:
     python3 scripts/logo/make_assets.py            # rebuild every asset
     python3 scripts/logo/make_assets.py --analyse  # print the analysis only
+    python3 scripts/logo/make_assets.py --check    # verify the committed marks
 """
 
 from __future__ import annotations
@@ -113,6 +115,16 @@ INK_THRESHOLD = 32
 #: line. The wordmark's capitals are far taller than the tagline's; the
 #: tagline is the run of short bands that follows the last band this tall.
 TEXT_LINE_HEIGHT = 40
+
+#: Coverage above which a pixel is visible in the published image. The
+#: wordmark's own bottom anti-aliasing falls below the band threshold, so the
+#: last visible row is taken at this coverage rather than at the band edge.
+VISIBLE_ALPHA = 8
+
+#: Transparent rows kept below the wordmark in the published marks. The
+#: tagline begins seven rows below the last faint wordmark pixel, so six rows
+#: of clear space remove every trace of its upper anti-aliasing.
+MARK_BOTTOM_PADDING = 6
 
 #: The dark theme's page background, used for the contrast arithmetic and for
 #: the social-preview card.
@@ -450,18 +462,28 @@ def ink_bands(alpha: np.ndarray):
     return bands
 
 
-def tagline_start(bands):
-    """The first row of the tagline.
+def wordmark_bottom(alpha: np.ndarray, bands):
+    """The last visible row attached to the wordmark.
 
-    The artwork is a crest, a wordmark and a two-line tagline. The wordmark's
-    capitals are much taller than the tagline's lines, so the tagline is the
-    run of short bands that follows the last band tall enough to be display
-    lettering.
+    The wordmark is the last band tall enough to be display lettering. Its
+    faintest anti-aliased pixels fall below the band threshold, so the return
+    walks forward from the band's last row while the next row still carries
+    coverage above ``VISIBLE_ALPHA``. The walk stops at the first clear row,
+    which is what keeps the tagline's own faint upper edge (seven rows further
+    down, with a clear gap in between) out of the mark.
     """
-    tall = [i for i, (start, end) in enumerate(bands) if end - start + 1 >= TEXT_LINE_HEIGHT]
-    if not tall or tall[-1] + 1 >= len(bands):
-        return bands[-1][0]
-    return bands[tall[-1] + 1][0]
+    tall = [
+        i for i, (start, end) in enumerate(bands) if end - start + 1 >= TEXT_LINE_HEIGHT
+    ]
+    if not tall:
+        return bands[-1][1]
+    index = tall[-1]
+    _start, end = bands[index]
+    limit = bands[index + 1][0] if index + 1 < len(bands) else len(alpha)
+    bottom = end
+    while bottom + 1 < limit and (alpha[bottom + 1] > VISIBLE_ALPHA).any():
+        bottom += 1
+    return bottom
 
 
 def build_variants(master: Image.Image, family: np.ndarray, palette, brands):
@@ -479,13 +501,19 @@ def build_variants(master: Image.Image, family: np.ndarray, palette, brands):
     built["climb-logo-dark.png"] = dark_master
 
     # (c) marks: the crest and the wordmark, without the tagline ------------
-    # The mark is the master cut just above the tagline, which keeps the
-    # master's own top padding and gives the wordmark the same breathing room
-    # the tagline had.
+    # The mark is the master cut six clear rows below the wordmark's last
+    # visible pixel. Cutting at the tagline's band start would keep the faint
+    # upper anti-aliasing of its letters, which reads as a dotted line under
+    # the wordmark on a dark background.
     alpha = np.array(master)[..., 3]
     bands = ink_bands(alpha)
-    tagline_top = tagline_start(bands)
-    mark_box = (0, 0, master.width, tagline_top)
+    bottom = wordmark_bottom(alpha, bands)
+    mark_box = (
+        0,
+        0,
+        master.width,
+        min(master.height, bottom + 1 + MARK_BOTTOM_PADDING),
+    )
     built["climb-mark-light.png"] = crop_transparent(master, mark_box)
     built["climb-mark-dark.png"] = crop_transparent(dark_master, mark_box)
 
@@ -500,6 +528,50 @@ def build_variants(master: Image.Image, family: np.ndarray, palette, brands):
     built["social-preview.png"] = social_preview(built["climb-mark-dark.png"])
 
     return built, report, mark_box, square
+
+
+def clear_bottom_band(image: Image.Image) -> dict:
+    """Measure the clear band a published mark keeps below the wordmark."""
+    alpha = np.array(image.convert("RGBA"))[..., 3]
+    band = alpha[-MARK_BOTTOM_PADDING:]
+    visible = np.nonzero((alpha > VISIBLE_ALPHA).any(axis=1))[0]
+    return {
+        "height": int(alpha.shape[0]),
+        "last_visible": int(visible.max()) if len(visible) else -1,
+        "nonzero": int((band > 0).sum()),
+        "max_alpha": int(band.max()) if band.size else 0,
+    }
+
+
+def check_mark_bottom_band(images: dict) -> list:
+    """Check that each mark ends in a clear band below its last visible ink.
+
+    A published mark must satisfy both halves of the crop rule: the bottom
+    ``MARK_BOTTOM_PADDING`` rows carry no coverage at all, and the image ends
+    exactly that many rows after its last visible pixel. The second half keeps
+    the check from passing on a mark that was over-cropped into the wordmark.
+    """
+    problems = []
+    for name, image in images.items():
+        measured = clear_bottom_band(image)
+        print(
+            f"  {name:<24} {measured['height']:>4} px tall   "
+            f"last visible row {measured['last_visible']:>4}   "
+            f"bottom {MARK_BOTTOM_PADDING} rows: {measured['nonzero']} non-transparent px "
+            f"(max alpha {measured['max_alpha']})"
+        )
+        if measured["nonzero"]:
+            problems.append(
+                f"{name}: {measured['nonzero']} non-transparent pixel(s) in the "
+                f"bottom {MARK_BOTTOM_PADDING} rows"
+            )
+        expected = measured["last_visible"] + 1 + MARK_BOTTOM_PADDING
+        if measured["last_visible"] < 0 or measured["height"] != expected:
+            problems.append(
+                f"{name}: {measured['height']} px tall, expected {expected} "
+                f"(last visible row plus {MARK_BOTTOM_PADDING} clear rows)"
+            )
+    return problems
 
 
 def icon_box(master: Image.Image, bands):
@@ -720,7 +792,29 @@ def main() -> int:
         action="store_true",
         help="print the analysis of the source and stop",
     )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="verify the committed marks end in a clear bottom band and stop",
+    )
     args = parser.parse_args()
+
+    if args.check:
+        images = {}
+        for name in ("climb-mark-light.png", "climb-mark-dark.png"):
+            path = MEDIA_DIR / name
+            if not path.exists():
+                print(f"missing published mark: {path}", file=sys.stderr)
+                return 1
+            images[name] = Image.open(path)
+        print("mark bottom band:")
+        problems = check_mark_bottom_band(images)
+        if problems:
+            for problem in problems:
+                print(f"error: {problem}", file=sys.stderr)
+            return 1
+        print("mark bottom band: clean")
+        return 0
 
     if not SOURCE_PNG.exists():
         print(
@@ -749,6 +843,16 @@ def main() -> int:
     print("dark-variant colour decisions:")
     for name, ink, target, ratio, reason in dark_report:
         print(f"  {name:<7} {hex_of(ink)} -> {hex_of(target)}  ({reason})")
+
+    print()
+    print("mark bottom band (checked before writing):")
+    mark_problems = check_mark_bottom_band(
+        {name: built[name] for name in ("climb-mark-light.png", "climb-mark-dark.png")}
+    )
+    if mark_problems:
+        for problem in mark_problems:
+            print(f"error: {problem}", file=sys.stderr)
+        return 1
 
     print()
     print("written assets:")
