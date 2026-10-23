@@ -15,8 +15,9 @@ use std::path::Path;
 
 use super::{
     cache_path, commit_exists, config_hash, generate, is_ancestor, is_shallow, load_config,
-    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, CONFIG_PATH, JSON_PATH,
-    NARROW_PATH, SCHEMA_VERSION, SVG_PATH,
+    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, CARD_BUDGET_BYTES,
+    COMPACT_NARROW_PATH, COMPACT_PATH, CONFIG_PATH, JSON_PATH, NARROW_PATH, SCHEMA_VERSION,
+    STRIP_BUDGET_BYTES, SVG_PATH,
 };
 
 /// The outcome of the commit-graph part of the documentation check.
@@ -33,6 +34,8 @@ pub(crate) fn check_docs(root: &Path) -> Result<CheckOutcome> {
         &root.join(JSON_PATH),
         &root.join(SVG_PATH),
         &root.join(NARROW_PATH),
+        &root.join(COMPACT_PATH),
+        &root.join(COMPACT_NARROW_PATH),
     )
 }
 
@@ -41,6 +44,8 @@ pub(crate) fn check_with_paths(
     json_path: &Path,
     full_path: &Path,
     narrow_path: &Path,
+    compact_path: &Path,
+    compact_narrow_path: &Path,
 ) -> Result<CheckOutcome> {
     let config = load_config(&root.join(CONFIG_PATH))?;
     let mut violations = Vec::new();
@@ -109,7 +114,7 @@ pub(crate) fn check_with_paths(
         full_path,
         "commit-graph.svg",
         &graph,
-        config.budget_kb,
+        (config.budget_kb as usize * 1024).min(CARD_BUDGET_BYTES),
         &mut violations,
     )?;
     check_card(
@@ -117,7 +122,23 @@ pub(crate) fn check_with_paths(
         narrow_path,
         "commit-graph-narrow.svg",
         &graph,
-        config.budget_kb,
+        (config.budget_kb as usize * 1024).min(CARD_BUDGET_BYTES),
+        &mut violations,
+    )?;
+    check_card(
+        root,
+        compact_path,
+        "commit-graph-compact.svg",
+        &graph,
+        (config.strip_budget_kb as usize * 1024).min(STRIP_BUDGET_BYTES),
+        &mut violations,
+    )?;
+    check_card(
+        root,
+        compact_narrow_path,
+        "commit-graph-compact-narrow.svg",
+        &graph,
+        (config.strip_budget_kb as usize * 1024).min(STRIP_BUDGET_BYTES),
         &mut violations,
     )?;
 
@@ -222,7 +243,7 @@ fn check_card(
     path: &Path,
     expected_name: &str,
     graph: &CommitGraph,
-    budget_kb: u32,
+    budget: usize,
     violations: &mut Vec<String>,
 ) -> Result<()> {
     let label = path
@@ -235,10 +256,9 @@ fn check_card(
     }
     let text = std::fs::read_to_string(path)
         .with_context(|| format!("failed to read {}", path.display()))?;
-    let budget = budget_kb as usize * 1024;
     if text.len() > budget {
         violations.push(format!(
-            "{label}: {} bytes exceed the {budget_kb} kB budget",
+            "{label}: {} bytes exceed the {budget} byte budget",
             text.len()
         ));
     }
@@ -320,6 +340,19 @@ fn check_desc(label: &str, desc: &str, graph: &CommitGraph, violations: &mut Vec
             graph.as_of_sha[..7.min(graph.as_of_sha.len())].to_string(),
         ),
         ("date", graph.as_of_date.clone()),
+        ("authors", graph.per_author.len().to_string()),
+        ("first_commit", graph.totals.first_commit_date.clone()),
+        ("last_commit", graph.totals.last_commit_date.clone()),
+        ("busiest_day", graph.totals.busiest_day.date.clone()),
+        (
+            "busiest_commits",
+            graph.totals.busiest_day.commits.to_string(),
+        ),
+        (
+            "streak_start",
+            graph.totals.longest_streak_range.start.clone(),
+        ),
+        ("streak_end", graph.totals.longest_streak_range.end.clone()),
     ];
     for (key, value) in expected {
         match tokens.get(key) {
@@ -357,7 +390,9 @@ mod tests {
             display_names: Default::default(),
             refresh_commits_whose_files_all_match: Vec::new(),
             milestones: Vec::new(),
+            style: Default::default(),
             budget_kb: 50,
+            strip_budget_kb: 25,
             staleness_commits: 3,
             staleness_days: 2,
         };
@@ -381,9 +416,15 @@ mod tests {
         let path = root.join("target/commit-graph-edited-card.svg");
         std::fs::write(&path, edited).expect("write fixture");
 
-        let outcome =
-            check_with_paths(&root, &root.join(JSON_PATH), &path, &root.join(NARROW_PATH))
-                .expect("check runs");
+        let outcome = check_with_paths(
+            &root,
+            &root.join(JSON_PATH),
+            &path,
+            &root.join(NARROW_PATH),
+            &root.join(COMPACT_PATH),
+            &root.join(COMPACT_NARROW_PATH),
+        )
+        .expect("check runs");
         assert!(
             outcome
                 .violations
@@ -405,6 +446,8 @@ mod tests {
             &missing,
             &root.join(SVG_PATH),
             &root.join(NARROW_PATH),
+            &root.join(COMPACT_PATH),
+            &root.join(COMPACT_NARROW_PATH),
         )
         .expect_err("a missing document cannot be checked");
         assert!(
@@ -418,8 +461,15 @@ mod tests {
         let root = workspace_root();
         let path = root.join("target/commit-graph-truncated.json");
         std::fs::write(&path, "{\"schema_version\": 1").expect("write fixture");
-        let error = check_with_paths(&root, &path, &root.join(SVG_PATH), &root.join(NARROW_PATH))
-            .expect_err("a truncated document cannot parse");
+        let error = check_with_paths(
+            &root,
+            &path,
+            &root.join(SVG_PATH),
+            &root.join(NARROW_PATH),
+            &root.join(COMPACT_PATH),
+            &root.join(COMPACT_NARROW_PATH),
+        )
+        .expect_err("a truncated document cannot parse");
         assert!(error.to_string().contains("not a valid commit graph"));
         let _ = std::fs::remove_file(path);
     }

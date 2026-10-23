@@ -491,6 +491,10 @@ const LOGO_END: &str = "<!-- logo:end -->";
 const COMMIT_GRAPH_BEGIN: &str = "<!-- commit-graph:begin -->";
 const COMMIT_GRAPH_END: &str = "<!-- commit-graph:end -->";
 
+/// Markers bracketing the compact strip that sits directly under the badges.
+const COMMIT_GRAPH_STRIP_BEGIN: &str = "<!-- commit-graph-strip:begin -->";
+const COMMIT_GRAPH_STRIP_END: &str = "<!-- commit-graph-strip:end -->";
+
 /// The fragments of the commit-graph caption that state the provenance a
 /// reader is owed: the picture comes from the public history, and later
 /// commits appear after the next refresh. Matched case-insensitively as
@@ -505,6 +509,10 @@ const COMMIT_GRAPH_CAPTION_TAIL: &str = "later commits appear after the next ref
 const COMMIT_GRAPH_WIDE: &str = "docs/media/commit-graph.svg";
 const COMMIT_GRAPH_NARROW: &str = "docs/media/commit-graph-narrow.svg";
 const COMMIT_GRAPH_MEDIA: &str = "(max-width: 600px)";
+
+/// The two compact strips: one per viewport, like the cards.
+const COMMIT_GRAPH_STRIP: &str = "docs/media/commit-graph-compact.svg";
+const COMMIT_GRAPH_STRIP_NARROW: &str = "docs/media/commit-graph-compact-narrow.svg";
 
 /// The line range of the managed badge block, exclusive of the markers.
 /// `None` when the markers are absent or the end marker comes first.
@@ -736,7 +744,9 @@ pub(crate) fn check_commit_graph_block(
         violations.push(Violation {
             file: file.to_string(),
             line,
-            message: "the commit-graph block still carries the retired compact strip".to_string(),
+            message: "the full-card block names a compact strip; the strip belongs in its own \
+                      `<!-- commit-graph-strip:begin -->` block"
+                .to_string(),
         });
     }
     let lower = body.to_ascii_lowercase();
@@ -759,6 +769,175 @@ pub(crate) fn check_commit_graph_block(
                 line,
                 message: format!(
                     "the commit-graph block does not link to the public as-of commit ({expected})"
+                ),
+            });
+        }
+    }
+    violations
+}
+
+/// The body of the marker-bracketed compact-strip block of the README, and the
+/// line it starts on. `None` when a marker is missing or the end marker comes
+/// first.
+pub(crate) fn parse_commit_graph_strip_block(text: &str) -> Option<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines
+        .iter()
+        .position(|line| line.trim() == COMMIT_GRAPH_STRIP_BEGIN)?;
+    let end = lines
+        .iter()
+        .position(|line| line.trim() == COMMIT_GRAPH_STRIP_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, lines[begin + 1..end].join("\n")))
+}
+
+/// Check the compact strip that sits under the badges: both markers must be
+/// present and in order, the block must select the narrow strip on phones and
+/// fall back to the wide strip, link to the public as-of commit, and describe
+/// the picture without quoting a number in its alt text. Pure: no filesystem,
+/// no subprocesses.
+pub(crate) fn check_commit_graph_strip_block(
+    file: &str,
+    text: &str,
+    expected_commit_link: Option<&str>,
+) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for marker in [COMMIT_GRAPH_STRIP_BEGIN, COMMIT_GRAPH_STRIP_END] {
+        if !text.contains(marker) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("missing the `{marker}` commit-graph strip marker"),
+            });
+        }
+    }
+    if !violations.is_empty() {
+        return violations;
+    }
+    let Some((line, body)) = parse_commit_graph_strip_block(text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!(
+                "the `{COMMIT_GRAPH_STRIP_BEGIN}` marker comes after the \
+                 `{COMMIT_GRAPH_STRIP_END}` marker"
+            ),
+        });
+        return violations;
+    };
+    if !body.contains("<picture") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the commit-graph strip is not a <picture> with one strip per viewport"
+                .to_string(),
+        });
+    }
+    if !body.contains(COMMIT_GRAPH_STRIP_NARROW) || !body.contains(COMMIT_GRAPH_MEDIA) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "the commit-graph strip does not select {COMMIT_GRAPH_STRIP_NARROW} under \
+                 `{COMMIT_GRAPH_MEDIA}`"
+            ),
+        });
+    }
+    if !body.contains(COMMIT_GRAPH_STRIP) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "the commit-graph strip does not name the wide strip {COMMIT_GRAPH_STRIP}"
+            ),
+        });
+    }
+    if let Some(expected) = expected_commit_link {
+        if !href_targets(&body).iter().any(|href| href == expected) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!(
+                    "the commit-graph strip does not link to the public as-of commit ({expected})"
+                ),
+            });
+        }
+    }
+    let mut alt_seen = false;
+    for tag in body.split('<') {
+        let tag = format!("<{tag}");
+        for alt in html_attribute(&tag, "alt") {
+            alt_seen = true;
+            if alt.chars().any(|character| character.is_ascii_digit()) {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line,
+                    message: format!(
+                        "the commit-graph strip alt text `{alt}` quotes a number; the picture \
+                         may change before the prose does"
+                    ),
+                });
+            }
+        }
+    }
+    if !alt_seen {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the commit-graph strip carries no alt text".to_string(),
+        });
+    }
+    violations
+}
+
+/// Check where the compact strip sits: directly under the badges and before
+/// the full-card block. Only blank lines may separate the badge block from the
+/// strip. Pure: no filesystem, no subprocesses.
+pub(crate) fn check_commit_graph_strip_placement(file: &str, text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let line_of = |needle: &str| lines.iter().position(|line| line.trim() == needle);
+    let Some(badges_end) = line_of(readme_badges::BADGES_END) else {
+        return violations;
+    };
+    let Some(strip_begin) = line_of(COMMIT_GRAPH_STRIP_BEGIN) else {
+        return violations;
+    };
+    let Some(strip_end) = line_of(COMMIT_GRAPH_STRIP_END) else {
+        return violations;
+    };
+    if strip_begin <= badges_end {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: strip_begin + 1,
+            message: format!(
+                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must come after `{}`",
+                readme_badges::BADGES_END
+            ),
+        });
+    } else if lines[badges_end + 1..strip_begin]
+        .iter()
+        .any(|line| !line.trim().is_empty())
+    {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: strip_begin + 1,
+            message: format!(
+                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must sit directly under `{}`, \
+                 separated only by blank lines",
+                readme_badges::BADGES_END
+            ),
+        });
+    }
+    if let Some(graph_begin) = line_of(COMMIT_GRAPH_BEGIN) {
+        if strip_end >= graph_begin {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: strip_end + 1,
+                message: format!(
+                    "the `{COMMIT_GRAPH_STRIP_END}` block must come before `{COMMIT_GRAPH_BEGIN}`"
                 ),
             });
         }
@@ -1212,6 +1391,18 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         &readme_label,
         &readme_text,
         expected_commit_link(&args.root).as_deref(),
+    ));
+
+    // The compact strip is a separate managed block directly under the badges,
+    // with its own image pair and no numbers in its alt text.
+    violations.extend(check_commit_graph_strip_block(
+        &readme_label,
+        &readme_text,
+        expected_commit_link(&args.root).as_deref(),
+    ));
+    violations.extend(check_commit_graph_strip_placement(
+        &readme_label,
+        &readme_text,
     ));
 
     // The badge block is generated: rebuild it in memory and fail when the
@@ -1768,7 +1959,7 @@ mod tests {
     }
 
     #[test]
-    fn a_commit_graph_block_with_the_retired_compact_strip_is_a_violation() {
+    fn a_commit_graph_block_with_a_compact_strip_inside_it_is_a_violation() {
         let text = format!(
             "{COMMIT_GRAPH_BEGIN}\n\
              <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\">\
@@ -1780,7 +1971,106 @@ mod tests {
         let violations = check_commit_graph_block("README.md", &text, None);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(
-            violations[0].message.contains("retired compact strip"),
+            violations[0].message.contains("strip belongs in its own"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn the_committed_readme_carries_the_compact_strip() {
+        let root = workspace_root();
+        let text = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let expected = expected_commit_link(&root).expect("the committed graph names its commit");
+        let violations = check_commit_graph_strip_block("README.md", &text, Some(&expected));
+        assert!(violations.is_empty(), "{violations:?}");
+        let placement = check_commit_graph_strip_placement("README.md", &text);
+        assert!(placement.is_empty(), "{placement:?}");
+    }
+
+    #[test]
+    fn a_strip_with_a_number_in_its_alt_text_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_STRIP_BEGIN}\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"71 commits since September\"></picture>\n\
+             {COMMIT_GRAPH_STRIP_END}\n"
+        );
+        let violations = check_commit_graph_strip_block("README.md", &text, None);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains("quotes a number")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_strip_without_the_phone_strip_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_STRIP_BEGIN}\n\
+             <picture><img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\"></picture>\n\
+             {COMMIT_GRAPH_STRIP_END}\n"
+        );
+        let violations = check_commit_graph_strip_block("README.md", &text, None);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains(COMMIT_GRAPH_STRIP_NARROW),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_strip_linking_elsewhere_is_a_violation() {
+        let expected =
+            "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
+        let text = format!(
+            "{COMMIT_GRAPH_STRIP_BEGIN}\n\
+             <a href=\"https://example.invalid/public\"><picture>\
+             <source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\"></picture></a>\n\
+             {COMMIT_GRAPH_STRIP_END}\n"
+        );
+        let violations = check_commit_graph_strip_block("README.md", &text, Some(expected));
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0]
+                .message
+                .contains("does not link to the public as-of commit"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_complete_compact_strip_passes() {
+        let expected =
+            "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
+        let text = format!(
+            "{COMMIT_GRAPH_STRIP_BEGIN}\n\
+             <a href=\"{expected}\"><picture>\
+             <source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\" width=\"390\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\" width=\"840\"></picture></a>\n\
+             {COMMIT_GRAPH_STRIP_END}\n"
+        );
+        assert!(check_commit_graph_strip_block("README.md", &text, Some(expected)).is_empty());
+    }
+
+    #[test]
+    fn a_strip_away_from_the_badges_is_a_violation() {
+        let text = format!(
+            "{}\n\
+             # CLIMB\n\n\
+             {COMMIT_GRAPH_STRIP_BEGIN}\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\"></picture>\n\
+             {COMMIT_GRAPH_STRIP_END}\n\n\
+             {COMMIT_GRAPH_BEGIN}\n\
+             {COMMIT_GRAPH_END}\n",
+            readme_badges::BADGES_END
+        );
+        let violations = check_commit_graph_strip_placement("README.md", &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("directly under"),
             "{violations:?}"
         );
     }

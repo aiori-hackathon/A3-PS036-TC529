@@ -3,8 +3,8 @@
 # stage only the graph files.
 #
 # The generator fetches the public repository into a bare cache, reads the
-# public branch, prints the public commit it stamped, writes the three media
-# artifacts and updates the README's commit permalink. This script stages those
+# public branch, prints the public commit it stamped, writes the four media
+# artifacts and updates the README's commit permalinks. This script stages those
 # files, prints the staged summary, and stops. It never commits and never
 # pushes: the human reviews the staged change and writes the commit message.
 set -euo pipefail
@@ -28,11 +28,11 @@ echo "  commits: $(git -C "$cache" rev-list --count "$public_sha") reachable fro
 echo "  ref:     ${public_ref:-<none; the commit is not the tip of a branch>}"
 
 # Stage only the generated artifacts and the README permalink it rewrites.
-git add -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg README.md
+git add -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg docs/media/commit-graph-compact.svg docs/media/commit-graph-compact-narrow.svg README.md
 
 echo ""
 echo "Staged commit-graph artifacts:"
-git diff --stat --cached -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg README.md
+git diff --stat --cached -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg docs/media/commit-graph-compact.svg docs/media/commit-graph-compact-narrow.svg README.md
 
 echo ""
 echo "Review the staged change above, then commit it with:"

@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "as_of_sha": "f94fc6a53b0c1363edbc9eae95868cb782b3cfcb",
   "as_of_date": "2026-10-22",
   "timezone": "Asia/Kolkata",
@@ -9,6 +9,16 @@
   },
   "totals": {
     "commits": 71,
+    "first_commit_date": "2026-09-26",
+    "last_commit_date": "2026-10-22",
+    "busiest_day": {
+      "date": "2026-10-12",
+      "commits": 8
+    },
+    "longest_streak_range": {
+      "start": "2026-10-11",
+      "end": "2026-10-22"
+    },
     "refresh_commits": 0,
     "active_days": 18,
     "longest_streak": 12,
@@ -24,7 +34,7 @@
       "added": 3400,
       "removed": 58,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -33,7 +43,7 @@
       "added": 4052,
       "removed": 66,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -49,7 +59,7 @@
       "added": 1611,
       "removed": 38,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -58,7 +68,7 @@
       "added": 2284,
       "removed": 93,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -67,7 +77,7 @@
       "added": 1803,
       "removed": 148,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -118,7 +128,7 @@
       "added": 3589,
       "removed": 50,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -141,7 +151,7 @@
       "added": 1,
       "removed": 3,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -150,7 +160,7 @@
       "added": 9862,
       "removed": 300,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -159,7 +169,7 @@
       "added": 3782,
       "removed": 2185,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -168,7 +178,7 @@
       "added": 7562,
       "removed": 570,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -177,7 +187,7 @@
       "added": 1433,
       "removed": 86,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -186,7 +196,7 @@
       "added": 6643,
       "removed": 313,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -195,7 +205,7 @@
       "added": 1731,
       "removed": 42,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -204,7 +214,7 @@
       "added": 4752,
       "removed": 73,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -213,7 +223,7 @@
       "added": 8104,
       "removed": 241,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -222,7 +232,7 @@
       "added": 5466,
       "removed": 259,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -231,7 +241,7 @@
       "added": 2806,
       "removed": 384,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     },
     {
@@ -240,13 +250,13 @@
       "added": 9781,
       "removed": 864,
       "authors": [
-        "Pratyay"
+        "Pratyay Mukherjee"
       ]
     }
   ],
   "per_author": [
     {
-      "display": "Pratyay",
+      "display": "Pratyay Mukherjee",
       "commits": 71
     }
   ],
@@ -254,23 +264,31 @@
     {
       "date": "2026-10-14",
       "label": "Round 1 submission",
-      "future": false
+      "short": "Round 1",
+      "future": false,
+      "status": "done"
     },
     {
       "date": "2026-10-20",
       "label": "Level 2 qualified",
-      "future": false
+      "short": "Level 2",
+      "future": false,
+      "status": "done"
     },
     {
       "date": "2026-11-24",
       "label": "Regional hackathon",
-      "future": true
+      "short": "Regionals",
+      "future": true,
+      "status": "upcoming"
     },
     {
       "date": "2026-12-17",
       "label": "Finals, IIT Jammu",
-      "future": true
+      "short": "Finals",
+      "future": true,
+      "status": "upcoming"
     }
   ],
-  "config_hash": "23e30316cbdad3ab4a4ce04c3762748857b878dbc8f2e1945ede4246f3fc938f"
+  "config_hash": "318811f28749241bd2263ad71ea392117769f8c63973d6b14c9b3f0f5afa5b2e"
 }

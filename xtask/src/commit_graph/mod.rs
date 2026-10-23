@@ -29,7 +29,7 @@ use std::process::Command;
 pub(crate) use check::check_docs;
 
 /// Version of the JSON document shape.
-pub(crate) const SCHEMA_VERSION: u32 = 2;
+pub(crate) const SCHEMA_VERSION: u32 = 3;
 
 /// Configuration file, relative to the workspace root.
 pub(crate) const CONFIG_PATH: &str = "docs/readme-config.toml";
@@ -37,6 +37,13 @@ pub(crate) const CONFIG_PATH: &str = "docs/readme-config.toml";
 pub(crate) const JSON_PATH: &str = "docs/media/commit-graph.json";
 pub(crate) const SVG_PATH: &str = "docs/media/commit-graph.svg";
 pub(crate) const NARROW_PATH: &str = "docs/media/commit-graph-narrow.svg";
+pub(crate) const COMPACT_PATH: &str = "docs/media/commit-graph-compact.svg";
+pub(crate) const COMPACT_NARROW_PATH: &str = "docs/media/commit-graph-compact-narrow.svg";
+
+/// Self-imposed ceiling for one card. Generation refuses to write past it.
+pub(crate) const CARD_BUDGET_BYTES: usize = 60 * 1024;
+/// Self-imposed ceiling for one compact strip.
+pub(crate) const STRIP_BUDGET_BYTES: usize = 25 * 1024;
 
 /// Default public repository the committed card describes.
 const DEFAULT_SOURCE_URL: &str = "https://github.com/aiori-hackathon/A3-PS036-TC529.git";
@@ -127,8 +134,15 @@ pub(crate) struct CommitGraphConfig {
     /// Milestones drawn on the timeline.
     #[serde(default)]
     pub(crate) milestones: Vec<MilestoneConfig>,
+    /// Presentation knobs. Every value has a default, so an older
+    /// configuration file keeps working.
+    #[serde(default)]
+    pub(crate) style: StyleConfig,
     /// Per-file size ceiling for both SVG cards.
     pub(crate) budget_kb: u32,
+    /// Per-file size ceiling for both compact strips.
+    #[serde(default = "default_strip_budget_kb")]
+    pub(crate) strip_budget_kb: u32,
     /// Warn when the committed graph is this many commits behind HEAD.
     #[serde(default = "default_staleness_commits")]
     pub(crate) staleness_commits: u64,
@@ -161,11 +175,65 @@ fn default_staleness_days() -> i64 {
     7
 }
 
+fn default_strip_budget_kb() -> u32 {
+    25
+}
+
+/// Presentation knobs for the four SVG variants.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct StyleConfig {
+    /// Colour of the staircase and the day bars. Absent keeps the sampled
+    /// brand orange.
+    #[serde(default)]
+    pub(crate) accent: Option<String>,
+    /// Title set at the top of each card.
+    #[serde(default = "default_title")]
+    pub(crate) title: String,
+    /// Draw the milestone flags. With false the chart keeps the staircase.
+    #[serde(default = "default_true")]
+    pub(crate) show_flags: bool,
+    /// Draw the day bars. With false the card keeps the staircase.
+    #[serde(default = "default_true")]
+    pub(crate) show_bars: bool,
+    /// Face for the title and the large numerals: "Instrument Serif" or
+    /// "JetBrains Mono". One line swaps every display numeral.
+    #[serde(default = "default_display_font")]
+    pub(crate) display_font: String,
+}
+
+impl Default for StyleConfig {
+    fn default() -> Self {
+        Self {
+            accent: None,
+            title: default_title(),
+            show_flags: true,
+            show_bars: true,
+            display_font: default_display_font(),
+        }
+    }
+}
+
+fn default_title() -> String {
+    "The Climb".to_string()
+}
+
+fn default_display_font() -> String {
+    "Instrument Serif".to_string()
+}
+
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct MilestoneConfig {
     pub(crate) date: String,
     pub(crate) label: String,
+    /// Short form for the flag label. Absent keeps the full label.
+    #[serde(default)]
+    pub(crate) short: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -193,6 +261,15 @@ pub(crate) struct GraphTotals {
     /// Every commit reachable from `as_of_sha`, including graph refreshes.
     /// This equals `git rev-list --count <as_of_sha>`.
     pub(crate) commits: u64,
+    /// Date of the earliest commit in the range.
+    pub(crate) first_commit_date: String,
+    /// Date of the as-of commit.
+    pub(crate) last_commit_date: String,
+    /// The day with the most commits; the earliest day wins a tie so the
+    /// document is deterministic.
+    pub(crate) busiest_day: BusiestDay,
+    /// First and last day of the longest run of consecutive active days.
+    pub(crate) longest_streak_range: StreakRange,
     /// The subset of `commits` whose every changed file is a graph artifact.
     pub(crate) refresh_commits: u64,
     pub(crate) active_days: u64,
@@ -201,6 +278,18 @@ pub(crate) struct GraphTotals {
     pub(crate) lines_added: u64,
     pub(crate) lines_removed: u64,
     pub(crate) files_touched: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct BusiestDay {
+    pub(crate) date: String,
+    pub(crate) commits: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct StreakRange {
+    pub(crate) start: String,
+    pub(crate) end: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -218,11 +307,35 @@ pub(crate) struct AuthorEntry {
     pub(crate) commits: u64,
 }
 
+/// Where a milestone sits relative to the as-of date.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum MilestoneStatus {
+    Done,
+    Upcoming,
+}
+
+impl MilestoneStatus {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Done => "done",
+            Self::Upcoming => "upcoming",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct GraphMilestone {
     pub(crate) date: String,
     pub(crate) label: String,
+    /// Short flag label, when the configuration supplies one.
+    #[serde(default)]
+    pub(crate) short: String,
+    /// Kept for readers of schema 2; always consistent with `status`.
     pub(crate) future: bool,
+    /// Computed from the as-of date, so a flag cannot claim a state the data
+    /// does not support.
+    pub(crate) status: MilestoneStatus,
 }
 
 /// The `[commit_graph]` table of the README configuration file.
@@ -248,6 +361,28 @@ fn validate_config(config: &CommitGraphConfig) -> Result<()> {
     tz_offset_minutes(&config.timezone)?;
     if config.budget_kb == 0 {
         bail!("commit_graph.budget_kb must be greater than zero");
+    }
+    if config.strip_budget_kb == 0 {
+        bail!("commit_graph.strip_budget_kb must be greater than zero");
+    }
+    if let Some(accent) = &config.style.accent {
+        if accent.len() != 7
+            || !accent.starts_with('#')
+            || !accent[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
+        {
+            bail!("commit_graph.style.accent must be a six-digit hex colour, such as #C55E33");
+        }
+    }
+    if config.style.title.trim().is_empty() {
+        bail!("commit_graph.style.title must not be empty");
+    }
+    if config.style.display_font != "Instrument Serif"
+        && config.style.display_font != "JetBrains Mono"
+    {
+        bail!(
+            "commit_graph.style.display_font is `{}`; use `Instrument Serif` or `JetBrains Mono`",
+            config.style.display_font
+        );
     }
     if config.source_url.trim().is_empty() {
         bail!("commit_graph.source_url must name the public repository");
@@ -276,6 +411,14 @@ fn validate_config(config: &CommitGraphConfig) -> Result<()> {
                 "commit_graph milestone on {} carries an empty label",
                 milestone.date
             );
+        }
+        if let Some(short) = &milestone.short {
+            if short.trim().is_empty() {
+                bail!(
+                    "commit_graph milestone on {} carries an empty short label",
+                    milestone.date
+                );
+            }
         }
     }
     Ok(())
@@ -634,10 +777,31 @@ pub(crate) fn commit_permalink(config: &CommitGraphConfig, sha: &str) -> String 
 /// replaced; every other byte of the README is preserved. Returns the rewritten
 /// text, or `None` when the README has no such block or no anchor.
 pub(crate) fn rewrite_readme_permalink(text: &str, permalink: &str) -> Option<String> {
+    const STRIP_BEGIN: &str = "<!-- commit-graph-strip:begin -->";
+    const STRIP_END: &str = "<!-- commit-graph-strip:end -->";
     const BEGIN: &str = "<!-- commit-graph:begin -->";
     const END: &str = "<!-- commit-graph:end -->";
-    let begin = text.find(BEGIN)? + BEGIN.len();
-    let end = begin + text[begin..].find(END)?;
+    let mut rewritten = text.to_string();
+    let mut changed = false;
+    for (begin_marker, end_marker) in [(STRIP_BEGIN, STRIP_END), (BEGIN, END)] {
+        if let Some(next) = rewrite_block_permalink(&rewritten, begin_marker, end_marker, permalink)
+        {
+            rewritten = next;
+            changed = true;
+        }
+    }
+    changed.then_some(rewritten)
+}
+
+/// Replace the first `href` inside one marker-bracketed block.
+fn rewrite_block_permalink(
+    text: &str,
+    begin_marker: &str,
+    end_marker: &str,
+    permalink: &str,
+) -> Option<String> {
+    let begin = text.find(begin_marker)? + begin_marker.len();
+    let end = begin + text[begin..].find(end_marker)?;
     let body = &text[begin..end];
     let href = body.find("href=\"")? + "href=\"".len();
     let close = href + body[href..].find('"')?;
@@ -882,7 +1046,9 @@ pub(crate) fn generate(
         );
     }
 
-    let (longest_streak, current_streak) = streak_lengths(&days, as_of_day);
+    let streak = streak_stats(&days, as_of_day);
+    let longest_streak = streak.longest;
+    let current_streak = streak.current;
     let per_day: Vec<DayEntry> = (start..=as_of_day)
         .map(|day| {
             let accumulator = days.remove(&day).unwrap_or_default();
@@ -895,6 +1061,20 @@ pub(crate) fn generate(
             }
         })
         .collect();
+    let busiest = per_day
+        .iter()
+        .fold(None::<&DayEntry>, |best, day| match best {
+            Some(current) if current.commits >= day.commits => Some(current),
+            _ => Some(day),
+        })
+        .map(|day| BusiestDay {
+            date: day.date.clone(),
+            commits: day.commits,
+        })
+        .unwrap_or(BusiestDay {
+            date: format_date(as_of_day),
+            commits: 0,
+        });
     let mut per_author: Vec<AuthorEntry> = authors
         .into_iter()
         .map(|(display, commits)| AuthorEntry { display, commits })
@@ -911,10 +1091,20 @@ pub(crate) fn generate(
         .iter()
         .map(|milestone| {
             let day = parse_iso_date(&milestone.date)?;
+            let status = if day > as_of_day {
+                MilestoneStatus::Upcoming
+            } else {
+                MilestoneStatus::Done
+            };
             Ok(GraphMilestone {
                 date: milestone.date.clone(),
                 label: milestone.label.clone(),
-                future: day > as_of_day,
+                short: milestone
+                    .short
+                    .clone()
+                    .unwrap_or_else(|| milestone.label.clone()),
+                future: status == MilestoneStatus::Upcoming,
+                status,
             })
         })
         .collect::<Result<Vec<_>>>()?;
@@ -930,6 +1120,13 @@ pub(crate) fn generate(
         },
         totals: GraphTotals {
             commits,
+            first_commit_date: format_date(start),
+            last_commit_date: format_date(as_of_day),
+            busiest_day: busiest,
+            longest_streak_range: StreakRange {
+                start: format_date(streak.start),
+                end: format_date(streak.end),
+            },
             refresh_commits,
             active_days: per_day.iter().filter(|day| day.commits > 0).count() as u64,
             longest_streak,
@@ -947,28 +1144,51 @@ pub(crate) fn generate(
     Ok((graph, json))
 }
 
-fn streak_lengths(days: &BTreeMap<i64, DayAccumulator>, as_of_day: i64) -> (u64, u64) {
+/// Longest and current streak, plus the exact day range of the longest run.
+struct StreakStats {
+    longest: u64,
+    current: u64,
+    start: i64,
+    end: i64,
+}
+
+fn streak_stats(days: &BTreeMap<i64, DayAccumulator>, as_of_day: i64) -> StreakStats {
     let active: Vec<i64> = days
         .iter()
         .filter(|(_, accumulator)| accumulator.commits > 0)
         .map(|(day, _)| *day)
         .collect();
     let mut longest = 0u64;
+    let mut start = as_of_day;
+    let mut end = as_of_day;
     let mut run = 0u64;
+    let mut run_start = as_of_day;
     let mut previous: Option<i64> = None;
     for day in &active {
         run = match previous {
             Some(previous) if *day == previous + 1 => run + 1,
-            _ => 1,
+            _ => {
+                run_start = *day;
+                1
+            }
         };
-        longest = longest.max(run);
+        if run > longest {
+            longest = run;
+            start = run_start;
+            end = *day;
+        }
         previous = Some(*day);
     }
     let current = match active.last() {
         Some(last) if *last == as_of_day => run,
         _ => 0,
     };
-    (longest, current)
+    StreakStats {
+        longest,
+        current,
+        start,
+        end,
+    }
 }
 
 /// Stable hash of the configuration, recorded in the JSON so a document can be
@@ -1008,18 +1228,29 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     };
     let as_of = args.as_of.as_deref().unwrap_or(default_as_of);
     let (graph, json) = generate(&history.path, &config, Some(as_of))?;
-    let palette = svg::Palette::load(&args.root)?;
-    let full = svg::render_full(&graph, &palette)?;
-    let narrow = svg::render_narrow(&graph, &palette)?;
+    let palette = svg::Palette::load(&args.root, &config.style)?;
+    let full = svg::render_full(&graph, &palette, &config.style)?;
+    let narrow = svg::render_narrow(&graph, &palette, &config.style)?;
+    let compact = svg::render_compact(&graph, &palette, &config.style)?;
+    let compact_narrow = svg::render_compact_narrow(&graph, &palette, &config.style)?;
 
-    let budget = config.budget_kb as usize * 1024;
-    if full.len() > budget || narrow.len() > budget {
+    let card_budget = (config.budget_kb as usize * 1024).min(CARD_BUDGET_BYTES);
+    let strip_budget = (config.strip_budget_kb as usize * 1024).min(STRIP_BUDGET_BYTES);
+    if full.len() > card_budget
+        || narrow.len() > card_budget
+        || compact.len() > strip_budget
+        || compact_narrow.len() > strip_budget
+    {
         bail!(
-            "commit-graph cards exceed the {} kB budget: full {}, narrow {}; \
+            "commit-graph artifacts exceed the self-imposed size budget: \
+             cards {}/{} B of {} B, strips {}/{} B of {} B; \
              reduce the number of distinct glyphs before reducing detail",
-            config.budget_kb,
-            size_label(full.len()),
-            size_label(narrow.len())
+            full.len(),
+            narrow.len(),
+            card_budget,
+            compact.len(),
+            compact_narrow.len(),
+            strip_budget
         );
     }
 
@@ -1029,12 +1260,18 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     let json_path = out_dir.join("commit-graph.json");
     let full_path = out_dir.join("commit-graph.svg");
     let narrow_path = out_dir.join("commit-graph-narrow.svg");
+    let compact_path = out_dir.join("commit-graph-compact.svg");
+    let compact_narrow_path = out_dir.join("commit-graph-compact-narrow.svg");
     std::fs::write(&json_path, &json)
         .with_context(|| format!("failed to write {}", json_path.display()))?;
     std::fs::write(&full_path, &full)
         .with_context(|| format!("failed to write {}", full_path.display()))?;
     std::fs::write(&narrow_path, &narrow)
         .with_context(|| format!("failed to write {}", narrow_path.display()))?;
+    std::fs::write(&compact_path, &compact)
+        .with_context(|| format!("failed to write {}", compact_path.display()))?;
+    std::fs::write(&compact_narrow_path, &compact_narrow)
+        .with_context(|| format!("failed to write {}", compact_narrow_path.display()))?;
     update_readme_permalink(&args.root, &config, &graph.as_of_sha)?;
 
     let totals = &graph.totals;
@@ -1096,6 +1333,18 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         config.budget_kb
     );
     println!(
+        "  wrote {} ({}, budget {} kB)",
+        compact_path.display(),
+        size_label(compact.len()),
+        config.strip_budget_kb
+    );
+    println!(
+        "  wrote {} ({}, budget {} kB)",
+        compact_narrow_path.display(),
+        size_label(compact_narrow.len()),
+        config.strip_budget_kb
+    );
+    println!(
         "  README permalink: {}",
         commit_permalink(&config, &graph.as_of_sha)
     );
@@ -1116,6 +1365,8 @@ pub(crate) fn cmd_commit_graph_check(args: &CommitGraphArgs) -> Result<()> {
         &out_dir.join("commit-graph.json"),
         &out_dir.join("commit-graph.svg"),
         &out_dir.join("commit-graph-narrow.svg"),
+        &out_dir.join("commit-graph-compact.svg"),
+        &out_dir.join("commit-graph-compact-narrow.svg"),
     )?;
     for warning in &outcome.warnings {
         eprintln!("warning: {warning}");

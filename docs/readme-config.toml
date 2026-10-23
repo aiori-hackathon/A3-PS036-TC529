@@ -90,9 +90,10 @@ message_color = "orange"
 # ── Commit graph ─────────────────────────────────────────────────────────────
 #
 # `cargo xtask commit-graph` reads the repository's git history up to one
-# commit and writes docs/media/commit-graph.json plus the two SVG cards. The
-# output is a pure function of the history and everything below: rerunning it
-# for the same commit produces identical bytes.
+# commit and writes docs/media/commit-graph.json plus four SVG variants: a wide
+# card, a narrow card and their two compact strips. The output is a pure
+# function of the history and everything below: rerunning it for the same
+# commit produces identical bytes.
 
 [commit_graph]
 # Dates are bucketed in this zone. Only fixed-offset zones are accepted
@@ -122,34 +123,57 @@ exclude_authors = ["dependabot[bot]", "github-actions[bot]", "renovate[bot]"]
 # separately with `totals.refresh_commits`, never hidden.
 refresh_commits_whose_files_all_match = ["docs/media/commit-graph*"]
 
-# Both SVG files stay at or below this size. Generation fails rather than
+# Both SVG cards stay at or below this size. Generation fails rather than
 # writing an oversized card.
 budget_kb = 50
+
+# Both compact strips stay at or below this size. Generation fails rather than
+# writing an oversized strip.
+strip_budget_kb = 25
 
 # `cargo xtask docs-check` warns (never fails) when the committed graph is
 # further than this behind HEAD.
 staleness_commits = 20
 staleness_days = 7
 
+# Presentation knobs. Every value has a default, so an older configuration
+# file keeps working.
+[commit_graph.style]
+# Colour of the staircase and the day bars. This is the brand orange sampled
+# from docs/media/brand.toml; orange never sets text.
+accent = "#C55E33"
+# Serif title set at the top of both cards.
+title = "The Climb"
+# Draw the milestone flags on the timeline.
+show_flags = true
+# Draw the day bars under the staircase.
+show_bars = true
+# Face for the title and the large numerals: Instrument Serif or JetBrains Mono.
+display_font = "Instrument Serif"
+
 # Display names are keyed by git author NAME (names only, never emails). An
 # author with no mapping is shown under the name git reports.
 [commit_graph.display_names]
-"Pratyay Mukherjee" = "Pratyay"
+"Pratyay Mukherjee" = "Pratyay Mukherjee"
 
 # Milestones appear as flags on the timeline. Dates after the graph's as-of
 # date are drawn dimmed and dashed.
 [[commit_graph.milestones]]
 date = "2026-10-14"
 label = "Round 1 submission"
+short = "Round 1"
 
 [[commit_graph.milestones]]
 date = "2026-10-20"
 label = "Level 2 qualified"
+short = "Level 2"
 
 [[commit_graph.milestones]]
 date = "2026-11-24"
 label = "Regional hackathon"
+short = "Regionals"
 
 [[commit_graph.milestones]]
 date = "2026-12-17"
 label = "Finals, IIT Jammu"
+short = "Finals"

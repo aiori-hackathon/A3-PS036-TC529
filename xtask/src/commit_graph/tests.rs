@@ -113,7 +113,9 @@ fn config() -> CommitGraphConfig {
         display_names: BTreeMap::new(),
         refresh_commits_whose_files_all_match: Vec::new(),
         milestones: Vec::new(),
+        style: StyleConfig::default(),
         budget_kb: 50,
+        strip_budget_kb: 25,
         staleness_commits: 20,
         staleness_days: 7,
     }
@@ -125,6 +127,46 @@ fn day<'a>(graph: &'a CommitGraph, date: &str) -> &'a DayEntry {
         .iter()
         .find(|entry| entry.date == date)
         .unwrap_or_else(|| panic!("{date} is not in per_day"))
+}
+
+/// Every SVG variant rendered with `style`, labelled by variant.
+fn render_all(graph: &CommitGraph, style: &StyleConfig) -> Vec<(&'static str, String)> {
+    let palette = svg::Palette::default();
+    vec![
+        (
+            "full",
+            svg::render_full(graph, &palette, style).expect("full card"),
+        ),
+        (
+            "narrow",
+            svg::render_narrow(graph, &palette, style).expect("narrow card"),
+        ),
+        (
+            "compact",
+            svg::render_compact(graph, &palette, style).expect("compact strip"),
+        ),
+        (
+            "compact-narrow",
+            svg::render_compact_narrow(graph, &palette, style).expect("narrow compact strip"),
+        ),
+    ]
+}
+
+/// Write the four SVG variants into `root/docs/media`.
+fn write_cards(root: &Path, graph: &CommitGraph, style: &StyleConfig) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for (label, card) in render_all(graph, style) {
+        let name = match label {
+            "full" => SVG_PATH,
+            "narrow" => NARROW_PATH,
+            "compact" => COMPACT_PATH,
+            _ => COMPACT_NARROW_PATH,
+        };
+        let path = root.join(name);
+        std::fs::write(&path, card).expect("write card");
+        paths.push(path);
+    }
+    paths
 }
 
 #[test]
@@ -454,18 +496,14 @@ fn a_shallow_clone_skips_history_checks_and_reports_why() {
     std::fs::create_dir_all(clone.join("docs/media")).expect("create the card directory");
     write_config(&clone, &config());
     let (graph, json) = generate(&clone, &config(), Some("HEAD")).expect("generate");
-    let palette = svg::Palette::default();
-    let full = svg::render_full(&graph, &palette).expect("full card");
-    let narrow = svg::render_narrow(&graph, &palette).expect("narrow card");
     let json_path = clone.join(JSON_PATH);
-    let full_path = clone.join(SVG_PATH);
-    let narrow_path = clone.join(NARROW_PATH);
     std::fs::write(&json_path, json).expect("write the JSON");
-    std::fs::write(&full_path, full).expect("write the full card");
-    std::fs::write(&narrow_path, narrow).expect("write the narrow card");
+    let cards = write_cards(&clone, &graph, &StyleConfig::default());
 
-    let outcome = check::check_with_paths(&clone, &json_path, &full_path, &narrow_path)
-        .expect("the check runs on a shallow clone");
+    let outcome = check::check_with_paths(
+        &clone, &json_path, &cards[0], &cards[1], &cards[2], &cards[3],
+    )
+    .expect("the check runs on a shallow clone");
     let note = outcome.note.unwrap_or_default();
     assert!(note.contains("shallow"), "{note}");
     assert!(note.contains("unshallow"), "{note}");
@@ -492,13 +530,11 @@ fn generation_is_byte_identical_twice() {
     assert_eq!(first_json, second_json);
     assert_eq!(first_graph, second_graph);
 
-    let palette = svg::Palette::default();
-    let first_full = svg::render_full(&first_graph, &palette).expect("first full card");
-    let second_full = svg::render_full(&second_graph, &palette).expect("second full card");
-    let first_narrow = svg::render_narrow(&first_graph, &palette).expect("first narrow card");
-    let second_narrow = svg::render_narrow(&second_graph, &palette).expect("second narrow card");
-    assert_eq!(first_full, second_full);
-    assert_eq!(first_narrow, second_narrow);
+    let first = render_all(&first_graph, &StyleConfig::default());
+    let second = render_all(&second_graph, &StyleConfig::default());
+    for ((label, first), (_, second)) in first.iter().zip(second.iter()) {
+        assert_eq!(first, second, "{label} is not deterministic");
+    }
 }
 
 #[test]
@@ -515,24 +551,19 @@ fn the_cards_are_well_formed_self_contained_and_within_budget() {
         &[("b.txt", "three\n")],
     );
     let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
-    let palette = svg::Palette::default();
-    for (label, card) in [
-        (
-            "full",
-            svg::render_full(&graph, &palette).expect("full card"),
-        ),
-        (
-            "narrow",
-            svg::render_narrow(&graph, &palette).expect("narrow card"),
-        ),
-    ] {
+    for (label, card) in render_all(&graph, &StyleConfig::default()) {
+        let budget = if label.starts_with("compact") {
+            STRIP_BUDGET_BYTES
+        } else {
+            CARD_BUDGET_BYTES
+        };
         assert!(
-            card.len() <= 50 * 1024,
-            "{label} card is {} bytes",
+            card.len() <= budget,
+            "{label} is {} bytes, over {budget}",
             card.len()
         );
         let document = roxmltree::Document::parse(&card)
-            .unwrap_or_else(|error| panic!("{label} card is not XML: {error}"));
+            .unwrap_or_else(|error| panic!("{label} is not XML: {error}"));
         assert_eq!(document.root_element().tag_name().name(), "svg");
         assert_eq!(document.root_element().attribute("role"), Some("img"));
         assert!(document
@@ -540,13 +571,10 @@ fn the_cards_are_well_formed_self_contained_and_within_budget() {
             .any(|node| node.has_tag_name("title")));
         assert!(document.descendants().any(|node| node.has_tag_name("desc")));
         assert!(!document.descendants().any(|node| node.has_tag_name("text")));
-        assert!(card.contains("<path id=\"g"));
-        assert!(card.contains("<use href=\"#g"));
+        assert!(card.contains("<path id=\"m") || card.contains("<path id=\"d"));
+        assert!(card.contains("<use href=\"#"));
         let remaining = card.replace("http://www.w3.org/2000/svg", "");
-        assert!(
-            !remaining.contains("http"),
-            "{label} card has an http reference"
-        );
+        assert!(!remaining.contains("http"), "{label} has an http reference");
         assert!(!card.contains("<script"));
     }
 }
@@ -561,7 +589,7 @@ fn the_desc_numbers_equal_the_json_totals() {
     );
     let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
     let palette = svg::Palette::default();
-    let card = svg::render_full(&graph, &palette).expect("card");
+    let card = svg::render_full(&graph, &palette, &StyleConfig::default()).expect("card");
     let document = roxmltree::Document::parse(&card).expect("XML");
     let desc = document
         .root_element()
@@ -578,6 +606,13 @@ fn the_desc_numbers_equal_the_json_totals() {
     assert_eq!(tokens.get("lines_added"), Some(&"2"));
     assert_eq!(tokens.get("date"), Some(&"2026-10-10"));
     assert_eq!(tokens.get("as_of"), Some(&&graph.as_of_sha[..7]));
+    assert_eq!(tokens.get("authors"), Some(&"1"));
+    assert_eq!(tokens.get("first_commit"), Some(&"2026-10-10"));
+    assert_eq!(tokens.get("last_commit"), Some(&"2026-10-10"));
+    assert_eq!(tokens.get("busiest_day"), Some(&"2026-10-10"));
+    assert_eq!(tokens.get("busiest_commits"), Some(&"1"));
+    assert_eq!(tokens.get("streak_start"), Some(&"2026-10-10"));
+    assert_eq!(tokens.get("streak_end"), Some(&"2026-10-10"));
 }
 
 #[test]
@@ -736,10 +771,21 @@ fn write_config(root: &Path, config: &CommitGraphConfig) {
     std::fs::write(root.join(CONFIG_PATH), text).expect("write the configuration");
 }
 
-/// The README block with a permalink and the provenance caption.
+/// The README blocks with a permalink, a compact strip and the provenance
+/// caption, matching the shape the documentation check enforces.
 fn readme_text(permalink: &str) -> String {
     format!(
         "# CLIMB\n\n\
+         <!-- badges:begin -->\n\
+         <!-- badges:end -->\n\n\
+         <!-- commit-graph-strip:begin -->\n\
+         <a href=\"{permalink}\" target=\"_blank\" rel=\"noopener\">\n\
+         <picture>\n\
+         <source media=\"(max-width: 600px)\" srcset=\"docs/media/commit-graph-compact-narrow.svg\" width=\"390\">\n\
+         <img src=\"docs/media/commit-graph-compact.svg\" alt=\"the climb so far\" width=\"840\">\n\
+         </picture>\n\
+         </a>\n\
+         <!-- commit-graph-strip:end -->\n\n\
          <!-- commit-graph:begin -->\n\
          <a href=\"{permalink}\" target=\"_blank\" rel=\"noopener\">\n\
          <picture>\n\
@@ -766,12 +812,8 @@ fn write_artifacts_from(
     std::fs::create_dir_all(repo.path().join("docs/media")).expect("create the media directory");
     write_config(repo.path(), config);
     let (graph, json) = generate(history, config, Some(as_of)).expect("generate");
-    let palette = svg::Palette::default();
-    let full = svg::render_full(&graph, &palette).expect("full card");
-    let narrow = svg::render_narrow(&graph, &palette).expect("narrow card");
     std::fs::write(repo.path().join(JSON_PATH), json).expect("write the JSON");
-    std::fs::write(repo.path().join(SVG_PATH), full).expect("write the full card");
-    std::fs::write(repo.path().join(NARROW_PATH), narrow).expect("write the narrow card");
+    write_cards(repo.path(), &graph, &config.style);
     let permalink = commit_permalink(config, &graph.as_of_sha);
     std::fs::write(repo.path().join("README.md"), readme_text(&permalink))
         .expect("write the README");
@@ -1082,7 +1124,10 @@ fn a_commit_missing_from_the_cache_skips_the_history_checks_with_a_reason() {
 
 #[test]
 fn the_readme_permalink_tracks_the_public_as_of_commit() {
-    let text = "# title\n\n<!-- commit-graph:begin -->\n\
+    let text = "# title\n\n<!-- commit-graph-strip:begin -->\n\
+                <a href=\"https://example.invalid/public/commits/main\"><img src=\"strip.svg\"></a>\n\
+                <!-- commit-graph-strip:end -->\n\n\
+                <!-- commit-graph:begin -->\n\
                 <a href=\"https://example.invalid/public/commits/main\"><img src=\"card.svg\"></a>\n\
                 Generated by `cargo xtask commit-graph`.\n\
                 <!-- commit-graph:end -->\n\nfooter\n";
@@ -1090,10 +1135,16 @@ fn the_readme_permalink_tracks_the_public_as_of_commit() {
         text,
         "https://example.invalid/public/commit/0123456789abcdef",
     )
-    .expect("the block carries an anchor");
-    assert!(rewritten.contains("href=\"https://example.invalid/public/commit/0123456789abcdef\""));
+    .expect("the blocks carry anchors");
+    assert_eq!(
+        rewritten
+            .matches("href=\"https://example.invalid/public/commit/0123456789abcdef\"")
+            .count(),
+        2,
+        "{rewritten}"
+    );
     assert!(!rewritten.contains("commits/main"));
-    assert!(rewritten.starts_with("# title\n\n<!-- commit-graph:begin -->"));
+    assert!(rewritten.starts_with("# title\n\n<!-- commit-graph-strip:begin -->"));
     assert!(rewritten.ends_with("<!-- commit-graph:end -->\n\nfooter\n"));
     assert!(rewrite_readme_permalink("no block here", "https://x").is_none());
 }

@@ -46,29 +46,75 @@ In strict mode the generator does not write; a drifted block fails with a non-ze
 
 Generated PNG/SVG/brand assets live in `docs/media/`. `docs/media/README.md` documents how they were produced and the palette.
 
-## Commit graph card
+## Commit graph artwork
 
-`cargo xtask commit-graph` reads the **public** commit history and writes three
+`cargo xtask commit-graph` reads the **public** commit history and writes five
 artifacts into `docs/media/`:
 
 - `commit-graph.json` — the machine-readable document: totals, one row per day
-  (including days with no commits), one row per author (display names only,
-  never e-mail addresses), and the milestone list.
-- `commit-graph.svg` — the wide card (840 by 520, shown at 840 px): the
-  cumulative staircase, calendar heatmap, four KPI tiles, contributors and the
-  milestone roadmap.
-- `commit-graph-narrow.svg` — the phone card (400 by 640, shown at 390 px): a
-  two-by-two KPI grid, the staircase, the last ten weeks of the heatmap,
-  one-column milestones and contributors. The README selects it with
-  `<source media="(max-width: 600px)">` and keeps the wide card as the `<img>`
-  fallback. No viewer ever shows both cards.
+  (including quiet days), one row per author (display names only, never e-mail
+  addresses) and the milestone list with a `done` or `upcoming` status. Schema
+  version 3 adds the first and last commit dates, the busiest day, the longest
+  streak's range and the milestone status.
+- `commit-graph.svg` — the wide card (840 by 540, shown at 840 px).
+- `commit-graph-narrow.svg` — the phone card (400 by 640, shown at 390 px).
+- `commit-graph-compact.svg` — the wide strip (840 by 156).
+- `commit-graph-compact-narrow.svg` — the phone strip (400 by 200).
+
+The README shows the compact strip directly under the badges and the full card
+under "Built in the open". Each block is a `<picture>` with one image per
+viewport: the narrow variant under `(max-width: 600px)` and the wide variant as
+the fallback. The generator rewrites the permalink in both blocks to the public
+as-of commit, so neither link needs a hand edit.
+
+### Layout
+
+The wide card is an editorial page rather than a dashboard. A masthead carries
+an eyebrow line, the title set in Instrument Serif and a two-line stamp with
+the commit and its date. Four headline totals sit in columns separated by short
+rules, with no boxes around them. The cumulative staircase runs across the
+middle of the page: the data region takes a 70/30 share of the width, the
+runway the rest, separated by an axis break and labelled "runway not to
+scale". Daily bars sit below it, and milestone flags rise from the line; the
+flag placer tries several baselines and refuses to render rather than overlap a
+label. The footer names the contributors and the public-history source, and
+adds the refresh note only when the history contains graph refreshes.
+
+The narrow card keeps the same data in a single column: a two-by-two total
+grid, the staircase with numbered milestone dots and a numbered legend, the
+last five weeks of daily bars, and a stacked footer.
+
+Both strips are single-row summaries: a large serif numeral for the commit
+total, a caption, three supporting statistics, a small sparkline and the stamp.
+The phone strip is the same drawing at a smaller size.
+
+The type is Instrument Serif for the title, the large numerals and the compact
+total, and JetBrains Mono for every caption, label and small number. Both faces
+are embedded as outlines: no font is requested at view time, so the picture
+cannot change with the viewer's font set. The palette is `#0E1217` for the
+card, `#E6EDF3` for primary ink, `#8B98A5` for secondary ink and
+`#5C8E8D`/`#7FB5B3` for the present day, the streak and completed milestones.
+Orange (`#C55E33`, sampled in `docs/media/brand.toml`) is reserved for data:
+the staircase, the bars and the area under the line. It never paints a glyph.
+
+Motion is CSS-only: the staircase draws in, the bars rise in a short stagger,
+the flags fade in after the line, and only the ring around the present day
+loops. Every element carries its final geometry in the markup, and
+`prefers-reduced-motion: reduce` removes the animation entirely.
+
+### Configuration
 
 The rules live in the `[commit_graph]` table of `docs/readme-config.toml`: the
 timezone (fixed offset only), the public `source_url`, `source_ref` and
 `source_cache`, the `repo_web_url` used for the README permalink, hidden author
-names, the refresh-commit pattern, the milestones and the size budget.
+names, the refresh-commit pattern, the milestones (with an optional short
+label), the size budgets and the staleness thresholds. The
+`[commit_graph.style]` table carries the presentation knobs: `accent`, `title`,
+`show_flags`, `show_bars` and `display_font`.
 
-The committed card must describe the public repository, never a private
+### Provenance
+
+The committed graph must describe the public repository, never a private
 development checkout whose history has been rewritten. The command therefore
 reads history from a bare cache of `source_url` at `source_ref` — cloned on
 first use, fetched afterwards, without credentials — unless the checkout's own
@@ -81,8 +127,8 @@ log whose commit ids do not exist publicly.
 `as_of_sha`, so it equals `git rev-list --count <as_of_sha>` and therefore the
 number the public repository shows at that commit. Media-only graph refreshes
 are included in that total and reported separately as `totals.refresh_commits`
-(“of which N graph refreshes” in the card footer); active days, streaks and
-per-day counts include them too. Nothing is hidden.
+(“of which N graph refreshes” in the footer); active days, streaks and per-day
+counts include them too. Nothing is hidden.
 
 Dates are bucketed in the configured zone from each commit's author timestamp,
 and the document is anchored to one commit: `as_of_sha`, with `as_of_date` taken
@@ -90,49 +136,51 @@ from that commit rather than from the wall clock. Generation is deterministic �
 the same history and configuration produce the same bytes — and it refuses to
 run in a shallow clone, where the history is incomplete.
 
-Every label is drawn as vector outlines from an embedded font, and both cards
-carry their text as `<title>`/`<desc>` for assistive technology. There are no
-scripts, no external requests and no web fonts. `cargo xtask docs-check`
-reproduces the JSON byte for byte from this checkout when it contains the
-as-of commit, otherwise from the public cache, and skips the history checks with
-a printed reason when neither does; it also checks the `<desc>` numbers, the
-size budget, and the README's link to the public commit. It never fetches, so a
-public clone passes with no network; a graph that is merely behind `HEAD`
-produces a warning, not a failure.
+Every label is drawn as vector outlines from the embedded faces, and every
+artifact carries its text summary in `<title>`/`<desc>` for assistive
+technology. There are no scripts, no external requests and no web fonts.
+`cargo xtask docs-check` reproduces the JSON byte for byte from this checkout
+when it contains the as-of commit, otherwise from the public cache, and skips
+the history checks with a printed reason when neither does; it also checks each
+artifact's size budget, its `<desc>` numbers against the document, the
+outline-only text, the absence of external references, and the README's link to
+the public commit. It never fetches, so a public clone passes with no network;
+a graph that is merely behind `HEAD` produces a warning, not a failure.
 
 ### Readability contract
 
-Both cards are tested, not eyeballed. Each text group carries `data-size`,
-`data-name` and `data-box` attributes, and every run inside it carries its own
-`data-box`; the tests parse the committed cards and compute:
+The artwork is tested, not eyeballed. Each text group carries `data-name`,
+`data-font`, `data-size`, `fill` and `data-bbox`, and every run inside it
+carries its own `data-bbox`. The tests parse the committed artifacts and check:
 
-- the effective size at the README display width — at least 12 px for every
-  group, at least 13 px for body labels (stamp, KPI labels, milestones,
-  contributors), at least 20 px for the title and at least 32 px for KPI
-  numbers;
-- WCAG contrast of each run's ink against the surface underneath it — at least
-  4.5:1 (the faint `#6E7681` ink was removed precisely because it measured
-  3.8:1 on the panel);
-- at most 14 text groups per card and at least 8 px between any two groups;
-- no text run overlapping a data mark — a heatmap cell, a contributor bar, a
-  milestone dot, the endpoint dot or a segment of the staircase.
-
-The tests also prove determinism and that both `<desc>` elements carry the
-same totals as the JSON document. `cargo xtask docs-check` regenerates both
-cards and reports drift; the fixed `rsvg-convert` rasters under `target/` are a
-local visual check, not a substitute for the contract.
+- the effective size at the display width: at least 11 px for small copy,
+  28 px for the KPI numerals, 32 px for the title and 52 px for the compact
+  total;
+- contrast of every text ink against `#0E1217`: at least 4.5:1 (`#8B98A5`
+  measures 6.4:1 and `#7FB5B3` 8.2:1) and at least 12:1 for the primary ink;
+- group caps of 16 on the wide card, 12 on the narrow card and 8 per strip;
+- no text run overlapping another run, and no run leaving the canvas or its
+  margin; the overlap check is proven non-vacuous by a test that reproduces a
+  collision;
+- no `<filter>`, at most two gradients (one area fill, never on a glyph or a
+  stroke), at most two typefaces, no `<text>`, no scripts and no external
+  references;
+- the 70/30 split, the bar baselines, the milestone statuses, the 8 px
+  structural grid and the `<desc>` numbers all match the JSON document;
+- byte-identical regeneration, and the size budgets: fifty kilobytes per card
+  and twenty-five kilobytes per strip.
 
 ## Refreshing the graph
 
 1. Commit the work locally.
 2. Run `tools/sync-aiori.sh` to publish it to the public repository.
 3. Run `scripts/refresh-commit-graph.sh`. It fetches the public history first,
-   prints the public SHA and the commit count at that SHA, regenerates the card
-   (so it includes the commits just synced) and stages only the three media
-   artifacts plus the README permalink the generator rewrites.
+   prints the public SHA and the commit count at that SHA, regenerates the
+   artwork (so it includes the commits just synced) and stages only the five
+   media artifacts plus the README permalinks the generator rewrites.
 4. Read the `git diff --stat --cached` it prints, then commit with
    `docs: refresh commit graph` — the script never commits or pushes.
-5. The next `tools/sync-aiori.sh` publishes the refreshed card.
+5. The next `tools/sync-aiori.sh` publishes the refreshed artwork.
 6. To check without writing, run `cargo xtask commit-graph --check`: it fails
    only when the graph is inconsistent, warns (exit zero) when it is merely
    behind `HEAD`, and skips the history checks with a reason when the as-of
@@ -140,9 +188,10 @@ local visual check, not a substitute for the contract.
 7. To warn automatically, run `scripts/install-hooks.sh` once; it prints exactly
    what it installs and adds a pre-push hook that warns on staleness without
    blocking a push and never fetches.
-8. The README's `<!-- commit-graph:begin -->` block points at the public commit
-   the card was generated from; its caption never needs a hand edit, because the
-   generator rewrites the permalink, not the prose.
+8. The README's `<!-- commit-graph-strip:begin -->` and
+   `<!-- commit-graph:begin -->` blocks point at the public commit the artwork
+   was generated from; their captions never need a hand edit, because the
+   generator rewrites the permalinks, not the prose.
 
 ## Honest limits
 
