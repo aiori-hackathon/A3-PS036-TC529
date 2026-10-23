@@ -54,10 +54,14 @@ artifacts into `docs/media/`:
 - `commit-graph.json` — the machine-readable document: totals, one row per day
   (including days with no commits), one row per author (display names only,
   never e-mail addresses), and the milestone list.
-- `commit-graph.svg` — the full card: cumulative staircase, calendar heatmap,
-  headline figures, contributors and the roadmap.
-- `commit-graph-compact.svg` — the same data in a short banner, for the top of
-  the README.
+- `commit-graph.svg` — the wide card (840 by 520, shown at 840 px): the
+  cumulative staircase, calendar heatmap, four KPI tiles, contributors and the
+  milestone roadmap.
+- `commit-graph-narrow.svg` — the phone card (400 by 640, shown at 390 px): a
+  two-by-two KPI grid, the staircase, the last ten weeks of the heatmap,
+  one-column milestones and contributors. The README selects it with
+  `<source media="(max-width: 600px)">` and keeps the wide card as the `<img>`
+  fallback. No viewer ever shows both cards.
 
 The rules live in the `[commit_graph]` table of `docs/readme-config.toml`: the
 timezone (fixed offset only), the public `source_url`, `source_ref` and
@@ -95,6 +99,28 @@ a printed reason when neither does; it also checks the `<desc>` numbers, the
 size budget, and the README's link to the public commit. It never fetches, so a
 public clone passes with no network; a graph that is merely behind `HEAD`
 produces a warning, not a failure.
+
+### Readability contract
+
+Both cards are tested, not eyeballed. Each text group carries `data-size`,
+`data-name` and `data-box` attributes, and every run inside it carries its own
+`data-box`; the tests parse the committed cards and compute:
+
+- the effective size at the README display width — at least 12 px for every
+  group, at least 13 px for body labels (stamp, KPI labels, milestones,
+  contributors), at least 20 px for the title and at least 32 px for KPI
+  numbers;
+- WCAG contrast of each run's ink against the surface underneath it — at least
+  4.5:1 (the faint `#6E7681` ink was removed precisely because it measured
+  3.8:1 on the panel);
+- at most 14 text groups per card and at least 8 px between any two groups;
+- no text run overlapping a data mark — a heatmap cell, a contributor bar, a
+  milestone dot, the endpoint dot or a segment of the staircase.
+
+The tests also prove determinism and that both `<desc>` elements carry the
+same totals as the JSON document. `cargo xtask docs-check` regenerates both
+cards and reports drift; the fixed `rsvg-convert` rasters under `target/` are a
+local visual check, not a substitute for the contract.
 
 ## Refreshing the graph
 

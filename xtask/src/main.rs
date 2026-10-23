@@ -138,7 +138,7 @@ enum Commands {
     ///
     /// Reads the history reachable from `--as-of` (default HEAD) with a pinned
     /// log format and writes `docs/media/commit-graph.json`,
-    /// `docs/media/commit-graph.svg` and `docs/media/commit-graph-compact.svg`.
+    /// `docs/media/commit-graph.svg` and `docs/media/commit-graph-narrow.svg`.
     /// Dates are bucketed in the configured fixed-offset zone, so rerunning the
     /// command for the same commit produces identical bytes.
     CommitGraph(CommitGraphArgs),

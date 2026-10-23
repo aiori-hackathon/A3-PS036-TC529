@@ -21,10 +21,6 @@
 </div>
 <!-- badges:end -->
 
-<div align="center">
-  <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commits/main" target="_blank" rel="noopener"><img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit graph: commits, active days, streaks and contributor activity over time" width="880"></a>
-</div>
-
 **Team Name**: CLIMB
 
 **Team Code**: A3-PS036-TC529
@@ -56,7 +52,12 @@ derived, analytical or extrapolated.
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/f94fc6a53b0c1363edbc9eae95868cb782b3cfcb" target="_blank" rel="noopener"><img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits, a calendar heatmap of activity, headline totals, contributor activity and the milestone roadmap" width="880"></a>
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/f94fc6a53b0c1363edbc9eae95868cb782b3cfcb" target="_blank" rel="noopener">
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
+  <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits, a calendar heatmap of activity, headline totals, contributor activity and the milestone roadmap" width="840">
+</picture>
+</a>
 
 Every commit, every quiet day and the roadmap milestones behind this benchmark
 suite, read from the public commit history of this repository.

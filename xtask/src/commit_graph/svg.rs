@@ -9,8 +9,8 @@ use anyhow::{Context, Result};
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
-use super::text::{glyph_defs, text_markup, text_width, Font};
-use super::{parse_iso_date, CommitGraph, GraphMilestone};
+use super::text::{glyph_defs, text_markup, text_width, Font, TextBox};
+use super::{parse_iso_date, CommitGraph};
 
 /// Colours sampled from the artwork and recorded in `docs/media/brand.toml`.
 pub(crate) struct Palette {
@@ -20,7 +20,6 @@ pub(crate) struct Palette {
     border: String,
     ink: String,
     muted: String,
-    faint: String,
     orange: String,
     teal: String,
     heat: [String; 5],
@@ -67,7 +66,6 @@ impl Default for Palette {
             border: "#30363D".to_string(),
             ink: "#E6EDF3".to_string(),
             muted: "#8B949E".to_string(),
-            faint: "#6E7681".to_string(),
             orange: "#C55E33".to_string(),
             teal: "#5C8E8D".to_string(),
             heat: [
@@ -140,6 +138,7 @@ struct Canvas<'a> {
     font: &'a Font,
     body: String,
     used: BTreeSet<char>,
+    stair_length: f64,
 }
 
 impl<'a> Canvas<'a> {
@@ -148,6 +147,7 @@ impl<'a> Canvas<'a> {
             font,
             body: String::new(),
             used: BTreeSet::new(),
+            stair_length: 0.0,
         }
     }
 
@@ -256,19 +256,84 @@ impl<'a> Canvas<'a> {
         self.body.push_str("/>");
     }
 
-    fn text(&mut self, text: &str, x: f64, y: f64, size: f64, fill: &str, tracking: f64) {
-        let markup = text_markup(self.font, text, x, y, size, fill, tracking, &mut self.used);
-        self.body.push_str(&markup);
+    /// A filled rectangle that carries data rather than surface. The
+    /// readability contract checks that no text sits on top of one. Heat cells
+    /// and contributor segments share the same 2 px corner radius, so it is
+    /// fixed here rather than threaded through every call.
+    fn mark_rect(&mut self, x: f64, y: f64, w: f64, h: f64, fill: &str, kind: &str) {
+        const DATA_MARK_RX: f64 = 2.0;
+        let _ = write!(
+            self.body,
+            "<rect class=\"dm dm-{kind}\" x=\"{}\" y=\"{}\" width=\"{}\" height=\"{}\" \
+             rx=\"{}\" fill=\"{fill}\"/>",
+            num(x),
+            num(y),
+            num(w),
+            num(h),
+            num(DATA_MARK_RX)
+        );
     }
 
-    fn text_right(&mut self, text: &str, right: f64, y: f64, size: f64, fill: &str) {
-        let width = text_width(self.font, text, size, 0.0);
-        self.text(text, right - width, y, size, fill, 0.0);
+    fn mark_circle(&mut self, cx: f64, cy: f64, r: f64, fill: &str, stroke: &str, kind: &str) {
+        let _ = write!(
+            self.body,
+            "<circle class=\"dm dm-{kind}\" cx=\"{}\" cy=\"{}\" r=\"{}\" fill=\"{fill}\" \
+             stroke=\"{stroke}\"/>",
+            num(cx),
+            num(cy),
+            num(r)
+        );
     }
 
-    fn text_center(&mut self, text: &str, center: f64, y: f64, size: f64, fill: &str) {
-        let width = text_width(self.font, text, size, 0.0);
-        self.text(text, center - width / 2.0, y, size, fill, 0.0);
+    fn width(&self, text: &str, size: f64) -> f64 {
+        text_width(self.font, text, size, 0.0)
+    }
+
+    fn right_x(&self, text: &str, right: f64, size: f64) -> f64 {
+        right - self.width(text, size)
+    }
+
+    /// Draw one semantic text group. Every run shares the group's size and
+    /// fill; the group carries the size and ink colour the readability
+    /// contract reads, and the run boxes let it check spacing and data marks.
+    fn text_group(
+        &mut self,
+        name: &str,
+        size: f64,
+        fill: &str,
+        runs: &[(String, f64, f64)],
+    ) -> TextBox {
+        let mut union: Option<TextBox> = None;
+        let mut inner = String::new();
+        for (text, x, baseline) in runs {
+            let box_ = self.font.line_box(text, *x, *baseline, size, 0.0);
+            union = Some(match union {
+                Some(current) => current.union(box_),
+                None => box_,
+            });
+            inner.push_str(&text_markup(
+                self.font,
+                text,
+                *x,
+                *baseline,
+                size,
+                fill,
+                0.0,
+                &mut self.used,
+            ));
+        }
+        let union = union.expect("a text group carries at least one run");
+        let _ = write!(
+            self.body,
+            "<g class=\"cg-text-group\" data-name=\"{name}\" data-size=\"{}\" fill=\"{fill}\" \
+             data-box=\"{} {} {} {}\">{inner}</g>",
+            num(size),
+            num(union.x),
+            num(union.y),
+            num(union.width),
+            num(union.height)
+        );
+        union
     }
 
     fn finish(
@@ -334,20 +399,6 @@ fn thousands(value: u64) -> String {
     out
 }
 
-fn initials(display: &str) -> String {
-    let mut out = String::new();
-    for word in display.split_whitespace().take(2) {
-        if let Some(character) = word.chars().next() {
-            out.extend(character.to_uppercase());
-        }
-    }
-    if out.is_empty() {
-        "?".to_string()
-    } else {
-        out
-    }
-}
-
 /// Round the vertical axis to a readable maximum.
 fn nice_max(value: u64) -> u64 {
     if value <= 4 {
@@ -368,7 +419,7 @@ fn nice_max(value: u64) -> u64 {
 
 fn month_name(month: i64) -> &'static str {
     const NAMES: [&str; 12] = [
-        "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC",
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
     NAMES
         .get((month - 1).max(0) as usize)
@@ -399,172 +450,73 @@ fn heatmap_weeks(start: i64, end: i64) -> (i64, usize) {
     (first_monday, weeks)
 }
 
-/// Full card: staircase, heatmap, KPIs, milestones, member split and stamp.
-pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<String> {
-    let font = Font::load()?;
-    let mut canvas = Canvas::new(&font);
-    let width = 880.0;
-    let height = 360.0;
-    let start = parse_iso_date(&graph.range.start)?;
-    let end = parse_iso_date(&graph.range.end)?;
-    let milestone_days: Vec<(i64, &GraphMilestone)> = graph
-        .milestones
-        .iter()
-        .map(|milestone| Ok((parse_iso_date(&milestone.date)?, milestone)))
-        .collect::<Result<Vec<_>>>()?;
-    let domain_end = milestone_days
-        .iter()
-        .map(|(day, _)| *day)
-        .max()
-        .unwrap_or(end)
-        .max(end);
+/// Geometry of one cumulative-commit staircase.
+struct Staircase {
+    panel: (f64, f64, f64, f64),
+    plot_left: f64,
+    plot_right: f64,
+    plot_top: f64,
+    plot_bottom: f64,
+    date_baseline: f64,
+    tick_size: f64,
+    date_size: f64,
+    total_size: f64,
+    radius: f64,
+    stroke: bool,
+}
 
-    canvas.rect(
-        1.0,
-        1.0,
-        width - 2.0,
-        height - 2.0,
-        &palette.background,
-        Some(&palette.border),
-        16.0,
-    );
-
-    // Header: title, subtitle and a small ascending-rung motif.
-    canvas.text("THE CLIMB", 24.0, 42.0, 22.0, &palette.ink, 0.03);
-    canvas.text(
-        "COMMIT GRAPH / CUMULATIVE CLIMB PER ACTIVE DAY",
-        24.0,
-        58.0,
-        8.0,
-        &palette.muted,
-        0.07,
-    );
-    for (index, bar_height) in [5.0, 8.0, 11.0, 15.0, 20.0].into_iter().enumerate() {
-        let x = 796.0 + index as f64 * 13.0;
-        let colour = if index < 2 {
-            palette.orange.clone()
-        } else {
-            palette.teal.clone()
-        };
-        canvas.rect(x, 40.0 - bar_height, 6.0, bar_height, &colour, None, 1.5);
-    }
-
-    let chips = [
-        ("COMMITS", thousands(graph.totals.commits)),
-        ("ACTIVE DAYS", thousands(graph.totals.active_days)),
-        (
-            "LONGEST STREAK",
-            format!("{}d", graph.totals.longest_streak),
-        ),
-    ];
-    let chip_width = 200.5;
-    for (index, (label, value)) in chips.iter().enumerate() {
-        let x = 24.0 + index as f64 * (chip_width + 10.0);
-        canvas.rect(
-            x,
-            68.0,
-            chip_width,
-            44.0,
-            &palette.panel,
-            Some(&palette.panel_stroke),
-            8.0,
-        );
-        canvas.text(label, x + 12.0, 84.0, 7.2, &palette.muted, 0.08);
-        canvas.text(value, x + 12.0, 102.0, 17.0, &palette.ink, 0.0);
-    }
-    let x = 24.0 + 3.0 * (chip_width + 10.0);
-    canvas.rect(
-        x,
-        68.0,
-        chip_width,
-        44.0,
-        &palette.panel,
-        Some(&palette.panel_stroke),
-        8.0,
-    );
-    canvas.text(
-        "LINES ADDED / REMOVED",
-        x + 12.0,
-        84.0,
-        7.2,
-        &palette.muted,
-        0.08,
-    );
-    let added = format!("+{}", thousands(graph.totals.lines_added));
-    let removed = format!("-{}", thousands(graph.totals.lines_removed));
-    canvas.text(&added, x + 12.0, 102.0, 11.5, &palette.orange, 0.0);
-    let added_width = text_width(&font, &added, 11.5, 0.0);
-    canvas.text(
-        &removed,
-        x + 18.0 + added_width,
-        102.0,
-        11.5,
-        &palette.teal,
-        0.0,
-    );
-
-    // Staircase panel.
-    let panel_x = 24.0;
-    let panel_y = 126.0;
-    let panel_w = 576.0;
-    let panel_h = 170.0;
+/// Draw the staircase row and return the boxes of its three text groups.
+fn draw_staircase(
+    canvas: &mut Canvas,
+    graph: &CommitGraph,
+    palette: &Palette,
+    staircase: &Staircase,
+) -> Result<(TextBox, TextBox, TextBox)> {
+    let (panel_x, panel_y, panel_w, panel_h) = staircase.panel;
     canvas.rect(
         panel_x,
         panel_y,
         panel_w,
         panel_h,
         &palette.panel,
-        Some(&palette.panel_stroke),
-        10.0,
-    );
-    canvas.text(
-        "CUMULATIVE COMMITS",
-        panel_x + 14.0,
-        panel_y + 18.0,
-        7.2,
-        &palette.muted,
-        0.08,
-    );
-    canvas.text_right(
-        &format!("as of {}", &graph.as_of_date[5..]),
-        panel_x + panel_w - 14.0,
-        panel_y + 18.0,
-        7.0,
-        &palette.faint,
+        if staircase.stroke {
+            Some(&palette.panel_stroke)
+        } else {
+            None
+        },
+        staircase.radius,
     );
 
-    let plot_left = panel_x + 44.0;
-    let plot_right = panel_x + panel_w - 14.0;
-    let plot_top = panel_y + 32.0;
-    let plot_bottom = panel_y + panel_h - 50.0;
-    let plot_height = plot_bottom - plot_top;
+    let start = parse_iso_date(&graph.range.start)?;
+    let end = parse_iso_date(&graph.range.end)?;
     let max = nice_max(graph.totals.commits);
     let day_span = (end - start).max(1) as f64 + 1.0;
-    let day_width = (plot_right - plot_left) / day_span;
-    let x_of = |day: i64| plot_left + (day - start) as f64 * day_width;
-    let y_of = |value: u64| plot_bottom - (value as f64 / max as f64) * plot_height;
+    let day_width = (staircase.plot_right - staircase.plot_left) / day_span;
+    let x_of = |day: i64| staircase.plot_left + (day - start) as f64 * day_width;
+    let y_of = |value: u64| {
+        staircase.plot_bottom
+            - (value as f64 / max as f64) * (staircase.plot_bottom - staircase.plot_top)
+    };
 
+    let mut tick_runs = Vec::new();
     for step in 0..=2 {
         let value = max / 2 * step as u64;
         let y = y_of(value);
         canvas.line(
-            plot_left,
+            staircase.plot_left,
             y,
-            plot_right,
+            staircase.plot_right,
             y,
             &palette.border,
             0.8,
             if step == 0 { None } else { Some("2 4") },
             if step == 0 { 0.9 } else { 0.45 },
         );
-        canvas.text_right(
-            &thousands(value),
-            plot_left - 8.0,
-            y + 2.5,
-            6.8,
-            &palette.faint,
-        );
+        let label = thousands(value);
+        let x = staircase.plot_left - 10.0 - canvas.width(&label, staircase.tick_size);
+        tick_runs.push((label, x, y + staircase.tick_size * 0.22));
     }
+    let ticks = canvas.text_group("y-ticks", staircase.tick_size, &palette.muted, &tick_runs);
 
     let mut cumulative = 0u64;
     let mut stair = String::new();
@@ -598,9 +550,9 @@ pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<Stri
         area,
         "L{} {}L{} {}Z",
         num(data_end),
-        num(plot_bottom),
+        num(staircase.plot_bottom),
         num(x_of(start)),
-        num(plot_bottom)
+        num(staircase.plot_bottom)
     );
     canvas.path(
         &area,
@@ -615,11 +567,11 @@ pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<Stri
         None,
         Some("url(#climb-stroke)"),
         2.2,
-        Some("climb-stair"),
+        Some("climb-stair dm-line"),
         Some(stair_length),
     );
+    canvas.stair_length = stair_length;
 
-    // Final point: a soft ring and a pulsing dot.
     canvas.circle(
         data_end,
         y_of(cumulative),
@@ -628,504 +580,109 @@ pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<Stri
         Some(&palette.orange),
     );
     canvas.raw(&format!(
-        "<circle class=\"climb-now\" cx=\"{}\" cy=\"{}\" r=\"3.4\" fill=\"{}\"/>",
+        "<circle class=\"climb-now dm dm-now\" cx=\"{}\" cy=\"{}\" r=\"3.4\" fill=\"{}\"/>",
         num(data_end),
         num(y_of(cumulative)),
         palette.orange
     ));
 
-    canvas.text(
-        &graph.range.start,
-        plot_left,
-        plot_bottom + 14.0,
-        6.5,
-        &palette.faint,
-        0.0,
-    );
-    canvas.text_right(
-        &graph.range.end,
-        data_end,
-        plot_bottom + 14.0,
-        6.5,
-        &palette.faint,
-    );
-
-    // Roadmap rail: the four milestones use their own full-width date scale,
-    // so the staircase above keeps one step per calendar day rather than being
-    // squeezed to make room for dates that have not happened yet.
-    let rail_y = panel_y + panel_h - 16.0;
-    let rail_left = plot_left + 38.0;
-    let rail_right = plot_right - 6.0;
-    let rail_end = domain_end.max(end);
-    let rail_span = (rail_end - start).max(1) as f64 + 1.0;
-    let rail_width = (rail_right - rail_left) / rail_span;
-    canvas.line(
-        plot_left + 32.0,
-        rail_y,
-        rail_right,
-        rail_y,
-        &palette.border,
-        0.8,
-        None,
-        0.8,
-    );
-    canvas.text("ROADMAP", plot_left, rail_y + 2.2, 5.4, &palette.faint, 0.1);
-    for (number, (day, milestone)) in milestone_days.iter().enumerate() {
-        if *day < start {
-            continue;
-        }
-        let centre = rail_left + (*day - start) as f64 * rail_width + rail_width / 2.0;
-        let colour = if milestone.future {
-            palette.faint.clone()
-        } else {
-            palette.orange.clone()
-        };
-        canvas.line(
-            centre,
-            rail_y - 3.0,
-            centre,
-            rail_y + 3.0,
-            &colour,
-            0.9,
-            Some(if milestone.future { "1 2" } else { "2 2" }),
-            if milestone.future { 0.45 } else { 0.8 },
-        );
-        if milestone.future {
-            canvas.raw(&format!(
-                "<circle cx=\"{}\" cy=\"{}\" r=\"4.4\" fill=\"{}\" stroke=\"{}\" \
-                 stroke-width=\"1\" stroke-dasharray=\"1.5 1.5\"/>",
-                num(centre),
-                num(rail_y),
-                palette.panel,
-                palette.faint
-            ));
-        } else {
-            canvas.circle(centre, rail_y, 4.4, &palette.panel, Some(&colour));
-        }
-        canvas.text_center(
-            &format!("{}", number + 1),
-            centre,
-            rail_y + 1.9,
-            5.6,
-            &colour,
-        );
-    }
-
-    // Calendar heatmap panel.
-    let activity_x = 612.0;
-    let activity_y = 126.0;
-    let activity_w = 244.0;
-    let activity_h = 170.0;
-    canvas.rect(
-        activity_x,
-        activity_y,
-        activity_w,
-        activity_h,
-        &palette.panel,
-        Some(&palette.panel_stroke),
-        10.0,
-    );
-    canvas.text(
-        "ACTIVITY",
-        activity_x + 14.0,
-        activity_y + 18.0,
-        7.2,
+    let start_label = graph.range.start.clone();
+    let end_label = graph.range.end.clone();
+    let dates = canvas.text_group(
+        "dates",
+        staircase.date_size,
         &palette.muted,
-        0.08,
-    );
-    canvas.text_right(
-        &format!("{} / {}", graph.totals.active_days, graph.totals.commits),
-        activity_x + activity_w - 14.0,
-        activity_y + 18.0,
-        7.0,
-        &palette.faint,
-    );
-
-    let (first_monday, weeks) = heatmap_weeks(start, end);
-    let cell = (14.0f64).min((activity_w - 58.0 - (weeks as f64 - 1.0) * 2.5) / weeks as f64);
-    let visible_weeks = if cell < 4.0 {
-        ((activity_w - 58.0) / 6.5).floor() as usize
-    } else {
-        weeks
-    };
-    let cell = cell.max(4.0);
-    let gap = 2.5;
-    let columns = visible_weeks as f64;
-    let grid_w = columns * cell + (columns - 1.0) * gap;
-    // Centre the weekday gutter and the grid together, so the block does not
-    // drift to one side of the panel.
-    let gutter = 18.0;
-    let block = gutter + grid_w;
-    let free = (activity_w - block).max(0.0);
-    let grid_x = activity_x + free / 2.0 + gutter;
-    let grid_y = activity_y + 34.0;
-    let hidden_weeks = weeks.saturating_sub(visible_weeks);
-    let first_column_day = first_monday + hidden_weeks as i64 * 7;
-
-    for row in 0..7 {
-        let label = match row {
-            0 => "MON",
-            2 => "WED",
-            4 => "FRI",
-            6 => "SUN",
-            _ => "",
-        };
-        if !label.is_empty() {
-            canvas.text_right(
-                label,
-                grid_x - 6.0,
-                grid_y + row as f64 * (cell + gap) + cell * 0.75,
-                5.8,
-                &palette.faint,
-            );
-        }
-    }
-
-    for week in 0..visible_weeks {
-        let monday = first_column_day + week as i64 * 7;
-        let month_start = (monday..monday + 7).find(|day| super::civil_from_days(*day).2 == 1);
-        if week == 0 || month_start.is_some() {
-            let month = super::civil_from_days(month_start.unwrap_or(monday)).1;
-            canvas.text(
-                month_name(month),
-                grid_x + week as f64 * (cell + gap),
-                grid_y - 5.0,
-                5.8,
-                &palette.faint,
-                0.06,
-            );
-        }
-        for row in 0..7 {
-            let day = monday + row as i64;
-            if day < start || day > end {
-                continue;
-            }
-            let index = (day - start) as usize;
-            let Some(entry) = graph.per_day.get(index) else {
-                continue;
-            };
-            let level = heat_level(entry.commits);
-            let x = grid_x + week as f64 * (cell + gap);
-            let y = grid_y + row as f64 * (cell + gap);
-            if level == 0 {
-                canvas.rect(
-                    x,
-                    y,
-                    cell,
-                    cell,
-                    &palette.panel,
-                    Some(&palette.panel_stroke),
-                    2.0,
-                );
-            } else {
-                canvas.rect(x, y, cell, cell, &palette.heat[level - 1], None, 2.0);
-            }
-        }
-    }
-
-    // Heat legend, centred under the grid.
-    let legend_y = grid_y + 7.0 * (cell + gap) + 2.0;
-    let size = 5.8;
-    let less = text_width(&font, "LESS", size, 0.05);
-    let more = text_width(&font, "MORE", size, 0.05);
-    let swatches = (palette.heat.len() as f64 - 1.0) * 10.0 + 7.0;
-    let legend_w = less + 5.0 + swatches + 5.0 + more;
-    let legend_x = grid_x + (grid_w - legend_w) / 2.0;
-    canvas.text("LESS", legend_x, legend_y + 4.0, size, &palette.faint, 0.05);
-    let swatch_x = legend_x + less + 5.0;
-    for (index, colour) in palette.heat.iter().enumerate() {
-        canvas.rect(
-            swatch_x + index as f64 * 10.0,
-            legend_y,
-            7.0,
-            7.0,
-            colour,
-            None,
-            1.5,
-        );
-    }
-    canvas.text(
-        "MORE",
-        swatch_x + swatches + 5.0,
-        legend_y + 4.0,
-        size,
-        &palette.faint,
-        0.05,
-    );
-    if hidden_weeks > 0 {
-        let note = format!("last {visible_weeks}w");
-        let note_w = text_width(&font, &note, size, 0.0);
-        canvas.text(
-            &note,
-            grid_x + (grid_w - note_w) / 2.0,
-            legend_y + 14.0,
-            size,
-            &palette.faint,
-            0.0,
-        );
-    }
-
-    // Member split: thin bars, one per author, with initials.
-    canvas.text("CONTRIBUTORS", 24.0, 310.0, 7.0, &palette.muted, 0.08);
-    let bar_x = 122.0;
-    let bar_width = 300.0;
-    let bar_y = 303.0;
-    let total = graph.totals.commits.max(1) as f64;
-    let mut cursor = bar_x;
-    let mut legend_x = bar_x + bar_width + 14.0;
-    for (index, author) in graph.per_author.iter().enumerate() {
-        let share = author.commits as f64 / total;
-        let segment = (bar_width * share).max(2.0);
-        let colour = if index % 2 == 0 {
-            palette.orange.clone()
-        } else {
-            palette.teal.clone()
-        };
-        canvas.rect(cursor, bar_y, segment, 4.5, &colour, None, 2.0);
-        canvas.text(
-            &format!("{} {}", initials(&author.display), author.commits),
-            legend_x,
-            310.0,
-            7.0,
-            &palette.muted,
-            0.0,
-        );
-        legend_x += text_width(
-            &font,
-            &format!("{} {}", initials(&author.display), author.commits),
-            7.0,
-            0.0,
-        ) + 12.0;
-        cursor += segment + 1.5;
-    }
-
-    // Milestone legend.
-    let mut legend_x = 24.0;
-    for (number, (_, milestone)) in milestone_days.iter().enumerate() {
-        let colour = if milestone.future {
-            palette.faint.clone()
-        } else {
-            palette.muted.clone()
-        };
-        canvas.circle(
-            legend_x + 4.5,
-            323.0,
-            4.5,
-            &palette.panel,
-            Some(if milestone.future {
-                palette.faint.as_str()
-            } else {
-                palette.orange.as_str()
-            }),
-        );
-        canvas.text_center(
-            &format!("{}", number + 1),
-            legend_x + 4.5,
-            325.2,
-            5.6,
-            if milestone.future {
-                &palette.faint
-            } else {
-                &palette.orange
-            },
-        );
-        let label = format!("{} {}", milestone.date, milestone.label);
-        canvas.text(&label, legend_x + 13.0, 325.0, 7.0, &colour, 0.0);
-        legend_x += 13.0 + text_width(&font, &label, 7.0, 0.0) + 16.0;
-    }
-
-    canvas.line(
-        24.0,
-        334.0,
-        width - 24.0,
-        334.0,
-        &palette.panel_stroke,
-        0.8,
-        None,
-        0.8,
-    );
-    canvas.text(
-        &format!(
-            "as of {} - {} - of which {} graph refreshes",
-            &graph.as_of_sha[..7.min(graph.as_of_sha.len())],
-            graph.as_of_date,
-            graph.totals.refresh_commits
-        ),
-        24.0,
-        347.0,
-        7.5,
-        &palette.faint,
-        0.0,
-    );
-    canvas.text_right(
-        "generated from git history",
-        width - 24.0,
-        347.0,
-        7.5,
-        &palette.faint,
+        &[
+            (start_label, staircase.plot_left, staircase.date_baseline),
+            (
+                end_label,
+                canvas.right_x(&graph.range.end, data_end, staircase.date_size),
+                staircase.date_baseline,
+            ),
+        ],
     );
 
-    let style = style_block(stair_length);
-    Ok(canvas.finish(
-        880,
-        360,
-        "CLIMB commit graph",
-        &desc_text(graph),
-        &style,
-        palette,
-    ))
+    let total = thousands(graph.totals.commits);
+    let total_box = canvas.text_group(
+        "last-total",
+        staircase.total_size,
+        &palette.ink,
+        &[(
+            total.clone(),
+            canvas.right_x(&total, data_end - 10.0, staircase.total_size),
+            y_of(graph.totals.commits) - staircase.total_size * 0.75,
+        )],
+    );
+    Ok((ticks, dates, total_box))
 }
 
-/// Compact card: a one-glance strip with the staircase, heatmap, KPIs and split.
-pub(crate) fn render_compact(graph: &CommitGraph, palette: &Palette) -> Result<String> {
-    let font = Font::load()?;
-    let mut canvas = Canvas::new(&font);
+/// Geometry of one calendar heatmap.
+struct Heatmap {
+    panel: (f64, f64, f64, f64),
+    grid_x: f64,
+    grid_y: f64,
+    cell: f64,
+    gap: f64,
+    weeks_limit: usize,
+    radius: f64,
+    label_size: f64,
+}
+
+/// Draw the heatmap row and return the boxes of its text groups.
+fn draw_heatmap(
+    canvas: &mut Canvas,
+    graph: &CommitGraph,
+    palette: &Palette,
+    heatmap: &Heatmap,
+) -> Result<(TextBox, TextBox, TextBox)> {
+    let (panel_x, panel_y, panel_w, panel_h) = heatmap.panel;
+    canvas.rect(
+        panel_x,
+        panel_y,
+        panel_w,
+        panel_h,
+        &palette.panel,
+        Some(&palette.panel_stroke),
+        heatmap.radius,
+    );
     let start = parse_iso_date(&graph.range.start)?;
     let end = parse_iso_date(&graph.range.end)?;
-
-    canvas.rect(
-        1.0,
-        1.0,
-        878.0,
-        118.0,
-        &palette.background,
-        Some(&palette.border),
-        14.0,
-    );
-
-    canvas.text("THE CLIMB", 22.0, 27.0, 15.0, &palette.ink, 0.03);
-    canvas.text("COMMIT GRAPH", 22.0, 39.0, 6.4, &palette.muted, 0.08);
-
-    let totals = &graph.totals;
-    let kpi = format!(
-        "{} COMMITS / {} ACTIVE DAYS / {}d STREAK / LINES +{} -{}",
-        thousands(totals.commits),
-        thousands(totals.active_days),
-        totals.longest_streak,
-        thousands(totals.lines_added),
-        thousands(totals.lines_removed)
-    );
-    canvas.text(&kpi, 138.0, 27.0, 7.4, &palette.muted, 0.03);
-
-    let plot_left = 22.0;
-    let plot_right = 566.0;
-    let plot_top = 54.0;
-    let plot_bottom = 96.0;
-    let plot_height = plot_bottom - plot_top;
-    let max = nice_max(totals.commits);
-    let day_span = (end - start).max(1) as f64 + 1.0;
-    let day_width = (plot_right - plot_left) / day_span;
-    let x_of = |day: i64| plot_left + (day - start) as f64 * day_width;
-    let y_of = |value: u64| plot_bottom - (value as f64 / max as f64) * plot_height;
-
-    canvas.line(
-        plot_left,
-        plot_bottom,
-        plot_right,
-        plot_bottom,
-        &palette.border,
-        0.8,
-        None,
-        0.8,
-    );
-    canvas.line(
-        plot_left,
-        plot_top,
-        plot_right,
-        plot_top,
-        &palette.border,
-        0.8,
-        Some("2 4"),
-        0.4,
-    );
-
-    let mut cumulative = 0u64;
-    let mut stair = String::new();
-    let mut stair_length = 0.0f64;
-    let mut previous_point = (x_of(start), y_of(0));
-    let _ = write!(
-        stair,
-        "M{} {}",
-        num(previous_point.0),
-        num(previous_point.1)
-    );
-    let mut previous = 0u64;
-    for (index, day) in graph.per_day.iter().enumerate() {
-        let day_index = start + index as i64;
-        cumulative += day.commits;
-        if cumulative != previous {
-            let point = (x_of(day_index), y_of(cumulative));
-            stair_length += (point.0 - previous_point.0).abs() + (point.1 - previous_point.1).abs();
-            let _ = write!(stair, "L{} {}", num(point.0), num(point.1));
-            previous_point = point;
-        }
-        let point = (x_of(day_index + 1), y_of(cumulative));
-        stair_length += (point.0 - previous_point.0).abs() + (point.1 - previous_point.1).abs();
-        let _ = write!(stair, "L{} {}", num(point.0), num(point.1));
-        previous_point = point;
-        previous = cumulative;
-    }
-    let data_end = x_of(end + 1);
-    let mut area = stair.clone();
-    let _ = write!(
-        area,
-        "L{} {}L{} {}Z",
-        num(data_end),
-        num(plot_bottom),
-        num(x_of(start)),
-        num(plot_bottom)
-    );
-    canvas.path(
-        &area,
-        Some("url(#climb-fill)"),
-        None,
-        0.0,
-        Some("climb-area"),
-        None,
-    );
-    canvas.path(
-        &stair,
-        None,
-        Some("url(#climb-stroke)"),
-        2.0,
-        Some("climb-stair"),
-        Some(stair_length),
-    );
-
-    canvas.circle(
-        data_end,
-        y_of(cumulative),
-        4.6,
-        "none",
-        Some(&palette.orange),
-    );
-    canvas.raw(&format!(
-        "<circle class=\"climb-now\" cx=\"{}\" cy=\"{}\" r=\"2.8\" fill=\"{}\"/>",
-        num(data_end),
-        num(y_of(cumulative)),
-        palette.orange
-    ));
-
-    canvas.text(
-        &graph.range.start,
-        plot_left,
-        103.0,
-        6.0,
-        &palette.faint,
-        0.0,
-    );
-    canvas.text_right(&graph.range.end, data_end, 103.0, 6.0, &palette.faint);
-
-    // Heatmap.
     let (first_monday, weeks) = heatmap_weeks(start, end);
-    let cell = 5.2f64;
-    let gap = 1.6f64;
-    let grid_x = 606.0;
-    let grid_y = 54.0;
-    let fitting_weeks = ((90.0 + gap) / (cell + gap)).floor() as usize;
-    let visible_weeks = weeks.min(fitting_weeks.max(1));
+    let visible_weeks = weeks.min(heatmap.weeks_limit).max(1);
     let hidden_weeks = weeks.saturating_sub(visible_weeks);
     let first_column_day = first_monday + hidden_weeks as i64 * 7;
+
+    let mut month_runs = Vec::new();
+    for week in 0..visible_weeks {
+        let monday = first_column_day + week as i64 * 7;
+        let month = super::civil_from_days(monday).1;
+        let month_changed = week == 0 || super::civil_from_days(monday - 7).1 != month;
+        if month_changed {
+            month_runs.push((
+                month_name(month).to_string(),
+                heatmap.grid_x + week as f64 * (heatmap.cell + heatmap.gap),
+                heatmap.grid_y - 6.0,
+            ));
+        }
+    }
+    let months = canvas.text_group("months", heatmap.label_size, &palette.muted, &month_runs);
+
+    let mut weekday_runs = Vec::new();
+    for (row, label) in [(0usize, "Mon"), (2, "Wed"), (4, "Fri")] {
+        let x = heatmap.grid_x - 10.0 - canvas.width(label, heatmap.label_size);
+        weekday_runs.push((
+            label.to_string(),
+            x,
+            heatmap.grid_y + row as f64 * (heatmap.cell + heatmap.gap) + heatmap.cell * 0.72,
+        ));
+    }
+    let weekdays = canvas.text_group(
+        "weekdays",
+        heatmap.label_size,
+        &palette.muted,
+        &weekday_runs,
+    );
+
     for week in 0..visible_weeks {
         for row in 0..7 {
             let day = first_column_day + week as i64 * 7 + row as i64;
@@ -1137,78 +694,469 @@ pub(crate) fn render_compact(graph: &CommitGraph, palette: &Palette) -> Result<S
                 continue;
             };
             let level = heat_level(entry.commits);
-            let x = grid_x + week as f64 * (cell + gap);
-            let y = grid_y + row as f64 * (cell + gap);
+            let x = heatmap.grid_x + week as f64 * (heatmap.cell + heatmap.gap);
+            let y = heatmap.grid_y + row as f64 * (heatmap.cell + heatmap.gap);
             if level == 0 {
-                canvas.rect(
+                canvas.mark_rect(x, y, heatmap.cell, heatmap.cell, &palette.panel, "heat");
+            } else {
+                canvas.mark_rect(
                     x,
                     y,
-                    cell,
-                    cell,
-                    &palette.panel,
-                    Some(&palette.panel_stroke),
-                    1.2,
+                    heatmap.cell,
+                    heatmap.cell,
+                    &palette.heat[level - 1],
+                    "heat",
                 );
-            } else {
-                canvas.rect(x, y, cell, cell, &palette.heat[level - 1], None, 1.2);
             }
         }
     }
-    canvas.text("ACTIVITY", grid_x, grid_y - 4.0, 5.6, &palette.muted, 0.08);
 
-    // Member split, right of the heatmap.
-    let members_x = 720.0;
-    canvas.text("CONTRIBUTORS", members_x, 48.0, 5.8, &palette.muted, 0.08);
-    let bar_width = 138.0;
-    let total = totals.commits.max(1) as f64;
-    let mut cursor = members_x;
-    let mut label = String::new();
-    for (index, author) in graph.per_author.iter().enumerate() {
-        let segment = (bar_width * author.commits as f64 / total).max(1.5);
+    let legend_size = heatmap.label_size;
+    let less = "less".to_string();
+    let more = "more".to_string();
+    let less_w = canvas.width(&less, legend_size);
+    let more_w = canvas.width(&more, legend_size);
+    let swatch = 10.0;
+    let swatch_gap = 2.0;
+    let swatch_count = (palette.heat.len() - 1) as f64;
+    let swatches_w = swatch_count * swatch + (swatch_count - 1.0) * swatch_gap;
+    let legend_w = less_w + 6.0 + swatches_w + 6.0 + more_w;
+    let grid_w = visible_weeks as f64 * heatmap.cell + (visible_weeks as f64 - 1.0) * heatmap.gap;
+    let preferred = heatmap.grid_x + grid_w + 36.0;
+    let max_x = panel_x + panel_w - 14.0 - legend_w;
+    let legend_x = if preferred <= max_x {
+        preferred
+    } else {
+        (heatmap.grid_x + grid_w + 12.0).max(panel_x + 14.0)
+    };
+    let legend_baseline = heatmap.grid_y + heatmap.cell * 0.72;
+    let mut legend_runs = vec![(less, legend_x, legend_baseline)];
+    let swatch_x = legend_x + less_w + 6.0;
+    for index in 0..(palette.heat.len() - 1) {
+        canvas.rect(
+            swatch_x + index as f64 * (swatch + swatch_gap),
+            legend_baseline - swatch * 0.75,
+            swatch,
+            swatch,
+            &palette.heat[index + 1],
+            None,
+            1.5,
+        );
+    }
+    legend_runs.push((more, swatch_x + swatches_w + 6.0, legend_baseline));
+    let legend = canvas.text_group("legend", legend_size, &palette.muted, &legend_runs);
+
+    Ok((months, weekdays, legend))
+}
+
+/// Geometry of the contributor row: the stacked bar and the name/count line
+/// beneath it.
+struct ContributorLayout {
+    x: f64,
+    max_right: f64,
+    bar_y: f64,
+    bar_height: f64,
+    text_baseline: f64,
+    size: f64,
+}
+
+/// Draw the contributor bar and its name/count row. Authors with no commits
+/// are not drawn at all. Returns the text group's box.
+fn draw_contributors(
+    canvas: &mut Canvas,
+    graph: &CommitGraph,
+    palette: &Palette,
+    layout: ContributorLayout,
+) -> Option<TextBox> {
+    let ContributorLayout {
+        x,
+        max_right,
+        bar_y,
+        bar_height,
+        text_baseline,
+        size,
+    } = layout;
+    let authors: Vec<&super::AuthorEntry> = graph
+        .per_author
+        .iter()
+        .filter(|author| author.commits > 0)
+        .collect();
+    if authors.is_empty() {
+        return None;
+    }
+    let visible_total: u64 = authors.iter().map(|author| author.commits).sum();
+    let bar_width = max_right - x;
+    let mut cursor = x;
+    for (index, author) in authors.iter().enumerate() {
+        let share = author.commits as f64 / visible_total.max(1) as f64;
+        let segment = (bar_width * share).max(2.0);
         let colour = if index % 2 == 0 {
             palette.orange.clone()
         } else {
             palette.teal.clone()
         };
-        canvas.rect(cursor, 54.0, segment, 3.5, &colour, None, 1.5);
-        cursor += segment + 1.0;
-        if !label.is_empty() {
-            label.push_str("  ");
+        canvas.mark_rect(cursor, bar_y, segment, bar_height, &colour, "bar");
+        cursor += segment;
+        if index + 1 < authors.len() {
+            cursor += 2.0;
         }
-        let _ = write!(
-            &mut label,
-            "{} {}",
-            initials(&author.display),
-            author.commits
+    }
+
+    let mut runs = Vec::new();
+    let mut pen_x = x;
+    let mut baseline = text_baseline;
+    for author in authors {
+        let text = format!("{} {}", author.display, thousands(author.commits));
+        let width = canvas.width(&text, size);
+        if pen_x + width > max_right && pen_x > x {
+            pen_x = x;
+            baseline += size + 5.0;
+        }
+        runs.push((text, pen_x, baseline));
+        pen_x += width + 18.0;
+    }
+    Some(canvas.text_group("contributors", size, &palette.ink, &runs))
+}
+
+/// Draw up to four milestones in the supplied column x positions and row
+/// baselines, with a filled dot for a done milestone and a hollow one for an
+/// upcoming milestone. Returns the text group's box.
+fn draw_milestones(
+    canvas: &mut Canvas,
+    graph: &CommitGraph,
+    palette: &Palette,
+    columns: &[f64],
+    row_baselines: &[f64],
+    size: f64,
+) -> Option<TextBox> {
+    if columns.is_empty() || row_baselines.is_empty() || graph.milestones.is_empty() {
+        return None;
+    }
+    let mut runs = Vec::new();
+    for (index, milestone) in graph.milestones.iter().take(4).enumerate() {
+        let column = columns[index % columns.len()];
+        let baseline = row_baselines[(index / columns.len()).min(row_baselines.len() - 1)];
+        let cy = baseline - 4.5;
+        if milestone.future {
+            canvas.mark_circle(
+                column + 7.0,
+                cy,
+                5.0,
+                &palette.panel,
+                &palette.muted,
+                "milestone",
+            );
+        } else {
+            canvas.mark_circle(
+                column + 7.0,
+                cy,
+                5.0,
+                &palette.orange,
+                &palette.orange,
+                "milestone",
+            );
+        }
+        runs.push((
+            format!("{}  {}", milestone.date, milestone.label),
+            column + 20.0,
+            baseline,
+        ));
+    }
+    Some(canvas.text_group("milestones", size, &palette.ink, &runs))
+}
+
+/// The four KPI tile labels and values. The fourth tile keeps the removed-line
+/// count visible without needing a second 36 px number.
+fn kpi_tiles(graph: &CommitGraph, narrow: bool) -> (Vec<String>, Vec<String>) {
+    let labels = vec![
+        "Commits".to_string(),
+        "Active days".to_string(),
+        "Longest streak".to_string(),
+        if narrow {
+            let removed = graph.totals.lines_removed;
+            if removed >= 1_000 {
+                format!("Lines changed -{:.1}k", removed as f64 / 1000.0)
+            } else {
+                format!("Lines changed -{}", thousands(removed))
+            }
+        } else {
+            format!("Lines changed -{}", thousands(graph.totals.lines_removed))
+        },
+    ];
+    let values = vec![
+        thousands(graph.totals.commits),
+        thousands(graph.totals.active_days),
+        format!("{}d", graph.totals.longest_streak),
+        format!("+{}", thousands(graph.totals.lines_added)),
+    ];
+    (labels, values)
+}
+
+/// Wide card: 840 x 520, shown at 840 px so one user unit is one pixel.
+pub(crate) fn render_full(graph: &CommitGraph, palette: &Palette) -> Result<String> {
+    let font = Font::load()?;
+    let mut canvas = Canvas::new(&font);
+    let (width, height) = (840.0, 520.0);
+    let margin = 22.0;
+    canvas.rect(
+        1.0,
+        1.0,
+        width - 2.0,
+        height - 2.0,
+        &palette.background,
+        Some(&palette.border),
+        18.0,
+    );
+
+    // Row 1: title and stamp.
+    canvas.text_group(
+        "title",
+        24.0,
+        &palette.ink,
+        &[("The Climb".to_string(), margin, 33.0)],
+    );
+    let sha = &graph.as_of_sha[..7.min(graph.as_of_sha.len())];
+    let stamp = format!("as of {sha} - {}", graph.as_of_date);
+    let refresh = format!("of which {} graph refreshes", graph.totals.refresh_commits);
+    let refresh_x = width - margin - canvas.width(&refresh, 13.0);
+    let stamp_x = refresh_x - 14.0 - canvas.width(&stamp, 13.0);
+    canvas.text_group(
+        "stamp",
+        13.0,
+        &palette.muted,
+        &[(stamp, stamp_x, 33.0), (refresh, refresh_x, 33.0)],
+    );
+
+    // Row 2: four KPI tiles.
+    let tile_y = 44.0;
+    let tile_h = 80.0;
+    let gap = 12.0;
+    let tile_w = (width - 2.0 * margin - 3.0 * gap) / 4.0;
+    let (labels, values) = kpi_tiles(graph, false);
+    let mut label_runs = Vec::new();
+    let mut value_runs = Vec::new();
+    for index in 0..4 {
+        let x = margin + index as f64 * (tile_w + gap);
+        canvas.rect(
+            x,
+            tile_y,
+            tile_w,
+            tile_h,
+            &palette.panel,
+            Some(&palette.panel_stroke),
+            10.0,
+        );
+        label_runs.push((labels[index].clone(), x + 12.0, 62.0));
+        value_runs.push((values[index].clone(), x + 12.0, 110.0));
+    }
+    canvas.text_group("kpi-labels", 13.0, &palette.muted, &label_runs);
+    canvas.text_group("kpi-values", 36.0, &palette.ink, &value_runs);
+
+    // Row 3: the cumulative staircase, 840 x 190.
+    draw_staircase(
+        &mut canvas,
+        graph,
+        palette,
+        &Staircase {
+            panel: (0.0, 128.0, 840.0, 190.0),
+            plot_left: 64.0,
+            plot_right: 818.0,
+            plot_top: 166.0,
+            plot_bottom: 294.0,
+            date_baseline: 311.0,
+            tick_size: 12.0,
+            date_size: 13.0,
+            total_size: 16.0,
+            radius: 0.0,
+            stroke: false,
+        },
+    )?;
+
+    // Row 4: calendar heatmap.
+    draw_heatmap(
+        &mut canvas,
+        graph,
+        palette,
+        &Heatmap {
+            panel: (margin, 322.0, width - 2.0 * margin, 132.0),
+            grid_x: 96.0,
+            grid_y: 338.0,
+            cell: 14.0,
+            gap: 3.0,
+            weeks_limit: 40,
+            radius: 10.0,
+            label_size: 12.0,
+        },
+    )?;
+
+    // Row 5: up to four milestones in two columns.
+    draw_milestones(
+        &mut canvas,
+        graph,
+        palette,
+        &[margin, 430.0],
+        &[472.0, 490.0],
+        13.0,
+    );
+
+    // Row 6: contributors, names and counts beneath one stacked bar.
+    draw_contributors(
+        &mut canvas,
+        graph,
+        palette,
+        ContributorLayout {
+            x: margin,
+            max_right: width - margin,
+            bar_y: 494.0,
+            bar_height: 8.0,
+            text_baseline: 515.0,
+            size: 13.0,
+        },
+    );
+
+    let style = style_block(canvas.stair_length);
+    Ok(canvas.finish(
+        width as u32,
+        height as u32,
+        "CLIMB commit graph",
+        &desc_text(graph),
+        &style,
+        palette,
+    ))
+}
+
+/// Narrow card: 400 x 640, shown at 390 px on a phone.
+pub(crate) fn render_narrow(graph: &CommitGraph, palette: &Palette) -> Result<String> {
+    let font = Font::load()?;
+    let mut canvas = Canvas::new(&font);
+    let (width, height) = (400.0, 640.0);
+    let margin = 20.0;
+    canvas.rect(
+        1.0,
+        1.0,
+        width - 2.0,
+        height - 2.0,
+        &palette.background,
+        Some(&palette.border),
+        18.0,
+    );
+
+    canvas.text_group(
+        "title",
+        22.0,
+        &palette.ink,
+        &[("The Climb".to_string(), margin, 34.0)],
+    );
+    let sha = &graph.as_of_sha[..7.min(graph.as_of_sha.len())];
+    let stamp = format!("as of {sha} - {}", graph.as_of_date);
+    canvas.text_group(
+        "stamp",
+        14.0,
+        &palette.muted,
+        &[(
+            stamp.clone(),
+            width - margin - canvas.width(&stamp, 14.0),
+            33.0,
+        )],
+    );
+
+    // 2 x 2 KPI tiles. Each row is its own pair of text groups, so a label
+    // never shares a bounding box with the numbers below it.
+    let tile_w = (width - 2.0 * margin - 8.0) / 2.0;
+    let tile_h = 76.0;
+    let (labels, values) = kpi_tiles(graph, true);
+    for index in 0..4 {
+        let column = index % 2;
+        let row = index / 2;
+        let x = margin + column as f64 * (tile_w + 8.0);
+        let y = 50.0 + row as f64 * (tile_h + 10.0);
+        canvas.rect(
+            x,
+            y,
+            tile_w,
+            tile_h,
+            &palette.panel,
+            Some(&palette.panel_stroke),
+            10.0,
         );
     }
-    canvas.text(&label, members_x, 70.0, 6.2, &palette.muted, 0.0);
+    for row in 0..2 {
+        let mut label_runs = Vec::new();
+        let mut value_runs = Vec::new();
+        for column in 0..2 {
+            let index = row * 2 + column;
+            let x = margin + column as f64 * (tile_w + 8.0);
+            let y = 50.0 + row as f64 * (tile_h + 10.0);
+            label_runs.push((labels[index].clone(), x + 8.0, y + 18.0));
+            value_runs.push((values[index].clone(), x + 8.0, y + 56.0));
+        }
+        canvas.text_group("kpi-labels", 14.0, &palette.muted, &label_runs);
+        canvas.text_group("kpi-values", 34.0, &palette.ink, &value_runs);
+    }
 
-    canvas.text(
-        &format!(
-            "as of {} - {}",
-            &graph.as_of_sha[..7.min(graph.as_of_sha.len())],
-            graph.as_of_date
-        ),
-        22.0,
-        115.0,
-        6.6,
-        &palette.faint,
-        0.0,
-    );
-    canvas.text_right(
-        &format!("of which {} graph refreshes", graph.totals.refresh_commits),
-        858.0,
-        115.0,
-        6.6,
-        &palette.faint,
+    draw_staircase(
+        &mut canvas,
+        graph,
+        palette,
+        &Staircase {
+            panel: (margin, 222.0, width - 2.0 * margin, 150.0),
+            plot_left: 48.0,
+            plot_right: 380.0,
+            plot_top: 252.0,
+            plot_bottom: 342.0,
+            date_baseline: 362.0,
+            tick_size: 13.0,
+            date_size: 13.0,
+            total_size: 14.0,
+            radius: 10.0,
+            stroke: true,
+        },
+    )?;
+
+    draw_heatmap(
+        &mut canvas,
+        graph,
+        palette,
+        &Heatmap {
+            panel: (margin, 382.0, width - 2.0 * margin, 142.0),
+            grid_x: 58.0,
+            grid_y: 402.0,
+            cell: 14.0,
+            gap: 3.0,
+            weeks_limit: 10,
+            radius: 10.0,
+            label_size: 13.0,
+        },
+    )?;
+
+    draw_milestones(
+        &mut canvas,
+        graph,
+        palette,
+        &[margin],
+        &[543.0, 563.0, 583.0, 603.0],
+        14.0,
     );
 
-    let style = style_block(stair_length);
+    draw_contributors(
+        &mut canvas,
+        graph,
+        palette,
+        ContributorLayout {
+            x: margin,
+            max_right: width - margin,
+            bar_y: 612.0,
+            bar_height: 7.0,
+            text_baseline: 633.0,
+            size: 14.0,
+        },
+    );
+
+    let style = style_block(canvas.stair_length);
     Ok(canvas.finish(
-        880,
-        120,
-        "CLIMB commit graph (compact)",
+        width as u32,
+        height as u32,
+        "CLIMB commit graph (narrow)",
         &desc_text(graph),
         &style,
         palette,
@@ -1219,7 +1167,8 @@ pub(crate) fn render_compact(graph: &CommitGraph, palette: &Palette) -> Result<S
 mod tests {
     use super::*;
     use crate::commit_graph::{
-        format_date, AuthorEntry, CommitGraphConfig, DayEntry, GraphRange, GraphTotals,
+        format_date, AuthorEntry, CommitGraphConfig, DayEntry, GraphMilestone, GraphRange,
+        GraphTotals,
     };
 
     #[test]
@@ -1243,13 +1192,6 @@ mod tests {
         assert_eq!(thousands(999), "999");
         assert_eq!(thousands(1000), "1,000");
         assert_eq!(thousands(1234567), "1,234,567");
-    }
-
-    #[test]
-    fn initials_take_the_first_letter_of_two_words() {
-        assert_eq!(initials("Pratyay"), "P");
-        assert_eq!(initials("Pratyay Mukherjee"), "PM");
-        assert_eq!(initials("  "), "?");
     }
 
     #[test]
@@ -1327,7 +1269,7 @@ mod tests {
         let graph = sample_graph();
         for card in [
             render_full(&graph, &palette).expect("full card"),
-            render_compact(&graph, &palette).expect("compact card"),
+            render_narrow(&graph, &palette).expect("narrow card"),
         ] {
             assert!(card.contains("@keyframes climb-draw"));
             assert!(card.contains("@keyframes climb-pulse"));
@@ -1356,6 +1298,406 @@ mod tests {
         ] {
             assert!(desc.contains(token), "missing {token} in {desc}");
         }
+    }
+
+    /// One text group parsed from a rendered card.
+    struct Group {
+        name: String,
+        size: f64,
+        fill: String,
+        runs: Vec<TextBox>,
+    }
+
+    /// One data mark: a rectangle, a circle or a polyline segment.
+    struct Mark {
+        kind: String,
+        rect: Option<TextBox>,
+        segment: Option<((f64, f64), (f64, f64))>,
+    }
+
+    struct ParsedCard {
+        view_box: (f64, f64, f64, f64),
+        groups: Vec<Group>,
+        rects: Vec<(TextBox, String)>,
+        marks: Vec<Mark>,
+    }
+
+    fn attr_box(node: roxmltree::Node) -> TextBox {
+        let values: Vec<f64> = node
+            .attribute("data-box")
+            .expect("text carries a data-box")
+            .split_whitespace()
+            .map(|value| value.parse().expect("a numeric data-box"))
+            .collect();
+        TextBox {
+            x: values[0],
+            y: values[1],
+            width: values[2],
+            height: values[3],
+        }
+    }
+
+    fn node_box(node: roxmltree::Node) -> TextBox {
+        match node.tag_name().name() {
+            "circle" => {
+                let cx: f64 = node.attribute("cx").unwrap_or("0").parse().unwrap();
+                let cy: f64 = node.attribute("cy").unwrap_or("0").parse().unwrap();
+                let r: f64 = node.attribute("r").unwrap_or("0").parse().unwrap();
+                TextBox {
+                    x: cx - r,
+                    y: cy - r,
+                    width: 2.0 * r,
+                    height: 2.0 * r,
+                }
+            }
+            _ => TextBox {
+                x: node.attribute("x").unwrap_or("0").parse().unwrap(),
+                y: node.attribute("y").unwrap_or("0").parse().unwrap(),
+                width: node.attribute("width").unwrap_or("0").parse().unwrap(),
+                height: node.attribute("height").unwrap_or("0").parse().unwrap(),
+            },
+        }
+    }
+
+    /// Split an absolute `M`/`L` path into its line segments.
+    fn line_segments(path: &str) -> Vec<((f64, f64), (f64, f64))> {
+        let normalized = path.replace('M', " M ").replace('L', " L ");
+        let mut command = "";
+        let mut pending = Vec::new();
+        let mut last: Option<(f64, f64)> = None;
+        let mut segments = Vec::new();
+        for token in normalized.split_whitespace() {
+            if token == "M" || token == "L" {
+                command = token;
+                continue;
+            }
+            pending.push(token.parse::<f64>().expect("a path coordinate"));
+            if pending.len() == 2 {
+                let point = (pending[0], pending[1]);
+                if command == "L" {
+                    if let Some(previous) = last {
+                        segments.push((previous, point));
+                    }
+                }
+                last = Some(point);
+                pending.clear();
+            }
+        }
+        segments
+    }
+
+    fn parse_card(card: &str) -> ParsedCard {
+        let document = roxmltree::Document::parse(card).expect("card is XML");
+        let root = document.root_element();
+        let view: Vec<f64> = root
+            .attribute("viewBox")
+            .expect("a viewBox")
+            .split_whitespace()
+            .map(|value| value.parse().expect("a numeric viewBox"))
+            .collect();
+        let mut groups = Vec::new();
+        let mut rects = Vec::new();
+        let mut marks = Vec::new();
+        for node in document.descendants() {
+            let classes: Vec<&str> = node
+                .attribute("class")
+                .unwrap_or("")
+                .split_whitespace()
+                .collect();
+            if classes.contains(&"cg-text-group") {
+                let runs = node
+                    .descendants()
+                    .filter(|child| {
+                        child
+                            .attribute("class")
+                            .unwrap_or("")
+                            .split_whitespace()
+                            .any(|class| class == "cg-run")
+                    })
+                    .map(attr_box)
+                    .collect();
+                groups.push(Group {
+                    name: node.attribute("data-name").unwrap_or("").to_string(),
+                    size: node
+                        .attribute("data-size")
+                        .expect("a text group carries its size")
+                        .parse()
+                        .expect("a numeric text size"),
+                    fill: node.attribute("fill").unwrap_or("").to_string(),
+                    runs,
+                });
+            }
+            if node.has_tag_name("rect") {
+                let fill = node.attribute("fill").unwrap_or("").to_string();
+                let rect = node_box(node);
+                if !fill.is_empty() && fill.starts_with('#') {
+                    rects.push((rect, fill));
+                }
+                if classes.contains(&"dm") {
+                    marks.push(Mark {
+                        kind: classes
+                            .iter()
+                            .find(|class| class.starts_with("dm-") && **class != "dm-line")
+                            .copied()
+                            .unwrap_or("dm")
+                            .to_string(),
+                        rect: Some(rect),
+                        segment: None,
+                    });
+                }
+            }
+            if node.has_tag_name("circle") && classes.contains(&"dm") {
+                marks.push(Mark {
+                    kind: "dm-circle".to_string(),
+                    rect: Some(node_box(node)),
+                    segment: None,
+                });
+            }
+            if node.has_tag_name("path") && classes.contains(&"dm-line") {
+                for segment in line_segments(node.attribute("d").unwrap_or("")) {
+                    marks.push(Mark {
+                        kind: "dm-line".to_string(),
+                        rect: None,
+                        segment: Some(segment),
+                    });
+                }
+            }
+        }
+        ParsedCard {
+            view_box: (view[0], view[1], view[2], view[3]),
+            groups,
+            rects,
+            marks,
+        }
+    }
+
+    fn parse_hex(colour: &str) -> (f64, f64, f64) {
+        let digits = colour.trim_start_matches('#');
+        assert_eq!(digits.len(), 6, "expected a six-digit hex colour: {colour}");
+        let channel = |start: usize| {
+            let value = u8::from_str_radix(&digits[start..start + 2], 16).expect("hex");
+            f64::from(value) / 255.0
+        };
+        (channel(0), channel(2), channel(4))
+    }
+
+    fn luminance(colour: &str) -> f64 {
+        let (r, g, b) = parse_hex(colour);
+        let linear = |value: f64| {
+            if value <= 0.039_28 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
+    fn contrast(a: &str, b: &str) -> f64 {
+        let (first, second) = (luminance(a), luminance(b));
+        let (high, low) = if first > second {
+            (first, second)
+        } else {
+            (second, first)
+        };
+        (high + 0.05) / (low + 0.05)
+    }
+
+    fn background_at(card: &ParsedCard, point: (f64, f64)) -> String {
+        let mut background = "#000000".to_string();
+        for (rect, fill) in &card.rects {
+            if point.0 >= rect.x
+                && point.0 <= rect.right()
+                && point.1 >= rect.y
+                && point.1 <= rect.bottom()
+            {
+                background = fill.clone();
+            }
+        }
+        background
+    }
+
+    fn segment_hits_box(segment: ((f64, f64), (f64, f64)), box_: &TextBox) -> bool {
+        let ((x0, y0), (x1, y1)) = segment;
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let p = [-dx, dx, -dy, dy];
+        let q = [
+            x0 - box_.x,
+            box_.right() - x0,
+            y0 - box_.y,
+            box_.bottom() - y0,
+        ];
+        let mut enter = 0.0f64;
+        let mut leave = 1.0f64;
+        for index in 0..4 {
+            if p[index].abs() < f64::EPSILON {
+                if q[index] < 0.0 {
+                    return false;
+                }
+            } else {
+                let ratio = q[index] / p[index];
+                if p[index] < 0.0 {
+                    enter = enter.max(ratio);
+                } else {
+                    leave = leave.min(ratio);
+                }
+                if enter > leave {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// The contract from the phase brief, computed from the card itself:
+    /// effective sizes at the display width, WCAG contrast against the surface
+    /// under each run, the group cap, the body/title/KPI floors, no text on a
+    /// data mark and at least eight pixels between groups.
+    fn check_readability(
+        card: &str,
+        view_box: (f64, f64),
+        display_width: f64,
+        body_min: f64,
+    ) -> Vec<String> {
+        let parsed = parse_card(card);
+        let mut problems = Vec::new();
+        if (parsed.view_box.2, parsed.view_box.3) != view_box {
+            problems.push(format!(
+                "viewBox is {}x{}, expected {}x{}",
+                parsed.view_box.2, parsed.view_box.3, view_box.0, view_box.1
+            ));
+        }
+        if parsed.groups.len() > 14 {
+            problems.push(format!(
+                "{} text groups, at most 14 allowed",
+                parsed.groups.len()
+            ));
+        }
+        let scale = display_width / parsed.view_box.2;
+        let body = ["stamp", "kpi-labels", "milestones", "contributors"];
+        for group in &parsed.groups {
+            let effective = group.size * scale;
+            if effective < 12.0 - 1e-6 {
+                problems.push(format!(
+                    "{}: effective {effective:.2} px is below 12",
+                    group.name
+                ));
+            }
+            if body.contains(&group.name.as_str()) && effective < body_min - 1e-6 {
+                problems.push(format!(
+                    "{}: effective {effective:.2} px is below the body floor {body_min}",
+                    group.name
+                ));
+            }
+            if group.name == "title" && effective < 20.0 - 1e-6 {
+                problems.push(format!("title: effective {effective:.2} px is below 20"));
+            }
+            if group.name == "kpi-values" && effective < 32.0 - 1e-6 {
+                problems.push(format!(
+                    "kpi-values: effective {effective:.2} px is below 32"
+                ));
+            }
+            for run in &group.runs {
+                let centre = (run.x + run.width / 2.0, run.y + run.height / 2.0);
+                let background = background_at(&parsed, centre);
+                let ratio = contrast(&group.fill, &background);
+                if ratio < 4.5 - 1e-6 {
+                    problems.push(format!(
+                        "{}: {:.2}:1 contrast against {background} is below 4.5:1",
+                        group.name, ratio
+                    ));
+                }
+                for mark in &parsed.marks {
+                    let hit = match &mark.rect {
+                        Some(rect) => run.intersects(rect),
+                        None => mark
+                            .segment
+                            .is_some_and(|segment| segment_hits_box(segment, run)),
+                    };
+                    if hit {
+                        problems.push(format!(
+                            "{}: text overlaps a {} mark",
+                            group.name, mark.kind
+                        ));
+                    }
+                }
+            }
+        }
+        for (index, first) in parsed.groups.iter().enumerate() {
+            let first_box = union_of(&first.runs);
+            for second in parsed.groups.iter().skip(index + 1) {
+                let second_box = union_of(&second.runs);
+                let gap = first_box.gap(&second_box);
+                if gap < 8.0 - 1e-6 {
+                    problems.push(format!(
+                        "{} and {} are {gap:.2} px apart, below 8",
+                        first.name, second.name
+                    ));
+                }
+            }
+        }
+        problems
+    }
+
+    fn union_of(runs: &[TextBox]) -> TextBox {
+        runs.iter()
+            .copied()
+            .reduce(TextBox::union)
+            .expect("a group has at least one run")
+    }
+
+    #[test]
+    fn the_wide_card_meets_the_readability_contract() {
+        let card = render_full(&sample_graph(), &Palette::default()).expect("full card");
+        let problems = check_readability(&card, (840.0, 520.0), 840.0, 13.0);
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn the_narrow_card_meets_the_readability_contract() {
+        let card = render_narrow(&sample_graph(), &Palette::default()).expect("narrow card");
+        let problems = check_readability(&card, (400.0, 640.0), 390.0, 13.0);
+        assert!(problems.is_empty(), "{problems:#?}");
+    }
+
+    #[test]
+    fn the_committed_graph_cards_meet_the_readability_contract() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives inside the workspace");
+        let text = std::fs::read_to_string(root.join("docs/media/commit-graph.json"))
+            .expect("the committed graph");
+        let graph: CommitGraph = serde_json::from_str(&text).expect("valid graph");
+        let palette = Palette::default();
+        let committed_wide =
+            std::fs::read_to_string(root.join("docs/media/commit-graph.svg")).expect("wide card");
+        let committed_narrow =
+            std::fs::read_to_string(root.join("docs/media/commit-graph-narrow.svg"))
+                .expect("narrow card");
+        let wide = render_full(&graph, &palette).expect("full card");
+        let narrow = render_narrow(&graph, &palette).expect("narrow card");
+        assert_eq!(committed_wide, wide, "the committed wide card has drifted");
+        assert_eq!(
+            committed_narrow, narrow,
+            "the committed narrow card has drifted"
+        );
+        let wide_problems = check_readability(&committed_wide, (840.0, 520.0), 840.0, 13.0);
+        let narrow_problems = check_readability(&committed_narrow, (400.0, 640.0), 390.0, 13.0);
+        assert!(wide_problems.is_empty(), "{wide_problems:#?}");
+        assert!(narrow_problems.is_empty(), "{narrow_problems:#?}");
+        assert_eq!(parse_card(&committed_wide).groups.len(), 12);
+        assert_eq!(parse_card(&committed_narrow).groups.len(), 14);
+    }
+
+    #[test]
+    fn both_cards_describe_the_same_committed_numbers() {
+        let graph = sample_graph();
+        let palette = Palette::default();
+        let full = render_full(&graph, &palette).expect("full card");
+        let narrow = render_narrow(&graph, &palette).expect("narrow card");
+        let desc = desc_text(&graph);
+        assert!(full.contains(&desc) && narrow.contains(&desc));
     }
 
     #[test]

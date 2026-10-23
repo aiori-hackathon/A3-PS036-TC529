@@ -21,6 +21,63 @@ pub(crate) struct Font {
     face: Face<'static>,
     units_per_em: f64,
     advance: f64,
+    /// Cap height in font units: the top of the ink box for a line of text.
+    cap_height: f64,
+    /// Descender depth in font units, positive.
+    descender: f64,
+}
+
+/// An axis-aligned ink box for one line of text, in SVG user units.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TextBox {
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+}
+
+impl TextBox {
+    pub(crate) fn right(&self) -> f64 {
+        self.x + self.width
+    }
+
+    pub(crate) fn bottom(&self) -> f64 {
+        self.y + self.height
+    }
+
+    pub(crate) fn union(self, other: Self) -> Self {
+        let x = self.x.min(other.x);
+        let y = self.y.min(other.y);
+        let right = self.right().max(other.right());
+        let bottom = self.bottom().max(other.bottom());
+        Self {
+            x,
+            y,
+            width: right - x,
+            height: bottom - y,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn intersects(&self, other: &Self) -> bool {
+        self.x < other.right()
+            && other.x < self.right()
+            && self.y < other.bottom()
+            && other.y < self.bottom()
+    }
+
+    /// Distance between two boxes: zero when they touch or overlap, otherwise
+    /// the Euclidean distance between their nearest edges.
+    #[cfg(test)]
+    pub(crate) fn gap(&self, other: &Self) -> f64 {
+        let dx = (other.x - self.right())
+            .max(self.x - other.right())
+            .max(0.0);
+        let dy = (other.y - self.bottom())
+            .max(self.y - other.bottom())
+            .max(0.0);
+        (dx * dx + dy * dy).sqrt()
+    }
 }
 
 impl Font {
@@ -35,11 +92,40 @@ impl Font {
             .and_then(|glyph| face.glyph_hor_advance(glyph))
             .map(f64::from)
             .unwrap_or(units_per_em / 2.0);
+        // The card only ever draws ASCII, so the cap height is the top of the
+        // ink. Falling back to 0.72 em keeps the box conservative if a future
+        // font drops the metric.
+        let cap_height = face
+            .capital_height()
+            .map(f64::from)
+            .unwrap_or(units_per_em * 0.72);
+        let descender = f64::from(face.descender()).abs();
         Ok(Self {
             face,
             units_per_em,
             advance,
+            cap_height,
+            descender,
         })
+    }
+
+    /// The ink box of one line, used by the layout budget and by the
+    /// readability contract in the tests.
+    pub(crate) fn line_box(
+        &self,
+        text: &str,
+        x: f64,
+        baseline: f64,
+        size: f64,
+        tracking: f64,
+    ) -> TextBox {
+        let scale = size / self.units_per_em;
+        TextBox {
+            x,
+            y: baseline - self.cap_height * scale,
+            width: text_width(self, text, size, tracking),
+            height: (self.cap_height + self.descender) * scale,
+        }
     }
 
     fn glyph(&self, character: char) -> Option<GlyphId> {
@@ -81,10 +167,16 @@ pub(crate) fn text_markup(
     used: &mut BTreeSet<char>,
 ) -> String {
     let scale = size / font.units_per_em;
+    let box_ = font.line_box(text, x, baseline, size, tracking);
     let mut out = String::new();
     let _ = write!(
         out,
-        "<g transform=\"translate({} {})scale({scale:.5})\"><g fill=\"{fill}\">",
+        "<g class=\"cg-run\" data-box=\"{} {} {} {}\" \
+         transform=\"translate({} {})scale({scale:.5})\"><g fill=\"{fill}\">",
+        number(box_.x),
+        number(box_.y),
+        number(box_.width),
+        number(box_.height),
         number(x),
         number(baseline)
     );

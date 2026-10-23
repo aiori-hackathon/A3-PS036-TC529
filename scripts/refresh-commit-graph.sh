@@ -28,11 +28,11 @@ echo "  commits: $(git -C "$cache" rev-list --count "$public_sha") reachable fro
 echo "  ref:     ${public_ref:-<none; the commit is not the tip of a branch>}"
 
 # Stage only the generated artifacts and the README permalink it rewrites.
-git add -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-compact.svg README.md
+git add -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg README.md
 
 echo ""
 echo "Staged commit-graph artifacts:"
-git diff --stat --cached -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-compact.svg README.md
+git diff --stat --cached -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg README.md
 
 echo ""
 echo "Review the staged change above, then commit it with:"

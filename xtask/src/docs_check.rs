@@ -499,6 +499,13 @@ const COMMIT_GRAPH_END: &str = "<!-- commit-graph:end -->";
 const COMMIT_GRAPH_CAPTION: &str = "from the public history of";
 const COMMIT_GRAPH_CAPTION_TAIL: &str = "later commits appear after the next refresh";
 
+/// The two cards the README shows: one graphic per viewport, never both at
+/// once. The narrow source is selected under the phone breakpoint and the wide
+/// card is the fallback every renderer understands.
+const COMMIT_GRAPH_WIDE: &str = "docs/media/commit-graph.svg";
+const COMMIT_GRAPH_NARROW: &str = "docs/media/commit-graph-narrow.svg";
+const COMMIT_GRAPH_MEDIA: &str = "(max-width: 600px)";
+
 /// The line range of the managed badge block, exclusive of the markers.
 /// `None` when the markers are absent or the end marker comes first.
 pub(crate) fn badge_block_lines(text: &str) -> Option<(usize, usize)> {
@@ -693,6 +700,43 @@ pub(crate) fn check_commit_graph_block(
             file: file.to_string(),
             line,
             message: "the commit-graph block names no image".to_string(),
+        });
+    }
+    // One card per viewport: the narrow card is selected by a media query and
+    // the wide card is the fallback. Both must be named, and the block must
+    // not reference the retired compact strip.
+    if !body.contains("<picture") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the commit-graph block is not a <picture> with one card per viewport"
+                .to_string(),
+        });
+    }
+    if !body.contains(COMMIT_GRAPH_NARROW) || !body.contains(COMMIT_GRAPH_MEDIA) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "the commit-graph block does not select {COMMIT_GRAPH_NARROW} under \
+                 `{COMMIT_GRAPH_MEDIA}`"
+            ),
+        });
+    }
+    if !body.contains(COMMIT_GRAPH_WIDE) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "the commit-graph block does not name the wide card {COMMIT_GRAPH_WIDE}"
+            ),
+        });
+    }
+    if body.contains("commit-graph-compact") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "the commit-graph block still carries the retired compact strip".to_string(),
         });
     }
     let lower = body.to_ascii_lowercase();
@@ -1691,9 +1735,52 @@ mod tests {
              {COMMIT_GRAPH_END}\n"
         );
         let violations = check_commit_graph_block("README.md", &text, None);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains("names no image")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_commit_graph_block_without_the_phone_card_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <a href=\"https://example.invalid/commit/abc\"><img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\"></a>\n\
+             Generated from the public history of this repository; later commits appear after the next refresh.\n\
+             {COMMIT_GRAPH_END}\n"
+        );
+        let violations = check_commit_graph_block("README.md", &text, None);
+        assert_eq!(violations.len(), 2, "{violations:?}");
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains("<picture>")),
+            "{violations:?}"
+        );
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains(COMMIT_GRAPH_NARROW)),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_commit_graph_block_with_the_retired_compact_strip_is_a_violation() {
+        let text = format!(
+            "{COMMIT_GRAPH_BEGIN}\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\"></picture>\n\
+             <img src=\"docs/media/commit-graph-compact.svg\" alt=\"old strip\">\n\
+             Generated from the public history of this repository; later commits appear after the next refresh.\n\
+             {COMMIT_GRAPH_END}\n"
+        );
+        let violations = check_commit_graph_block("README.md", &text, None);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(
-            violations[0].message.contains("names no image"),
+            violations[0].message.contains("retired compact strip"),
             "{violations:?}"
         );
     }
@@ -1702,7 +1789,8 @@ mod tests {
     fn a_commit_graph_block_without_the_public_caption_is_a_violation() {
         let text = format!(
             "{COMMIT_GRAPH_BEGIN}\n\
-             <img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\"></picture>\n\
              Generated from git history; the stamp shows the commit it was generated at.\n\
              {COMMIT_GRAPH_END}\n"
         );
@@ -1718,7 +1806,8 @@ mod tests {
     fn a_commit_graph_block_missing_the_refresh_note_is_a_violation() {
         let text = format!(
             "{COMMIT_GRAPH_BEGIN}\n\
-             <img src=\"docs/media/commit-graph.svg\" alt=\"a graph\">\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\"></picture>\n\
              Generated from the public history of this repository.\n\
              {COMMIT_GRAPH_END}\n"
         );
@@ -1736,7 +1825,9 @@ mod tests {
             "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
         let text = format!(
             "{COMMIT_GRAPH_BEGIN}\n\
-             <a href=\"https://example.invalid/public/commits/main\"><img src=\"docs/media/commit-graph.svg\" alt=\"a graph\"></a>\n\
+             <a href=\"https://example.invalid/public/commits/main\"><picture>\
+             <source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\"></picture></a>\n\
              Generated from the public history of this repository; later commits appear after the next refresh.\n\
              {COMMIT_GRAPH_END}\n"
         );
@@ -1756,7 +1847,9 @@ mod tests {
             "https://example.invalid/public/commit/0123456789abcdef0123456789abcdef01234567";
         let text = format!(
             "{COMMIT_GRAPH_BEGIN}\n\
-             <a href=\"{expected}\"><img src=\"docs/media/commit-graph.svg\" alt=\"a graph\"></a>\n\
+             <a href=\"{expected}\"><picture>\
+             <source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_NARROW}\" width=\"390\">\
+             <img src=\"{COMMIT_GRAPH_WIDE}\" alt=\"a graph\" width=\"840\"></picture></a>\n\
              Generated by `cargo xtask commit-graph` from the public history of this repository,\n\
              as of the commit shown in the image; later commits appear after the next refresh.\n\
              {COMMIT_GRAPH_END}\n"

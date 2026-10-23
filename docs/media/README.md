@@ -65,8 +65,9 @@ and the colour decision taken for the dark variants.
 ## The commit graph
 
 `cargo xtask commit-graph` writes `commit-graph.json`, `commit-graph.svg` and
-`commit-graph-compact.svg` from the repository's git history. The JSON is the
-document; the two cards are rendered from it and repeat its headline numbers
-in their `<desc>` element. Re-run the command instead of editing any of the
+`commit-graph-narrow.svg` from the repository's git history. The JSON is the
+document; the wide and narrow cards are rendered from it and repeat its
+headline numbers in their `<desc>` element. The README shows one card per
+viewport. Re-run the command instead of editing any of the
 three by hand. `docs/MEDIA.md` describes the configuration, the layout and the
 checks that keep the artifacts honest.

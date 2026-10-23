@@ -36,7 +36,7 @@ pub(crate) const CONFIG_PATH: &str = "docs/readme-config.toml";
 /// Full card, relative to the workspace root.
 pub(crate) const JSON_PATH: &str = "docs/media/commit-graph.json";
 pub(crate) const SVG_PATH: &str = "docs/media/commit-graph.svg";
-pub(crate) const COMPACT_PATH: &str = "docs/media/commit-graph-compact.svg";
+pub(crate) const NARROW_PATH: &str = "docs/media/commit-graph-narrow.svg";
 
 /// Default public repository the committed card describes.
 const DEFAULT_SOURCE_URL: &str = "https://github.com/aiori-hackathon/A3-PS036-TC529.git";
@@ -1010,16 +1010,16 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     let (graph, json) = generate(&history.path, &config, Some(as_of))?;
     let palette = svg::Palette::load(&args.root)?;
     let full = svg::render_full(&graph, &palette)?;
-    let compact = svg::render_compact(&graph, &palette)?;
+    let narrow = svg::render_narrow(&graph, &palette)?;
 
     let budget = config.budget_kb as usize * 1024;
-    if full.len() > budget || compact.len() > budget {
+    if full.len() > budget || narrow.len() > budget {
         bail!(
-            "commit-graph cards exceed the {} kB budget: full {}, compact {}; \
+            "commit-graph cards exceed the {} kB budget: full {}, narrow {}; \
              reduce the number of distinct glyphs before reducing detail",
             config.budget_kb,
             size_label(full.len()),
-            size_label(compact.len())
+            size_label(narrow.len())
         );
     }
 
@@ -1028,13 +1028,13 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
     let json_path = out_dir.join("commit-graph.json");
     let full_path = out_dir.join("commit-graph.svg");
-    let compact_path = out_dir.join("commit-graph-compact.svg");
+    let narrow_path = out_dir.join("commit-graph-narrow.svg");
     std::fs::write(&json_path, &json)
         .with_context(|| format!("failed to write {}", json_path.display()))?;
     std::fs::write(&full_path, &full)
         .with_context(|| format!("failed to write {}", full_path.display()))?;
-    std::fs::write(&compact_path, &compact)
-        .with_context(|| format!("failed to write {}", compact_path.display()))?;
+    std::fs::write(&narrow_path, &narrow)
+        .with_context(|| format!("failed to write {}", narrow_path.display()))?;
     update_readme_permalink(&args.root, &config, &graph.as_of_sha)?;
 
     let totals = &graph.totals;
@@ -1091,8 +1091,8 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
     );
     println!(
         "  wrote {} ({}, budget {} kB)",
-        compact_path.display(),
-        size_label(compact.len()),
+        narrow_path.display(),
+        size_label(narrow.len()),
         config.budget_kb
     );
     println!(
@@ -1115,7 +1115,7 @@ pub(crate) fn cmd_commit_graph_check(args: &CommitGraphArgs) -> Result<()> {
         &args.root,
         &out_dir.join("commit-graph.json"),
         &out_dir.join("commit-graph.svg"),
-        &out_dir.join("commit-graph-compact.svg"),
+        &out_dir.join("commit-graph-narrow.svg"),
     )?;
     for warning in &outcome.warnings {
         eprintln!("warning: {warning}");

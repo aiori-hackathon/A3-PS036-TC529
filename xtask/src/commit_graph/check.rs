@@ -15,8 +15,8 @@ use std::path::Path;
 
 use super::{
     cache_path, commit_exists, config_hash, generate, is_ancestor, is_shallow, load_config,
-    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, COMPACT_PATH, CONFIG_PATH,
-    JSON_PATH, SCHEMA_VERSION, SVG_PATH,
+    run_git, tz_offset_minutes, CommitGraph, CommitGraphConfig, CONFIG_PATH, JSON_PATH,
+    NARROW_PATH, SCHEMA_VERSION, SVG_PATH,
 };
 
 /// The outcome of the commit-graph part of the documentation check.
@@ -32,7 +32,7 @@ pub(crate) fn check_docs(root: &Path) -> Result<CheckOutcome> {
         root,
         &root.join(JSON_PATH),
         &root.join(SVG_PATH),
-        &root.join(COMPACT_PATH),
+        &root.join(NARROW_PATH),
     )
 }
 
@@ -40,7 +40,7 @@ pub(crate) fn check_with_paths(
     root: &Path,
     json_path: &Path,
     full_path: &Path,
-    compact_path: &Path,
+    narrow_path: &Path,
 ) -> Result<CheckOutcome> {
     let config = load_config(&root.join(CONFIG_PATH))?;
     let mut violations = Vec::new();
@@ -114,8 +114,8 @@ pub(crate) fn check_with_paths(
     )?;
     check_card(
         root,
-        compact_path,
-        "commit-graph-compact.svg",
+        narrow_path,
+        "commit-graph-narrow.svg",
         &graph,
         config.budget_kb,
         &mut violations,
@@ -381,13 +381,9 @@ mod tests {
         let path = root.join("target/commit-graph-edited-card.svg");
         std::fs::write(&path, edited).expect("write fixture");
 
-        let outcome = check_with_paths(
-            &root,
-            &root.join(JSON_PATH),
-            &path,
-            &root.join(COMPACT_PATH),
-        )
-        .expect("check runs");
+        let outcome =
+            check_with_paths(&root, &root.join(JSON_PATH), &path, &root.join(NARROW_PATH))
+                .expect("check runs");
         assert!(
             outcome
                 .violations
@@ -408,7 +404,7 @@ mod tests {
             &root,
             &missing,
             &root.join(SVG_PATH),
-            &root.join(COMPACT_PATH),
+            &root.join(NARROW_PATH),
         )
         .expect_err("a missing document cannot be checked");
         assert!(
@@ -422,7 +418,7 @@ mod tests {
         let root = workspace_root();
         let path = root.join("target/commit-graph-truncated.json");
         std::fs::write(&path, "{\"schema_version\": 1").expect("write fixture");
-        let error = check_with_paths(&root, &path, &root.join(SVG_PATH), &root.join(COMPACT_PATH))
+        let error = check_with_paths(&root, &path, &root.join(SVG_PATH), &root.join(NARROW_PATH))
             .expect_err("a truncated document cannot parse");
         assert!(error.to_string().contains("not a valid commit graph"));
         let _ = std::fs::remove_file(path);
