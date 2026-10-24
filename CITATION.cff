@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "CLIMB: Cryptographic Ladder Impact Measurement Benchmark"
+abstract: "A reproducible benchmark suite measuring the operational cost of Merkle Tree Ladder (MTL) mode applied to post-quantum DNSSEC signing (SLH-DSA), compared against signing without MTL amortization."
+authors:
+  - family-names: "Mukherjee"
+    given-names: "Pratyay"
+    alias: "profm0r14rty"
+  - family-names: "Yadav"
+    given-names: "Mohit Kumar"
+    alias: "Mohh12glitch"
+  - family-names: "Devi"
+    given-names: "Maibam"
+    name-suffix: "Dr."
+    affiliation: "National Forensic Sciences University (NFSU)"
+repository-code: "https://github.com/aiori-hackathon/A3-PS036-TC529"
+url: "https://github.com/aiori-hackathon/A3-PS036-TC529"
+keywords:
+  - "MTL mode"
+  - "Merkle Tree Ladder"
+  - "post-quantum cryptography"
+  - "DNSSEC"
+  - "SLH-DSA"
+  - "SPHINCS+"
+  - "benchmark"
+  - "amortization"
+license: MIT
+version: "1.0.0"
+date-released: "2026-10-24"
+message: "Benchmark results are empirical measurements only; no formal security guarantee or proof is claimed."

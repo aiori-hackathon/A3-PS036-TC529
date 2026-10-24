@@ -283,6 +283,33 @@ publish once, and the card gains one row.
   row that shows the card was regenerated; the trade is freshness for a smaller
   audit trail.
 
+## TUI tour GIF
+
+The README references `docs/media/climb-tour.gif` as a placeholder for a TUI tour recording. This file does not exist yet.
+
+### Recording with asciinema and agg
+
+1. **Record the tour** (terminal session):
+   ```bash
+   asciinema rec docs/media/climb-tour.cast
+   ```
+   In the recording session, run:
+   ```bash
+   cargo run -p climb-tui -- --tour
+   ```
+   Let the tour complete, then exit asciinema (`Ctrl+D` or `exit`).
+
+2. **Convert to GIF with agg**:
+   ```bash
+   agg docs/media/climb-tour.cast docs/media/climb-tour.gif
+   ```
+   Adjust speed if needed: `agg --speed 1.2 docs/media/climb-tour.cast docs/media/climb-tour.gif`
+
+### Notes
+- Use a clean terminal with appropriate size (e.g., 120x40) for readability
+- The tour uses recorded sample data from `docs/sample-output/` so no live benchmark needed
+- Ensure the GIF is reasonably sized for README display
+
 ## Honest limits
 
 - **Exact after convergence, not before.** While the refresh commit is pending

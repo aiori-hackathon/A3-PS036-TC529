@@ -45,6 +45,13 @@
 **AIORI-3 Hackathon PS-036**: Benchmarking Merkle Tree Ladder (MTL) mode for post-quantum
 DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
 
+> **Judge fast path**
+> - [**Report (HTML)**](docs/sample-output/report.html) — Self-contained results report with claims registry and drift checks
+> - [**Deck PDF**](A3-PS036-TC529.pdf) — Team presentation deck
+> - [**Intro video**](https://www.youtube.com/watch?v=gDHYamjWmtE) — Team CLIMB introduction
+> - [**Quickstart**](#quickstart--clean-clone-to-dashboard-three-commands) — Clean clone to dashboard in three commands
+> - [**Honest limits**](#honest-limits) — Empirical measurements only; no formal guarantees
+
 ## The pitch, in thirty seconds
 
 Post-quantum DNSSEC signatures are big; signing a whole batch of records with
@@ -59,6 +66,8 @@ Unbound in local Docker) that captures real wire bytes. Every number in this
 README, the HTML report and the dashboard is read from a recorded artifact,
 never typed into source, and every claim carries its evidence class: measured,
 derived, analytical or extrapolated.
+
+![CLIMB TUI tour](docs/media/climb-tour.gif)
 
 <!-- live:begin -->
 Live demo: coming with the web release
