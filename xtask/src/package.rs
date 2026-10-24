@@ -186,7 +186,7 @@ pub(crate) fn render_provenance(prov: &Provenance) -> String {
 
 /// Run a command and return its trimmed stdout, or `None` when it is missing
 /// or exits non-zero.
-fn capture(program: &str, args: &[&str]) -> Option<String> {
+pub(crate) fn capture(program: &str, args: &[&str]) -> Option<String> {
     let output = Command::new(program).args(args).output().ok()?;
     if !output.status.success() {
         return None;
@@ -200,12 +200,12 @@ fn short_sha() -> String {
 }
 
 /// The full commit SHA, or `unknown`.
-fn full_sha() -> String {
+pub(crate) fn full_sha() -> String {
     capture("git", &["rev-parse", "HEAD"]).unwrap_or_else(|| "unknown".to_string())
 }
 
 /// `(path, sha)` for every submodule, from `git submodule status`.
-fn submodule_shas() -> Vec<(String, String)> {
+pub(crate) fn submodule_shas() -> Vec<(String, String)> {
     let Some(out) = capture("git", &["submodule", "status"]) else {
         return Vec::new();
     };

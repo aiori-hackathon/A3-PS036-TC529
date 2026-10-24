@@ -10,17 +10,41 @@
 //! not guarantees: the without-MTL totals are `N x` the mean measured
 //! per-message cost of the same condition.
 
+#[cfg(feature = "native")]
 pub mod draw;
 
+#[cfg(feature = "native")]
 use std::path::{Path, PathBuf};
 
-use plotters::style::RGBColor;
-
+#[cfg(feature = "native")]
 use crate::error::ReportError;
+#[cfg(feature = "native")]
+use crate::results::ClimbResults;
 use crate::results::{
-    size_display, ClimbResults, MemoryResult, PlainTimingResult, ReuseResult,
-    SigningBenchmarkResult, VerifyingBenchmarkResult, WireSizeResult,
+    size_display, MemoryResult, PlainTimingResult, ReuseResult, SigningBenchmarkResult,
+    VerifyingBenchmarkResult, WireSizeResult,
 };
+
+/// An RGB series colour, independent of any rendering library so the data
+/// preparation used by read-only consumers does not pull in a chart backend.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeriesColor {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+}
+
+impl SeriesColor {
+    pub const fn new(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b }
+    }
+
+    /// Convert to the SVG renderer's colour type.
+    #[cfg(feature = "native")]
+    pub(crate) fn to_plotters(self) -> plotters::style::RGBColor {
+        plotters::style::RGBColor(self.r, self.g, self.b)
+    }
+}
 
 /// Filenames of the seven charts, in generation order.
 pub const CHART_FILES: [&str; 7] = [
@@ -34,25 +58,26 @@ pub const CHART_FILES: [&str; 7] = [
 ];
 
 /// Series colour: with MTL.
-pub const COLOR_WITH_MTL: RGBColor = RGBColor(31, 119, 180);
+pub const COLOR_WITH_MTL: SeriesColor = SeriesColor::new(31, 119, 180);
 /// Series colour: without MTL.
-pub const COLOR_WITHOUT_MTL: RGBColor = RGBColor(214, 94, 0);
+pub const COLOR_WITHOUT_MTL: SeriesColor = SeriesColor::new(214, 94, 0);
 /// Series colour: trust-cached ladder verification.
-pub const COLOR_TRUST_CACHED: RGBColor = RGBColor(44, 160, 44);
+pub const COLOR_TRUST_CACHED: SeriesColor = SeriesColor::new(44, 160, 44);
 /// Series colour: plain SLH-DSA (configuration A, no ladder).
-pub const COLOR_PLAIN: RGBColor = RGBColor(148, 103, 189);
+pub const COLOR_PLAIN: SeriesColor = SeriesColor::new(148, 103, 189);
 /// Series colour: analytical / fitted (non-measured) values.
-pub const COLOR_MODEL: RGBColor = RGBColor(90, 90, 95);
+pub const COLOR_MODEL: SeriesColor = SeriesColor::new(90, 90, 95);
 /// Series colour: Ed25519 classical context baseline.
-pub const COLOR_CLASSICAL_ED25519: RGBColor = RGBColor(140, 86, 75);
+pub const COLOR_CLASSICAL_ED25519: SeriesColor = SeriesColor::new(140, 86, 75);
 /// Series colour: ECDSA P-256 classical context baseline.
-pub const COLOR_CLASSICAL_ECDSA_P256: RGBColor = RGBColor(227, 119, 194);
+pub const COLOR_CLASSICAL_ECDSA_P256: SeriesColor = SeriesColor::new(227, 119, 194);
 /// Series colour: RSA-2048 classical context baseline.
-pub const COLOR_CLASSICAL_RSA2048: RGBColor = RGBColor(23, 190, 207);
+pub const COLOR_CLASSICAL_RSA2048: SeriesColor = SeriesColor::new(23, 190, 207);
 
 /// Generate all six SVG charts into `out_dir` from `results`.
 ///
 /// Returns the paths written, in [`CHART_FILES`] order.
+#[cfg(feature = "native")]
 pub fn generate_charts(
     results: &ClimbResults,
     out_dir: &Path,
@@ -453,7 +478,7 @@ pub struct BarSeriesData {
     /// Legend label, already carrying a "(measured)"/"(extrapolated)" suffix.
     pub label: String,
     /// Series colour.
-    pub color: RGBColor,
+    pub color: SeriesColor,
     /// `true` for extrapolated/modelled series (hollow bars, dashed edges).
     pub hollow: bool,
     /// Points in this series; empty series are dropped before drawing.
@@ -572,6 +597,7 @@ pub fn per_msg_mean(rows: &[impl BenchRow], condition: &str) -> Option<f64> {
 ///
 /// Every plain bar is the `N × per-message` identity from a single-message
 /// measurement (no full-batch plain run exists), so it is always hollow.
+#[cfg(feature = "native")]
 fn add_plain_timing_series(
     data: &mut BarChartData,
     plain: &[PlainTimingResult],
@@ -681,7 +707,7 @@ pub fn timing_bar_data<T: BenchRow>(
     let mut series: Vec<BarSeriesData> = Vec::new();
 
     // Measured series, in fixed legend order.
-    let measured_specs: [(&str, &str, RGBColor); 3] = [
+    let measured_specs: [(&str, &str, SeriesColor); 3] = [
         ("With MTL (measured)", "With MTL", COLOR_WITH_MTL),
         ("Without MTL (measured)", "Without MTL", COLOR_WITHOUT_MTL),
         (
@@ -714,7 +740,7 @@ pub fn timing_bar_data<T: BenchRow>(
     }
 
     // Extrapolated series (never for trust-cached).
-    let extrap_specs: [(&str, &str, RGBColor); 2] = [
+    let extrap_specs: [(&str, &str, SeriesColor); 2] = [
         ("With MTL (extrapolated)", "With MTL", COLOR_WITH_MTL),
         (
             "Without MTL (extrapolated)",
@@ -975,7 +1001,7 @@ pub struct UdpFitData {
 pub fn udp_fit(section: Option<&crate::results::UdpFitSection>) -> UdpFitData {
     // The three classical context series appear only when their rows were
     // consolidated (a per-config filter skips a series with no points).
-    let configs: [(&str, &str, RGBColor); 6] = [
+    let configs: [(&str, &str, SeriesColor); 6] = [
         ("plain", "A (plain SLH-DSA, modelled)", COLOR_PLAIN),
         (
             "mtl-full",

@@ -231,11 +231,7 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
         + " ".len()
         + "· ? help".len();
     let path_budget = (area.width as usize).saturating_sub(fixed);
-    let path = crate::widgets::ellipsize(
-        &app.source_path.display().to_string(),
-        path_budget,
-        theme.ascii,
-    );
+    let path = crate::widgets::ellipsize(&app.source.label(), path_budget, theme.ascii);
     let line = Line::from(vec![
         Span::styled(format!(" {spinner} "), Style::new().fg(theme.accent)),
         Span::styled(
@@ -535,7 +531,7 @@ mod tests {
         let out = render_to_string(&app, 120, 40);
         assert!(out.contains("theme: light"), "status bar:\n{out}");
         assert!(out.contains("ascii: off"));
-        assert!(out.contains("source: target/climb-results.json"));
+        assert!(out.contains("source: [explicit] target/climb-results.json"));
         assert!(out.contains("? help"));
     }
 

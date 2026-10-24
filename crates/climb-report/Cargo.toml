@@ -8,11 +8,18 @@ rust-version.workspace = true
 
 description = "Criterion output parsing, plain-text summaries (Batch 2), and chart/report generation (Batch 5)"
 
+[features]
+default = ["native"]
+# Native chart rendering (plotters) plus the native measurement crate it
+# consumes. Read-only consumers such as the dashboard disable it so the whole
+# dependency tree stays free of C libraries.
+native = ["dep:plotters", "climb-bench/native"]
+
 [dependencies]
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 climb-analytical = { path = "../climb-analytical" }
-climb-bench = { path = "../climb-bench" }
+climb-bench = { path = "../climb-bench", default-features = false }
 climb-dns = { path = "../climb-dns" }
-plotters.workspace = true
+plotters = { workspace = true, optional = true }

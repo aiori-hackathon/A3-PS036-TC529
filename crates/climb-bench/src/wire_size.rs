@@ -52,7 +52,10 @@
 //! tests in this module and the integration tests in
 //! `tests/wire_size.rs`.
 
-use climb_dns::{generate_dataset, DatasetSize};
+#[cfg(feature = "native")]
+use climb_dns::generate_dataset;
+use climb_dns::DatasetSize;
+#[cfg(feature = "native")]
 use climb_mtl::{MtlError, MtlKeyPair};
 
 /// Default seed; MUST equal the signing bench seed constant 0x434C494D425F5635 ("CLIMB_V5").
@@ -141,6 +144,7 @@ pub struct WireSizeReport {
 /// Panics if `lens` is empty.  The caller (the public API) guarantees the
 /// slice is non-empty because [`measure_wire_sizes`] only calls this after a
 /// successful `sign_batch`, which rejects empty batches.
+#[cfg(feature = "native")]
 fn stats(lens: &[usize]) -> CondensedStats {
     assert!(!lens.is_empty(), "lens must be non-empty");
 
@@ -201,6 +205,7 @@ fn stats(lens: &[usize]) -> CondensedStats {
 /// For `DatasetSize::Large` (1M messages), this function allocates the
 /// dataset (~200 MB) and signs it once (one SLH-DSA signature + tree build).
 /// It does **not** reconstruct all N full signatures.
+#[cfg(feature = "native")]
 pub fn measure_wire_sizes(size: DatasetSize, seed: u64) -> Result<WireSizeReport, MtlError> {
     let dataset = generate_dataset(size, seed);
     let messages: Vec<&[u8]> = dataset.iter().map(|m| m.as_slice()).collect();

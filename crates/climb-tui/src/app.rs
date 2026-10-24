@@ -13,7 +13,9 @@ use std::time::Instant;
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
-use crate::data::{LadderLoadState, LiveLoadState, LoadState, MethodView, ValueMode};
+use crate::data::{
+    ArtifactSource, LadderLoadState, LiveLoadState, LoadState, MethodView, ValueMode,
+};
 use crate::theme::{ColorDepth, Theme, ThemeId};
 use crate::tour::{Clock, Press, TourRunner};
 use crate::widgets::ladder_view::{
@@ -157,12 +159,14 @@ pub struct App {
     pub show_help: bool,
     pub should_quit: bool,
     pub results_path: PathBuf,
-    /// The artifact path the current view was loaded from: the committed
-    /// sample when the requested results file is absent (a clean checkout has
-    /// no `target/` yet), otherwise `results_path` itself. The status bar and
-    /// the reload check name this path, so a sample frame is never labelled
-    /// with a generated file's name.
-    pub source_path: PathBuf,
+    /// Whether `--results` was given on the command line. The default names
+    /// `target/climb-results.json`, which the resolver treats as the target
+    /// candidate rather than an explicit path.
+    pub results_explicit: bool,
+    /// The artifact the current view was read from: the explicit path, a
+    /// generated file under `target/`, the committed sample, or the
+    /// compiled-in copy. The status bar names this source.
+    pub source: ArtifactSource,
     pub replay: bool,
     /// The guided-tour runner, present only while the tour runs: started by
     /// `--tour`, left with [`Action::QuitTour`].
@@ -221,7 +225,11 @@ impl App {
             show_help: false,
             should_quit: false,
             results_path: cli.results.clone(),
-            source_path: cli.results.clone(),
+            results_explicit: cli.results_explicit,
+            source: ArtifactSource::from_path(
+                crate::data::ArtifactOrigin::Explicit,
+                cli.results.clone(),
+            ),
             replay: cli.replay,
             tour: cli.tour.then(|| TourRunner::new(cli.tour_speed)),
             clock,
@@ -546,6 +554,12 @@ impl App {
         let method = MethodView::build(&self.results_path, &state);
         self.data = state;
         self.method = method;
+    }
+
+    /// Record which artifact the current view came from (called by the
+    /// runtime after a load).
+    pub fn set_source(&mut self, source: ArtifactSource) {
+        self.source = source;
     }
 
     /// The Method tab's document.

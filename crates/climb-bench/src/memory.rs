@@ -42,8 +42,12 @@
 //! (`process.memory()`) returns the resident set size in bytes.
 
 use climb_analytical::MemoryEstimate;
-use climb_dns::{generate_dataset, DatasetSize};
+#[cfg(feature = "native")]
+use climb_dns::generate_dataset;
+use climb_dns::DatasetSize;
+#[cfg(feature = "native")]
 use climb_mtl::{MtlError, MtlKeyPair};
+#[cfg(feature = "native")]
 use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 
 // ---------------------------------------------------------------------------
@@ -55,6 +59,7 @@ use sysinfo::{Pid, ProcessRefreshKind, ProcessesToUpdate, RefreshKind, System};
 /// Creates a fresh [`System`] and queries only the current process with
 /// memory-refresh enabled.  Returns 0 if the process is not found (unreachable
 /// in practice — `std::process::id()` always maps to a live PID).
+#[cfg(feature = "native")]
 fn sample_rss_bytes() -> u64 {
     let pid = Pid::from_u32(std::process::id());
     let mut sys = System::new_with_specifics(
@@ -114,6 +119,7 @@ pub struct RssSizeReport {
 /// # Errors
 ///
 /// Returns [`MtlError`] if key generation or signing fails.
+#[cfg(feature = "native")]
 pub fn measure_rss_delta(size: DatasetSize, seed: u64) -> Result<RssDeltaRun, MtlError> {
     // Generate dataset and keypair outside the delta window.
     let dataset = generate_dataset(size, seed);
@@ -155,6 +161,7 @@ pub fn measure_rss_delta(size: DatasetSize, seed: u64) -> Result<RssDeltaRun, Mt
 /// # Errors
 ///
 /// Returns [`MtlError`] if any run's key generation or signing fails.
+#[cfg(feature = "native")]
 pub fn measure_rss_delta_repeated(
     size: DatasetSize,
     seed: u64,
@@ -181,6 +188,7 @@ pub fn measure_rss_delta_repeated(
 /// # Errors
 ///
 /// Returns [`MtlError`] if any measurement fails.
+#[cfg(feature = "native")]
 pub fn measure_all_sizes(seed: u64, repeat_count: usize) -> Result<RssDeltaReport, MtlError> {
     let sizes = [DatasetSize::Small, DatasetSize::Medium, DatasetSize::Large];
     let mut runs = Vec::with_capacity(sizes.len());
@@ -269,6 +277,7 @@ mod tests {
     /// We only assert the delta is positive (libMTL DOES allocate memory
     /// during signing) and within plausible bounds (&lt;100 MiB for Small).
     #[test]
+    #[cfg(feature = "native")]
     fn rss_delta_small_is_positive_and_plausible() {
         let run = measure_rss_delta(
             DatasetSize::Small,
@@ -307,6 +316,7 @@ mod tests {
     /// allocated). This test only checks that both deltas are non-negative and
     /// within plausible bounds — NOT that they match.
     #[test]
+    #[cfg(feature = "native")]
     fn rss_delta_repeated_is_plausible() {
         let report = measure_rss_delta_repeated(DatasetSize::Small, 0x434C494D425F5635, 2)
             .expect("measure_rss_delta_repeated(Small, 2)");

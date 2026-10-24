@@ -247,7 +247,7 @@ pub fn draw_bar_chart(
         let body_style = if series.hollow {
             ShapeStyle::from(WHITE).filled()
         } else {
-            ShapeStyle::from(series.color).filled()
+            ShapeStyle::from(series.color.to_plotters()).filled()
         };
         let rects: Vec<Rectangle<(f64, f64)>> = series
             .points
@@ -266,7 +266,7 @@ pub fn draw_bar_chart(
         if rects.is_empty() {
             continue;
         }
-        let color = series.color;
+        let color = series.color.to_plotters();
         let hollow = series.hollow;
         let label = legend_label(&series.label);
         let drawings = chart.draw_series(rects).map_err(|e| chart_err(path, e))?;
@@ -288,7 +288,7 @@ pub fn draw_bar_chart(
             continue;
         }
         let offset = (i as f64 - (s_count as f64 - 1.0) / 2.0) * bar_w;
-        let outline = ShapeStyle::from(series.color).stroke_width(2);
+        let outline = ShapeStyle::from(series.color.to_plotters()).stroke_width(2);
         let rects: Vec<Rectangle<(f64, f64)>> = series
             .points
             .iter()
@@ -328,7 +328,7 @@ pub fn draw_bar_chart(
                     lo.max(y_lo),
                     p.value,
                     hi,
-                    series.color,
+                    series.color.to_plotters(),
                     7,
                 ))
             })
@@ -484,37 +484,37 @@ pub fn draw_amortization(
     if !data.with_points.is_empty() {
         let pts = data.with_points.clone();
         let drawings = chart
-            .draw_series(
-                pts.iter()
-                    .map(|&(n, v)| Circle::new((n as f64, v), 5, COLOR_WITH_MTL.filled())),
-            )
+            .draw_series(pts.iter().map(|&(n, v)| {
+                Circle::new((n as f64, v), 5, COLOR_WITH_MTL.to_plotters().filled())
+            }))
             .map_err(|e| chart_err(path, e))?;
         drawings
             .label(format!(
                 "{} — measured per-message",
                 condition_label("With MTL")
             ))
-            .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.filled()));
+            .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.to_plotters().filled()));
         any_label = true;
     }
     if !data.without_points.is_empty() {
         let pts = data.without_points.clone();
         let drawings = chart
-            .draw_series(
-                pts.iter()
-                    .map(|&(n, v)| Circle::new((n as f64, v), 5, COLOR_WITHOUT_MTL.filled())),
-            )
+            .draw_series(pts.iter().map(|&(n, v)| {
+                Circle::new((n as f64, v), 5, COLOR_WITHOUT_MTL.to_plotters().filled())
+            }))
             .map_err(|e| chart_err(path, e))?;
         drawings
             .label(format!(
                 "{} — measured per-message",
                 condition_label("Without MTL")
             ))
-            .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITHOUT_MTL.filled()));
+            .legend(|(x, y)| {
+                Circle::new((x + 7, y + 5), 5, COLOR_WITHOUT_MTL.to_plotters().filled())
+            });
         any_label = true;
     }
     if !fit_curve.is_empty() {
-        let style = ShapeStyle::from(COLOR_MODEL).stroke_width(2);
+        let style = ShapeStyle::from(COLOR_MODEL.to_plotters()).stroke_width(2);
         let drawings = chart
             .draw_series(DashedLineSeries::new(
                 fit_curve.iter().copied(),
@@ -528,7 +528,7 @@ pub fn draw_amortization(
             .legend(|(x, y)| {
                 Rectangle::new(
                     [(x, y + 4), (x + 20, y + 7)],
-                    ShapeStyle::from(COLOR_MODEL).filled(),
+                    ShapeStyle::from(COLOR_MODEL.to_plotters()).filled(),
                 )
             });
         any_label = true;
@@ -626,13 +626,13 @@ pub fn draw_memory(
                 Some(Circle::new(
                     (p.n as f64, p.measured),
                     5,
-                    COLOR_WITH_MTL.filled(),
+                    COLOR_WITH_MTL.to_plotters().filled(),
                 ))
             }))
             .map_err(|e| chart_err(path, e))?;
         drawings
             .label("Measured resident RSS (median, min–max whiskers)")
-            .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.filled()));
+            .legend(|(x, y)| Circle::new((x + 7, y + 5), 5, COLOR_WITH_MTL.to_plotters().filled()));
         any_label = true;
     }
     if data.points.iter().any(|p| p.measured_peak > 0.0) {
@@ -645,13 +645,15 @@ pub fn draw_memory(
                 Some(TriangleMarker::new(
                     (p.n as f64, p.measured_peak),
                     7,
-                    COLOR_MODEL.filled(),
+                    COLOR_MODEL.to_plotters().filled(),
                 ))
             }))
             .map_err(|e| chart_err(path, e))?;
         drawings
             .label("Measured peak RSS (median, hwm − baseline): headline")
-            .legend(|(x, y)| TriangleMarker::new((x + 7, y + 5), 7, COLOR_MODEL.filled()));
+            .legend(|(x, y)| {
+                TriangleMarker::new((x + 7, y + 5), 7, COLOR_MODEL.to_plotters().filled())
+            });
         any_label = true;
     }
     if data.points.iter().any(|p| p.analytical_total > 0.0) {
@@ -673,14 +675,14 @@ pub fn draw_memory(
                 let right = 10f64.powf(c + bar_w / 2.0);
                 Some(Rectangle::new(
                     [(left, y_lo), (right, base)],
-                    ShapeStyle::from(COLOR_WITHOUT_MTL).filled(),
+                    ShapeStyle::from(COLOR_WITHOUT_MTL.to_plotters()).filled(),
                 ))
             }))
             .map_err(|e| chart_err(path, e))?;
         drawings_bottom.label("libMTL pages only").legend(|(x, y)| {
             Rectangle::new(
                 [(x, y), (x + 16, y + 11)],
-                ShapeStyle::from(COLOR_WITHOUT_MTL).filled(),
+                ShapeStyle::from(COLOR_WITHOUT_MTL.to_plotters()).filled(),
             )
         });
         // Top segment: harness buffers (stacked on libMTL pages)
@@ -783,7 +785,7 @@ pub fn draw_memory(
                 p.measured_min,
                 p.measured,
                 p.measured_max,
-                COLOR_WITH_MTL,
+                COLOR_WITH_MTL.to_plotters(),
                 7,
             ))
         })
@@ -920,9 +922,9 @@ pub fn draw_reuse(
     let mut any_label = false;
     for (i, series) in data.series.iter().enumerate() {
         let color = if i % 2 == 0 {
-            COLOR_WITH_MTL
+            COLOR_WITH_MTL.to_plotters()
         } else {
-            COLOR_WITHOUT_MTL
+            COLOR_WITHOUT_MTL.to_plotters()
         };
         for metric in &series.metrics {
             any_label = true;
@@ -1103,7 +1105,7 @@ pub fn draw_udp_fit(
             }
             chart.draw_series(bodies).map_err(|e| chart_err(path, e))?;
 
-            let outline = ShapeStyle::from(series.color).stroke_width(2);
+            let outline = ShapeStyle::from(series.color.to_plotters()).stroke_width(2);
             let rects: Vec<Rectangle<(f64, f64)>> = series
                 .points
                 .iter()
@@ -1120,7 +1122,7 @@ pub fn draw_udp_fit(
                 .collect();
             let drawings = chart.draw_series(rects).map_err(|e| chart_err(path, e))?;
             if first {
-                let color = series.color;
+                let color = series.color.to_plotters();
                 let label = series.label.clone();
                 drawings.label(label).legend(move |(x, y)| {
                     Rectangle::new(

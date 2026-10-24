@@ -12,17 +12,23 @@
 pub mod ladder_verify;
 pub mod memory;
 pub mod wire_size;
+#[cfg(feature = "native")]
+pub use ladder_verify::measure_ladder_rows;
 pub use ladder_verify::{
-    measure_ladder_rows, LadderRow, LadderRung, LadderVerifyError, DEFAULT_LADDER_SEED,
-    DEFAULT_LADDER_SIZES,
+    LadderRow, LadderRung, LadderVerifyError, DEFAULT_LADDER_SEED, DEFAULT_LADDER_SIZES,
 };
+#[cfg(feature = "native")]
 pub use memory::{
     compare_to_analytical, measure_all_sizes, measure_rss_delta, measure_rss_delta_repeated,
     RssComparison, RssDeltaReport, RssDeltaRun, RssSizeReport,
 };
-pub use wire_size::{
-    measure_wire_sizes, CondensedStats, PlainRrsigStats, WireSizeReport, DEFAULT_WIRE_SEED,
+#[cfg(not(feature = "native"))]
+pub use memory::{
+    compare_to_analytical, RssComparison, RssDeltaReport, RssDeltaRun, RssSizeReport,
 };
+#[cfg(feature = "native")]
+pub use wire_size::measure_wire_sizes;
+pub use wire_size::{CondensedStats, PlainRrsigStats, WireSizeReport, DEFAULT_WIRE_SEED};
 
 // F11.2: parse /proc/self/status VmRSS and VmHWM (kB)
 pub fn parse_status_kb(s: &str) -> Option<(u64, u64)> {

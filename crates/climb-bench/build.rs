@@ -11,6 +11,12 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
+    // Read-only consumers build this crate without the `native` feature, so no
+    // native library directory exists to add to the runtime search path.
+    if env::var_os("CARGO_FEATURE_NATIVE").is_none() {
+        return;
+    }
+
     let lib_dir = env::var("DEP_MTLSLIB_LIB_DIR").unwrap_or_else(|_| {
         panic!(
             "climb-bench: DEP_MTLSLIB_LIB_DIR was not provided by climb-mtl-sys. \

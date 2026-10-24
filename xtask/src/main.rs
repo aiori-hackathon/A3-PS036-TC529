@@ -13,6 +13,7 @@ mod commit_graph;
 mod consolidate;
 mod deck_delta;
 mod deck_facts;
+mod dist_tui;
 mod dns_demo;
 mod docs_check;
 mod groups;
@@ -32,6 +33,7 @@ use commit_graph::{cmd_commit_graph, CommitGraphArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
 use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
+use dist_tui::{cmd_dist_tui, DistTuiArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use docs_check::{cmd_docs_check, DocsCheckArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
@@ -167,6 +169,16 @@ enum Commands {
     /// fingerprint and date.  Fails when an input is missing or the report
     /// disagrees with the results it ships with.
     Package(PackageArgs),
+    /// Build and package the viewer-only dashboard binary.
+    ///
+    /// Builds `climb-tui` in release mode with no default features (no native
+    /// crypto stack), prefers the static musl target and falls back to gnu
+    /// with a note, strips the binary, and writes
+    /// `dist/climb-tui-<short-sha>-<target>.tar.gz` beside a `SHA256SUMS`
+    /// manifest and a `PROVENANCE.txt`. Unless `--skip-smoke` is given, the
+    /// packaged binary is opened in `debian:stable-slim` under a
+    /// pseudo-terminal with `--tour` and must exit 0 after two Esc presses.
+    DistTui(DistTuiArgs),
     /// Run the whole artifact chain in order, from one command.
     ///
     /// Pins the environment, measures wire sizes and memory, optionally
@@ -267,6 +279,7 @@ fn main() -> Result<()> {
         Commands::SourceHygiene(args) => cmd_source_hygiene(args),
         Commands::CheckPins(args) => check_pins::run(&args.root),
         Commands::Package(args) => cmd_package(args),
+        Commands::DistTui(args) => cmd_dist_tui(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
         Commands::Stability(args) => cmd_stability(args),
     }
@@ -681,6 +694,38 @@ mod tests {
                 assert!(!args.skip_checks);
             }
             _ => panic!("expected the package subcommand"),
+        }
+    }
+
+    #[test]
+    fn dist_tui_defaults_to_dist_and_runs_the_smoke_test() {
+        let cli = Cli::try_parse_from(["xtask", "dist-tui"]).expect("dist-tui parses");
+        match cli.command {
+            Commands::DistTui(args) => {
+                assert_eq!(args.out, PathBuf::from("dist"));
+                assert!(args.target.is_none());
+                assert!(!args.skip_smoke);
+            }
+            _ => panic!("expected the dist-tui subcommand"),
+        }
+    }
+
+    #[test]
+    fn dist_tui_accepts_a_target_and_skip_smoke() {
+        let cli = Cli::try_parse_from([
+            "xtask",
+            "dist-tui",
+            "--target",
+            "x86_64-unknown-linux-gnu",
+            "--skip-smoke",
+        ])
+        .expect("dist-tui flags parse");
+        match cli.command {
+            Commands::DistTui(args) => {
+                assert_eq!(args.target.as_deref(), Some("x86_64-unknown-linux-gnu"));
+                assert!(args.skip_smoke);
+            }
+            _ => panic!("expected the dist-tui subcommand"),
         }
     }
 }

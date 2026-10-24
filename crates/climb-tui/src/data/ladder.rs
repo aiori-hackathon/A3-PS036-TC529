@@ -17,8 +17,10 @@ use climb_report::LadderVerification;
 pub enum LadderSource {
     /// A live `cargo xtask ladder-verify` run wrote this file.
     LiveRun,
-    /// The committed `data/ladder-verification.recorded.json` fixture.
+    /// The committed `docs/sample-output/ladder-verification.recorded.json` fixture.
     RecordedFixture,
+    /// The fixture compiled into the binary.
+    Embedded,
 }
 
 /// How the recorded ladder-verification artifact looks at load time.
@@ -73,7 +75,7 @@ impl LadderLoadState {
 /// Default path for a live `ladder-verify` run artifact.
 pub const LIVE_LADDER_PATH: &str = "target/ladder-verification.json";
 /// Default path for the committed recorded fixture.
-pub const RECORDED_LADDER_PATH: &str = "data/ladder-verification.recorded.json";
+pub const RECORDED_LADDER_PATH: &str = "docs/sample-output/ladder-verification.recorded.json";
 
 /// Load the recorded ladder-verification artifact from a specific path, never panicking.
 pub fn load_ladder(path: &Path) -> LadderLoadState {
@@ -108,27 +110,67 @@ fn load_ladder_from(path: &Path, source: LadderSource) -> LadderLoadState {
     }
 }
 
-/// Load the ladder-verification artifact, trying the standard paths in order:
+/// Load the ladder-verification artifact, trying the standard sources in order:
 /// 1. `target/ladder-verification.json` (live run)
-/// 2. `data/ladder-verification.recorded.json` (committed fixture)
+/// 2. `docs/sample-output/ladder-verification.recorded.json` (committed fixture)
+/// 3. the compiled-in copy of the same fixture
 ///
 /// The first one that exists wins. A present-but-unparseable artifact is a hard
 /// [`LadderLoadState::Invalid`] naming its path, never silently skipped in
 /// favour of the next candidate; only a genuinely absent file falls through.
 pub fn load_ladder_auto() -> LadderLoadState {
-    load_ladder_auto_from(Path::new(LIVE_LADDER_PATH), Path::new(RECORDED_LADDER_PATH))
+    load_ladder_auto_with(
+        Path::new(LIVE_LADDER_PATH),
+        Path::new(RECORDED_LADDER_PATH),
+        Some(crate::data::embedded::LADDER_VERIFICATION),
+    )
 }
 
-/// [`load_ladder_auto`] with explicit candidate paths, so the precedence is
+/// [`load_ladder_auto`] with explicit candidates, so the precedence is
 /// unit-testable without touching the working directory.
 pub fn load_ladder_auto_from(live: &Path, recorded: &Path) -> LadderLoadState {
+    load_ladder_auto_with(
+        live,
+        recorded,
+        Some(crate::data::embedded::LADDER_VERIFICATION),
+    )
+}
+
+/// [`load_ladder_auto_from`] with the compiled-in fixture made optional, so a
+/// test can still prove the "nothing anywhere" state.
+pub fn load_ladder_auto_with(
+    live: &Path,
+    recorded: &Path,
+    embedded_bytes: Option<&[u8]>,
+) -> LadderLoadState {
     match load_ladder_from(live, LadderSource::LiveRun) {
         LadderLoadState::Missing { .. } => {}
         other => return other,
     }
     match load_ladder_from(recorded, LadderSource::RecordedFixture) {
-        LadderLoadState::Missing { .. } => LadderLoadState::Absent,
-        other => other,
+        LadderLoadState::Missing { .. } => {}
+        other => return other,
+    }
+    match embedded_bytes {
+        Some(bytes) => load_ladder_embedded(bytes),
+        None => LadderLoadState::Absent,
+    }
+}
+
+/// Parse the compiled-in ladder-verification fixture.
+fn load_ladder_embedded(bytes: &[u8]) -> LadderLoadState {
+    match serde_json::from_slice::<LadderVerification>(bytes) {
+        Ok(document) => LadderLoadState::Loaded {
+            document: Box::new(document),
+            source: LadderSource::Embedded,
+        },
+        Err(error) => LadderLoadState::Invalid {
+            path: PathBuf::from(format!(
+                "<embedded {}>",
+                crate::data::embedded::LADDER_VERIFICATION_NAME
+            )),
+            error: error.to_string(),
+        },
     }
 }
 
@@ -159,7 +201,9 @@ fn source_label(source: LadderSource, recorded_at: &str) -> String {
     let date = recorded_date(recorded_at);
     match source {
         LadderSource::LiveRun => format!("(live run {date})"),
-        LadderSource::RecordedFixture => format!("(recorded fixture {date})"),
+        LadderSource::RecordedFixture | LadderSource::Embedded => {
+            format!("(recorded fixture {date})")
+        }
     }
 }
 
@@ -374,6 +418,18 @@ mod tests {
         );
     }
 
+    #[test]
+    fn badge_shows_the_recorded_fixture_badge_for_the_embedded_copy() {
+        let state = document(vec![row_for(13)], LadderSource::Embedded);
+        let badge = badge(&state, 13, 5, false);
+        assert_eq!(badge.kind, BadgeKind::Match);
+        assert!(
+            badge.text.contains("(recorded fixture 2026-10-14)"),
+            "embedded data is still recorded data: {}",
+            badge.text
+        );
+    }
+
     fn sample_json() -> String {
         let doc = LadderVerification {
             schema_version: 1,
@@ -435,13 +491,27 @@ mod tests {
     }
 
     #[test]
-    fn load_ladder_auto_is_absent_when_neither_exists() {
+    fn load_ladder_auto_is_absent_when_neither_exists_and_no_embedded_copy_is_offered() {
         let root = auto_root("absent");
-        let state = load_ladder_auto_from(
+        let state = load_ladder_auto_with(
             &root.join("target/ladder-verification.json"),
             &root.join("data/ladder-verification.recorded.json"),
+            None,
         );
         assert_eq!(state, LadderLoadState::Absent);
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_ladder_auto_falls_back_to_the_embedded_fixture() {
+        let root = auto_root("embedded");
+        let state = load_ladder_auto_from(
+            &root.join("target/ladder-verification.json"),
+            &root.join("docs/sample-output/ladder-verification.recorded.json"),
+        );
+        assert_eq!(state.source(), Some(LadderSource::Embedded));
+        assert!(matches!(state, LadderLoadState::Loaded { .. }));
 
         let _ = std::fs::remove_dir_all(&root);
     }

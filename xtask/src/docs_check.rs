@@ -53,6 +53,27 @@ const HEADLINE_END: &str = "<!-- headline:end -->";
 const LIVE_BEGIN: &str = "<!-- live:begin -->";
 const LIVE_END: &str = "<!-- live:end -->";
 
+/// Markers bracketing the Quickstart section in the README.
+const QUICKSTART_BEGIN: &str = "<!-- quickstart:begin -->";
+const QUICKSTART_END: &str = "<!-- quickstart:end -->";
+
+/// The clean-clone script the quickstart commands are pinned to.
+const CLEAN_CLONE_SCRIPT: &str = "scripts/clean-clone-check.sh";
+
+/// Commands the README quickstart must carry, and that must also appear in the
+/// clean-clone script. Each entry is a literal substring, so a renamed flag or
+/// a moved path in either place fails the check instead of drifting silently.
+const QUICKSTART_COMMANDS: &[&str] = &[
+    // Fastest path: a prebuilt viewer tarball or the viewer container.
+    "cargo xtask dist-tui",
+    "docker build -f docker/Dockerfile.tui",
+    "docker run -it --rm",
+    // Full reproduction: the pinned native toolchain and the dashboard.
+    "docker build -f docker/Dockerfile.build",
+    "docker/extract-libs.sh",
+    "cargo run -p climb-tui",
+];
+
 /// Markers bracketing the numbers-of-record table in the progress log.
 const NUMBERS_BEGIN: &str = "<!-- numbers-of-record:begin -->";
 const NUMBERS_END: &str = "<!-- numbers-of-record:end -->";
@@ -353,15 +374,11 @@ pub(crate) fn check_file(
     violations.extend(check_headline_block(file, text, facts));
 
     // Live demo section markers
-    if file.ends_with("README.md")
-        && (!text.contains(LIVE_BEGIN) || !text.contains(LIVE_END))
-    {
+    if file.ends_with("README.md") && (!text.contains(LIVE_BEGIN) || !text.contains(LIVE_END)) {
         violations.push(Violation {
             file: file.to_string(),
             line: 1,
-            message: format!(
-                "missing the `{LIVE_BEGIN}` / `{LIVE_END}` live demo section markers"
-            ),
+            message: format!("missing the `{LIVE_BEGIN}` / `{LIVE_END}` live demo section markers"),
         });
     }
 
@@ -667,6 +684,82 @@ pub(crate) fn check_logo_block(file: &str, text: &str) -> Vec<Violation> {
             line,
             message: "the logo block names no image".to_string(),
         });
+    }
+    violations
+}
+
+/// The body of the marker-bracketed quickstart section, and the line it starts
+/// on. `None` when a marker is missing or the end marker comes first.
+pub(crate) fn parse_quickstart_block(text: &str) -> Option<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines
+        .iter()
+        .position(|line| line.trim() == QUICKSTART_BEGIN)?;
+    let end = lines
+        .iter()
+        .position(|line| line.trim() == QUICKSTART_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, lines[begin + 1..end].join("\n")))
+}
+
+/// Check the README's quickstart section: both markers present and in order,
+/// both paths named, and every pinned command present in the section and in
+/// the clean-clone script. Pure: the script text is passed in, so the rule is
+/// unit-testable without touching the disk.
+pub(crate) fn check_quickstart(file: &str, text: &str, script: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    for marker in [QUICKSTART_BEGIN, QUICKSTART_END] {
+        if !text.contains(marker) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("missing the `{marker}` quickstart marker"),
+            });
+        }
+    }
+    if !violations.is_empty() {
+        return violations;
+    }
+    let Some((line, body)) = parse_quickstart_block(text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!(
+                "the `{QUICKSTART_BEGIN}` marker comes after the `{QUICKSTART_END}` marker"
+            ),
+        });
+        return violations;
+    };
+
+    for heading in ["Fastest path", "Full reproduction"] {
+        if !body.contains(heading) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!("the quickstart does not name the `{heading}` path"),
+            });
+        }
+    }
+
+    for command in QUICKSTART_COMMANDS {
+        if !body.contains(command) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!("the quickstart no longer carries the pinned command `{command}`"),
+            });
+        }
+        if !script.contains(command) {
+            violations.push(Violation {
+                file: CLEAN_CLONE_SCRIPT.to_string(),
+                line: 1,
+                message: format!(
+                    "the clean-clone script no longer carries the quickstart command `{command}`"
+                ),
+            });
+        }
     }
     violations
 }
@@ -1337,6 +1430,24 @@ fn check_signing_bound(results_path: &Path) -> Result<()> {
     );
 }
 
+/// Build the viewer with no native prefix and reject any native dependency in
+/// its resolved tree, by running the committed check script.
+fn check_viewer_build(root: &Path) -> Result<()> {
+    let script = root.join("scripts/check-viewer-build.sh");
+    let status = Command::new("bash")
+        .arg(&script)
+        .current_dir(root)
+        .status()
+        .with_context(|| format!("failed to run {}", script.display()))?;
+    if !status.success() {
+        bail!(
+            "the viewer build check failed — run `{}` for details",
+            script.display()
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     let sheet_path = args.root.join(&args.quote_sheet);
     let sheet_text = std::fs::read_to_string(&sheet_path)
@@ -1400,6 +1511,14 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .display()
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
+
+    // The README's quickstart is marker-bracketed and its commands are pinned
+    // to the clean-clone script, so the documented path and the verified path
+    // cannot drift apart.
+    let script_path = args.root.join(CLEAN_CLONE_SCRIPT);
+    let script_text = std::fs::read_to_string(&script_path)
+        .with_context(|| format!("failed to read {}", script_path.display()))?;
+    violations.extend(check_quickstart(&readme_label, &readme_text, &script_text));
 
     // The README's "Built in the open" block is marker-bracketed, must name the
     // full commit-graph card with its public-history provenance caption, and
@@ -1476,10 +1595,12 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
 
     if violations.is_empty() && graph_violations.is_empty() {
         // A single command guards the whole documentation surface, so the
-        // source-tree hygiene scan and the pinned-dependency agreement check
-        // run alongside the documentation rules.
+        // source-tree hygiene scan, the pinned-dependency agreement check and
+        // the no-native-prefix viewer build run alongside the documentation
+        // rules.
         crate::source_hygiene::run(&args.root).context("source-hygiene scan failed")?;
         crate::check_pins::run(&args.root).context("pin agreement check failed")?;
+        check_viewer_build(&args.root).context("viewer build check failed")?;
         println!(
             "docs-check: {} documentation file(s) clean against {} ({} facts)",
             doc_files.len(),
@@ -1876,6 +1997,110 @@ mod tests {
             .parent()
             .expect("xtask lives in a subdirectory of the workspace")
             .to_path_buf()
+    }
+
+    fn quickstart_doc(body: &str) -> String {
+        format!("intro\n{QUICKSTART_BEGIN}\n{body}\n{QUICKSTART_END}\n")
+    }
+
+    fn complete_quickstart_body() -> String {
+        let mut body = String::from("### Fastest path\n\n### Full reproduction\n\n");
+        for command in QUICKSTART_COMMANDS {
+            body.push_str(command);
+            body.push('\n');
+        }
+        body
+    }
+
+    fn complete_script() -> String {
+        let mut script = String::from("#!/bin/bash\n");
+        for command in QUICKSTART_COMMANDS {
+            script.push_str(command);
+            script.push('\n');
+        }
+        script
+    }
+
+    #[test]
+    fn a_quickstart_with_both_paths_and_every_pinned_command_passes() {
+        let doc = quickstart_doc(&complete_quickstart_body());
+        let violations = check_quickstart("README.md", &doc, &complete_script());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_quickstart_without_the_full_reproduction_path_is_a_violation() {
+        let body = complete_quickstart_body().replace("Full reproduction", "Native build");
+        let doc = quickstart_doc(&body);
+        let violations = check_quickstart("README.md", &doc, &complete_script());
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.message.contains("Full reproduction")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_quickstart_command_missing_from_the_clean_clone_script_is_a_violation() {
+        let doc = quickstart_doc(&complete_quickstart_body());
+        let script = complete_script().replace("cargo xtask dist-tui", "");
+        let violations = check_quickstart("README.md", &doc, &script);
+        assert!(
+            violations.iter().any(|v| {
+                v.file == CLEAN_CLONE_SCRIPT && v.message.contains("cargo xtask dist-tui")
+            }),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_quickstart_command_missing_from_the_readme_is_a_violation() {
+        let body = complete_quickstart_body().replace("docker run -it --rm", "");
+        let doc = quickstart_doc(&body);
+        let violations = check_quickstart("README.md", &doc, &complete_script());
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.file == "README.md" && v.message.contains("docker run -it --rm")),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_quickstart_without_markers_is_a_violation() {
+        let violations = check_quickstart("README.md", "no markers here", &complete_script());
+        assert_eq!(violations.len(), 2, "{violations:?}");
+    }
+
+    #[test]
+    fn the_committed_quickstart_is_pinned_to_the_clean_clone_script() {
+        let root = workspace_root();
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let script = std::fs::read_to_string(root.join(CLEAN_CLONE_SCRIPT))
+            .expect("clean-clone script is committed");
+        let violations = check_quickstart("README.md", &readme, &script);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn the_viewer_build_script_unsets_the_prefix_and_scans_the_tree() {
+        let root = workspace_root();
+        let script = std::fs::read_to_string(root.join("scripts/check-viewer-build.sh"))
+            .expect("viewer build script is committed");
+        for needle in [
+            "unset CLIMB_MTL_PREFIX CLIMB_MTL_INCLUDE CLIMB_MTL_LIB",
+            "--no-default-features",
+            "cargo tree",
+            "liboqs",
+            "openssl",
+            "linux-raw-sys",
+        ] {
+            assert!(
+                script.contains(needle),
+                "the viewer build script no longer contains `{needle}`"
+            );
+        }
     }
 
     #[test]

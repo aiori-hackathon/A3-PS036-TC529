@@ -28,6 +28,8 @@ pub enum LiveSource {
     LiveRun,
     /// The committed `docs/sample-output/dns-capture.recorded.json` fixture.
     RecordedFixture,
+    /// The fixture compiled into the binary.
+    Embedded,
 }
 
 /// How the recorded DNS capture looks at load time.
@@ -100,34 +102,59 @@ fn load_live_from(path: &Path, source: LiveSource) -> LiveLoadState {
     }
 }
 
-/// Load the DNS capture, trying the standard paths in order:
+/// Load the DNS capture, trying the standard sources in order:
 /// 1. `target/dns-capture.json` (live run)
 /// 2. `docs/sample-output/dns-capture.recorded.json` (committed fixture)
+/// 3. the compiled-in copy of the same fixture
 ///
 /// The first one that exists wins. A present-but-unparseable capture is a hard
 /// [`LiveLoadState::Invalid`] naming its path, never silently skipped in
 /// favour of the next candidate; only a genuinely absent file falls through.
 pub fn load_live_auto() -> LiveLoadState {
-    load_live_auto_from(
+    load_live_auto_with(
         Path::new(LIVE_CAPTURE_PATH),
         Path::new(RECORDED_CAPTURE_PATH),
+        Some(crate::data::embedded::DNS_CAPTURE),
     )
 }
 
 /// [`load_live_auto`] with explicit candidate paths, so the precedence is
-/// unit-testable without touching the working directory. When neither exists,
-/// the reported [`LiveLoadState::Missing`] names the live path, because that
-/// is what a new recording would create.
+/// unit-testable without touching the working directory.
 pub fn load_live_auto_from(live: &Path, recorded: &Path) -> LiveLoadState {
+    load_live_auto_with(live, recorded, Some(crate::data::embedded::DNS_CAPTURE))
+}
+
+/// [`load_live_auto_from`] with the compiled-in fixture made optional, so a
+/// test can still prove the "nothing anywhere" state.
+pub fn load_live_auto_with(
+    live: &Path,
+    recorded: &Path,
+    embedded_bytes: Option<&[u8]>,
+) -> LiveLoadState {
     match load_live_from(live, LiveSource::LiveRun) {
         LiveLoadState::Missing { .. } => {}
         other => return other,
     }
     match load_live_from(recorded, LiveSource::RecordedFixture) {
-        LiveLoadState::Missing { .. } => LiveLoadState::Missing {
+        LiveLoadState::Missing { .. } => {}
+        other => return other,
+    }
+    match embedded_bytes {
+        Some(bytes) => match serde_json::from_slice::<DnsCapture>(bytes) {
+            Ok(capture) => {
+                LiveLoadState::Loaded(Box::new(LiveView::new(capture, LiveSource::Embedded)))
+            }
+            Err(error) => LiveLoadState::Invalid {
+                path: PathBuf::from(format!(
+                    "<embedded {}>",
+                    crate::data::embedded::DNS_CAPTURE_NAME
+                )),
+                error: error.to_string(),
+            },
+        },
+        None => LiveLoadState::Missing {
             path: live.to_path_buf(),
         },
-        other => other,
     }
 }
 
@@ -250,7 +277,7 @@ impl LiveView {
     pub fn source_label(&self) -> &'static str {
         match self.source {
             LiveSource::LiveRun => "live run",
-            LiveSource::RecordedFixture => "recorded fixture",
+            LiveSource::RecordedFixture | LiveSource::Embedded => "recorded fixture",
         }
     }
 
@@ -793,16 +820,33 @@ mod tests {
     }
 
     #[test]
-    fn load_live_auto_names_the_live_path_when_nothing_exists() {
+    fn load_live_auto_names_the_live_path_when_nothing_exists_and_no_embedded_copy_is_offered() {
         let root = temp_root("nowhere");
         let live = root.join("target/dns-capture.json");
-        let state = load_live_auto_from(&live, &root.join("sample/dns-capture.recorded.json"));
+        let state =
+            load_live_auto_with(&live, &root.join("sample/dns-capture.recorded.json"), None);
         match state {
             LiveLoadState::Missing { path } => {
                 assert_eq!(path, live, "the remedy is a new recording at the live path")
             }
             other => panic!("expected Missing naming the live path, got {other:?}"),
         }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn load_live_auto_falls_back_to_the_embedded_capture() {
+        let root = temp_root("embedded");
+        let state = load_live_auto_from(
+            &root.join("target/dns-capture.json"),
+            &root.join("sample/dns-capture.recorded.json"),
+        );
+        assert_eq!(
+            state.view().map(LiveView::source),
+            Some(&LiveSource::Embedded)
+        );
+        assert!(state.step_count() > 0);
 
         let _ = std::fs::remove_dir_all(&root);
     }

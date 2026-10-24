@@ -8,30 +8,41 @@ rust-version.workspace = true
 
 description = "Criterion benchmark suite — MTL vs non-MTL signing (Phase 5) and verification (Phase 6)"
 
+[features]
+default = ["native"]
+# Native measurement support: links libMTL/liboqs and samples RSS through
+# sysinfo. Every artifact *type* stays available without it, so read-only
+# consumers can parse recorded reports without a native toolchain.
+native = ["dep:climb-mtl-sys", "dep:climb-mtl", "dep:sysinfo"]
+
 [[bench]]
 name = "signing"
 harness = false
+required-features = ["native"]
 
 [[bench]]
 name = "verifying"
 harness = false
+required-features = ["native"]
 
 [[bench]]
 name = "classical"
 harness = false
+required-features = ["native"]
 
 [[bench]]
 name = "primitives"
 harness = false
+required-features = ["native"]
 
 [dependencies]
-climb-mtl-sys = { path = "../climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
-climb-mtl = { path = "../climb-mtl" }
+climb-mtl-sys = { path = "../climb-mtl-sys", optional = true }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
+climb-mtl = { path = "../climb-mtl", optional = true }
 climb-dns = { path = "../climb-dns" }
 climb-analytical = { path = "../climb-analytical" }
 thiserror.workspace = true
 serde = { workspace = true, features = ["derive"] }
-sysinfo = { workspace = true }
+sysinfo = { workspace = true, optional = true }
 serde_json.workspace = true
 
 [dev-dependencies]
@@ -46,3 +57,4 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [[bin]]
 name = "mem_probe"
 path = "src/bin/mem_probe.rs"
+required-features = ["native"]

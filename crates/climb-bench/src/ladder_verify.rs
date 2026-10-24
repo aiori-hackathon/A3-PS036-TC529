@@ -21,8 +21,11 @@
 //! Everything fallible returns [`LadderVerifyError`] rather than panicking:
 //! signing can fail, and untrusted-but-parsed byte offsets are bounds-checked.
 
+#[cfg(feature = "native")]
 use climb_analytical::{HASH_SIZE, MTL_INDEX_LEN};
+#[cfg(feature = "native")]
 use climb_dns::generate_dataset_count;
+#[cfg(feature = "native")]
 use climb_mtl::{MtlError, MtlKeyPair};
 use serde::{Deserialize, Serialize};
 
@@ -79,6 +82,7 @@ pub struct LadderRow {
 #[derive(Debug, thiserror::Error)]
 pub enum LadderVerifyError {
     /// Signing a batch failed inside libMTL.
+    #[cfg(feature = "native")]
     #[error("MTL signing failed: {0}")]
     Mtl(#[from] MtlError),
     /// A requested leaf count was zero; libMTL cannot sign an empty batch.
@@ -104,18 +108,21 @@ pub enum LadderVerifyError {
     },
 }
 
+#[cfg(feature = "native")]
 fn read_u16_be(bytes: &[u8], offset: usize) -> Option<u16> {
     let end = offset.checked_add(2)?;
     let slice: [u8; 2] = bytes.get(offset..end)?.try_into().ok()?;
     Some(u16::from_be_bytes(slice))
 }
 
+#[cfg(feature = "native")]
 fn read_u32_be(bytes: &[u8], offset: usize) -> Option<u32> {
     let end = offset.checked_add(4)?;
     let slice: [u8; 4] = bytes.get(offset..end)?.try_into().ok()?;
     Some(u32::from_be_bytes(slice))
 }
 
+#[cfg(feature = "native")]
 fn read_u64_be(bytes: &[u8], offset: usize) -> Option<u64> {
     let end = offset.checked_add(8)?;
     let slice: [u8; 8] = bytes.get(offset..end)?.try_into().ok()?;
@@ -123,6 +130,7 @@ fn read_u64_be(bytes: &[u8], offset: usize) -> Option<u64> {
 }
 
 /// Structural fields decoded from a signed ladder.
+#[cfg(feature = "native")]
 struct ParsedLadder {
     rungs: Vec<LadderRung>,
     ladder_buffer_len: usize,
@@ -130,6 +138,7 @@ struct ParsedLadder {
 }
 
 /// Decode the signed ladder produced by libMTL for `leaf_count` leaves.
+#[cfg(feature = "native")]
 fn parse_signed_ladder(bytes: &[u8], leaf_count: usize) -> Result<ParsedLadder, LadderVerifyError> {
     let malformed = |reason: String| LadderVerifyError::MalformedLadder { leaf_count, reason };
 
@@ -190,6 +199,7 @@ fn parse_signed_ladder(bytes: &[u8], leaf_count: usize) -> Result<ParsedLadder, 
 /// but they are not retained: a rung's leaf range and its sibling count are
 /// both derivable from the ladder's rungs, so persisting them would duplicate
 /// the rung array.
+#[cfg(feature = "native")]
 fn parse_condensed(
     bytes: &[u8],
     leaf_count: usize,
@@ -254,6 +264,7 @@ fn parse_condensed(
 /// * [`LadderVerifyError::Mtl`] if libMTL key generation or signing fails.
 /// * [`LadderVerifyError::MalformedLadder`] / [`LadderVerifyError::MalformedCondensed`]
 ///   if the returned bytes do not match the pinned layouts.
+#[cfg(feature = "native")]
 pub fn measure_ladder_rows(
     seed: u64,
     sizes: &[usize],
@@ -309,6 +320,7 @@ pub fn measure_ladder_rows(
 }
 
 /// Min/max/mean/total/uniform over a non-empty slice of condensed lengths.
+#[cfg(feature = "native")]
 fn condensed_stats(lens: &[usize]) -> CondensedStats {
     debug_assert!(!lens.is_empty(), "a signed batch is never empty");
     let min = lens.iter().copied().min().unwrap_or(0);
@@ -331,6 +343,7 @@ fn condensed_stats(lens: &[usize]) -> CondensedStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(feature = "native")]
     use climb_analytical::{predicted_condensed_len, predicted_ladder_len, rungs};
 
     #[test]
@@ -343,6 +356,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn zero_leaf_count_is_rejected() {
         assert!(matches!(
             measure_ladder_rows(0x434C_494D_425F_5635, &[1, 0]),
@@ -351,12 +365,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn empty_sizes_yields_no_rows() {
         assert_eq!(measure_ladder_rows(1, &[]).expect("no signing"), Vec::new());
     }
 
     #[test]
     #[ignore = "requires the native libMTL build; run via `cargo xtask ladder-verify`"]
+    #[cfg(feature = "native")]
     fn measured_rows_agree_with_model() {
         let rows = measure_ladder_rows(DEFAULT_LADDER_SEED, &[1, 2, 3, 5, 8, 13])
             .expect("native measurement");
@@ -376,6 +392,7 @@ mod tests {
     /// The model predicts a condensed length for *every* leaf, so comparing the
     /// exact distribution (min, max, total, mean) against the measured one
     /// checks every leaf's path without persisting per-leaf records.
+    #[cfg(feature = "native")]
     fn assert_row_agrees_with_model(row: &LadderRow) {
         let n = row.leaf_count as u64;
         assert!(n >= 1, "a measured batch is never empty");
@@ -449,5 +466,6 @@ mod tests {
 
     // Measured rows captured from a real run; every field is parsed out of
     // real libMTL bytes, not copied from a report.
+    #[cfg(feature = "native")]
     include!("ladder_verify_inline.rs");
 }

@@ -1,0 +1,13 @@
+# Keep the viewer image build context small and independent of local build
+# state. The native submodules and the benchmark workspace are not needed: the
+# viewer compiles with no default features and embeds only the committed
+# sample output under docs/sample-output/.
+target
+dist
+.git
+data
+third_party
+.mtl-install
+environment.json
+**/*.log
+*.pdf

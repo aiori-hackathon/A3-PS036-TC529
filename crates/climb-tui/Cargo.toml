@@ -12,11 +12,18 @@ description = "Ratatui live-run dashboard for benchmark visualization (Batch 6)"
 name = "climb-tui"
 path = "src/main.rs"
 
+[features]
+default = ["native"]
+# Link the native measurement stack through `climb-report`. The dashboard
+# itself only reads artifacts, so a viewer-only build turns this off and needs
+# no libMTL/liboqs/OpenSSL prefix.
+native = ["climb-report/native"]
+
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
 climb-analytical = { path = "../climb-analytical" }
-climb-report = { path = "../climb-report" }
+climb-report = { path = "../climb-report", default-features = false }
 ratatui.workspace = true
 crossterm.workspace = true
 serde_json.workspace = true

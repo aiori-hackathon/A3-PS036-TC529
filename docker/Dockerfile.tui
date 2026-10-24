@@ -1,0 +1,22 @@
+# docker/Dockerfile.tui — viewer-only CLIMB dashboard image
+#
+# The dashboard reads recorded artifacts and links no native crypto stack, so
+# this build needs neither libMTL, liboqs nor OpenSSL. The build stage produces
+# a static musl binary; the runtime stage is a minimal Alpine image that runs
+# the viewer as a non-root user.
+
+FROM rust:1.98.1-bookworm AS build
+WORKDIR /src
+COPY . .
+RUN rustup target add x86_64-unknown-linux-musl \
+    && cargo build -p climb-tui --release --no-default-features \
+        --target x86_64-unknown-linux-musl
+
+FROM alpine:3.22
+RUN adduser -D -u 10001 viewer
+COPY --from=build \
+    /src/target/x86_64-unknown-linux-musl/release/climb-tui \
+    /usr/local/bin/climb-tui
+USER viewer
+WORKDIR /home/viewer
+ENTRYPOINT ["climb-tui"]

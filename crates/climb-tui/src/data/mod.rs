@@ -7,6 +7,7 @@
 //! appears as a literal anywhere in this crate.
 
 mod amortization;
+mod embedded;
 mod integrity;
 mod ladder;
 mod live;
@@ -23,13 +24,13 @@ pub use integrity::{
     Provenance,
 };
 pub use ladder::{
-    badge as ladder_badge, load_ladder, load_ladder_auto, BadgeKind, LadderBadge, LadderLoadState,
-    LadderSource,
+    badge as ladder_badge, load_ladder, load_ladder_auto, load_ladder_auto_from,
+    load_ladder_auto_with, BadgeKind, LadderBadge, LadderLoadState, LadderSource,
 };
 pub use live::{
-    bar_cells, flag_text, load_live, load_live_auto, load_live_auto_from, Direction, HeadlineLanes,
-    Lane, LaneStep, LiveLoadState, LiveSource, LiveStep, LiveView, LIVE_CAPTURE_PATH,
-    RECORDED_CAPTURE_PATH,
+    bar_cells, flag_text, load_live, load_live_auto, load_live_auto_from, load_live_auto_with,
+    Direction, HeadlineLanes, Lane, LaneStep, LiveLoadState, LiveSource, LiveStep, LiveView,
+    LIVE_CAPTURE_PATH, RECORDED_CAPTURE_PATH,
 };
 pub use method::{
     ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
@@ -147,6 +148,168 @@ impl ResultsView {
     }
 }
 
+/// Where a loaded artifact came from, in resolution order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactOrigin {
+    /// A path the user named on the command line.
+    Explicit,
+    /// The generated artifact under `target/`.
+    Target,
+    /// The committed sample under `docs/sample-output/`.
+    Sample,
+    /// Compiled into the binary.
+    Embedded,
+}
+
+impl ArtifactOrigin {
+    /// Lowercase tag shown in the status bar.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            ArtifactOrigin::Explicit => "explicit",
+            ArtifactOrigin::Target => "target",
+            ArtifactOrigin::Sample => "sample",
+            ArtifactOrigin::Embedded => "embedded",
+        }
+    }
+}
+
+/// The artifact the current view was read from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArtifactSource {
+    origin: ArtifactOrigin,
+    path: Option<PathBuf>,
+}
+
+impl ArtifactSource {
+    /// A source backed by a file on disk.
+    #[must_use]
+    pub fn from_path(origin: ArtifactOrigin, path: impl Into<PathBuf>) -> Self {
+        Self {
+            origin,
+            path: Some(path.into()),
+        }
+    }
+
+    /// The compiled-in sample.
+    #[must_use]
+    pub fn embedded() -> Self {
+        Self {
+            origin: ArtifactOrigin::Embedded,
+            path: None,
+        }
+    }
+
+    /// Where the artifact came from.
+    #[must_use]
+    pub fn origin(&self) -> ArtifactOrigin {
+        self.origin
+    }
+
+    /// The file it was read from, when it came from disk.
+    #[must_use]
+    pub fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    /// One-line label: the origin tag plus the path, or the embedded name.
+    #[must_use]
+    pub fn label(&self) -> String {
+        match &self.path {
+            Some(path) => format!("[{}] {}", self.origin.label(), path.display()),
+            None => format!("[embedded] <built-in {}>", embedded::RESULTS_NAME),
+        }
+    }
+}
+
+/// The generated results artifact under `target/`.
+pub const TARGET_RESULTS_PATH: &str = "target/climb-results.json";
+/// The committed results sample.
+pub const SAMPLE_RESULTS_PATH: &str = "docs/sample-output/climb-results.json";
+
+/// Resolve and load the consolidated results without requiring a checkout.
+///
+/// Precedence: an explicitly named path, then `target/`, then
+/// `docs/sample-output/`, then the compiled-in copy. A file that exists but
+/// cannot be read or parsed stops resolution with [`LoadState::Invalid`] — it
+/// is never silently skipped in favour of a later source.
+#[must_use]
+pub fn load_results_auto(explicit: Option<&Path>) -> (ArtifactSource, LoadState) {
+    load_results_auto_from(
+        explicit,
+        Path::new(TARGET_RESULTS_PATH),
+        Path::new(SAMPLE_RESULTS_PATH),
+        embedded::RESULTS,
+    )
+}
+
+/// [`load_results_auto`] with explicit candidates, so every precedence rule is
+/// unit-testable without touching the working directory.
+#[must_use]
+pub fn load_results_auto_from(
+    explicit: Option<&Path>,
+    target: &Path,
+    sample: &Path,
+    embedded_bytes: &[u8],
+) -> (ArtifactSource, LoadState) {
+    if let Some(path) = explicit {
+        if let Some(state) = load_present(path, ArtifactOrigin::Explicit.path(path)) {
+            return state;
+        }
+    }
+    for (origin, path) in [
+        (ArtifactOrigin::Target, target),
+        (ArtifactOrigin::Sample, sample),
+    ] {
+        if let Some(state) = load_present(path, origin.path(path)) {
+            return state;
+        }
+    }
+    (
+        ArtifactSource::embedded(),
+        load_bytes(
+            embedded_bytes,
+            embedded::RESULTS_NAME,
+            ArtifactOrigin::Embedded,
+        ),
+    )
+}
+
+/// Load one candidate, returning `None` only when the file is absent.
+fn load_present(path: &Path, source: ArtifactSource) -> Option<(ArtifactSource, LoadState)> {
+    if std::fs::metadata(path).is_err() {
+        return None;
+    }
+    let state = load_with_source(path);
+    Some((source, state))
+}
+
+/// Parse an in-memory artifact; a failure names the source it came from.
+fn load_bytes(bytes: &[u8], name: &str, origin: ArtifactOrigin) -> LoadState {
+    let results: ClimbResults = match serde_json::from_slice(bytes) {
+        Ok(results) => results,
+        Err(error) => {
+            return LoadState::Invalid {
+                path: PathBuf::from(format!("<{} {name}>", origin.label())),
+                error: error.to_string(),
+            };
+        }
+    };
+    let integrity = IntegrityView::run(Path::new(name), &results);
+    LoadState::Loaded(Box::new(ResultsView {
+        results,
+        age: None,
+        report_health: ReportHealth::NoReport,
+        integrity,
+    }))
+}
+
+impl ArtifactOrigin {
+    fn path(self, path: &Path) -> ArtifactSource {
+        ArtifactSource::from_path(self, path)
+    }
+}
+
 /// Title-case a section's size label so the Wire/Memory tabs (which store it
 /// lowercase) match the Signing/Verifying tabs' spelling.
 pub(crate) fn title_size(size: &str) -> String {
@@ -162,6 +325,16 @@ pub(crate) fn title_size(size: &str) -> String {
 /// Reading and parsing failures become [`LoadState`] variants — this function
 /// never panics and never returns a partial view.
 pub fn load(path: &Path) -> LoadState {
+    if std::fs::metadata(path).is_err() {
+        return LoadState::Missing {
+            path: path.to_path_buf(),
+        };
+    }
+    load_with_source(path)
+}
+
+/// Parse one file, with its modification time where available.
+fn load_with_source(path: &Path) -> LoadState {
     let metadata = match std::fs::metadata(path) {
         Ok(meta) => meta,
         Err(_) => {
@@ -590,6 +763,169 @@ mod tests {
         };
         assert!(!error.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn source_root(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-tui-source-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    fn valid_results_bytes() -> Vec<u8> {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        serde_json::to_vec(view.results()).expect("serialize results")
+    }
+
+    fn write_bytes(path: &Path, bytes: &[u8]) {
+        std::fs::create_dir_all(path.parent().expect("parent")).expect("parent dir");
+        std::fs::write(path, bytes).expect("write artifact");
+    }
+
+    #[test]
+    fn results_resolution_prefers_an_explicit_path() {
+        let root = source_root("explicit");
+        let explicit = root.join("mine/results.json");
+        let target = root.join("target/climb-results.json");
+        let sample = root.join("docs/sample-output/climb-results.json");
+        for path in [&explicit, &target, &sample] {
+            write_bytes(path, &valid_results_bytes());
+        }
+
+        let (source, state) =
+            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Explicit);
+        assert_eq!(source.path(), Some(explicit.as_path()));
+        assert!(state.is_loaded());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn results_resolution_uses_target_then_sample_then_embedded() {
+        let root = source_root("precedence");
+        let target = root.join("target/climb-results.json");
+        let sample = root.join("docs/sample-output/climb-results.json");
+        let explicit = root.join("missing/results.json");
+        let bytes = valid_results_bytes();
+
+        write_bytes(&target, &bytes);
+        write_bytes(&sample, &bytes);
+        let (source, state) =
+            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Target);
+        assert!(state.is_loaded());
+
+        std::fs::remove_file(&target).expect("remove target");
+        let (source, state) =
+            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Sample);
+        assert_eq!(source.path(), Some(sample.as_path()));
+        assert!(state.is_loaded());
+
+        std::fs::remove_file(&sample).expect("remove sample");
+        let (source, state) =
+            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Embedded);
+        assert_eq!(source.path(), None);
+        assert!(state.is_loaded());
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn results_resolution_stops_at_a_present_but_invalid_candidate() {
+        let root = source_root("invalid");
+        let target = root.join("target/climb-results.json");
+        let sample = root.join("docs/sample-output/climb-results.json");
+        write_bytes(&target, b"{ not json");
+        write_bytes(&sample, &valid_results_bytes());
+
+        let (source, state) = load_results_auto_from(None, &target, &sample, embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Target);
+        match state {
+            LoadState::Invalid { path, .. } => assert_eq!(path, target),
+            other => panic!("expected Invalid naming the target, got {other:?}"),
+        }
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn results_resolution_reports_invalid_embedded_bytes() {
+        let root = source_root("invalid-embedded");
+        let (source, state) = load_results_auto_from(
+            None,
+            &root.join("target/climb-results.json"),
+            &root.join("docs/sample-output/climb-results.json"),
+            b"not json",
+        );
+        assert_eq!(source.origin(), ArtifactOrigin::Embedded);
+        match state {
+            LoadState::Invalid { path, .. } => {
+                let named = path.display().to_string();
+                assert!(named.contains("embedded"), "source tag missing: {named}");
+                assert!(
+                    named.contains(embedded::RESULTS_NAME),
+                    "embedded document name missing: {named}"
+                );
+            }
+            other => panic!("expected Invalid naming the embedded source, got {other:?}"),
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn artifact_source_labels_name_the_origin() {
+        let explicit = ArtifactSource::from_path(ArtifactOrigin::Explicit, "mine.json");
+        assert_eq!(explicit.label(), "[explicit] mine.json");
+        let embedded = ArtifactSource::embedded();
+        assert!(embedded.label().contains("[embedded]"));
+        assert!(embedded.label().contains(embedded::RESULTS_NAME));
+    }
+
+    #[test]
+    fn the_embedded_samples_parse_through_every_loader() {
+        let root = source_root("contract");
+        let missing_target = root.join("target");
+        let missing_sample = root.join("docs");
+
+        let (results_source, results) = load_results_auto_from(
+            None,
+            &missing_target.join("climb-results.json"),
+            &missing_sample.join("climb-results.json"),
+            embedded::RESULTS,
+        );
+        assert_eq!(results_source.origin(), ArtifactOrigin::Embedded);
+        assert!(results.is_loaded(), "embedded results must parse");
+
+        let ladder = load_ladder_auto_from(
+            &missing_target.join("ladder-verification.json"),
+            &missing_sample.join("ladder-verification.recorded.json"),
+        );
+        assert_eq!(ladder.source(), Some(LadderSource::Embedded));
+        assert!(
+            ladder.verification().is_some(),
+            "embedded ladder must parse"
+        );
+
+        let live = load_live_auto_from(
+            &missing_target.join("dns-capture.json"),
+            &missing_sample.join("dns-capture.recorded.json"),
+        );
+        assert_eq!(
+            live.view().map(|view| view.source()),
+            Some(&LiveSource::Embedded)
+        );
+        assert!(live.step_count() > 0, "embedded capture must parse");
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

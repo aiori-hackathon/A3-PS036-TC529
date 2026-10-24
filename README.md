@@ -49,7 +49,7 @@ DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signin
 > - [**Report (HTML)**](docs/sample-output/report.html) — Self-contained results report with claims registry and drift checks
 > - [**Deck PDF**](A3-PS036-TC529.pdf) — Team presentation deck
 > - [**Intro video**](https://www.youtube.com/watch?v=gDHYamjWmtE) — Team CLIMB introduction
-> - [**Quickstart**](#quickstart--clean-clone-to-dashboard-three-commands) — Clean clone to dashboard in three commands
+> - [**Quickstart**](#quickstart) — Prebuilt viewer, container, or a full native build
 > - [**Honest limits**](#honest-limits) — Empirical measurements only; no formal guarantees
 
 ## The pitch, in thirty seconds
@@ -122,13 +122,39 @@ Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
 the full table (every size, both time metrics, memory, ladder shape, DNS
 capture rows) lives there with JSON pointers into the artifacts.
 
-## Quickstart — clean clone to dashboard, three commands
+## Quickstart
+
+<!-- quickstart:begin -->
+The dashboard is a read-only viewer: it parses recorded artifacts and links no
+native crypto stack. There are two ways in, and only the second one needs a
+compiler at all.
+
+### Fastest path — prebuilt viewer or container
+
+Download the viewer tarball from the latest release and run the binary, or run
+the published container image:
+
+```bash
+tar -xzf climb-tui-*.tar.gz && ./climb-tui-*/climb-tui --tour
+docker run -it --rm climb-tui:latest
+```
+
+The tarball is produced from this checkout with `cargo xtask dist-tui`; the
+image is built with `docker build -f docker/Dockerfile.tui -t climb-tui .`.
+Both compile the sample results,
+the recorded DNS capture and the recorded ladder verification into the binary,
+so the dashboard renders with no checkout, no native prefix and no network.
+The status bar names which source it read: `[embedded]`, `[sample]`,
+`[target]` or `[explicit]`.
+
+### Full reproduction — build the native stack
 
 ```bash
 git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
 docker build -f docker/Dockerfile.build -t climb-builder:phase1 . && docker/extract-libs.sh
 cargo run -p climb-tui
 ```
+<!-- quickstart:end -->
 
 The first command clones the repository with its pinned submodules; the second
 builds the pinned native toolchain (OpenSSL, liboqs, libMTL) in Docker and

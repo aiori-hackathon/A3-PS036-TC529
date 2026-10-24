@@ -53,4 +53,37 @@ cargo xtask reproduce --quick --skip-dns
 echo "--- ok"
 
 echo ""
+echo "=== STEP 6: viewer build without a native prefix ==="
+scripts/check-viewer-build.sh
+echo "--- ok"
+
+echo ""
+echo "=== STEP 7: prebuilt viewer tarball ==="
+cargo xtask dist-tui --out dist --skip-smoke
+echo "--- ok"
+
+echo ""
+echo "=== STEP 8: full reproduction commands (opt-in) ==="
+# These are the three commands the README's full-reproduction quickstart
+# documents. The native toolchain build is expensive and the dashboard is
+# interactive, so they run only when CLIMB_FULL_QUICKSTART=1.
+if [ "${CLIMB_FULL_QUICKSTART:-0}" = "1" ]; then
+  docker build -f docker/Dockerfile.build -t climb-builder:phase1 . && docker/extract-libs.sh
+  cargo run -p climb-tui
+else
+  echo "--- skipped (set CLIMB_FULL_QUICKSTART=1 to run the native build and the dashboard)"
+fi
+
+echo ""
+echo "=== STEP 9: viewer container (opt-in) ==="
+# The fastest-path container: build it and open the guided tour under a
+# pseudo-terminal, quitting with Esc.
+if [ "${CLIMB_DOCKER_SMOKE:-0}" = "1" ]; then
+  docker build -f docker/Dockerfile.tui -t climb-tui:check .
+  script -qec "docker run -it --rm climb-tui:check --tour" /dev/null
+else
+  echo "--- skipped (set CLIMB_DOCKER_SMOKE=1 to build and run the viewer image)"
+fi
+
+echo ""
 echo "=== ALL STEPS PASSED ==="

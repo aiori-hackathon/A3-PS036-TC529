@@ -46,6 +46,27 @@ pub struct Cli {
         value_parser = parse_tour_speed,
     )]
     pub tour_speed: f64,
+
+    /// Whether `--results` was present on the command line. Filled in by
+    /// [`Cli::parse_with_provenance`], not by clap.
+    #[arg(skip)]
+    pub results_explicit: bool,
+}
+
+impl Cli {
+    /// Parse the process arguments and record whether the results path was
+    /// explicit, so the loader can tell "the user asked for this file" from
+    /// "the default target path".
+    pub fn parse_with_provenance() -> Self {
+        use clap::parser::ValueSource;
+        use clap::{CommandFactory, FromArgMatches};
+
+        let matches = Self::command().get_matches();
+        let results_explicit = matches.value_source("results") == Some(ValueSource::CommandLine);
+        let mut cli = Self::from_arg_matches(&matches).unwrap_or_else(|error| error.exit());
+        cli.results_explicit = results_explicit;
+        cli
+    }
 }
 
 /// Parse a `--tour-speed` value, rejecting anything outside
