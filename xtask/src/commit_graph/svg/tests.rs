@@ -267,6 +267,279 @@ fn no_text_run_overlaps_another_run() {
     }
 }
 
+/// One non-text drawing primitive, kept as a segment or a box so a text run can
+/// be tested against it without a rasteriser. `owner` names the text group that
+/// a leader belongs to; that leader is the one exception the rule allows.
+#[derive(Clone, Debug)]
+enum MarkShape {
+    Segment(f64, f64, f64, f64),
+    Box(f64, f64, f64, f64),
+}
+
+#[derive(Clone, Debug)]
+struct Mark {
+    kind: &'static str,
+    owner: Option<String>,
+    shape: MarkShape,
+}
+
+impl Mark {
+    fn intersects(&self, rect: &(f64, f64, f64, f64)) -> bool {
+        match self.shape {
+            MarkShape::Box(x, y, w, h) => {
+                x < rect.0 + rect.2 && rect.0 < x + w && y < rect.1 + rect.3 && rect.1 < y + h
+            }
+            MarkShape::Segment(x1, y1, x2, y2) => segment_intersects_rect(x1, y1, x2, y2, *rect),
+        }
+    }
+}
+
+fn inside_text_group(node: Node<'_, '_>) -> bool {
+    node.ancestors()
+        .any(|ancestor| ancestor.attribute("class") == Some("cg-text-group"))
+}
+
+fn inside_defs(node: Node<'_, '_>) -> bool {
+    node.ancestors()
+        .any(|ancestor| ancestor.has_tag_name("defs"))
+}
+
+fn inside_flag(node: Node<'_, '_>) -> bool {
+    node.ancestors()
+        .any(|ancestor| ancestor.attribute("class") == Some("cg-flag"))
+}
+
+fn class_has(node: Node<'_, '_>, value: &str) -> bool {
+    node.attribute("class")
+        .is_some_and(|class| class.split_whitespace().any(|token| token == value))
+}
+
+/// Parse the generator's absolute `M`/`L`/`Z` path data into line segments.
+fn path_segments(d: &str) -> Vec<(f64, f64, f64, f64)> {
+    let mut tokens: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for ch in d.chars() {
+        if ch.is_ascii_alphabetic() {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+            tokens.push(ch.to_string());
+        } else if ch.is_whitespace() || ch == ',' {
+            if !current.is_empty() {
+                tokens.push(std::mem::take(&mut current));
+            }
+        } else {
+            current.push(ch);
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    let mut segments = Vec::new();
+    let mut previous: Option<(f64, f64)> = None;
+    let mut index = 0;
+    while index < tokens.len() {
+        let command = tokens[index].clone();
+        index += 1;
+        if command == "Z" {
+            continue;
+        }
+        if command != "M" && command != "L" {
+            continue;
+        }
+        while index + 1 < tokens.len()
+            && tokens[index].parse::<f64>().is_ok()
+            && tokens[index + 1].parse::<f64>().is_ok()
+        {
+            let x: f64 = tokens[index].parse().expect("a coordinate");
+            let y: f64 = tokens[index + 1].parse().expect("a coordinate");
+            index += 2;
+            if let Some((px, py)) = previous {
+                segments.push((px, py, x, y));
+            }
+            previous = Some((x, y));
+        }
+    }
+    segments
+}
+
+fn segment_intersects_rect(x1: f64, y1: f64, x2: f64, y2: f64, rect: (f64, f64, f64, f64)) -> bool {
+    let (rx, ry, rw, rh) = rect;
+    let inside = |x: f64, y: f64| x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+    if inside(x1, y1) || inside(x2, y2) {
+        return true;
+    }
+    let edges = [
+        (rx, ry, rx + rw, ry),
+        (rx + rw, ry, rx + rw, ry + rh),
+        (rx + rw, ry + rh, rx, ry + rh),
+        (rx, ry + rh, rx, ry),
+    ];
+    edges
+        .iter()
+        .any(|edge| segments_cross(x1, y1, x2, y2, edge.0, edge.1, edge.2, edge.3))
+}
+
+// Mirrors the engine's two-endpoint orientation test; naming the eight
+// coordinates keeps the cross-product formula readable.
+#[allow(clippy::too_many_arguments)]
+fn segments_cross(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64, dx: f64, dy: f64) -> bool {
+    let orient = |px: f64, py: f64, qx: f64, qy: f64, rx: f64, ry: f64| {
+        (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    };
+    let o1 = orient(ax, ay, bx, by, cx, cy);
+    let o2 = orient(ax, ay, bx, by, dx, dy);
+    let o3 = orient(cx, cy, dx, dy, ax, ay);
+    let o4 = orient(cx, cy, dx, dy, bx, by);
+    (o1 * o2 < 0.0) && (o3 * o4 < 0.0)
+}
+
+fn text_runs_with_owner(document: &Document<'_>) -> Vec<(String, (f64, f64, f64, f64))> {
+    let mut runs = Vec::new();
+    for group in document
+        .descendants()
+        .filter(|node| node.has_tag_name("g") && node.attribute("class") == Some("cg-text-group"))
+    {
+        let name = group.attribute("data-name").expect("a group name");
+        for run in group
+            .descendants()
+            .filter(|node| node.attribute("class") == Some("cg-run"))
+        {
+            runs.push((name.to_string(), bbox(run)));
+        }
+    }
+    runs
+}
+
+fn nontext_marks(document: &Document<'_>) -> Vec<Mark> {
+    let mut marks = Vec::new();
+    for node in document.descendants() {
+        if inside_defs(node) || inside_text_group(node) {
+            continue;
+        }
+        if node.has_tag_name("path") {
+            let segments = path_segments(node.attribute("d").unwrap_or_default());
+            let kind = if class_has(node, "cg-stair") {
+                "staircase"
+            } else if class_has(node, "cg-fill") {
+                "fill-edge"
+            } else if inside_flag(node) {
+                "pennant"
+            } else {
+                continue;
+            };
+            for (x1, y1, x2, y2) in segments {
+                marks.push(Mark {
+                    kind,
+                    owner: None,
+                    shape: MarkShape::Segment(x1, y1, x2, y2),
+                });
+            }
+        } else if node.has_tag_name("rect") && class_has(node, "dm-bar") {
+            let x = node
+                .attribute("x")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let y = node
+                .attribute("y")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let w = node
+                .attribute("width")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            let h = node
+                .attribute("height")
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(0.0);
+            marks.push(Mark {
+                kind: "bar",
+                owner: None,
+                shape: MarkShape::Box(x, y, w, h),
+            });
+        } else if node.has_tag_name("line") && inside_flag(node) {
+            let value = |key: &str| {
+                node.attribute(key)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0.0)
+            };
+            marks.push(Mark {
+                kind: "pole",
+                owner: None,
+                shape: MarkShape::Segment(value("x1"), value("y1"), value("x2"), value("y2")),
+            });
+        } else if node.has_tag_name("line") && class_has(node, "cg-leader") {
+            let value = |key: &str| {
+                node.attribute(key)
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(0.0)
+            };
+            marks.push(Mark {
+                kind: "leader",
+                owner: node.attribute("data-owner").map(str::to_string),
+                shape: MarkShape::Segment(value("x1"), value("y1"), value("x2"), value("y2")),
+            });
+        } else if node.has_tag_name("circle") && (inside_flag(node) || class_has(node, "dm-now")) {
+            let cx = node
+                .attribute("cx")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let cy = node
+                .attribute("cy")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            let r = node
+                .attribute("r")
+                .and_then(|v| v.parse::<f64>().ok())
+                .unwrap_or(0.0);
+            marks.push(Mark {
+                kind: "dot",
+                owner: None,
+                shape: MarkShape::Box(cx - r, cy - r, 2.0 * r, 2.0 * r),
+            });
+        }
+    }
+    marks
+}
+
+/// The layout engine's collision rule, recomputed from the committed bytes:
+/// no text run may cross the staircase, its fill edge, a flag's pole or pennant,
+/// a day bar, or a dot. A leader may touch the run it points at, and only that
+/// run — the leader names its owner so the exception is explicit rather than a
+/// blanket allowance for thin marks.
+#[test]
+fn no_text_run_overlaps_a_nontext_mark() {
+    for name in ALL {
+        let svg = committed(name);
+        let document = parse(&svg);
+        let runs = text_runs_with_owner(&document);
+        let marks = nontext_marks(&document);
+        assert!(!runs.is_empty(), "{name} has no text runs");
+        assert!(!marks.is_empty(), "{name} has no non-text marks");
+        let mut violations = Vec::new();
+        for (group, rect) in &runs {
+            for mark in &marks {
+                if mark.kind == "leader" && mark.owner.as_deref() == Some(group.as_str()) {
+                    continue;
+                }
+                if mark.intersects(rect) {
+                    violations.push(format!(
+                        "{name}/{group}: text ({:.1}, {:.1}, {:.1}, {:.1}) crosses {} {:?}",
+                        rect.0, rect.1, rect.2, rect.3, mark.kind, mark.shape
+                    ));
+                }
+            }
+        }
+        assert!(
+            violations.is_empty(),
+            "{} text/mark collision(s):\n  {}",
+            violations.len(),
+            violations.join("\n  ")
+        );
+    }
+}
+
 #[test]
 fn overlap_detection_is_not_vacuous() {
     let a = TextBox {
@@ -519,7 +792,7 @@ fn the_wide_staircase_keeps_a_seventy_thirty_split() {
             );
         }
         assert!(
-            top >= 200.0 && bottom <= 372.0,
+            top >= 200.0 && bottom <= 384.0,
             "{name}: plot y range {top}..{bottom}"
         );
     }
@@ -1101,6 +1374,136 @@ fn thousands_separator_groups_from_the_right() {
     assert_eq!(thousands(999), "999");
     assert_eq!(thousands(1000), "1,000");
     assert_eq!(thousands(1234567), "1,234,567");
+}
+
+#[test]
+fn segment_box_intersection_is_exact() {
+    let box_ = TextBox {
+        x: 10.0,
+        y: 10.0,
+        width: 20.0,
+        height: 10.0,
+    };
+    assert!(segment_intersects_box(0.0, 15.0, 40.0, 15.0, &box_));
+    assert!(segment_intersects_box(15.0, 0.0, 15.0, 30.0, &box_));
+    assert!(segment_intersects_box(12.0, 12.0, 14.0, 14.0, &box_));
+    assert!(segment_intersects_box(10.0, 10.0, 0.0, 0.0, &box_));
+    assert!(!segment_intersects_box(0.0, 0.0, 5.0, 5.0, &box_));
+    assert!(!segment_intersects_box(0.0, 5.0, 40.0, 5.0, &box_));
+}
+
+#[test]
+fn staircase_polyline_skips_repeated_points_and_ends_at_the_total() {
+    let graph = committed_graph();
+    let chart = Layout::wide().chart.expect("a wide chart");
+    let geom = chart_geometry(&graph, &chart).expect("chart geometry");
+    let points = staircase_points(&geom);
+    for pair in points.windows(2) {
+        assert_ne!(pair[0], pair[1], "the staircase repeats a point");
+    }
+    assert_eq!(points.first(), Some(&(geom.left, geom.bottom)));
+    let last = points.last().expect("a last point");
+    assert!((last.0 - geom.data_right).abs() < 1e-9);
+    assert!((last.1 - geom.y(graph.totals.commits)).abs() < 1e-9);
+}
+
+#[test]
+fn the_busiest_label_sits_above_the_tallest_bar() {
+    let graph = committed_graph();
+    let svg = committed(WIDE);
+    let document = parse(&svg);
+    let bar = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("rect")
+                && node.attribute("data-date") == Some(graph.totals.busiest_day.date.as_str())
+        })
+        .expect("the busiest bar");
+    let value = |key: &str| {
+        bar.attribute(key)
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("a numeric bar component")
+    };
+    let (bar_x, bar_y, bar_width) = (value("x"), value("y"), value("width"));
+    let group = document
+        .descendants()
+        .find(|node| node.attribute("data-name") == Some("annotations"))
+        .expect("the annotations group");
+    let run = group
+        .descendants()
+        .find(|node| node.attribute("class") == Some("cg-run"))
+        .expect("the busiest run");
+    let (x, y, _, height) = bbox(run);
+    assert!(
+        (x - bar_x).abs() <= 3.0,
+        "the busiest label starts at {x}, the bar at {bar_x}"
+    );
+    let gap = bar_y - (y + height);
+    assert!(
+        (12.0..=20.0).contains(&gap),
+        "the busiest label leaves {gap:.1} px above the bar, expected about 16"
+    );
+    let leader = document
+        .descendants()
+        .find(|node| {
+            node.has_tag_name("line") && node.attribute("data-owner") == Some("annotations")
+        })
+        .expect("a busiest leader");
+    let coordinate = |key: &str| {
+        leader
+            .attribute(key)
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("a numeric leader component")
+    };
+    assert!(
+        (coordinate("x1") - coordinate("x2")).abs() < 1e-9,
+        "the busiest leader is diagonal"
+    );
+    assert!(
+        (coordinate("x1") - (bar_x + bar_width / 2.0)).abs() <= 1.0,
+        "the leader does not meet the middle of the bar"
+    );
+}
+
+#[test]
+fn flag_labels_sit_directly_above_their_poles() {
+    let svg = committed(WIDE);
+    let document = parse(&svg);
+    let flags: Vec<Node<'_, '_>> = document
+        .descendants()
+        .filter(|node| node.attribute("class") == Some("cg-flag"))
+        .collect();
+    assert!(!flags.is_empty(), "the wide card has no flags");
+    for (index, flag) in flags.iter().enumerate() {
+        let pole = flag
+            .descendants()
+            .find(|node| node.has_tag_name("line"))
+            .expect("a flag pole");
+        let pole_x = pole
+            .attribute("x1")
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("a numeric pole x");
+        let pole_top = pole
+            .attribute("y2")
+            .and_then(|value| value.parse::<f64>().ok())
+            .expect("a numeric pole top");
+        let name = format!("milestone-{}", index + 1);
+        let label = document
+            .descendants()
+            .find(|node| node.attribute("data-name") == Some(name.as_str()))
+            .unwrap_or_else(|| panic!("no label for {name}"));
+        let (x, y, width, height) = bbox(label);
+        let centre = x + width / 2.0;
+        assert!(
+            (centre - pole_x).abs() <= 2.0,
+            "{name} is centred at {centre:.1}, its pole at {pole_x:.1}"
+        );
+        let gap = pole_top - (y + height);
+        assert!(
+            (4.0..=30.0).contains(&gap),
+            "{name} leaves {gap:.1} px above its pole, outside the two staggered levels"
+        );
+    }
 }
 
 #[test]

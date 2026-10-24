@@ -169,10 +169,115 @@ fn tinted(text: impl Into<String>, x: f64, baseline: f64, fill: &str) -> Run {
     }
 }
 
+/// A non-text drawing primitive the collision rule applies to. Segments keep a
+/// staircase exact instead of testing its bounding box, which would reject text
+/// in the empty space above the line.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum MarkShape {
+    Segment {
+        x1: f64,
+        y1: f64,
+        x2: f64,
+        y2: f64,
+    },
+    Box {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    },
+}
+
+/// One mark plus the text group a leader belongs to, if any. A leader may touch
+/// the run it points at and no other.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct Mark {
+    pub(crate) kind: &'static str,
+    pub(crate) owner: Option<String>,
+    pub(crate) shape: MarkShape,
+}
+
+impl Mark {
+    pub(crate) fn segment(kind: &'static str, x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
+        Self {
+            kind,
+            owner: None,
+            shape: MarkShape::Segment { x1, y1, x2, y2 },
+        }
+    }
+
+    pub(crate) fn boxed(kind: &'static str, x: f64, y: f64, width: f64, height: f64) -> Self {
+        Self {
+            kind,
+            owner: None,
+            shape: MarkShape::Box {
+                x,
+                y,
+                width,
+                height,
+            },
+        }
+    }
+
+    pub(crate) fn leader(owner: &str, x1: f64, y1: f64, x2: f64, y2: f64) -> Self {
+        Self {
+            kind: "leader",
+            owner: Some(owner.to_string()),
+            shape: MarkShape::Segment { x1, y1, x2, y2 },
+        }
+    }
+
+    pub(crate) fn intersects(&self, box_: &TextBox) -> bool {
+        match self.shape {
+            MarkShape::Box {
+                x,
+                y,
+                width,
+                height,
+            } => x < box_.right() && box_.x < x + width && y < box_.bottom() && box_.y < y + height,
+            MarkShape::Segment { x1, y1, x2, y2 } => segment_intersects_box(x1, y1, x2, y2, box_),
+        }
+    }
+}
+
+/// True when a segment crosses or touches an axis-aligned ink box.
+pub(crate) fn segment_intersects_box(x1: f64, y1: f64, x2: f64, y2: f64, box_: &TextBox) -> bool {
+    let inside =
+        |x: f64, y: f64| x >= box_.x && x <= box_.right() && y >= box_.y && y <= box_.bottom();
+    if inside(x1, y1) || inside(x2, y2) {
+        return true;
+    }
+    let edges = [
+        (box_.x, box_.y, box_.right(), box_.y),
+        (box_.right(), box_.y, box_.right(), box_.bottom()),
+        (box_.right(), box_.bottom(), box_.x, box_.bottom()),
+        (box_.x, box_.bottom(), box_.x, box_.y),
+    ];
+    edges
+        .iter()
+        .any(|edge| segments_cross(x1, y1, x2, y2, edge.0, edge.1, edge.2, edge.3))
+}
+
+// A segment-to-segment orientation test is two endpoints per line; naming the
+// eight coordinates keeps the cross-product formula readable.
+#[allow(clippy::too_many_arguments)]
+fn segments_cross(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64, dx: f64, dy: f64) -> bool {
+    let orient = |px: f64, py: f64, qx: f64, qy: f64, rx: f64, ry: f64| {
+        (qx - px) * (ry - py) - (qy - py) * (rx - px)
+    };
+    let o1 = orient(ax, ay, bx, by, cx, cy);
+    let o2 = orient(ax, ay, bx, by, dx, dy);
+    let o3 = orient(cx, cy, dx, dy, ax, ay);
+    let o4 = orient(cx, cy, dx, dy, bx, by);
+    (o1 * o2 < 0.0) && (o3 * o4 < 0.0)
+}
+
 struct Canvas<'a> {
     font: &'a Font,
     body: String,
     used: UsedGlyphs,
+    texts: Vec<(String, TextBox)>,
+    marks: Vec<Mark>,
 }
 
 impl<'a> Canvas<'a> {
@@ -181,6 +286,8 @@ impl<'a> Canvas<'a> {
             font,
             body: String::new(),
             used: UsedGlyphs::new(),
+            texts: Vec::new(),
+            marks: Vec::new(),
         }
     }
 
@@ -263,6 +370,21 @@ impl<'a> Canvas<'a> {
         self.body.push_str("/>");
     }
 
+    /// A one-pixel leader that names the text group it points at, so the
+    /// collision rule can allow that one touch and no other.
+    fn leader(&mut self, owner: &str, x1: f64, y1: f64, x2: f64, y2: f64, stroke: &str) {
+        let _ = write!(
+            self.body,
+            "<line class=\"cg-leader\" data-owner=\"{owner}\" x1=\"{}\" y1=\"{}\" x2=\"{}\" \
+             y2=\"{}\" stroke=\"{stroke}\" stroke-width=\"1\" opacity=\"0.45\"/>",
+            num(x1),
+            num(y1),
+            num(x2),
+            num(y2)
+        );
+        self.marks.push(Mark::leader(owner, x1, y1, x2, y2));
+    }
+
     fn path(
         &mut self,
         d: &str,
@@ -320,6 +442,22 @@ impl<'a> Canvas<'a> {
         self.body.push_str("/>");
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn circle_mark(
+        &mut self,
+        cx: f64,
+        cy: f64,
+        r: f64,
+        fill: &str,
+        stroke: &str,
+        dashed: bool,
+        class: &str,
+        mark: Mark,
+    ) {
+        self.mk_circle(cx, cy, r, fill, stroke, dashed, class);
+        self.marks.push(mark);
+    }
+
     fn width(&self, face: Typeface, text: &str, size: f64, tracking: f64) -> Result<f64> {
         self.font.width(face, text, size, tracking)
     }
@@ -371,6 +509,12 @@ impl<'a> Canvas<'a> {
             )?);
         }
         let union = union.context("a text group carries at least one run")?;
+        for run in runs {
+            let box_ = self
+                .font
+                .line_box(face, &run.text, run.x, run.baseline, size, tracking)?;
+            self.texts.push((name.to_string(), box_));
+        }
         let _ = write!(
             self.body,
             "<g class=\"cg-text-group\" data-name=\"{name}\" data-font=\"{}\" \
@@ -385,6 +529,31 @@ impl<'a> Canvas<'a> {
         Ok(union)
     }
 
+    /// Recompute the layout's collision rule on the finished scene: a text run
+    /// may not cross a data mark, and only a leader may touch the run it points
+    /// at. Generation fails instead of publishing an overlapping label.
+    fn check_collisions(&self) -> Result<()> {
+        for (group, text) in &self.texts {
+            for mark in &self.marks {
+                if mark.kind == "leader" && mark.owner.as_deref() == Some(group.as_str()) {
+                    continue;
+                }
+                if mark.intersects(text) {
+                    bail!(
+                        "commit-graph layout: `{group}` text box ({}, {}, {}, {}) crosses the \
+                         {} mark",
+                        num(text.x),
+                        num(text.y),
+                        num(text.width),
+                        num(text.height),
+                        mark.kind
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
     fn finish(
         self,
         width: f64,
@@ -393,7 +562,8 @@ impl<'a> Canvas<'a> {
         desc: &str,
         palette: &Palette,
         area: bool,
-    ) -> String {
+    ) -> Result<String> {
+        self.check_collisions()?;
         let glyphs = glyph_defs(self.font, &self.used);
         let mut out = String::new();
         let gradient = if area {
@@ -420,7 +590,7 @@ impl<'a> Canvas<'a> {
         );
         out.push_str(&self.body);
         out.push_str("</svg>\n");
-        out
+        Ok(out)
     }
 }
 
@@ -638,7 +808,7 @@ impl Layout {
                 top: 208.0,
                 data_right: 592.0,
                 right: 808.0,
-                bottom: 344.0,
+                bottom: 384.0,
                 y_labels: true,
                 now_label: true,
                 axis_labels: true,
@@ -833,6 +1003,121 @@ fn chart_geometry(graph: &CommitGraph, chart: &ChartLayout) -> Result<ChartGeom>
     })
 }
 
+/// Append a point unless it repeats the previous one. A staircase can dwell on
+/// a day and produce a zero-length edge; leaving it in would make the stroke,
+/// the fill edge and the collision marks disagree about where the line is.
+fn push_point(points: &mut Vec<(f64, f64)>, point: (f64, f64)) {
+    let repeats = points.last().is_some_and(|last| {
+        (last.0 - point.0).abs() <= f64::EPSILON && (last.1 - point.1).abs() <= f64::EPSILON
+    });
+    if !repeats {
+        points.push(point);
+    }
+}
+
+/// The cumulative staircase as one deduplicated polyline, shared by the stroke,
+/// the area fill and the collision marks.
+fn staircase_points(geom: &ChartGeom) -> Vec<(f64, f64)> {
+    let mut points = Vec::with_capacity(geom.days * 2 + 2);
+    push_point(&mut points, (geom.left, geom.bottom));
+    let mut previous = 0u64;
+    for (index, value) in geom.cumulative.iter().enumerate() {
+        let x0 = geom.left + index as f64 * geom.column;
+        let x1 = x0 + geom.column;
+        if *value != previous {
+            push_point(&mut points, (x0, geom.y(previous)));
+            push_point(&mut points, (x0, geom.y(*value)));
+        }
+        push_point(&mut points, (x1, geom.y(*value)));
+        previous = *value;
+    }
+    points
+}
+
+fn polyline_path(points: &[(f64, f64)]) -> String {
+    let mut path = String::new();
+    for (index, (x, y)) in points.iter().enumerate() {
+        let command = if index == 0 { 'M' } else { 'L' };
+        let _ = write!(path, "{command}{} {}", num(*x), num(*y));
+    }
+    path
+}
+
+/// The closed area under the staircase. Its explicit segments are registered as
+/// marks too: the fill edge is part of the drawing boundary, not decoration.
+fn fill_polygon(points: &[(f64, f64)], geom: &ChartGeom) -> Vec<(f64, f64)> {
+    let mut polygon = points.to_vec();
+    push_point(&mut polygon, (geom.data_right, geom.bottom));
+    push_point(&mut polygon, (geom.left, geom.bottom));
+    polygon
+}
+
+fn register_polyline_marks(canvas: &mut Canvas<'_>, kind: &'static str, points: &[(f64, f64)]) {
+    for pair in points.windows(2) {
+        canvas.marks.push(Mark::segment(
+            kind, pair[0].0, pair[0].1, pair[1].0, pair[1].1,
+        ));
+    }
+}
+
+/// One day's bar rectangle. The painter, the busiest-day annotation and the
+/// collision marks all read this geometry so they cannot drift apart.
+struct BarDay {
+    index: usize,
+    commits: u64,
+    centre: f64,
+    left: f64,
+    top: f64,
+    width: f64,
+    height: f64,
+}
+
+fn bar_geometry(graph: &CommitGraph, bars: &BarsLayout, geom: &ChartGeom) -> Vec<BarDay> {
+    let visible: Vec<(usize, &super::DayEntry)> = match bars.last_days {
+        Some(limit) => graph
+            .per_day
+            .iter()
+            .enumerate()
+            .skip(graph.per_day.len().saturating_sub(limit))
+            .collect(),
+        None => graph.per_day.iter().enumerate().collect(),
+    };
+    let count = visible.len().max(1) as f64;
+    let column_width = (geom.data_right - geom.left) / count;
+    let max_commits = visible
+        .iter()
+        .map(|(_, day)| day.commits)
+        .max()
+        .unwrap_or(0)
+        .max(1);
+    let bar_width = (column_width * 0.55).clamp(4.0, 10.0);
+    visible
+        .iter()
+        .enumerate()
+        .map(|(position, (index, day))| {
+            let centre = if bars.last_days.is_some() {
+                geom.left + (position as f64 + 0.5) * column_width
+            } else {
+                geom.centre(*index)
+            };
+            let height = if day.commits == 0 {
+                0.0
+            } else {
+                (day.commits as f64 / max_commits as f64 * bars.max_height).max(3.0)
+            };
+            BarDay {
+                index: *index,
+                commits: day.commits,
+                centre,
+                left: centre - bar_width / 2.0,
+                top: bars.baseline - height,
+                width: bar_width,
+                height,
+            }
+        })
+        .collect()
+}
+
 fn draw_chart_labels(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -861,16 +1146,63 @@ fn draw_chart_labels(
 
     if chart.now_label {
         let text = format!("now - {} commits", thousands(graph.totals.commits));
-        let x = canvas.right_x(Typeface::Mono, &text, geom.data_right - 8.0, 14.0, 0.0)?;
-        let baseline = geom.y(graph.totals.commits) + 18.0;
+        let size = 14.0;
+        let end = (geom.data_right, geom.y(graph.totals.commits));
+        let ring = 5.0;
+        let width = canvas.width(Typeface::Mono, &text, size, 0.0)?;
+        let candidates = [
+            (geom.data_right - width, end.1 - ring - 7.0),
+            (geom.data_right - ring - 6.0 - width, end.1 + 5.0),
+            (geom.data_right + ring + 8.0, end.1 + 5.0),
+        ];
+        let mut placed: Option<(usize, f64, f64, TextBox)> = None;
+        for (position, (x, baseline)) in candidates.into_iter().enumerate() {
+            let box_ = canvas
+                .font
+                .line_box(Typeface::Mono, &text, x, baseline, size, 0.0)?;
+            if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
+                continue;
+            }
+            if occupied
+                .iter()
+                .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
+            {
+                continue;
+            }
+            if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+                continue;
+            }
+            placed = Some((position, x, baseline, box_));
+            break;
+        }
+        let Some((position, x, baseline, box_)) = placed else {
+            bail!(
+                "commit-graph `now` label `{text}` has no collision-free place around the end dot"
+            );
+        };
         occupied.push(canvas.text_group(
             "now-label",
             Typeface::Mono,
-            14.0,
+            size,
             &palette.ink,
             &[run(text, x, baseline)],
             0.0,
         )?);
+        // The label is adjacent when it sits left or right of the dot. When it
+        // sits above, a short leader closes the gap without touching the dot.
+        if position == 0 {
+            let gap = (end.1 - ring) - box_.bottom();
+            if gap > 6.0 {
+                canvas.leader(
+                    "now-label",
+                    geom.data_right,
+                    box_.bottom(),
+                    geom.data_right,
+                    box_.bottom() + 6.0,
+                    &palette.muted,
+                );
+            }
+        }
     }
 
     if chart.axis_labels {
@@ -908,35 +1240,20 @@ fn draw_chart_labels(
 }
 
 fn draw_staircase(canvas: &mut Canvas, palette: &Palette, geom: &ChartGeom, area: bool) {
-    let mut path = format!("M{} {}", num(geom.left), num(geom.bottom));
-    let mut previous = 0u64;
-    // Walk the cumulative array so the geometry and the data cannot disagree.
-    for (index, value) in geom.cumulative.iter().enumerate() {
-        let x0 = geom.left + index as f64 * geom.column;
-        let x1 = x0 + geom.column;
-        if *value != previous {
-            let _ = write!(
-                path,
-                "L{} {}L{} {}",
-                num(x0),
-                num(geom.y(previous)),
-                num(x0),
-                num(geom.y(*value))
-            );
-        }
-        let _ = write!(path, "L{} {}", num(x1), num(geom.y(*value)));
-        previous = *value;
-    }
+    let points = staircase_points(geom);
     if area {
-        let fill_path = format!(
-            "{path}L{} {}L{} {}Z",
-            num(geom.data_right),
-            num(geom.bottom),
-            num(geom.left),
-            num(geom.bottom)
+        let polygon = fill_polygon(&points, geom);
+        canvas.path(
+            &format!("{}Z", polyline_path(&polygon)),
+            Some("url(#cg-fill)"),
+            None,
+            0.0,
+            Some("cg-fill"),
+            "",
         );
-        canvas.path(&fill_path, Some("url(#cg-fill)"), None, 0.0, None, "");
+        register_polyline_marks(canvas, "fill-edge", &polygon);
     }
+    let path = polyline_path(&points);
     let _ = write!(
         canvas.body,
         "<path d=\"{path}\" fill=\"none\" stroke=\"{}\" stroke-width=\"3\" \
@@ -950,8 +1267,9 @@ fn draw_staircase(canvas: &mut Canvas, palette: &Palette, geom: &ChartGeom, area
         geom.max,
         geom.days
     );
+    register_polyline_marks(canvas, "staircase", &points);
     let end_y = geom.y(*geom.cumulative.last().unwrap_or(&0));
-    canvas.mk_circle(
+    canvas.circle_mark(
         geom.data_right,
         end_y,
         5.0,
@@ -959,8 +1277,9 @@ fn draw_staircase(canvas: &mut Canvas, palette: &Palette, geom: &ChartGeom, area
         &palette.teal,
         false,
         "cg-now-ring dm dm-now",
+        Mark::boxed("now-ring", geom.data_right - 5.0, end_y - 5.0, 10.0, 10.0),
     );
-    canvas.mk_circle(
+    canvas.circle_mark(
         geom.data_right,
         end_y,
         3.5,
@@ -968,6 +1287,7 @@ fn draw_staircase(canvas: &mut Canvas, palette: &Palette, geom: &ChartGeom, area
         &palette.orange,
         false,
         "dm dm-now-dot",
+        Mark::boxed("now-dot", geom.data_right - 3.5, end_y - 3.5, 7.0, 7.0),
     );
 }
 
@@ -978,33 +1298,10 @@ fn draw_bars(
     bars: &BarsLayout,
     geom: &ChartGeom,
 ) {
-    let days: Vec<(usize, &super::DayEntry)> = match bars.last_days {
-        Some(limit) => graph
-            .per_day
-            .iter()
-            .enumerate()
-            .skip(graph.per_day.len().saturating_sub(limit))
-            .collect(),
-        None => graph.per_day.iter().enumerate().collect(),
-    };
-    let count = days.len().max(1) as f64;
-    let column_width = (geom.data_right - geom.left) / count;
-    let max_commits = days
-        .iter()
-        .map(|(_, day)| day.commits)
-        .max()
-        .unwrap_or(0)
-        .max(1);
-    let bar_width = (column_width * 0.55).clamp(4.0, 10.0);
-    for (visible, (index, day)) in days.iter().enumerate() {
-        let centre = if bars.last_days.is_some() {
-            geom.left + (visible as f64 + 0.5) * column_width
-        } else {
-            geom.centre(*index)
-        };
-        if day.commits == 0 {
+    for (visible, bar) in bar_geometry(graph, bars, geom).into_iter().enumerate() {
+        if bar.commits == 0 {
             canvas.mk_circle(
-                centre,
+                bar.centre,
                 bars.baseline - 1.0,
                 1.0,
                 &palette.muted,
@@ -1014,25 +1311,24 @@ fn draw_bars(
             );
             continue;
         }
-        let height = if day.commits == 0 {
-            0.0
-        } else {
-            (day.commits as f64 / max_commits as f64 * bars.max_height).max(3.0)
-        };
+        let day = &graph.per_day[bar.index];
         let delay = (visible * 30).min(800);
         let attrs = format!(
             " data-date=\"{}\" data-commits=\"{}\" style=\"animation-delay:{delay}ms\"",
-            day.date, day.commits
+            day.date, bar.commits
         );
         canvas.mark_rect(
-            centre - bar_width / 2.0,
-            bars.baseline - height,
-            bar_width,
-            height,
+            bar.left,
+            bar.top,
+            bar.width,
+            bar.height,
             &palette.orange,
             "dm dm-bar cg-bar",
             &attrs,
         );
+        canvas
+            .marks
+            .push(Mark::boxed("bar", bar.left, bar.top, bar.width, bar.height));
     }
 }
 
@@ -1041,6 +1337,7 @@ fn draw_annotations(
     graph: &CommitGraph,
     palette: &Palette,
     chart: &ChartLayout,
+    bars: &BarsLayout,
     geom: &ChartGeom,
     occupied: &mut Vec<TextBox>,
 ) -> Result<()> {
@@ -1057,39 +1354,93 @@ fn draw_annotations(
             }
         })
         .0;
+    let busiest_bar = bar_geometry(graph, bars, geom)
+        .into_iter()
+        .find(|bar| bar.index == busiest_index)
+        .context("the busiest day has no bar")?;
     let busiest = format!(
         "busiest day - {} commits - {}",
         graph.totals.busiest_day.commits,
         short_date(&graph.totals.busiest_day.date)?
     );
+    let size = 13.0;
+    // The label sits directly above the tallest bar, left-aligned to it. The
+    // sixteen-pixel gap is measured to the ink, not to the baseline, so a
+    // descender still leaves the full clearance.
+    let baseline = busiest_bar.top - 18.0;
+    let busiest_box = canvas.font.line_box(
+        Typeface::Mono,
+        &busiest,
+        busiest_bar.left,
+        baseline,
+        size,
+        0.0,
+    )?;
+
     let streak = format!("{}-day streak", graph.totals.longest_streak);
-    let baseline = 400.0;
-    let streak_x = canvas.right_x(Typeface::Mono, &streak, geom.data_right, 13.0, 0.0)?;
+    let streak_width = canvas.width(Typeface::Mono, &streak, size, 0.0)?;
+    let streak_candidates = [
+        (baseline, busiest_bar.left - 16.0 - streak_width),
+        (baseline, geom.data_right - streak_width),
+        (baseline + size + 5.0, geom.data_right - streak_width),
+    ];
+    let mut placed_streak: Option<(f64, f64, TextBox)> = None;
+    for (streak_baseline, streak_x) in streak_candidates {
+        let box_ = canvas.font.line_box(
+            Typeface::Mono,
+            &streak,
+            streak_x,
+            streak_baseline,
+            size,
+            0.0,
+        )?;
+        if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
+            continue;
+        }
+        if box_.intersects(&busiest_box) {
+            continue;
+        }
+        if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+            continue;
+        }
+        if occupied
+            .iter()
+            .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
+        {
+            continue;
+        }
+        placed_streak = Some((streak_x, streak_baseline, box_));
+        break;
+    }
+    let Some((streak_x, streak_baseline, _)) = placed_streak else {
+        bail!("commit-graph streak label `{streak}` has no collision-free place above the bars");
+    };
+
     let runs = vec![
-        run(busiest, geom.left, baseline),
-        tinted(streak, streak_x, baseline, &palette.teal_text),
+        run(busiest, busiest_bar.left, baseline),
+        tinted(streak, streak_x, streak_baseline, &palette.teal_text),
     ];
     occupied.push(canvas.text_group(
         "annotations",
         Typeface::Mono,
-        13.0,
+        size,
         &palette.ink,
         &runs,
         0.0,
     )?);
 
-    // Leader from the busiest label down to its bar.
-    let busiest_x = geom.centre(busiest_index);
-    canvas.line(
-        geom.left + 242.0,
-        baseline + 4.0,
-        busiest_x,
-        chart.bottom + 0.0,
-        &palette.muted,
-        1.0,
-        None,
-        0.45,
-    );
+    // A one-pixel vertical leader from the label straight down to the bar.
+    let leader_start = busiest_box.bottom() + 2.0;
+    if busiest_bar.top - leader_start >= 2.0 {
+        canvas.leader(
+            "annotations",
+            busiest_bar.centre,
+            leader_start,
+            busiest_bar.centre,
+            busiest_bar.top,
+            &palette.muted,
+        );
+    }
 
     // Teal bracket over the longest streak, with small end ticks.
     let streak_start = parse_iso_date(&graph.totals.longest_streak_range.start)?;
@@ -1101,7 +1452,7 @@ fn draw_annotations(
         let x1 = geom
             .centre(end_index.min(geom.days - 1))
             .min(geom.data_right);
-        let y = 408.0;
+        let y = bars.baseline - bars.max_height - 6.0;
         let d = format!(
             "M{} {}L{} {}L{} {}M{} {}L{} {}",
             num(x0),
@@ -1128,11 +1479,25 @@ fn flag_text(milestone: &super::GraphMilestone) -> Result<String> {
     ))
 }
 
+/// A milestone flag's fixed geometry. The shapes are drawn and registered
+/// before any label is placed, so a label cannot land on a later flag's pole.
+struct FlagGeom {
+    index: usize,
+    done: bool,
+    base_x: f64,
+    base_y: f64,
+    pole_top: f64,
+    text: String,
+    width: f64,
+}
+
 /// Draw the flags and place their labels.
 ///
-/// Every candidate position is measured from the glyph outlines and rejected
-/// when it comes within eight pixels of a box already placed. If no candidate
-/// fits, generation fails instead of drawing an overlap.
+/// A wide-card label is centred directly above its pole and may use one of two
+/// levels. Every candidate is measured from the glyph outlines and rejected
+/// when it comes within eight pixels of a box already placed or touches any
+/// data mark. If neither level fits, generation fails instead of drawing an
+/// overlap.
 fn draw_flags(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -1156,11 +1521,9 @@ fn draw_flags(
         .unwrap_or(end)
         .max(end);
 
-    // The narrow card draws one text group for all its milestone numbers, so
-    // the group budget stays below the narrow cap.
+    let mut flags = Vec::with_capacity(graph.milestones.len());
     let mut narrow_runs = Vec::new();
-    let mut narrow_boxes: Vec<TextBox> = Vec::new();
-
+    let mut narrow_boxes = Vec::new();
     for (index, milestone) in graph.milestones.iter().enumerate() {
         let date = parse_iso_date(&milestone.date)?;
         let (base_x, base_y) = match milestone.status {
@@ -1184,169 +1547,114 @@ fn draw_flags(
             }
         };
         let done = milestone.status == MilestoneStatus::Done;
-        let colour = if done {
-            palette.teal.clone()
-        } else {
-            palette.muted.clone()
-        };
-
-        // The narrow card turns each milestone into a numbered dot on the line
-        // and lists the numbers underneath; the wide card has room for the
-        // full flag and its label.
         if !chart.labels {
-            let _ = write!(
-                canvas.body,
-                "<circle class=\"dm dm-milestone\" data-date=\"{}\" data-status=\"{}\" \
-                 cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"{} />",
-                milestone.date,
-                milestone.status.as_str(),
-                num(base_x),
-                num(base_y),
-                if done { colour.as_str() } else { "none" },
-                if done { "" } else { " stroke-dasharray=\"2 3\"" }
-            );
-            let number = (index + 1).to_string();
-            let width = canvas.width(Typeface::Mono, &number, 12.0, 0.0)?;
-            let x = (base_x - width / 2.0).clamp(24.0, geom.right - width - 2.0);
-            let mut placed = None;
-            for baseline in [base_y - 7.0, base_y + 18.0, base_y - 24.0, base_y + 32.0] {
-                let box_ = canvas
-                    .font
-                    .line_box(Typeface::Mono, &number, x, baseline, 12.0, 0.0)?;
-                if box_.y < 190.0 || box_.bottom() > 348.0 {
-                    continue;
-                }
-                // These are single digits that label adjacent points; they may
-                // sit close, so the sweep only has to keep them from touching.
-                if occupied
-                    .iter()
-                    .chain(narrow_boxes.iter())
-                    .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
-                {
-                    continue;
-                }
-                placed = Some((baseline, box_));
-                break;
-            }
-            let Some((baseline, box_)) = placed else {
-                bail!(
-                    "commit-graph milestone number `{number}` cannot be placed on the narrow \
-                     card without overlapping another label"
-                );
-            };
-            narrow_runs.push(tinted(
-                number,
-                x,
-                baseline,
-                if done { &palette.ink } else { &palette.muted },
-            ));
-            narrow_boxes.push(box_);
+            let (number_run, number_box) = draw_narrow_flag(
+                canvas,
+                graph,
+                palette,
+                geom,
+                occupied.as_slice(),
+                index,
+                base_x,
+                base_y,
+            )?;
+            narrow_runs.push(number_run);
+            narrow_boxes.push(number_box);
             continue;
         }
-
-        let pole_top = base_y
-            - if milestone.status == MilestoneStatus::Done {
-                18.0
-            } else {
-                22.0
-            };
-        let mut shapes = String::new();
-        let _ = write!(
-            shapes,
-            "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{colour}\" \
-             stroke-width=\"1\"{} />",
-            num(base_x),
-            num(base_y),
-            num(base_x),
-            num(pole_top),
-            if done {
-                String::new()
-            } else {
-                " stroke-dasharray=\"3 3\"".to_string()
-            }
-        );
-        let pennant = format!(
-            "M{} {}L{} {}L{} {}Z",
-            num(base_x),
-            num(pole_top),
-            num(base_x + 12.0),
-            num(pole_top + 4.0),
-            num(base_x),
-            num(pole_top + 8.0)
-        );
-        let _ = write!(
-            shapes,
-            "<path d=\"{pennant}\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"{} />",
-            if done {
-                colour.clone()
-            } else {
-                "none".to_string()
-            },
-            if done {
-                String::new()
-            } else {
-                " stroke-dasharray=\"3 3\"".to_string()
-            }
-        );
-        let _ = write!(
-            shapes,
-            "<circle class=\"dm dm-milestone\" data-date=\"{}\" data-status=\"{}\" \
-             cx=\"{}\" cy=\"{}\" r=\"2.5\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"/>",
-            milestone.date,
-            milestone.status.as_str(),
-            num(base_x),
-            num(base_y),
-            if done {
-                colour.clone()
-            } else {
-                "none".to_string()
-            }
-        );
-        let _ = write!(canvas.body, "<g class=\"cg-flag\">{shapes}</g>");
-
+        let pole_top = base_y - if done { 18.0 } else { 22.0 };
         let text = flag_text(milestone)?;
+        let width = canvas.width(Typeface::Mono, &text, 13.0, 0.0)?;
+        // A label centred on a pole at the runway's right edge would overflow
+        // the card; pull the pole inward by half the label so the label stays
+        // centred instead of being clamped away from it. The runway is not to
+        // scale, so the pole position is free.
+        let base_x = if done {
+            base_x
+        } else {
+            base_x.min(geom.right - 2.0 - width / 2.0)
+        };
+        flags.push(FlagGeom {
+            index,
+            done,
+            base_x,
+            base_y,
+            pole_top,
+            text,
+            width,
+        });
+    }
+
+    for flag in &flags {
+        draw_flag_shapes(canvas, graph, palette, flag);
+    }
+
+    for flag in &flags {
         let size = 13.0;
-        let width = canvas.width(Typeface::Mono, &text, size, 0.0)?;
-        let candidates = [
-            pole_top - 8.0,
-            pole_top - 26.0,
-            pole_top - 44.0,
-            pole_top + 18.0,
-        ];
+        let x = (flag.base_x - flag.width / 2.0).clamp(
+            canvas_margin(chart, geom) + 2.0,
+            geom.right - flag.width - 2.0,
+        );
         let mut placed: Option<(f64, f64, TextBox)> = None;
-        'outer: for baseline in candidates {
-            let anchors = [base_x - width / 2.0, base_x + 10.0, base_x - 10.0 - width];
-            for anchor in anchors {
-                let x = anchor.clamp(canvas_margin(chart, geom) + 2.0, geom.right - width - 2.0);
-                let box_ = canvas
-                    .font
-                    .line_box(Typeface::Mono, &text, x, baseline, size, 0.0)?;
+        for baseline in [flag.pole_top - 8.0, flag.pole_top - 26.0] {
+            let box_ = canvas
+                .font
+                .line_box(Typeface::Mono, &flag.text, x, baseline, size, 0.0)?;
+            if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
+                continue;
+            }
+            if occupied
+                .iter()
+                .any(|other| box_.intersects(other) || box_.gap(other) < 8.0)
+            {
+                continue;
+            }
+            if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+                continue;
+            }
+            placed = Some((x, baseline, box_));
+            break;
+        }
+        if placed.is_none() {
+            for baseline in [flag.pole_top - 8.0, flag.pole_top - 26.0] {
+                let box_ =
+                    canvas
+                        .font
+                        .line_box(Typeface::Mono, &flag.text, x, baseline, size, 0.0)?;
                 if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
                     continue;
                 }
                 if occupied
                     .iter()
-                    .any(|other| box_.intersects(other) || box_.gap(other) < 8.0)
+                    .any(|other| box_.intersects(other) || box_.gap(other) < 4.0)
                 {
                     continue;
                 }
+                if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+                    continue;
+                }
                 placed = Some((x, baseline, box_));
-                break 'outer;
+                break;
             }
         }
         let Some((x, baseline, box_)) = placed else {
             bail!(
-                "commit-graph milestone label `{text}` cannot be placed without overlapping \
-                 another label; move a milestone, shorten its `short` label, or widen the card"
+                "commit-graph milestone label `{}` cannot be placed directly above its pole; \
+                 shorten its `short` label or widen the card",
+                flag.text
             );
         };
-        let fill = if done { &palette.ink } else { &palette.muted };
+        let fill = if flag.done {
+            &palette.ink
+        } else {
+            &palette.muted
+        };
         canvas.text_group(
-            &format!("milestone-{}", index + 1),
+            &format!("milestone-{}", flag.index + 1),
             Typeface::Mono,
             size,
             fill,
-            &[run(text, x, baseline)],
+            &[run(flag.text.clone(), x, baseline)],
             0.0,
         )?;
         occupied.push(box_);
@@ -1363,6 +1671,187 @@ fn draw_flags(
         occupied.extend(narrow_boxes);
     }
     Ok(())
+}
+
+fn draw_flag_shapes(canvas: &mut Canvas, graph: &CommitGraph, palette: &Palette, flag: &FlagGeom) {
+    let milestone = &graph.milestones[flag.index];
+    let colour = if flag.done {
+        palette.teal.clone()
+    } else {
+        palette.muted.clone()
+    };
+    let mut shapes = String::new();
+    let _ = write!(
+        shapes,
+        "<line x1=\"{}\" y1=\"{}\" x2=\"{}\" y2=\"{}\" stroke=\"{colour}\" \
+         stroke-width=\"1\"{} />",
+        num(flag.base_x),
+        num(flag.base_y),
+        num(flag.base_x),
+        num(flag.pole_top),
+        if flag.done {
+            String::new()
+        } else {
+            " stroke-dasharray=\"3 3\"".to_string()
+        }
+    );
+    let pennant = format!(
+        "M{} {}L{} {}L{} {}Z",
+        num(flag.base_x),
+        num(flag.pole_top),
+        num(flag.base_x + 12.0),
+        num(flag.pole_top + 4.0),
+        num(flag.base_x),
+        num(flag.pole_top + 8.0)
+    );
+    let _ = write!(
+        shapes,
+        "<path d=\"{pennant}\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"{} />",
+        if flag.done {
+            colour.clone()
+        } else {
+            "none".to_string()
+        },
+        if flag.done {
+            String::new()
+        } else {
+            " stroke-dasharray=\"3 3\"".to_string()
+        }
+    );
+    let _ = write!(
+        shapes,
+        "<circle class=\"dm dm-milestone\" data-date=\"{}\" data-status=\"{}\" \
+         cx=\"{}\" cy=\"{}\" r=\"2.5\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"/>",
+        milestone.date,
+        milestone.status.as_str(),
+        num(flag.base_x),
+        num(flag.base_y),
+        if flag.done {
+            colour.clone()
+        } else {
+            "none".to_string()
+        }
+    );
+    let _ = write!(canvas.body, "<g class=\"cg-flag\">{shapes}</g>");
+    canvas.marks.push(Mark::segment(
+        "pole",
+        flag.base_x,
+        flag.base_y,
+        flag.base_x,
+        flag.pole_top,
+    ));
+    canvas.marks.push(Mark::segment(
+        "pennant",
+        flag.base_x,
+        flag.pole_top,
+        flag.base_x + 12.0,
+        flag.pole_top + 4.0,
+    ));
+    canvas.marks.push(Mark::segment(
+        "pennant",
+        flag.base_x + 12.0,
+        flag.pole_top + 4.0,
+        flag.base_x,
+        flag.pole_top + 8.0,
+    ));
+    canvas.marks.push(Mark::boxed(
+        "milestone-dot",
+        flag.base_x - 2.5,
+        flag.base_y - 2.5,
+        5.0,
+        5.0,
+    ));
+}
+
+/// The narrow card turns each milestone into a numbered dot on the line and
+/// lists the numbers underneath; one text group carries every number so the
+/// group budget stays below the narrow cap.
+// The narrow placer needs the canvas, the document, the palette and the chart
+// geometry; a wrapper struct would only rename the same arguments.
+#[allow(clippy::too_many_arguments)]
+fn draw_narrow_flag(
+    canvas: &mut Canvas,
+    graph: &CommitGraph,
+    palette: &Palette,
+    geom: &ChartGeom,
+    occupied: &[TextBox],
+    index: usize,
+    base_x: f64,
+    base_y: f64,
+) -> Result<(Run, TextBox)> {
+    let milestone = &graph.milestones[index];
+    let done = milestone.status == MilestoneStatus::Done;
+    let colour = if done {
+        palette.teal.as_str()
+    } else {
+        palette.muted.as_str()
+    };
+    canvas.circle_mark(
+        base_x,
+        base_y,
+        4.0,
+        if done { colour } else { "none" },
+        colour,
+        !done,
+        "dm dm-milestone",
+        Mark::boxed("milestone-dot", base_x - 4.0, base_y - 4.0, 8.0, 8.0),
+    );
+    let _ = write!(
+        canvas.body,
+        "<circle class=\"dm dm-milestone\" data-date=\"{}\" data-status=\"{}\" \
+         cx=\"{}\" cy=\"{}\" r=\"4\" fill=\"{}\" stroke=\"{colour}\" stroke-width=\"1\"{} />",
+        milestone.date,
+        milestone.status.as_str(),
+        num(base_x),
+        num(base_y),
+        if done { colour } else { "none" },
+        if done {
+            ""
+        } else {
+            " stroke-dasharray=\"2 3\""
+        }
+    );
+    let number = (index + 1).to_string();
+    let size = 12.0;
+    let width = canvas.width(Typeface::Mono, &number, size, 0.0)?;
+    let x = (base_x - width / 2.0).clamp(24.0, geom.right - width - 2.0);
+    let mut placed = None;
+    for baseline in [base_y - 7.0, base_y + 18.0, base_y - 24.0, base_y + 32.0] {
+        let box_ = canvas
+            .font
+            .line_box(Typeface::Mono, &number, x, baseline, size, 0.0)?;
+        if box_.y < 190.0 || box_.bottom() > 348.0 {
+            continue;
+        }
+        // These are single digits that label adjacent points; they may sit
+        // close, so the sweep only has to keep them from touching.
+        if occupied
+            .iter()
+            .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
+        {
+            continue;
+        }
+        if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+            continue;
+        }
+        placed = Some((baseline, box_));
+        break;
+    }
+    let Some((baseline, box_)) = placed else {
+        bail!(
+            "commit-graph milestone number `{number}` cannot be placed on the narrow card \
+             without overlapping another label"
+        );
+    };
+    Ok((
+        tinted(
+            number,
+            x,
+            baseline,
+            if done { &palette.ink } else { &palette.muted },
+        ),
+        box_,
+    ))
 }
 
 /// The left content edge used by the flag placer. The chart starts at the y
@@ -1771,14 +2260,14 @@ fn render(
 
     if let Some(compact) = &layout.compact {
         draw_compact(&mut canvas, graph, palette, layout, compact, display)?;
-        return Ok(canvas.finish(
+        return canvas.finish(
             layout.width,
             layout.height,
             layout.variant.title(),
             &desc_text(graph),
             palette,
             false,
-        ));
+        );
     }
 
     // Header: eyebrow, title and the two-line stamp.
@@ -1853,7 +2342,6 @@ fn render(
                 );
             }
         }
-        draw_chart_labels(&mut canvas, graph, palette, chart, &geom, &mut occupied)?;
         draw_staircase(&mut canvas, palette, &geom, true);
         if style.show_bars {
             draw_bars(&mut canvas, graph, palette, bars, &geom);
@@ -1880,9 +2368,8 @@ fn render(
                 "",
             );
         }
-        if layout.variant == Variant::Wide {
-            draw_annotations(&mut canvas, graph, palette, chart, &geom, &mut occupied)?;
-        }
+        // Flags place their labels before the `now` label so the two cannot
+        // claim the same space above the end dot.
         draw_flags(
             &mut canvas,
             graph,
@@ -1892,6 +2379,18 @@ fn render(
             style,
             &mut occupied,
         )?;
+        draw_chart_labels(&mut canvas, graph, palette, chart, &geom, &mut occupied)?;
+        if layout.variant == Variant::Wide {
+            draw_annotations(
+                &mut canvas,
+                graph,
+                palette,
+                chart,
+                bars,
+                &geom,
+                &mut occupied,
+            )?;
+        }
         if layout.variant == Variant::Narrow {
             draw_narrow_legend(&mut canvas, graph, palette)?;
         }
@@ -1901,14 +2400,14 @@ fn render(
         draw_footer(&mut canvas, graph, palette, layout, footer)?;
     }
 
-    Ok(canvas.finish(
+    canvas.finish(
         layout.width,
         layout.height,
         layout.variant.title(),
         &desc_text(graph),
         palette,
         true,
-    ))
+    )
 }
 
 /// The narrow card lists every milestone below the staircase; the past ones
