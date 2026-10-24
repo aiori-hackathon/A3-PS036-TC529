@@ -23,6 +23,20 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 </div>
 <!-- badges:end -->
 
+<!-- demo-video:begin -->
+<div align="center">
+
+### Watch the demo
+
+</div>
+
+https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
+
+<div align="center">
+<sub><a href="docs/media/CLIMB-TUI-demo-video.mp4">Download the recording</a> · <a href="https://www.youtube.com/watch?v=gDHYamjWmtE">Team introduction on YouTube</a></sub>
+</div>
+<!-- demo-video:end -->
+
 <!-- commit-graph-strip:begin -->
 <div align="center">
 <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/7a6ea9cc8fd37a93dcca2e8e61962958080392cd" target="_blank" rel="noopener">
@@ -35,7 +49,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 <!-- commit-graph-strip:end -->
 
 
-**Jump to:** [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
+**Jump to:** [Demo video](#watch-the-demo) · [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Run the dashboard](#run-the-dashboard-on-your-machine) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
 
 
 | Name | Role | Link |
@@ -154,6 +168,109 @@ fresh checkout the dashboard reads the committed sample results under
 `docs/sample-output/`, so it renders immediately; point it at regenerated
 artifacts with `cargo run -p climb-tui -- target/climb-results.json` after
 `cargo xtask reproduce`.
+
+## Run the dashboard on your machine
+
+<!-- tui-guide:begin -->
+The dashboard is a terminal application written in Rust. It is read-only: it
+loads the recorded results in this repository, needs no network, and does not
+link the native cryptographic stack, so it builds without Docker. It was
+developed and tested on Linux; other platforms are untested.
+
+### Install
+
+Pick one. They produce the same program.
+
+**A. Run from a clone** (needs [Rust](https://rustup.rs); the pinned toolchain installs itself)
+
+```bash
+git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
+cargo run --release -p climb-tui --no-default-features
+```
+
+**B. Install the binary onto your PATH**
+
+```bash
+cargo install --locked --git https://github.com/aiori-hackathon/A3-PS036-TC529 climb-tui --no-default-features
+climb-tui
+```
+
+**C. In a container** (needs Docker)
+
+```bash
+git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
+docker build -f docker/Dockerfile.tui -t climb-tui .
+docker run -it --rm climb-tui
+```
+
+### The nine views
+
+Move with `Tab` and `Shift-Tab`, or jump straight to a view with the number keys.
+
+| View | What it shows |
+| --- | --- |
+| **Overview** | Headline cards for the live DNS response, wire size and speed-ups; a table comparing Ed25519, ECDSA P-256 and RSA-2048 (classical, shown for context only and not quantum-resistant) with plain SLH-DSA and the two MTL modes: signature bytes, sign and verify time, and whether the signature fits one UDP packet; the build environment; how fresh each artifact is |
+| **Signing** | Total signing time per dataset size for MTL amortised against no amortisation, an amortisation curve (time per message against batch size), and a table per size |
+| **Verifying** | Verification time per dataset size for the full ladder, without MTL, and with a trusted cached ladder, plus a cold-versus-warm table for reusing a validated ladder |
+| **Wire** | Bytes on the wire per dataset size for the three configurations, the range of condensed-signature sizes, the single-answer fit from the live capture, and a modelled UDP-fit table across response profiles and batch sizes |
+| **Memory** | Measured resident memory against the analytical model for each dataset size, and what the model counts |
+| **Ladder** | A Merkle tree ladder drawn for a small batch; walk the leaves to see each leaf's authentication path and a badge saying whether the model matches the library's own output |
+| **Live** | A recorded DNS exchange replayed packet by packet, without MTL and with MTL side by side, with running byte totals |
+| **Integrity** | Re-checks every claim in the report against the results, shows provenance and which artifacts are stale, and explains the evidence classes |
+| **Method** | A scrollable document: scope, the three baselines, evidence classes, environment and pinning, sampling and extrapolation, known limits |
+
+Measured, extrapolated and analytical values are drawn in different colours;
+extrapolated values are also marked with `≈`.
+
+### Keys
+
+| Key | Action |
+| --- | --- |
+| `Tab` / `Shift-Tab` | Next or previous view |
+| `1` … `9` | Jump to a view by number |
+| `←` / `→` | Select the dataset size |
+| `v` | Switch between total time and time per message |
+| `↑` / `↓` | Ladder: move between leaves. Integrity and Method: scroll |
+| `Space` | Ladder: show or hide the signature banner |
+| `Enter` | Ladder: auto-play the leaves |
+| `Space` / `Backspace` | Live: next or previous step |
+| `Enter` | Live: auto-play the replay |
+| `t` | Live: switch between logarithmic and linear byte scale |
+| `r` | Reload the results from disk (on Integrity this also re-runs the claim check) |
+| `T` | Cycle the theme: dark, light, contrast |
+| `a` | Toggle ASCII glyphs, for terminals with poor fonts |
+| `?` | Show or hide the help overlay |
+| `q` / `Esc` / `Ctrl-C` | Quit |
+
+The status bar at the bottom shows the theme and colour depth, ASCII mode, tour
+state and which data file is loaded.
+
+### Guided tour
+
+```bash
+cargo run --release -p climb-tui --no-default-features -- --tour
+```
+
+The tour walks through the views on a script. `p` pauses, `n` moves to the next
+step and `Esc` ends the tour. `--tour-speed` changes the pace.
+
+### Which data it reads
+
+In order: a path you pass, `target/climb-results.json`, `docs/sample-output/`,
+and finally the copy compiled into the program. The status bar names the one in
+use: `[explicit]`, `[target]`, `[sample]` or `[embedded]`. To use your own
+results, run `cargo xtask reproduce`, start the dashboard with the path
+`target/climb-results.json`, and press `r` after any later run to reload.
+
+### Terminal tips
+
+- It needs a real terminal of at least 80 columns by 24 rows; a full-screen window is best.
+- Use a terminal with truecolor support. Inside tmux, add `set -as terminal-overrides ',*:RGB'` to `~/.tmux.conf`.
+- If glyphs render badly press `a`; if colours are hard to read press `T`.
+- Running it through a pipe or an editor's task runner fails with a raw-mode error.
+- The Live view replays a recording. Recording a fresh one needs the full native build and Docker: `cargo xtask dns-demo`.
+- To reproduce the measurements themselves, see [Full reproduction](#full-reproduction--build-the-native-stack).
+<!-- tui-guide:end -->
 
 ## Baselines
 
