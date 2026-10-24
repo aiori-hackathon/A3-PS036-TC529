@@ -49,6 +49,10 @@ const ALLOW_NUMBER_MARKER: &str = "<!-- docs-check:allow-number -->";
 const HEADLINE_BEGIN: &str = "<!-- headline:begin -->";
 const HEADLINE_END: &str = "<!-- headline:end -->";
 
+/// Markers bracketing the Live demo section in the README.
+const LIVE_BEGIN: &str = "<!-- live:begin -->";
+const LIVE_END: &str = "<!-- live:end -->";
+
 /// Markers bracketing the numbers-of-record table in the progress log.
 const NUMBERS_BEGIN: &str = "<!-- numbers-of-record:begin -->";
 const NUMBERS_END: &str = "<!-- numbers-of-record:end -->";
@@ -348,6 +352,19 @@ pub(crate) fn check_file(
     // Headline table, when present: value+unit+class+baseline must match a row.
     violations.extend(check_headline_block(file, text, facts));
 
+    // Live demo section markers
+    if file.ends_with("README.md")
+        && (!text.contains(LIVE_BEGIN) || !text.contains(LIVE_END))
+    {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!(
+                "missing the `{LIVE_BEGIN}` / `{LIVE_END}` live demo section markers"
+            ),
+        });
+    }
+
     violations
 }
 
@@ -370,13 +387,14 @@ pub(crate) fn parse_headline_rows(text: &str) -> Option<Vec<(usize, String, Stri
             continue;
         }
         let cells: Vec<&str> = trimmed.split('|').map(str::trim).collect();
-        // | Metric | Value | Evidence class | Baseline |
+        // | Metric | Value | Evidence class | Baseline | Spread |
         if cells.len() < 5 {
             continue;
         }
         if cells[1] == "Metric" || cells[2] == "Value" || cells[2].starts_with("---") {
             continue;
         }
+        // For new format with 5 columns, evidence class is at index 3, baseline at index 4
         rows.push((
             idx + 1,
             cells[2].to_string(),
@@ -1713,13 +1731,13 @@ mod tests {
 
     #[test]
     fn a_headline_row_matching_the_sheet_passes() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
         assert!(check_file("README.md", text, &facts(), &known()).is_empty());
     }
 
     #[test]
     fn a_headline_row_with_the_wrong_class_or_baseline_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0]
@@ -1729,7 +1747,7 @@ mod tests {
 
     #[test]
     fn a_headline_row_without_a_number_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("no number+unit pair"));
@@ -2269,7 +2287,7 @@ mod tests {
 
     #[test]
     fn the_badge_block_lines_are_exempt_from_the_numeric_rule() {
-        let text = format!("# Title\n\n{BADGE_BLOCK}\n");
+        let text = format!("# Title\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert!(violations.is_empty(), "{violations:?}");
     }
@@ -2278,7 +2296,7 @@ mod tests {
     fn the_numeric_rule_still_applies_outside_the_badge_block() {
         // The same digits, one line above the block, are still a violation:
         // the exemption covers the managed block and nothing else.
-        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n");
+        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("771 %"), "{violations:?}");

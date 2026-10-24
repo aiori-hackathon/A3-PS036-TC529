@@ -38,6 +38,10 @@ pub enum Section {
     LadderVerification,
     /// Response byte counts captured from the live MTL DNS pipeline.
     DnsLive,
+    /// Ladder reuse curves and break-even points.
+    Reuse,
+    /// UDP fit summary across profiles/configurations.
+    UdpFit,
     /// Toolchain, kernel, CPU, pinning, submodule pins and commit SHA.
     Environment,
     /// Workspace test counts from the recorded test run.
@@ -46,13 +50,15 @@ pub enum Section {
 
 impl Section {
     /// Section render order.
-    pub const ORDER: [Section; 8] = [
+    pub const ORDER: [Section; 10] = [
         Section::WireBytes,
         Section::SigningTime,
         Section::VerifyingTime,
         Section::Memory,
         Section::LadderVerification,
         Section::DnsLive,
+        Section::Reuse,
+        Section::UdpFit,
         Section::Environment,
         Section::Quality,
     ];
@@ -67,6 +73,8 @@ impl Section {
             Section::Memory => "Memory",
             Section::LadderVerification => "Ladder verification",
             Section::DnsLive => "DNS live",
+            Section::Reuse => "Reuse",
+            Section::UdpFit => "UDP fit",
             Section::Environment => "Environment",
             Section::Quality => "Quality",
         }
@@ -857,6 +865,27 @@ fn collect_comparisons(
         return Ok(());
     };
     let source = path.display().to_string();
+
+    // Build stability lookup by ratio name -> (median,min,max,n)
+    let mut stability_map: std::collections::HashMap<String, (f64, f64, f64, u64)> =
+        std::collections::HashMap::new();
+    if let Some(stability) = root.pointer("/derived/stability") {
+        if let Some(runs) = stability.get("runs").and_then(|v| v.as_array()) {
+            for r in runs {
+                if let Some(name) = r.get("ratio_name").and_then(|v| v.as_str()) {
+                    if let (Some(med), Some(min), Some(max), Some(n)) = (
+                        r.get("median").and_then(|v| v.as_f64()),
+                        r.get("min").and_then(|v| v.as_f64()),
+                        r.get("max").and_then(|v| v.as_f64()),
+                        r.get("n_runs").and_then(|v| v.as_u64()),
+                    ) {
+                        stability_map.insert(name.to_string(), (med, min, max, n));
+                    }
+                }
+            }
+        }
+    }
+
     let Some(rows) = array_at(root, path, "/comparisons")? else {
         return Ok(());
     };
@@ -866,6 +895,7 @@ fn collect_comparisons(
             continue;
         };
         let size = size_display(&size_raw);
+        let size_lc = size_raw.to_lowercase();
         let nk = plain_messages(root, &size).map(|m| format!("n = {m}"));
         let class = opt_class(row, "/class", path)?;
 
@@ -903,24 +933,98 @@ fn collect_comparisons(
             }
         }
 
-        let ratio_specs: [(&str, &str, Section, Baseline); 4] = [
-            (
-                "signing_speedup_c_vs_a",
-                "signing speed-up, C vs A",
-                Section::SigningTime,
-                Baseline::A,
-            ),
+        // C-vs-A rows for every size with spread when stability exists
+        // wire reduction already added above for C vs A
+        // signing speed-up C vs A
+        if let Some(v) = opt_f64(row, "/signing_speedup_c_vs_a", path)? {
+            // look up stability entries that might correspond
+            let stability_key_candidates = [
+                format!("signing_speedup_model_{size_lc}"),
+                format!("signing_speedup_c_vs_a_{size_lc}"),
+            ];
+            let mut has_spread = false;
+            for cand in &stability_key_candidates {
+                if stability_map.contains_key(cand) {
+                    has_spread = true;
+                    break;
+                }
+            }
+            out.facts.push(fact(
+                Row {
+                    section: Section::SigningTime,
+                    label: if has_spread {
+                        // put spread info in label as per common pattern in this codebase style
+                        format!("{size} — signing speed-up, C vs A (spread)")
+                    } else {
+                        format!("{size} — signing speed-up, C vs A")
+                    },
+                    unit: "×".to_string(),
+                    class,
+                    nk: if has_spread {
+                        // try to use stability nk if available
+                        stability_key_candidates
+                            .iter()
+                            .find_map(|c| {
+                                stability_map.get(c).map(|(_, _, _, n)| format!("n = {n}"))
+                            })
+                            .or_else(|| nk.clone())
+                    } else {
+                        nk.clone()
+                    },
+                    baseline: Baseline::A,
+                },
+                fmt_ratio(v),
+                &format!("{base}/signing_speedup_c_vs_a"),
+                &source,
+            ));
+            if !has_spread {
+                out.notes.push(Note::custom(
+                    Section::SigningTime,
+                    format!("{size} — signing speed-up, C vs A: spread pending"),
+                ));
+            }
+        }
+
+        if let Some(v) = opt_f64(row, "/verifying_speedup_cached_vs_a", path)? {
+            let size_lc2 = size_lc.clone();
+            let mut has_spread = false;
+            let stability_key_candidates = [
+                format!("verifying_speedup_cached_vs_a_{size_lc2}"),
+                format!("verify_speedup_cached_vs_a_{size_lc2}"),
+            ];
+            for cand in &stability_key_candidates {
+                if stability_map.contains_key(cand) {
+                    has_spread = true;
+                    break;
+                }
+            }
+            out.facts.push(fact(
+                Row {
+                    section: Section::VerifyingTime,
+                    label: format!("{size} — verifying speed-up (trust cached), C vs A"),
+                    unit: "×".to_string(),
+                    class,
+                    nk: nk.clone(),
+                    baseline: Baseline::A,
+                },
+                fmt_ratio(v),
+                &format!("{base}/verifying_speedup_cached_vs_a"),
+                &source,
+            ));
+            if !has_spread {
+                out.notes.push(Note::custom(
+                    Section::VerifyingTime,
+                    format!("{size} — verifying speed-up (trust cached), C vs A: spread pending"),
+                ));
+            }
+        }
+
+        let ratio_specs: [(&str, &str, Section, Baseline); 2] = [
             (
                 "signing_speedup_c_vs_b",
                 "signing speed-up, C vs B",
                 Section::SigningTime,
                 Baseline::B,
-            ),
-            (
-                "verifying_speedup_cached_vs_a",
-                "verifying speed-up (trust cached), C vs A",
-                Section::VerifyingTime,
-                Baseline::A,
             ),
             (
                 "verifying_speedup_cold_vs_a",
@@ -1735,6 +1839,183 @@ fn collect_environment(
     Ok(())
 }
 
+fn collect_reuse(out: &mut Collected, results: Option<(&Path, &Value)>) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    if let Some(reuse_arr) = array_at(root, path, "/derived/reuse")? {
+        for (i, r) in reuse_arr.iter().enumerate() {
+            let base = format!("/derived/reuse/{i}");
+            let Some(size_raw) = opt_str(r, "/size", path)? else {
+                continue;
+            };
+            let size = size_display(&size_raw);
+            let class = opt_class(r, "/class", path)?.or(Some(EvidenceClass::Derived));
+            let batch_size = opt_u64(r, "/batch_size", path)?;
+            let nk = batch_size.map(|b| format!("n = {b}"));
+            if let Some(v) = opt_u64(r, "/breakeven_reuse_time", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Reuse,
+                        label: format!("{size} — reuse break-even (time)"),
+                        unit: "×".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    v.to_string(),
+                    &format!("{base}/breakeven_reuse_time"),
+                    &source,
+                ));
+            }
+            if let Some(v) = opt_u64(r, "/breakeven_reuse_bytes", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Reuse,
+                        label: format!("{size} — reuse break-even (bytes)"),
+                        unit: "×".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    v.to_string(),
+                    &format!("{base}/breakeven_reuse_bytes"),
+                    &source,
+                ));
+            }
+            if let Some(v) = opt_u64(r, "/r_star_time", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Reuse,
+                        label: format!("{size} — r* (time)"),
+                        unit: "×".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    v.to_string(),
+                    &format!("{base}/r_star_time"),
+                    &source,
+                ));
+            }
+            if let Some(v) = opt_u64(r, "/r_star_bytes", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Reuse,
+                        label: format!("{size} — r* (bytes)"),
+                        unit: "×".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    v.to_string(),
+                    &format!("{base}/r_star_bytes"),
+                    &source,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn collect_udp_fit(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    if let Some(udp) = root.pointer("/derived/udp_fit") {
+        // Add validation/cross-check info if present
+        if let Some(val) = udp.get("validation") {
+            if let Some(matches) = val.get("matches").and_then(|v| v.as_bool()) {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::UdpFit,
+                        label: "UDP fit — model matches capture".to_string(),
+                        unit: "—".to_string(),
+                        class: Some(EvidenceClass::Derived),
+                        nk: None,
+                        baseline: Baseline::Na,
+                    },
+                    if matches { "yes" } else { "no" }.to_string(),
+                    "/derived/udp_fit/validation/matches",
+                    &source,
+                ));
+            }
+        }
+        if let Some(rows) = udp.get("rows").and_then(|v| v.as_array()) {
+            // Add per-size fit summary for A/B/C if possible (look up common patterns)
+            // Also add worst row / summary info
+            // Try to find medium rows for common configs
+            for (i, row) in rows.iter().enumerate() {
+                let base = format!("/derived/udp_fit/rows/{i}");
+                let profile_label = row
+                    .get("profile_label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let config_label = row
+                    .get("config_label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("");
+                let zone_leaves = row.get("zone_leaves").and_then(|v| v.as_u64());
+                let fit = row.get("fit_1232_percent").and_then(|v| v.as_f64());
+                if let (Some(z), Some(f)) = (zone_leaves, fit) {
+                    // create a summary row if it matches typical pattern
+                    if profile_label.contains("Positive") || profile_label.contains("www") {
+                        let label = format!(
+                            "UDP fit, leaves={} — {} {} fit ≤1232 B",
+                            z, config_label, profile_label
+                        );
+                        out.facts.push(fact(
+                            Row {
+                                section: Section::UdpFit,
+                                label,
+                                unit: "%".to_string(),
+                                class: Some(EvidenceClass::Analytical),
+                                nk: row
+                                    .get("messages")
+                                    .and_then(|v| v.as_u64())
+                                    .map(|m| format!("n = {m}")),
+                                baseline: Baseline::Na,
+                            },
+                            fmt_percent(f),
+                            &format!("{base}/fit_1232_percent"),
+                            &source,
+                        ));
+                    }
+                }
+            }
+            // Add worst row summary
+            if let Some(worst) = rows.iter().min_by(|a, b| {
+                a.get("fit_1232_percent")
+                    .and_then(|v| v.as_f64())
+                    .partial_cmp(&b.get("fit_1232_percent").and_then(|v| v.as_f64()))
+                    .unwrap()
+            }) {
+                if let Some(f) = worst.get("fit_1232_percent").and_then(|v| v.as_f64()) {
+                    out.facts.push(fact(
+                        Row {
+                            section: Section::UdpFit,
+                            label: "UDP fit — worst case fit ≤1232 B".to_string(),
+                            unit: "%".to_string(),
+                            class: Some(EvidenceClass::Analytical),
+                            nk: None,
+                            baseline: Baseline::Na,
+                        },
+                        fmt_percent(f),
+                        "/derived/udp_fit/rows/*/fit_1232_percent",
+                        &source,
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Collect the quality section from a `cargo test --workspace` summary; the
 /// counts are read back from the run's own `test result:` lines, never typed in.
 fn collect_quality(out: &mut Collected, summary: Option<TestSummary>) {
@@ -2046,6 +2327,8 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
             Section::Memory,
             Section::LadderVerification,
             Section::DnsLive,
+            Section::Reuse,
+            Section::UdpFit,
             Section::Environment,
         ] {
             collected
@@ -2098,6 +2381,8 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     collect_bench(&mut collected, results_ref, BenchKind::Verifying)?;
     collect_comparisons(&mut collected, results_ref)?;
     collect_summaries(&mut collected, results_ref)?;
+    collect_reuse(&mut collected, results_ref)?;
+    collect_udp_fit(&mut collected, results_ref)?;
     collect_memory(
         &mut collected,
         memory_raw

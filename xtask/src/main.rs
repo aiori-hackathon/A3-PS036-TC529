@@ -11,6 +11,7 @@ mod charts;
 mod check_pins;
 mod commit_graph;
 mod consolidate;
+mod deck_delta;
 mod deck_facts;
 mod dns_demo;
 mod docs_check;
@@ -29,6 +30,7 @@ use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
 use commit_graph::{cmd_commit_graph, CommitGraphArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
+use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use docs_check::{cmd_docs_check, DocsCheckArgs};
@@ -116,6 +118,8 @@ enum Commands {
     /// Reads the recorded artifacts only. Two artifacts that disagree about the
     /// same number are reported in the footer and fail the command.
     DeckFacts(DeckFactsArgs),
+    /// Diff a plain-text deck dump against the quote sheet.
+    DeckDelta(DeckDeltaArgs),
     /// Check the documentation against the real workspace and the quote sheet.
     ///
     /// Fails when a Mermaid node id in README.md or docs/*.md looks like a
@@ -256,6 +260,7 @@ fn main() -> Result<()> {
         Commands::VerifyConsolidated(args) => cmd_verify_consolidated(args),
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
+        Commands::DeckDelta(args) => cmd_deck_delta(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::ReadmeBadges(args) => cmd_readme_badges(args),
         Commands::CommitGraph(args) => cmd_commit_graph(args),

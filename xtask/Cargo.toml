@@ -27,3 +27,4 @@ climb-analytical = { path = "../crates/climb-analytical" }
 climb-mtl = { path = "../crates/climb-mtl" }
 climb-mtl-sys = { path = "../crates/climb-mtl-sys" }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-report = { path = "../crates/climb-report" }
+regex-lite = "0.1"

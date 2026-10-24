@@ -59,38 +59,52 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Signing time
 
+> Large — signing speed-up, C vs A: spread pending
+
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Small — signing per batch, C (MTL amortised) | 559.5 | ms | MEASURED | n = 100 | C | /benchmark/signing/0/mean_ns | target/climb-results.json |
-| Small — signing per message, C (MTL amortised) | 5.6 | ms | DERIVED | n = 100 | C | /benchmark/signing/0/mean_ns | target/climb-results.json |
-| Small — signing per batch, B (MTL, no amortisation) | 1.63 | min | MEASURED | n = 100 | B | /benchmark/signing/1/mean_ns | target/climb-results.json |
-| Small — signing per message, B (MTL, no amortisation) | 979.0 | ms | DERIVED | n = 100 | B | /benchmark/signing/1/mean_ns | target/climb-results.json |
-| OneK — signing per batch, C (MTL amortised) | 716.2 | ms | MEASURED | n = 1000 | C | /benchmark/signing/2/mean_ns | target/climb-results.json |
-| OneK — signing per message, C (MTL amortised) | 716.2 | us | DERIVED | n = 1000 | C | /benchmark/signing/2/mean_ns | target/climb-results.json |
-| OneK — signing per batch, B (MTL, no amortisation) | 11.47 | min | MEASURED | n = 1000 | B | /benchmark/signing/3/mean_ns | target/climb-results.json |
-| OneK — signing per message, B (MTL, no amortisation) | 688.2 | ms | DERIVED | n = 1000 | B | /benchmark/signing/3/mean_ns | target/climb-results.json |
-| Medium — signing per batch, C (MTL amortised) | 552.7 | ms | MEASURED | n = 10000 | C | /benchmark/signing/4/mean_ns | target/climb-results.json |
-| Medium — signing per message, C (MTL amortised) | 55.3 | us | DERIVED | n = 10000 | C | /benchmark/signing/4/mean_ns | target/climb-results.json |
-| Large — signing per batch, C (MTL amortised) | 4.31 | s | MEASURED | n = 1000000 | C | /benchmark/signing/5/mean_ns | target/climb-results.json |
-| Large — signing per message, C (MTL amortised) | 4.3 | us | DERIVED | n = 1000000 | C | /benchmark/signing/5/mean_ns | target/climb-results.json |
-| Small — signing per message, A (plain SLH-DSA) | 526.6 | ms | MEASURED | n = 1 | A | /plain/0/signing_mean_ns | target/climb-results.json |
-| Small — signing per batch, A (plain SLH-DSA) | ≈52.66 | s | EXTRAPOLATED | k = 1 | A | /plain/0/signing_mean_ns | target/climb-results.json |
-| OneK — signing per message, A (plain SLH-DSA) | ≈524.9 | ms | EXTRAPOLATED | k = 2 | A | /plain/1/signing_mean_ns | target/climb-results.json |
-| OneK — signing per batch, A (plain SLH-DSA) | ≈8.75 | min | EXTRAPOLATED | k = 2 | A | /plain/1/signing_mean_ns | target/climb-results.json |
-| Medium — signing per message, A (plain SLH-DSA) | 523.3 | ms | MEASURED | n = 1 | A | /plain/2/signing_mean_ns | target/climb-results.json |
-| Medium — signing per batch, A (plain SLH-DSA) | ≈1.45 | h | EXTRAPOLATED | k = 1 | A | /plain/2/signing_mean_ns | target/climb-results.json |
-| Large — signing per message, A (plain SLH-DSA) | ≈524.9 | ms | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
-| Large — signing per batch, A (plain SLH-DSA) | ≈145.82 | h | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
-| Small — signing speed-up, C vs A | 94.12 | × | DERIVED | n = 100 | A | /comparisons/0/signing_speedup_c_vs_a | target/climb-results.json |
-| Small — signing speed-up, C vs B | 175.0 | × | DERIVED | n = 100 | B | /comparisons/0/signing_speedup_c_vs_b | target/climb-results.json |
-| OneK — signing speed-up, C vs A | ≈733.0 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/signing_speedup_c_vs_a | target/climb-results.json |
-| OneK — signing speed-up, C vs B | ≈961.0 | × | EXTRAPOLATED | n = 1000 | B | /comparisons/1/signing_speedup_c_vs_b | target/climb-results.json |
-| Medium — signing speed-up, C vs A | ≈9469 | × | EXTRAPOLATED | n = 10000 | A | /comparisons/2/signing_speedup_c_vs_a | target/climb-results.json |
-| Medium — signing speed-up, C vs B | ≈15084 | × | EXTRAPOLATED | n = 10000 | B | /comparisons/2/signing_speedup_c_vs_b | target/climb-results.json |
-| Large — signing speed-up, C vs A | ≈121889 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/signing_speedup_c_vs_a | target/climb-results.json |
-| Large — signing speed-up, C vs B | ≈193567 | × | EXTRAPOLATED | n = 1000000 | B | /comparisons/3/signing_speedup_c_vs_b | target/climb-results.json |
+| Small — signing per batch, C (MTL amortised) | 586.8 | ms | MEASURED | n = 100 | C | /benchmark/signing/0/mean_ns | target/climb-results.json |
+| Small — signing per message, C (MTL amortised) | 5.9 | ms | DERIVED | n = 100 | C | /benchmark/signing/0/mean_ns | target/climb-results.json |
+| Small — signing per batch, B (MTL, no amortisation) | 520.5 | ms | MEASURED | n = 1 | B | /benchmark/signing/1/mean_ns | target/climb-results.json |
+| Small — signing per message, B (MTL, no amortisation) | 520.5 | ms | DERIVED | n = 1 | B | /benchmark/signing/1/mean_ns | target/climb-results.json |
+| OneK — signing per batch, C (MTL amortised) | 520.4 | ms | MEASURED | n = 1000 | C | /benchmark/signing/2/mean_ns | target/climb-results.json |
+| OneK — signing per message, C (MTL amortised) | 520.4 | us | DERIVED | n = 1000 | C | /benchmark/signing/2/mean_ns | target/climb-results.json |
+| OneK — signing per batch, B (MTL, no amortisation) | 516.6 | ms | MEASURED | n = 1 | B | /benchmark/signing/3/mean_ns | target/climb-results.json |
+| OneK — signing per message, B (MTL, no amortisation) | 516.6 | ms | DERIVED | n = 1 | B | /benchmark/signing/3/mean_ns | target/climb-results.json |
+| Medium — signing per batch, C (MTL amortised) | 550.2 | ms | MEASURED | n = 10000 | C | /benchmark/signing/4/mean_ns | target/climb-results.json |
+| Medium — signing per message, C (MTL amortised) | 55.0 | us | DERIVED | n = 10000 | C | /benchmark/signing/4/mean_ns | target/climb-results.json |
+| Medium — signing per batch, B (MTL, no amortisation) | 519.1 | ms | MEASURED | n = 1 | B | /benchmark/signing/5/mean_ns | target/climb-results.json |
+| Medium — signing per message, B (MTL, no amortisation) | 519.1 | ms | DERIVED | n = 1 | B | /benchmark/signing/5/mean_ns | target/climb-results.json |
+| Large — signing per batch, C (MTL amortised) | 4.33 | s | MEASURED | n = 1000000 | C | /benchmark/signing/6/mean_ns | target/climb-results.json |
+| Large — signing per message, C (MTL amortised) | 4.3 | us | DERIVED | n = 1000000 | C | /benchmark/signing/6/mean_ns | target/climb-results.json |
+| Large — signing per batch, B (MTL, no amortisation) | 523.3 | ms | MEASURED | n = 1 | B | /benchmark/signing/7/mean_ns | target/climb-results.json |
+| Large — signing per message, B (MTL, no amortisation) | 523.3 | ms | DERIVED | n = 1 | B | /benchmark/signing/7/mean_ns | target/climb-results.json |
+| Small — signing per message, A (plain SLH-DSA) | 518.2 | ms | MEASURED | n = 1 | A | /plain/0/signing_mean_ns | target/climb-results.json |
+| Small — signing per batch, A (plain SLH-DSA) | ≈51.82 | s | EXTRAPOLATED | k = 1 | A | /plain/0/signing_mean_ns | target/climb-results.json |
+| OneK — signing per message, A (plain SLH-DSA) | ≈517.9 | ms | EXTRAPOLATED | k = 2 | A | /plain/1/signing_mean_ns | target/climb-results.json |
+| OneK — signing per batch, A (plain SLH-DSA) | ≈8.63 | min | EXTRAPOLATED | k = 2 | A | /plain/1/signing_mean_ns | target/climb-results.json |
+| Medium — signing per message, A (plain SLH-DSA) | 517.5 | ms | MEASURED | n = 1 | A | /plain/2/signing_mean_ns | target/climb-results.json |
+| Medium — signing per batch, A (plain SLH-DSA) | ≈1.44 | h | EXTRAPOLATED | k = 1 | A | /plain/2/signing_mean_ns | target/climb-results.json |
+| Large — signing per message, A (plain SLH-DSA) | ≈517.9 | ms | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
+| Large — signing per batch, A (plain SLH-DSA) | ≈143.85 | h | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
+| Small — signing speed-up, C vs A (spread) | 88.31 | × | DERIVED | n = 5 | A | /comparisons/0/signing_speedup_c_vs_a | target/climb-results.json |
+| Small — signing speed-up, C vs B | 88.70 | × | DERIVED | n = 100 | B | /comparisons/0/signing_speedup_c_vs_b | target/climb-results.json |
+| OneK — signing speed-up, C vs A (spread) | ≈995.2 | × | EXTRAPOLATED | n = 5 | A | /comparisons/1/signing_speedup_c_vs_a | target/climb-results.json |
+| OneK — signing speed-up, C vs B | ≈992.8 | × | EXTRAPOLATED | n = 1000 | B | /comparisons/1/signing_speedup_c_vs_b | target/climb-results.json |
+| Medium — signing speed-up, C vs A (spread) | 9405 | × | DERIVED | n = 5 | A | /comparisons/2/signing_speedup_c_vs_a | target/climb-results.json |
+| Medium — signing speed-up, C vs B | 9433 | × | DERIVED | n = 10000 | B | /comparisons/2/signing_speedup_c_vs_b | target/climb-results.json |
+| Large — signing speed-up, C vs A | ≈119657 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/signing_speedup_c_vs_a | target/climb-results.json |
+| Large — signing speed-up, C vs B | ≈120899 | × | EXTRAPOLATED | n = 1000000 | B | /comparisons/3/signing_speedup_c_vs_b | target/climb-results.json |
 
 ## Verifying time
+
+> Small — verifying speed-up (trust cached), C vs A: spread pending
+
+> OneK — verifying speed-up (trust cached), C vs A: spread pending
+
+> Medium — verifying speed-up (trust cached), C vs A: spread pending
+
+> Large — verifying speed-up (trust cached), C vs A: spread pending
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -120,11 +134,11 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Small — verifying speed-up (ladder re-validated), C vs A | 0.93 | × | DERIVED | n = 100 | A | /comparisons/0/verifying_speedup_cold_vs_a | target/climb-results.json |
 | OneK — verifying speed-up (trust cached), C vs A | ≈156.5 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/verifying_speedup_cached_vs_a | target/climb-results.json |
 | OneK — verifying speed-up (ladder re-validated), C vs A | ≈0.94 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/verifying_speedup_cold_vs_a | target/climb-results.json |
-| Medium — verifying speed-up (trust cached), C vs A | ≈215.3 | × | EXTRAPOLATED | n = 10000 | A | /comparisons/2/verifying_speedup_cached_vs_a | target/climb-results.json |
-| Medium — verifying speed-up (ladder re-validated), C vs A | ≈0.95 | × | EXTRAPOLATED | n = 10000 | A | /comparisons/2/verifying_speedup_cold_vs_a | target/climb-results.json |
+| Medium — verifying speed-up (trust cached), C vs A | 215.3 | × | DERIVED | n = 10000 | A | /comparisons/2/verifying_speedup_cached_vs_a | target/climb-results.json |
+| Medium — verifying speed-up (ladder re-validated), C vs A | 0.95 | × | DERIVED | n = 10000 | A | /comparisons/2/verifying_speedup_cold_vs_a | target/climb-results.json |
 | Large — verifying speed-up (trust cached), C vs A | ≈83.28 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/verifying_speedup_cached_vs_a | target/climb-results.json |
 | Large — verifying speed-up (ladder re-validated), C vs A | ≈0.94 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/verifying_speedup_cold_vs_a | target/climb-results.json |
-| Average trust-cached verify speed-up | 543.0 | × | DERIVED | n = 3 | n/a | /derived/overall_verifying_trust_cached_speedup_avg | target/climb-results.json |
+| Average trust-cached verify speed-up | 569.3 | × | DERIVED | n = 3 | n/a | /derived/overall_verifying_trust_cached_speedup_avg | target/climb-results.json |
 
 ## Memory
 
@@ -332,6 +346,78 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | DNS, www.climb.example. A — response reduction, condensed vs full | 97.307 | % | DERIVED | — | B | /dns_pipeline/reduction_percent_www_a | target/climb-results.json |
 | DNS — capture source | live | — | MEASURED | — | n/a | /dns_pipeline/source | target/climb-results.json |
 
+## Reuse
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Small — reuse break-even (time) | 2 | × | DERIVED | n = 100 | n/a | /derived/reuse/0/breakeven_reuse_time | target/climb-results.json |
+| Small — reuse break-even (bytes) | 2 | × | DERIVED | n = 100 | n/a | /derived/reuse/0/breakeven_reuse_bytes | target/climb-results.json |
+| Small — r* (time) | 2 | × | DERIVED | n = 100 | n/a | /derived/reuse/0/r_star_time | target/climb-results.json |
+| Small — r* (bytes) | 2 | × | DERIVED | n = 100 | n/a | /derived/reuse/0/r_star_bytes | target/climb-results.json |
+| Medium — reuse break-even (time) | 2 | × | DERIVED | n = 10000 | n/a | /derived/reuse/1/breakeven_reuse_time | target/climb-results.json |
+| Medium — reuse break-even (bytes) | 2 | × | DERIVED | n = 10000 | n/a | /derived/reuse/1/breakeven_reuse_bytes | target/climb-results.json |
+| Medium — r* (time) | 2 | × | DERIVED | n = 10000 | n/a | /derived/reuse/1/r_star_time | target/climb-results.json |
+| Medium — r* (bytes) | 2 | × | DERIVED | n = 10000 | n/a | /derived/reuse/1/r_star_bytes | target/climb-results.json |
+| Large — reuse break-even (time) | ≈2 | × | EXTRAPOLATED | n = 1000000 | n/a | /derived/reuse/2/breakeven_reuse_time | target/climb-results.json |
+| Large — reuse break-even (bytes) | ≈2 | × | EXTRAPOLATED | n = 1000000 | n/a | /derived/reuse/2/breakeven_reuse_bytes | target/climb-results.json |
+| Large — r* (time) | ≈2 | × | EXTRAPOLATED | n = 1000000 | n/a | /derived/reuse/2/r_star_time | target/climb-results.json |
+| Large — r* (bytes) | ≈2 | × | EXTRAPOLATED | n = 1000000 | n/a | /derived/reuse/2/r_star_bytes | target/climb-results.json |
+
+## UDP fit
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| UDP fit — model matches capture | yes | — | DERIVED | — | n/a | /derived/udp_fit/validation/matches | target/climb-results.json |
+| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/0/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/1/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/2/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/3/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/4/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/5/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/6/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/7/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/8/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/9/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/10/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/11/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/12/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/13/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/14/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/15/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — P (ECDSA P-256, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/16/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — P (ECDSA P-256, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/17/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — P (ECDSA P-256, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/18/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — P (ECDSA P-256, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/19/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/20/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/21/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/22/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/23/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/24/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/25/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/26/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/27/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/28/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/29/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/30/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/31/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/32/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/33/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/34/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 0.358 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/35/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/36/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/37/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/38/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/39/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — P (ECDSA P-256, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/40/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — P (ECDSA P-256, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/41/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — P (ECDSA P-256, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/42/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — P (ECDSA P-256, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/43/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/44/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/45/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/46/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/47/fit_1232_percent | target/climb-results.json |
+| UDP fit — worst case fit ≤1232 B | 0.000 | % | ANALYTICAL | — | n/a | /derived/udp_fit/rows/*/fit_1232_percent | target/climb-results.json |
+
 ## Environment
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
@@ -348,22 +434,22 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 47a4a14e18a4e6569ed2646efee854a544918177 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | ef8d86f40fb809e2c5ac7642b0e2127e97c25d00 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 783 | — | MEASURED | n = 31 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 0 | — | MEASURED | n = 31 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 1 | — | MEASURED | n = 31 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 31 | — | MEASURED | n = 31 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 988 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 6 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 1 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 27 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
 
 ---
 
 ## Footer
 
-- Rows rendered: 295 (from 455 collected facts; 160 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 200, ANALYTICAL: 19, EXTRAPOLATED: 24, DERIVED: 51; UNCLASSIFIED: 1.
+- Rows rendered: 361 (from 521 collected facts; 160 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 202, ANALYTICAL: 68, EXTRAPOLATED: 24, DERIVED: 66; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

@@ -60,6 +60,10 @@ README, the HTML report and the dashboard is read from a recorded artifact,
 never typed into source, and every claim carries its evidence class: measured,
 derived, analytical or extrapolated.
 
+<!-- live:begin -->
+Live demo: coming with the web release
+<!-- live:end -->
+
 ## Built in the open
 
 <!-- commit-graph:begin -->
@@ -90,16 +94,19 @@ amortised — definitions in [`docs/BASELINES.md`](docs/BASELINES.md));
 in this table drifts from the quote sheet.
 
 <!-- headline:begin -->
-| Metric | Value | Evidence class | Baseline |
-| --- | --- | --- | --- |
-| Live DNS response, `www.climb.example. A` — reduction, condensed vs full | 97.307 % | DERIVED | B |
-| Wire bytes, Medium — C (MTL amortised) | 2,743,352 B | MEASURED | C |
-| Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B |
-| Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A |
-| Wire reduction, Medium — C vs B | 96.706 % | DERIVED | B |
-| Signing speed-up, Medium — C vs B | ≈15,084 × | EXTRAPOLATED | B |
-| Verifying speed-up, Medium, trust cached ladder — C vs A | ≈215.3 × | EXTRAPOLATED | A |
-| Memory, Small — measured / analytical ratio | 1.90 × | DERIVED | n/a |
+| Metric | Value | Evidence class | Baseline | Spread |
+| --- | --- | --- | --- | --- |
+| Live DNS response, `www.climb.example. A` — reduction, condensed vs full | 97.307 % | DERIVED | B | — |
+| Wire reduction, Medium — C vs A | 96.508 % | DERIVED | A | — |
+| Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A | — |
+| Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B | — |
+| Wire bytes, Medium — C (MTL amortised) | 2,743,352 B | MEASURED | C | — |
+| Signing speed-up, Medium — C vs A | 9405 × | DERIVED | A | — |
+| Verifying speed-up, Medium, trust cached ladder — C vs A | 215.3 × | DERIVED | A | — |
+| UDP fit (how many modelled rows each of A,B,C fits within MTU) | 0.000 % | ANALYTICAL | n/a | — |
+| Large memory (measured resident median) | 1,087,139,840 B | MEASURED | n/a | — |
+| Large memory (measured / analytical ratio) | 1.10 × | DERIVED | n/a | — |
+| Ladder shape | 132 B | MEASURED | n/a | — |
 <!-- headline:end -->
 
 Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
