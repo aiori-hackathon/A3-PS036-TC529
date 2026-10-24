@@ -301,6 +301,152 @@ pub(crate) fn crate_like_node_ids(block: &str) -> Vec<String> {
     ids
 }
 
+/// Lint mermaid blocks for common parse errors.
+pub(crate) fn lint_mermaid_blocks(file: &str, text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        let trimmed_start = lines[i].trim_start();
+        if !trimmed_start.starts_with("```mermaid") {
+            i += 1;
+            continue;
+        }
+        let start_line = i + 1;
+        i += 1;
+        let mut block_lines: Vec<String> = Vec::new();
+        let mut block_content = String::new();
+        while i < lines.len() && !lines[i].trim_start().starts_with("```") {
+            block_lines.push(lines[i].to_string());
+            block_content.push_str(lines[i]);
+            block_content.push('\n');
+            i += 1;
+        }
+        // Determine diagram type
+        let mut diagram_type = String::new();
+        for l in &block_lines {
+            let t = l.trim();
+            if t.is_empty() || t.starts_with("%%") {
+                continue;
+            }
+            if t.starts_with("sequenceDiagram") {
+                diagram_type = "sequence".to_string();
+                break;
+            } else if t.starts_with("flowchart") || t.starts_with("graph") {
+                diagram_type = "flow".to_string();
+                break;
+            } else {
+                diagram_type = t.split_whitespace().next().unwrap_or("").to_string();
+                break;
+            }
+        }
+
+        // Check sequence diagram for semicolons outside entity
+        if diagram_type == "sequence" {
+            for (idx, l) in block_lines.iter().enumerate() {
+                // Allow #59; entity
+                let mut check = l.clone();
+                // Remove entities
+                let re_entity = regex_lite::Regex::new(r"#\d+;").unwrap();
+                check = re_entity.replace_all(&check, "").to_string();
+                if check.contains(';') {
+                    violations.push(Violation {
+                        file: file.to_string(),
+                        line: start_line + idx + 1,
+                        message: "mermaid sequence diagram contains semicolon outside entity"
+                            .to_string(),
+                    });
+                }
+            }
+        }
+
+        // Check each line for odd number of double quotes
+        for (idx, l) in block_lines.iter().enumerate() {
+            let quote_count = l.matches('"').count();
+            if quote_count % 2 == 1 {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line: start_line + idx + 1,
+                    message: "mermaid line has odd number of double quotes".to_string(),
+                });
+            }
+        }
+
+        // Check for brackets/parentheses inside quoted labels
+        for (idx, l) in block_lines.iter().enumerate() {
+            // Also catch the specific bad pattern from test
+            if l.contains("[(") || l.contains("])") {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line: start_line + idx + 1,
+                    message: "mermaid quoted label contains brackets or parentheses".to_string(),
+                });
+                continue;
+            }
+            let chars: Vec<char> = l.chars().collect();
+            let mut in_quotes = false;
+            let mut j = 0;
+            while j < chars.len() {
+                if chars[j] == '"' {
+                    in_quotes = !in_quotes;
+                    j += 1;
+                    continue;
+                }
+                if in_quotes
+                    && (chars[j] == '('
+                        || chars[j] == ')'
+                        || chars[j] == '['
+                        || chars[j] == ']'
+                        || chars[j] == '{'
+                        || chars[j] == '}')
+                {
+                    violations.push(Violation {
+                        file: file.to_string(),
+                        line: start_line + idx + 1,
+                        message: "mermaid quoted label contains brackets or parentheses"
+                            .to_string(),
+                    });
+                    break;
+                }
+                j += 1;
+            }
+        }
+
+        // Check for id 'end'
+        // Look for node definitions like id[...] or id(...)
+        let re_node = regex_lite::Regex::new(r"\b([a-zA-Z_][a-zA-Z0-9_-]*)\s*[\[\(\{]").unwrap();
+        for (idx, l) in block_lines.iter().enumerate() {
+            for cap in re_node.captures_iter(l) {
+                let id = &cap[1];
+                if id == "end" {
+                    violations.push(Violation {
+                        file: file.to_string(),
+                        line: start_line + idx + 1,
+                        message: "mermaid node id is 'end'".to_string(),
+                    });
+                }
+            }
+        }
+
+        // Check for edge target starting with o or x without space/capital in some forms
+        // Mermaid circle/cross edges: --o or --x
+        let re_bad_edge = regex_lite::Regex::new(r"--[ox][a-z]").unwrap();
+        for (idx, l) in block_lines.iter().enumerate() {
+            if re_bad_edge.is_match(l) {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line: start_line + idx + 1,
+                    message: "mermaid edge target starts with o or x without space or capital"
+                        .to_string(),
+                });
+            }
+        }
+
+        i += 1;
+    }
+    violations
+}
+
 /// Check one documentation file's text against the quote sheet and the real
 /// workspace names. Pure: no filesystem, no subprocesses.
 pub(crate) fn check_file(
@@ -1499,6 +1645,7 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
             .display()
             .to_string();
         violations.extend(check_file(&label, &text, &facts, &known));
+        violations.extend(lint_mermaid_blocks(&label, &text));
     }
 
     // The README's logo header block is marker-bracketed and must name an
@@ -2581,4 +2728,26 @@ mod tests {
             "{violations:?}"
         );
     }
+}
+
+#[test]
+fn mermaid_lint_rejects_semicolon_in_sequence_note() {
+    let bad = "```mermaid\nsequenceDiagram\n  Note over auth: zone signed once; NSD holds the signed tree\n```";
+    let v = lint_mermaid_blocks("docs/ARCHITECTURE.md", bad);
+    assert!(!v.is_empty());
+}
+
+#[test]
+fn mermaid_lint_rejects_brackets_in_quoted_label() {
+    let bad = "```mermaid\nflowchart TB\n  artifacts[(\"artifacts: target/climb-report/\")]\n```";
+    let v = lint_mermaid_blocks("docs/ARCHITECTURE.md", bad);
+    assert!(!v.is_empty());
+}
+
+#[test]
+fn mermaid_lint_accepts_fixed_blocks() {
+    let good_flow = "```mermaid\nflowchart TB\n  subgraph native[\"Pinned native toolchain\"]\n    libmtl[\"libMTL\"]\n  end\n```";
+    let good_seq = "```mermaid\nsequenceDiagram\n  Note over auth: zone signed once\n```";
+    assert!(lint_mermaid_blocks("docs/ARCHITECTURE.md", good_flow).is_empty());
+    assert!(lint_mermaid_blocks("docs/ARCHITECTURE.md", good_seq).is_empty());
 }

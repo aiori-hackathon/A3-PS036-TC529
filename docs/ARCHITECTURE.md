@@ -10,31 +10,31 @@ drift from them.
 
 ```mermaid
 flowchart TB
-  subgraph native["Pinned native toolchain (third_party submodules, Docker build)"]
-    openssl["OpenSSL 3.4.1 (pinned in the Dockerfile)"]
-    liboqs["liboqs 0.16.0 (submodule third_party/liboqs)"]
-    libmtl["libMTL (submodule third_party/MTL)"]
+  subgraph native["Pinned native toolchain"]
+    openssl["OpenSSL"]
+    liboqs["liboqs"]
+    libmtl["libMTL"]
   end
 
   subgraph workspace["Rust workspace"]
-    climb_mtl_sys["climb-mtl-sys (bindgen FFI bindings)"]
-    climb_mtl["climb-mtl (safe wrapper)"]
-    climb_dns["climb-dns (datasets, capture parsing)"]
-    climb_analytical["climb-analytical (memory and UDP-fit models)"]
-    climb_bench["climb-bench (Criterion groups, wire and memory probes)"]
-    climb_report["climb-report (consolidation, charts, HTML, claims)"]
-    climb_tui["climb-tui (dashboard, replay, integrity check)"]
-    xtask["xtask (automation: pin-env, reproduce, docs-check, ...)"]
+    climb_mtl_sys["climb_mtl_sys"]
+    climb_mtl["climb_mtl"]
+    climb_dns["climb_dns"]
+    climb_analytical["climb_analytical"]
+    climb_bench["climb_bench"]
+    climb_report["climb_report"]
+    climb_tui["climb_tui"]
+    xtask["xtask"]
   end
 
-  subgraph docker_net["Docker bridge network, localhost only"]
-    signer["signer (patched ldns zone signer)"]
-    nsd["nsd (patched authoritative server)"]
-    unbound["unbound (patched recursive resolver)"]
-    dig_client["dig (scripted queries, wire capture)"]
+  subgraph docker_net["Docker bridge network"]
+    signer["signer"]
+    nsd["nsd"]
+    unbound["unbound"]
+    dig_client["dig_client"]
   end
 
-  artifacts[("artifacts: target/climb-results.json, target/wire-report.json, target/memory-report.json, target/ladder-verification.json, target/criterion/, target/climb-report/)"]
+  artifacts["artifacts"]
 
   openssl --> liboqs --> libmtl
   libmtl --> climb_mtl_sys --> climb_mtl
@@ -81,28 +81,28 @@ byte counts are from the recorded capture.
 ```mermaid
 sequenceDiagram
   autonumber
-  participant client as "dig client"
-  participant res as "unbound (recursive)"
-  participant auth as "nsd (authoritative)"
+  participant client as "dig_client"
+  participant res as "unbound"
+  participant auth as "nsd"
 
-  Note over auth: zone signed once by the signer; NSD holds the signed tree
+  Note over auth: zone signed once
 
-  rect rgb(40, 40, 40)
-    Note over client,res: Cold — resolver has no cached ladder
-    client->>res: query www.climb.example. A
-    res->>auth: query www.climb.example. A
-    auth-->>res: full response, 24,438 B (condensed proof plus signed ladder)
-    res->>res: verify the SLH-DSA signature over the ladder, then the Merkle path
-    res->>res: cache the validated ladder
+  rect rgb(40,40,40)
+    Note over client,res: Cold
+    client->>res: query
+    res->>auth: query
+    auth-->>res: full_response
+    res->>res: verify
+    res->>res: cache
     res-->>client: answer
   end
 
-  rect rgb(25, 55, 35)
-    Note over client,res: Warm — resolver trusts the cached ladder
-    client->>res: query www.climb.example. A (different name in the zone)
+  rect rgb(25,55,35)
+    Note over client,res: Warm
+    client->>res: query
     res->>auth: query
-    auth-->>res: condensed response, 658 B (Merkle path only)
-    res->>res: check the path against the cached ladder
+    auth-->>res: condensed_response
+    res->>res: verify_cached
     res-->>client: answer
   end
 ```
@@ -122,30 +122,30 @@ rest of the documentation refers to.
 ```mermaid
 flowchart LR
   subgraph sources["Sources"]
-    config[("config and seeds<br/>configs and environment.json")]
-    datasets[("deterministic datasets<br/>regenerated from seeds")]
+    config["config_and_seeds"]
+    datasets["datasets"]
   end
 
   subgraph measurement["Measurement"]
-    raw_criterion[("raw Criterion output<br/>target/criterion/")]
-    probe_json[("wire, memory and ladder JSON<br/>target/wire-report.json, target/memory-report.json, target/ladder-verification.json")]
-    capture[("DNS wire capture<br/>data/dns-capture.recorded.json")]
+    raw_criterion["criterion_output"]
+    probe_json["probe_json"]
+    capture["dns_capture"]
   end
 
   subgraph reporting["Reporting"]
-    consolidated[("consolidated results<br/>target/climb-results.json")]
-    report[("report and claims registry<br/>target/climb-report/, docs/deck-facts.md")]
+    consolidated["consolidated"]
+    report["report"]
   end
 
-  config -->|climb-dns generates| datasets
-  datasets -->|climb-bench measures| raw_criterion
-  datasets -->|climb-bench probes| probe_json
-  datasets -->|xtask dns-demo signs and queries| capture
-  raw_criterion -->|xtask consolidate| consolidated
-  probe_json -->|xtask consolidate| consolidated
-  capture -->|xtask consolidate| consolidated
-  consolidated -->|climb-report renders| report
-  report -->|claims check| drift[("drift checks\ncargo xtask report --check, cargo xtask docs-check")]
+  config -->|generate| datasets
+  datasets -->|measure| raw_criterion
+  datasets -->|probe| probe_json
+  datasets -->|sign_and_query| capture
+  raw_criterion -->|consolidate| consolidated
+  probe_json -->|consolidate| consolidated
+  capture -->|consolidate| consolidated
+  consolidated -->|render| report
+  report -->|check| drift["drift_checks"]
 ```
 
 The data stores, named:
