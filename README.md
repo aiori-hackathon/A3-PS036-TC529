@@ -9,6 +9,8 @@
 
 # CLIMB — Cryptographic Ladder Impact Measurement Benchmark
 
+A reproducible benchmark suite measuring the operational impact of Merkle Tree Ladder (MTL) mode applied to post-quantum DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
+
 <!-- badges:begin -->
 <div align="center">
   <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="AIORI 3 Hackathon — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
@@ -32,64 +34,34 @@
 </div>
 <!-- commit-graph-strip:end -->
 
-**Team Name**: CLIMB
 
-**Team Code**: A3-PS036-TC529
+**Jump to:** [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
 
-**Team Members**: [Pratyay Mukherjee](https://github.com/profm0r14rty), [Mohit Kumar Yadav](https://github.com/Mohh12glitch), [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) (Faculty Mentor)
 
-**Team CLIMB Presentation deck in pdf format**: check [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)
+| Avatar | Name | Role | Link |
+| :----- | :--- | :--- | :--- |
+| <img src="https://github.com/profm0r14rty.png?size=96" width="64" alt="Pratyay Mukherjee avatar"> | [Pratyay Mukherjee](https://github.com/profm0r14rty) | Team Member | [GitHub](https://github.com/profm0r14rty) |
+| <img src="https://github.com/Mohh12glitch.png?size=96" width="64" alt="Mohit Kumar Yadav avatar"> | [Mohit Kumar Yadav](https://github.com/Mohh12glitch) | Team Member | [GitHub](https://github.com/Mohh12glitch) |
+| <img src="https://github.com/nfsu-india.png?size=96" width="64" alt="Dr. Maibam Devi avatar"> | [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) | Faculty Mentor | [NFSU profile](https://www.nfsu.ac.in/Faculty/profile/664) |
 
-**YouTube Video Link**: [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)
+**Team Name:** CLIMB  
+**Team Code:** A3-PS036-TC529  
+**Presentation:** [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)  
+**Introduction video:** [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)
 
-**AIORI-3 Hackathon PS-036**: Benchmarking Merkle Tree Ladder (MTL) mode for post-quantum
-DNSSEC signing (SLH-DSA), comparing signing with MTL amortization against signing without.
+## Judge fast path
 
-> **Judge fast path**
-> - [**Report (HTML)**](docs/sample-output/report.html) — Self-contained results report with claims registry and drift checks
-> - [**Deck PDF**](A3-PS036-TC529.pdf) — Team presentation deck
-> - [**Intro video**](https://www.youtube.com/watch?v=gDHYamjWmtE) — Team CLIMB introduction
-> - [**Quickstart**](#quickstart) — Prebuilt viewer, container, or a full native build
-> - [**Honest limits**](#honest-limits) — Empirical measurements only; no formal guarantees
+- [**Report (HTML)**](docs/sample-output/report.html) — Self-contained results report with claims registry and drift checks
+- [**Deck PDF**](A3-PS036-TC529.pdf) — Team presentation deck
+- [**Intro video**](https://www.youtube.com/watch?v=gDHYamjWmtE) — Team CLIMB introduction
+- [**Quickstart**](#quickstart) — Prebuilt viewer, container, or a full native build
+- [**Honest limits**](#honest-limits) — Empirical measurements only; no formal guarantees
 
-## The pitch, in thirty seconds
-
-Post-quantum DNSSEC signatures are big; signing a whole batch of records with
-SLH-DSA is slow; and shipping a full signature with every DNS response does not
-fit in UDP. MTL mode signs a Merkle tree ladder once for a whole batch, so most
-responses carry only a small condensed authentication path instead of a full
-signature. CLIMB is a reproducible benchmark suite — not an argument — that
-measures what that amortisation actually buys and what it costs, using the
-supplied Verisign reference implementation (libMTL) under a pinned environment,
-three dataset sizes, repeated trials, and a live DNS pipeline (patched NSD and
-Unbound in local Docker) that captures real wire bytes. Every number in this
-README, the HTML report and the dashboard is read from a recorded artifact,
-never typed into source, and every claim carries its evidence class: measured,
-derived, analytical or extrapolated.
-
-![CLIMB TUI tour](docs/media/climb-tour.gif)
+## Live demo
 
 <!-- live:begin -->
 Live demo: coming with the web release
 <!-- live:end -->
-
-## Built in the open
-
-<!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/265c1b9dc927cc5f385cec9aefd6d47e98df3735" target="_blank" rel="noopener">
-<picture>
-  <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
-  <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
-</picture>
-</a>
-
-Every commit, every quiet day and the roadmap milestones behind this benchmark
-suite, read from the public commit history of this repository.
-
-Generated by `cargo xtask commit-graph` from the public history of
-aiori-hackathon/A3-PS036-TC529, as of the commit shown in the image; later
-commits appear after the next refresh.
-<!-- commit-graph:end -->
 
 ## Headline results
 
@@ -121,6 +93,24 @@ in this table drifts from the quote sheet.
 Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
 the full table (every size, both time metrics, memory, ladder shape, DNS
 capture rows) lives there with JSON pointers into the artifacts.
+
+## Built in the open
+
+<!-- commit-graph:begin -->
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/265c1b9dc927cc5f385cec9aefd6d47e98df3735" target="_blank" rel="noopener">
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
+  <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
+</picture>
+</a>
+
+Every commit, every quiet day and the roadmap milestones behind this benchmark
+suite, read from the public commit history of this repository.
+
+Generated by `cargo xtask commit-graph` from the public history of
+aiori-hackathon/A3-PS036-TC529, as of the commit shown in the image; later
+commits appear after the next refresh.
+<!-- commit-graph:end -->
 
 ## Quickstart
 
@@ -230,7 +220,9 @@ Supporting directories:
   build, and the commit-graph refresh and hook-install scripts;
 - `dist/` — release bundles written by `cargo xtask package` (gitignored).
 
-## Development
+<details><summary>Development</summary>
+
+### Development
 
 ```bash
 cargo build --workspace
@@ -240,7 +232,11 @@ cargo test --workspace
 cargo xtask docs-check
 ```
 
-## Environment pinning
+</details>
+
+<details><summary>Environment pinning</summary>
+
+### Environment pinning
 
 ```bash
 cargo xtask pin-env
@@ -249,7 +245,11 @@ cargo xtask pin-env
 Writes `environment.json` at the repository root with CPU model, kernel version,
 Rust/Cargo versions, submodule commits, and other build-environment metadata.
 
-## Reproduce
+</details>
+
+<details><summary>Reproduce</summary>
+
+### Reproduce
 
 One command runs the whole artifact chain in order and leaves the report
 self-check passing:
@@ -275,7 +275,11 @@ self-check, so a zero exit means the artifacts and the rendered report agree.
 The live DNS step also runs only when Docker is available; otherwise the
 recorded capture is used automatically.
 
-## Release bundle
+</details>
+
+<details><summary>Release bundle</summary>
+
+### Release bundle
 
 ```bash
 cargo xtask package
@@ -289,6 +293,8 @@ fixtures, a `SHA256SUMS` manifest over the payload, and a `PROVENANCE.txt`
 naming the commit, submodule SHAs, toolchain, host-fingerprint hash and the
 packing date. Packing fails when an input is missing or when the report
 disagrees with the results it ships beside.
+
+</details>
 
 ## Honest limits
 
