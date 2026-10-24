@@ -37,9 +37,10 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 </div>
 <!-- demo-video:end -->
 
+
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/7a6ea9cc8fd37a93dcca2e8e61962958080392cd" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/01e6320dc982f878eda56a01d480dafab2959a92" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -111,7 +112,7 @@ capture rows) lives there with JSON pointers into the artifacts.
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/7a6ea9cc8fd37a93dcca2e8e61962958080392cd" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/01e6320dc982f878eda56a01d480dafab2959a92" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
