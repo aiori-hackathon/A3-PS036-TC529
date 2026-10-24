@@ -25,7 +25,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/3db7352612f887b232011683ebc0bfc5621c93a2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/7a6ea9cc8fd37a93dcca2e8e61962958080392cd" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -38,11 +38,11 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 **Jump to:** [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
 
 
-| Avatar | Name | Role | Link |
-| :----- | :--- | :--- | :--- |
-| <img src="https://github.com/profm0r14rty.png?size=96" width="64" alt="Pratyay Mukherjee avatar"> | [Pratyay Mukherjee](https://github.com/profm0r14rty) | Team Lead and Developer | [GitHub](https://github.com/profm0r14rty) |
-| <img src="https://github.com/Mohh12glitch.png?size=96" width="64" alt="Mohit Kumar Yadav avatar"> | [Mohit Kumar Yadav](https://github.com/Mohh12glitch) | Lead Researcher | [GitHub](https://github.com/Mohh12glitch) |
-| <img src="https://github.com/nfsu-india.png?size=96" width="64" alt="Dr. Maibam Devi avatar"> | [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) | Faculty Mentor | [NFSU profile](https://www.nfsu.ac.in/Faculty/profile/664) |
+| Name | Role | Link |
+| :--- | :--- | :--- |
+| [Pratyay Mukherjee](https://github.com/profm0r14rty) | Team Lead and Developer | [GitHub](https://github.com/profm0r14rty) |
+| [Mohit Kumar Yadav](https://github.com/Mohh12glitch) | Lead Researcher | [GitHub](https://github.com/Mohh12glitch) |
+| [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) | Faculty Mentor | [NFSU profile](https://www.nfsu.ac.in/Faculty/profile/664) |
 
 **Team Name:** CLIMB  
 **Team Code:** A3-PS036-TC529  
@@ -97,7 +97,7 @@ capture rows) lives there with JSON pointers into the artifacts.
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/3db7352612f887b232011683ebc0bfc5621c93a2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/7a6ea9cc8fd37a93dcca2e8e61962958080392cd" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
