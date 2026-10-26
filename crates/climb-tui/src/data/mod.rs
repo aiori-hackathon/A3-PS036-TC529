@@ -36,7 +36,9 @@ pub use method::{
     ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
     MethodView, SeedRow,
 };
-pub use overview::{rung_state, ContextRow, Kpi, KpiKind, RUNG_TICK};
+pub use overview::{
+    rung_state, ContextRow, HeadlineSurface, Kpi, KpiKind, RUNG_TICK,
+};
 pub use reuse::ReuseRow;
 pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
 pub use wire::{UdpFitTableData, UdpFitTableRow, UdpGaugeData};

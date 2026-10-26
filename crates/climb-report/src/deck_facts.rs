@@ -42,6 +42,8 @@ pub enum Section {
     Reuse,
     /// UDP fit summary across profiles/configurations.
     UdpFit,
+    /// Classical DNSSEC signature baselines, context only.
+    Classical,
     /// Toolchain, kernel, CPU, pinning, submodule pins and commit SHA.
     Environment,
     /// Workspace test counts from the recorded test run.
@@ -50,7 +52,7 @@ pub enum Section {
 
 impl Section {
     /// Section render order.
-    pub const ORDER: [Section; 10] = [
+    pub const ORDER: [Section; 11] = [
         Section::WireBytes,
         Section::SigningTime,
         Section::VerifyingTime,
@@ -59,6 +61,7 @@ impl Section {
         Section::DnsLive,
         Section::Reuse,
         Section::UdpFit,
+        Section::Classical,
         Section::Environment,
         Section::Quality,
     ];
@@ -75,6 +78,7 @@ impl Section {
             Section::DnsLive => "DNS live",
             Section::Reuse => "Reuse",
             Section::UdpFit => "UDP fit",
+            Section::Classical => "Classical baselines",
             Section::Environment => "Environment",
             Section::Quality => "Quality",
         }
@@ -866,26 +870,6 @@ fn collect_comparisons(
     };
     let source = path.display().to_string();
 
-    // Build stability lookup by ratio name -> (median,min,max,n)
-    let mut stability_map: std::collections::HashMap<String, (f64, f64, f64, u64)> =
-        std::collections::HashMap::new();
-    if let Some(stability) = root.pointer("/derived/stability") {
-        if let Some(runs) = stability.get("runs").and_then(|v| v.as_array()) {
-            for r in runs {
-                if let Some(name) = r.get("ratio_name").and_then(|v| v.as_str()) {
-                    if let (Some(med), Some(min), Some(max), Some(n)) = (
-                        r.get("median").and_then(|v| v.as_f64()),
-                        r.get("min").and_then(|v| v.as_f64()),
-                        r.get("max").and_then(|v| v.as_f64()),
-                        r.get("n_runs").and_then(|v| v.as_u64()),
-                    ) {
-                        stability_map.insert(name.to_string(), (med, min, max, n));
-                    }
-                }
-            }
-        }
-    }
-
     let Some(rows) = array_at(root, path, "/comparisons")? else {
         return Ok(());
     };
@@ -895,7 +879,6 @@ fn collect_comparisons(
             continue;
         };
         let size = size_display(&size_raw);
-        let size_lc = size_raw.to_lowercase();
         let nk = plain_messages(root, &size).map(|m| format!("n = {m}"));
         let class = opt_class(row, "/class", path)?;
 
@@ -933,71 +916,27 @@ fn collect_comparisons(
             }
         }
 
-        // C-vs-A rows for every size with spread when stability exists
-        // wire reduction already added above for C vs A
-        // signing speed-up C vs A
+        // C-vs-A speed-ups. The spread of a per-message ratio is recorded
+        // separately by `collect_stability`, so this row carries the sample
+        // count of the measurement it was computed from, never the stability
+        // run count.
         if let Some(v) = opt_f64(row, "/signing_speedup_c_vs_a", path)? {
-            // look up stability entries that might correspond
-            let stability_key_candidates = [
-                format!("signing_speedup_model_{size_lc}"),
-                format!("signing_speedup_c_vs_a_{size_lc}"),
-            ];
-            let mut has_spread = false;
-            for cand in &stability_key_candidates {
-                if stability_map.contains_key(cand) {
-                    has_spread = true;
-                    break;
-                }
-            }
             out.facts.push(fact(
                 Row {
                     section: Section::SigningTime,
-                    label: if has_spread {
-                        // put spread info in label as per common pattern in this codebase style
-                        format!("{size} — signing speed-up, C vs A (spread)")
-                    } else {
-                        format!("{size} — signing speed-up, C vs A")
-                    },
+                    label: format!("{size} — signing speed-up, C vs A"),
                     unit: "×".to_string(),
                     class,
-                    nk: if has_spread {
-                        // try to use stability nk if available
-                        stability_key_candidates
-                            .iter()
-                            .find_map(|c| {
-                                stability_map.get(c).map(|(_, _, _, n)| format!("n = {n}"))
-                            })
-                            .or_else(|| nk.clone())
-                    } else {
-                        nk.clone()
-                    },
+                    nk: nk.clone(),
                     baseline: Baseline::A,
                 },
                 fmt_ratio(v),
                 &format!("{base}/signing_speedup_c_vs_a"),
                 &source,
             ));
-            if !has_spread {
-                out.notes.push(Note::custom(
-                    Section::SigningTime,
-                    format!("{size} — signing speed-up, C vs A: spread pending"),
-                ));
-            }
         }
 
         if let Some(v) = opt_f64(row, "/verifying_speedup_cached_vs_a", path)? {
-            let size_lc2 = size_lc.clone();
-            let mut has_spread = false;
-            let stability_key_candidates = [
-                format!("verifying_speedup_cached_vs_a_{size_lc2}"),
-                format!("verify_speedup_cached_vs_a_{size_lc2}"),
-            ];
-            for cand in &stability_key_candidates {
-                if stability_map.contains_key(cand) {
-                    has_spread = true;
-                    break;
-                }
-            }
             out.facts.push(fact(
                 Row {
                     section: Section::VerifyingTime,
@@ -1011,12 +950,6 @@ fn collect_comparisons(
                 &format!("{base}/verifying_speedup_cached_vs_a"),
                 &source,
             ));
-            if !has_spread {
-                out.notes.push(Note::custom(
-                    Section::VerifyingTime,
-                    format!("{size} — verifying speed-up (trust cached), C vs A: spread pending"),
-                ));
-            }
         }
 
         let ratio_specs: [(&str, &str, Section, Baseline); 2] = [
@@ -1049,6 +982,140 @@ fn collect_comparisons(
                     &source,
                 ));
             }
+        }
+    }
+    Ok(())
+}
+
+/// Collect the run-to-run spread of every stability ratio. Each ratio gets a
+/// median, minimum and maximum row, all carrying the run count as `n`; the
+/// headline table's Spread column quotes these rows.
+fn collect_stability(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    let Some(runs) = root
+        .pointer("/derived/stability/runs")
+        .and_then(|v| v.as_array())
+    else {
+        out.notes.push(Note::custom(
+            Section::SigningTime,
+            "spread pending — no repeated stability runs are recorded",
+        ));
+        out.notes.push(Note::custom(
+            Section::VerifyingTime,
+            "spread pending — no repeated stability runs are recorded",
+        ));
+        return Ok(());
+    };
+    for (i, run) in runs.iter().enumerate() {
+        let base = format!("/derived/stability/runs/{i}");
+        let Some(name) = run.get("ratio_name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        let (size, description, section, baseline) = match name {
+            n if n.starts_with("signing_speedup_model_") => (
+                size_display(&n["signing_speedup_model_".len()..]),
+                "signing speed-up model, B vs C",
+                Section::SigningTime,
+                Baseline::B,
+            ),
+            n if n.starts_with("signing_speedup_c_vs_a_model_") => (
+                size_display(&n["signing_speedup_c_vs_a_model_".len()..]),
+                "signing speed-up model, C vs A",
+                Section::SigningTime,
+                Baseline::A,
+            ),
+            n if n.starts_with("verifying_speedup_cached_c_vs_a_model_") => (
+                size_display(&n["verifying_speedup_cached_c_vs_a_model_".len()..]),
+                "verifying speed-up model (trust cached), C vs A",
+                Section::VerifyingTime,
+                Baseline::A,
+            ),
+            _ => continue,
+        };
+        let n_runs = run.get("n_runs").and_then(|v| v.as_u64()).unwrap_or(0);
+        let nk = (n_runs > 0).then(|| format!("n = {n_runs}"));
+        for (field, stat) in [
+            ("median", "spread median"),
+            ("min", "spread minimum"),
+            ("max", "spread maximum"),
+        ] {
+            if let Some(v) = run.get(field).and_then(|v| v.as_f64()) {
+                out.facts.push(fact(
+                    Row {
+                        section,
+                        label: format!("{size} — {description} — {stat}"),
+                        unit: "×".to_string(),
+                        class: Some(EvidenceClass::Derived),
+                        nk: nk.clone(),
+                        baseline,
+                    },
+                    format!("{v:.1}"),
+                    &format!("{base}/{field}"),
+                    &source,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Collect the classical DNSSEC baselines measured for context: signature
+/// bytes, signing and verifying time. These are reference points only and
+/// carry baseline `n/a`.
+fn collect_classical(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    let Some(rows) = array_at(root, path, "/classical")? else {
+        return Ok(());
+    };
+    for (i, row) in rows.iter().enumerate() {
+        let base = format!("/classical/{i}");
+        let Some(size_raw) = opt_str(row, "/size", path)? else {
+            continue;
+        };
+        let size = size_display(&size_raw);
+        let Some(algorithm) = opt_str(row, "/algorithm", path)? else {
+            continue;
+        };
+        let class = opt_class(row, "/class", path)?;
+        let specs: [(&str, &str, &str); 3] = [
+            ("signature_len_bytes", "signature bytes", "B"),
+            ("signing_mean_ns", "signing per message", "µs"),
+            ("verifying_mean_ns", "verify per message", "µs"),
+        ];
+        for (field, label, unit) in specs {
+            let Some(v) = opt_f64(row, &format!("/{field}"), path)? else {
+                continue;
+            };
+            let value = if unit == "µs" {
+                format!("{:.2}", v / 1000.0)
+            } else {
+                fmt_bytes(v as u64)
+            };
+            out.facts.push(fact(
+                Row {
+                    section: Section::Classical,
+                    label: format!("{size} — {algorithm} {label}"),
+                    unit: unit.to_string(),
+                    class,
+                    nk: None,
+                    baseline: Baseline::Na,
+                },
+                value,
+                &format!("{base}/{field}"),
+                &source,
+            ));
         }
     }
     Ok(())
@@ -1666,7 +1733,7 @@ fn collect_dns(
             out.facts.push(fact(
                 Row {
                     section: Section::DnsLive,
-                    label: format!("DNS, {www} A — response reduction, condensed vs full"),
+                    label: format!("DNS, {www} A — reduction, condensed vs full"),
                     unit: "%".to_string(),
                     class: Some(EvidenceClass::Derived),
                     nk: None,
@@ -1946,6 +2013,72 @@ fn collect_udp_fit(
                 ));
             }
         }
+        // The aggregate is the published `k of n`: one honest row per
+        // post-quantum configuration. When the artifact predates the
+        // aggregate field, recompute it from the modelled rows.
+        let aggregate: Vec<(String, u64, u64)> = if let Some(rows) = udp
+            .get("aggregate")
+            .and_then(|v| v.as_array())
+            .filter(|rows| !rows.is_empty())
+        {
+            rows.iter()
+                .filter_map(|row| {
+                    Some((
+                        row.get("config")?.as_str()?.to_string(),
+                        row.get("fit_rows")?.as_u64()?,
+                        row.get("total_rows")?.as_u64()?,
+                    ))
+                })
+                .collect()
+        } else if let Some(rows) = udp.get("rows").and_then(|v| v.as_array()) {
+            ["plain", "mtl-full", "mtl-amortised"]
+                .iter()
+                .filter_map(|config| {
+                    let matching: Vec<&Value> = rows
+                        .iter()
+                        .filter(|row| row.get("config").and_then(|v| v.as_str()) == Some(config))
+                        .collect();
+                    (!matching.is_empty()).then(|| {
+                        (
+                            config.to_string(),
+                            matching
+                                .iter()
+                                .filter(|row| {
+                                    row.get("fit_1232_percent").and_then(|v| v.as_f64())
+                                        == Some(100.0)
+                                })
+                                .count() as u64,
+                            matching.len() as u64,
+                        )
+                    })
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        for (index, (config, fit, total)) in aggregate.into_iter().enumerate() {
+            let (baseline, suffix) = match config.as_str() {
+                "plain" => (Baseline::A, "A (plain SLH-DSA)"),
+                "mtl-full" => (Baseline::B, "B (MTL, no amortisation)"),
+                _ => (Baseline::C, "C (MTL amortised)"),
+            };
+            out.facts.push(fact(
+                Row {
+                    section: Section::UdpFit,
+                    label: format!(
+                        "UDP fit, aggregate — {suffix}, modelled responses fitting the 1,232-byte UDP payload"
+                    ),
+                    unit: "rows".to_string(),
+                    class: Some(EvidenceClass::Analytical),
+                    nk: Some(format!("k = {fit} / n = {total}")),
+                    baseline,
+                },
+                format!("{fit} of {total}"),
+                &format!("/derived/udp_fit/aggregate/{index}/fit_rows"),
+                &source,
+            ));
+        }
+
         if let Some(rows) = udp.get("rows").and_then(|v| v.as_array()) {
             // Add per-size fit summary for A/B/C if possible (look up common patterns)
             // Also add worst row / summary info
@@ -1960,6 +2093,12 @@ fn collect_udp_fit(
                     .get("config_label")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                let baseline = match row.get("config").and_then(|v| v.as_str()) {
+                    Some("plain") => Baseline::A,
+                    Some("mtl-full") => Baseline::B,
+                    Some("mtl-amortised") => Baseline::C,
+                    _ => Baseline::Na,
+                };
                 let zone_leaves = row.get("zone_leaves").and_then(|v| v.as_u64());
                 let fit = row.get("fit_1232_percent").and_then(|v| v.as_f64());
                 if let (Some(z), Some(f)) = (zone_leaves, fit) {
@@ -1979,7 +2118,7 @@ fn collect_udp_fit(
                                     .get("messages")
                                     .and_then(|v| v.as_u64())
                                     .map(|m| format!("n = {m}")),
-                                baseline: Baseline::Na,
+                                baseline,
                             },
                             fmt_percent(f),
                             &format!("{base}/fit_1232_percent"),
@@ -2329,6 +2468,7 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
             Section::DnsLive,
             Section::Reuse,
             Section::UdpFit,
+            Section::Classical,
             Section::Environment,
         ] {
             collected
@@ -2380,9 +2520,11 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     collect_bench(&mut collected, results_ref, BenchKind::Signing)?;
     collect_bench(&mut collected, results_ref, BenchKind::Verifying)?;
     collect_comparisons(&mut collected, results_ref)?;
+    collect_stability(&mut collected, results_ref)?;
     collect_summaries(&mut collected, results_ref)?;
     collect_reuse(&mut collected, results_ref)?;
     collect_udp_fit(&mut collected, results_ref)?;
+    collect_classical(&mut collected, results_ref)?;
     collect_memory(
         &mut collected,
         memory_raw

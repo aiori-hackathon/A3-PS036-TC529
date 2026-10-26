@@ -121,6 +121,45 @@ fn bench_primitives(c: &mut Criterion) {
         );
     }
 
+    // t_verify_sig: one plain SLH-DSA verification per iteration.
+    {
+        let signature = plain.sign(msg_s).expect("plain sign for verify bench");
+        let mut rec = FreqRecord {
+            key: "t_verify_sig".to_string(),
+            cpu: pin_cpu.unwrap_or(0),
+            before: pin_cpu.and_then(read_cur_freq),
+            after: None,
+            min_khz: None,
+            max_khz: None,
+        };
+        let mut g = c.benchmark_group("primitives_t_verify_sig");
+        g.warm_up_time(Duration::from_secs(1));
+        g.sample_size(samples);
+        g.bench_function("plain_slh_dsa", |b| {
+            b.iter(|| {
+                black_box(
+                    plain
+                        .verify(black_box(msg_s), black_box(&signature))
+                        .expect("plain verify"),
+                );
+            })
+        });
+        g.finish();
+        rec.after = pin_cpu.and_then(read_cur_freq);
+        rec.min_khz = match (rec.before, rec.after) {
+            (Some(a), Some(b)) => Some(a.min(b)),
+            _ => rec.before.or(rec.after),
+        };
+        rec.max_khz = match (rec.before, rec.after) {
+            (Some(a), Some(b)) => Some(a.max(b)),
+            _ => rec.before.or(rec.after),
+        };
+        let _ = fs::write(
+            out_dir.join("freq_t_verify_sig.json"),
+            serde_json::to_string_pretty(&rec).unwrap(),
+        );
+    }
+
     // t_mtl_single
     {
         let mut rec = FreqRecord {
@@ -242,6 +281,68 @@ fn bench_primitives(c: &mut Criterion) {
             };
             let _ = fs::write(
                 out_dir.join(format!("freq_t_condensed_{n}.json")),
+                serde_json::to_string_pretty(&rec).unwrap(),
+            );
+        }
+
+        // t_verify_condensed(N): verify every condensed signature in the
+        // batch against the one cached ladder. One iteration is the whole
+        // batch, so the per-message cost is `mean / N` and the C-vs-A
+        // verifying model is `N × t_verify_sig / t_verify_condensed(N)`.
+        {
+            let verifier = keypair.verifier().expect("mtl verifier");
+            let out = signer
+                .sign_batch(&messages)
+                .expect("sign batch for verifying primitives");
+            let ladder = out.ladder();
+            let signatures: Vec<_> = out
+                .messages()
+                .iter()
+                .map(|message| message.condensed_signature())
+                .collect();
+            let mut rec = FreqRecord {
+                key: format!("t_verify_condensed_{n}"),
+                cpu: pin_cpu.unwrap_or(0),
+                before: pin_cpu.and_then(read_cur_freq),
+                after: None,
+                min_khz: None,
+                max_khz: None,
+            };
+            let mut g = c.benchmark_group(format!("primitives_t_verify_condensed_{n}"));
+            g.warm_up_time(Duration::from_secs(1));
+            g.sample_size(samples);
+            g.bench_with_input(
+                BenchmarkId::new("verify_condensed_cached", n),
+                &messages,
+                |b, msgs| {
+                    b.iter(|| {
+                        for (message, signature) in msgs.iter().zip(&signatures) {
+                            black_box(
+                                verifier
+                                    .verify(
+                                        black_box(*message),
+                                        black_box(signature),
+                                        Some(ladder),
+                                        true,
+                                    )
+                                    .expect("verify condensed"),
+                            );
+                        }
+                    })
+                },
+            );
+            g.finish();
+            rec.after = pin_cpu.and_then(read_cur_freq);
+            rec.min_khz = match (rec.before, rec.after) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                _ => rec.before.or(rec.after),
+            };
+            rec.max_khz = match (rec.before, rec.after) {
+                (Some(a), Some(b)) => Some(a.max(b)),
+                _ => rec.before.or(rec.after),
+            };
+            let _ = fs::write(
+                out_dir.join(format!("freq_t_verify_condensed_{n}.json")),
                 serde_json::to_string_pretty(&rec).unwrap(),
             );
         }

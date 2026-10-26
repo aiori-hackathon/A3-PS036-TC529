@@ -1,0 +1,755 @@
+//! The headline numbers of record, recomputed from raw rows.
+//!
+//! Every published headline figure has exactly one definition, here. The
+//! definition starts from the raw measurement rows (`plain`, `benchmark`,
+//! `wire_size`, `memory`, `ladder`, `classical`, `derived.udp_fit.rows`) and
+//! recomputes the value; it never starts from another derived field. The
+//! renderers in this module build the README tables from those values, and
+//! `cargo xtask verify-numbers` checks every surface (artifact fields, quote
+//! sheet, README, HTML report, TUI Overview) against the same recomputation.
+//!
+//! A surface that disagrees is a defect: the fix is to regenerate the
+//! artifact and every surface from one run, never to edit a published value.
+
+use std::path::PathBuf;
+
+use crate::charts::fmt_count;
+use crate::error::ReportError;
+use crate::results::{ClimbResults, EvidenceClass};
+
+/// Dataset size the headline comparison rows are quoted at.
+pub const HEADLINE_SIZE: &str = "Medium";
+
+/// Leaf count behind the published ladder-shape row.
+pub const LADDER_LEAF_COUNT: usize = 100;
+
+/// Stability ratio names the headline spread column requires.
+pub const SPREAD_RATIOS: [&str; 2] = [
+    "signing_speedup_c_vs_a_model_medium",
+    "verifying_speedup_cached_c_vs_a_model_medium",
+];
+
+/// One published number, recomputed from raw rows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Metric {
+    /// Stable identifier used by the verifier and the TUI surface.
+    pub id: String,
+    /// Label as it appears in the README table.
+    pub label: String,
+    /// Unit the quote sheet records; the display cell omits it for a
+    /// `k of n` count.
+    pub unit: &'static str,
+    /// Evidence class label (`MEASURED`, `DERIVED`, `ANALYTICAL`).
+    pub class: &'static str,
+    /// Baseline the number is compared against (`A`, `B`, `C`, `n/a`).
+    pub baseline: &'static str,
+    /// Recomputed numeric value (the numerator for a `k of n` count).
+    pub value: f64,
+    /// Denominator when the value is published as `k of n`.
+    pub denominator: Option<u64>,
+    /// Canonical value cell, without the unit.
+    pub display: String,
+    /// JSON pointer to the matching artifact field.
+    pub pointer: String,
+    /// JSON pointer to the denominator when [`Metric::denominator`] is set.
+    pub denominator_pointer: Option<String>,
+    /// JSON pointer to the matching claim in the HTML report.
+    pub report_pointer: String,
+    /// Exact label in the generated quote sheet.
+    pub sheet_label: String,
+}
+
+impl Metric {
+    /// Value cell for the README table: no unit for a `k of n` count.
+    pub fn value_cell(&self) -> String {
+        if self.denominator.is_some() {
+            self.display.clone()
+        } else {
+            format!("{} {}", self.display, self.unit)
+        }
+    }
+
+    /// `true` when the value is a `k of n` count rather than a scalar.
+    pub fn is_count_of(&self) -> bool {
+        self.denominator.is_some()
+    }
+}
+
+/// Format a reduction percentage the way the quote sheet records it.
+fn fmt_percent(value: f64) -> String {
+    format!("{value:.3}")
+}
+
+/// Format a speed-up: whole numbers once it is large, one decimal below.
+fn fmt_speedup(value: f64) -> String {
+    if value >= 1000.0 {
+        format!("{value:.0}")
+    } else {
+        format!("{value:.1}")
+    }
+}
+
+/// Format a per-message time in microseconds with two decimals.
+fn fmt_micros(ns: f64) -> String {
+    format!("{:.2}", ns / 1000.0)
+}
+
+fn wire_row<'a>(
+    results: &'a ClimbResults,
+    size: &str,
+) -> Option<&'a crate::results::WireSizeResult> {
+    results
+        .wire_size
+        .iter()
+        .find(|w| w.size.eq_ignore_ascii_case(size))
+}
+
+fn plain_row<'a>(
+    results: &'a ClimbResults,
+    size: &str,
+) -> Option<&'a crate::results::PlainTimingResult> {
+    results
+        .plain
+        .iter()
+        .find(|p| p.size.eq_ignore_ascii_case(size))
+}
+
+/// Per-message signing cost from a benchmark row.
+fn signing_per_message(results: &ClimbResults, size: &str, condition: &str) -> Option<f64> {
+    results
+        .benchmark
+        .signing
+        .iter()
+        .find(|r| r.size.eq_ignore_ascii_case(size) && r.condition == condition)
+        .filter(|r| r.messages > 0)
+        .map(|r| r.mean_ns / r.messages as f64)
+}
+
+/// Per-message verifying cost from a benchmark row.
+fn verifying_per_message(results: &ClimbResults, size: &str, condition: &str) -> Option<f64> {
+    results
+        .benchmark
+        .verifying
+        .iter()
+        .find(|r| r.size.eq_ignore_ascii_case(size) && r.condition == condition)
+        .filter(|r| r.messages > 0)
+        .map(|r| r.mean_ns / r.messages as f64)
+}
+
+fn memory_row<'a>(
+    results: &'a ClimbResults,
+    size: &str,
+) -> Option<&'a crate::results::MemoryResult> {
+    results
+        .memory
+        .measured
+        .iter()
+        .find(|m| m.size.eq_ignore_ascii_case(size))
+}
+
+fn class_label(class: EvidenceClass) -> &'static str {
+    class.label()
+}
+
+/// The three aggregate UDP-fit rows, recomputed from the modelled rows when
+/// the artifact predates the aggregate field.
+fn udp_aggregate(results: &ClimbResults) -> Vec<(String, String, u64, u64, u64, u64)> {
+    if let Some(section) = results.derived.udp_fit.as_ref() {
+        if !section.aggregate.is_empty() {
+            return section
+                .aggregate
+                .iter()
+                .map(|row| {
+                    (
+                        row.config.clone(),
+                        row.config_label.clone(),
+                        row.fit_rows,
+                        row.total_rows,
+                        row.fit_messages,
+                        row.total_messages,
+                    )
+                })
+                .collect();
+        }
+        let mut out = Vec::new();
+        for (config, label) in [
+            ("plain", "A (plain SLH-DSA)"),
+            ("mtl-full", "B (MTL non-amortised)"),
+            ("mtl-amortised", "C (MTL amortised)"),
+        ] {
+            let matching: Vec<_> = section.rows.iter().filter(|r| r.config == config).collect();
+            if matching.is_empty() {
+                continue;
+            }
+            out.push((
+                config.to_string(),
+                label.to_string(),
+                matching
+                    .iter()
+                    .filter(|r| r.fit_1232_percent == 100.0)
+                    .count() as u64,
+                matching.len() as u64,
+                matching.iter().map(|r| r.fit_1232_count).sum(),
+                matching.iter().map(|r| r.messages).sum(),
+            ));
+        }
+        return out;
+    }
+    Vec::new()
+}
+
+/// Every headline metric, recomputed from raw rows.
+pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
+    let mut metrics = Vec::new();
+
+    // --- DNS: full vs condensed response bytes from the parsed anatomy. ----
+    if let Some(anatomy) = results.dns_anatomy.as_ref() {
+        let full = anatomy.full.as_ref().map(|r| r.wire_length).unwrap_or(0);
+        let condensed = anatomy
+            .condensed
+            .as_ref()
+            .map(|r| r.wire_length)
+            .unwrap_or(0);
+        if full > 0 {
+            let reduction = 100.0 * (full as f64 - condensed as f64) / full as f64;
+            metrics.push(Metric {
+                id: "dns_reduction".to_string(),
+                label: "Live DNS response, `www.climb.example. A` — reduction, condensed vs full"
+                    .to_string(),
+                unit: "%",
+                class: "DERIVED",
+                baseline: "B",
+                value: reduction,
+                denominator: None,
+                display: fmt_percent(reduction),
+                pointer: "/dns_pipeline/reduction_percent_www_a".to_string(),
+                denominator_pointer: None,
+                report_pointer: "/dns_pipeline/reduction_percent_www_a".to_string(),
+                sheet_label: "DNS, www.climb.example. A — reduction, condensed vs full"
+                    .to_string(),
+            });
+        }
+    }
+
+    // --- Wire bytes at the headline size, from the wire report rows. -------
+    if let Some(wire) = wire_row(results, HEADLINE_SIZE) {
+        let index = results
+            .wire_size
+            .iter()
+            .position(|w| w.size.eq_ignore_ascii_case(HEADLINE_SIZE))
+            .unwrap_or(0);
+        if wire.plain_total_bytes > 0 {
+            let reduction = 100.0
+                * (wire.plain_total_bytes as f64 - wire.with_mtl_total_bytes as f64)
+                    / wire.plain_total_bytes as f64;
+            metrics.push(Metric {
+                id: "wire_reduction_medium_c_vs_a".to_string(),
+                label: "Wire reduction, Medium — C vs A".to_string(),
+                unit: "%",
+                class: "DERIVED",
+                baseline: "A",
+                value: reduction,
+                denominator: None,
+                display: fmt_percent(reduction),
+                pointer: format!("/comparisons/{index}/wire_reduction_c_vs_a_percent"),
+                denominator_pointer: None,
+                report_pointer: format!("/comparisons/{index}/wire_reduction_c_vs_a_percent"),
+                sheet_label: "Medium — wire reduction, C vs A".to_string(),
+            });
+        }
+        for (id, label, sheet, baseline, value) in [
+            (
+                "wire_a_medium",
+                "Wire bytes, Medium — A (plain SLH-DSA)",
+                "Medium — wire total, A (plain SLH-DSA)",
+                "A",
+                wire.plain_total_bytes,
+            ),
+            (
+                "wire_b_medium",
+                "Wire bytes, Medium — B (MTL, no amortisation)",
+                "Medium — wire total, B (MTL, no amortisation)",
+                "B",
+                wire.without_mtl_total_bytes,
+            ),
+            (
+                "wire_c_medium",
+                "Wire bytes, Medium — C (MTL amortised)",
+                "Medium — wire total, C (MTL amortised)",
+                "C",
+                wire.with_mtl_total_bytes,
+            ),
+        ] {
+            let pointer = match id {
+                "wire_a_medium" => format!("/wire_size/{index}/plain_total_bytes"),
+                "wire_b_medium" => format!("/wire_size/{index}/without_mtl_total_bytes"),
+                _ => format!("/wire_size/{index}/with_mtl_total_bytes"),
+            };
+            let claim_suffix = match id {
+                "wire_a_medium" => "plain_total_bytes",
+                "wire_b_medium" => "without_mtl_total_bytes",
+                _ => "with_mtl_total_bytes",
+            };
+            metrics.push(Metric {
+                id: id.to_string(),
+                label: label.to_string(),
+                unit: "B",
+                class: "MEASURED",
+                baseline,
+                value: value as f64,
+                denominator: None,
+                display: fmt_count(value as f64),
+                pointer,
+                denominator_pointer: None,
+                report_pointer: format!("/wire_size/{index}/{claim_suffix}"),
+                sheet_label: sheet.to_string(),
+            });
+        }
+    }
+
+    // --- Signing and verifying speed-ups at the headline size. -------------
+    if let Some(plain) = plain_row(results, HEADLINE_SIZE) {
+        let comparison_index = results
+            .comparisons
+            .iter()
+            .position(|c| c.size.eq_ignore_ascii_case(HEADLINE_SIZE));
+        let c_sign = signing_per_message(results, HEADLINE_SIZE, "With MTL");
+        if let (Some(a), Some(c)) = (plain.signing_mean_ns, c_sign) {
+            if c > 0.0 {
+                let speedup = a / c;
+                let pointer = comparison_index
+                    .map(|i| format!("/comparisons/{i}/signing_speedup_c_vs_a"))
+                    .unwrap_or_default();
+                metrics.push(Metric {
+                    id: "signing_speedup_medium_c_vs_a".to_string(),
+                    label: "Signing speed-up, Medium — C vs A".to_string(),
+                    unit: "\u{d7}",
+                    class: "DERIVED",
+                    baseline: "A",
+                    value: speedup,
+                    denominator: None,
+                    display: fmt_speedup(speedup),
+                    pointer: pointer.clone(),
+                    denominator_pointer: None,
+                    report_pointer: pointer,
+                    sheet_label: "Medium — signing speed-up, C vs A".to_string(),
+                });
+            }
+        }
+        let c_verify = verifying_per_message(results, HEADLINE_SIZE, "MTL (trust cached)");
+        if let (Some(a), Some(c)) = (plain.verifying_mean_ns, c_verify) {
+            if c > 0.0 {
+                let speedup = a / c;
+                let pointer = comparison_index
+                    .map(|i| format!("/comparisons/{i}/verifying_speedup_cached_vs_a"))
+                    .unwrap_or_default();
+                metrics.push(Metric {
+                    id: "verifying_speedup_medium_cached_c_vs_a".to_string(),
+                    label: "Verifying speed-up, Medium, trust cached ladder — C vs A".to_string(),
+                    unit: "\u{d7}",
+                    class: "DERIVED",
+                    baseline: "A",
+                    value: speedup,
+                    denominator: None,
+                    display: fmt_speedup(speedup),
+                    pointer: pointer.clone(),
+                    denominator_pointer: None,
+                    report_pointer: pointer,
+                    sheet_label: "Medium — verifying speed-up (trust cached), C vs A".to_string(),
+                });
+            }
+        }
+    }
+
+    // --- UDP fit: one honest `k of n` row per post-quantum configuration. --
+    let aggregate = udp_aggregate(results);
+    if !aggregate.is_empty() {
+        for (config, _, fit, total, _, _) in &aggregate {
+            let (baseline, suffix) = match config.as_str() {
+                "plain" => ("A", "A (plain SLH-DSA)"),
+                "mtl-full" => ("B", "B (MTL, no amortisation)"),
+                _ => ("C", "C (MTL amortised)"),
+            };
+            let index = results
+                .derived
+                .udp_fit
+                .as_ref()
+                .and_then(|s| s.aggregate.iter().position(|r| &r.config == config));
+            let pointer = index
+                .map(|i| format!("/derived/udp_fit/aggregate/{i}/fit_rows"))
+                .unwrap_or_default();
+            let denominator_pointer = index
+                .map(|i| format!("/derived/udp_fit/aggregate/{i}/total_rows"));
+            let total_rows = results
+                .derived
+                .udp_fit
+                .as_ref()
+                .map(|s| s.aggregate.first().map(|r| r.total_rows).unwrap_or(*total))
+                .unwrap_or(*total);
+            metrics.push(Metric {
+                id: match config.as_str() {
+                    "plain" => "udp_fit_a",
+                    "mtl-full" => "udp_fit_b",
+                    _ => "udp_fit_c",
+                }
+                .to_string(),
+                label: format!(
+                    "UDP fit, {total_rows} analytical rows — {suffix} modelled responses fitting the 1,232-byte UDP payload"
+                ),
+                unit: "rows",
+                class: "ANALYTICAL",
+                baseline,
+                value: *fit as f64,
+                denominator: Some(*total),
+                display: format!("{fit} of {total}"),
+                pointer,
+                denominator_pointer,
+                report_pointer: match config.as_str() {
+                    "plain" => "/derived/udp_fit/aggregate/0/fit_rows".to_string(),
+                    "mtl-full" => "/derived/udp_fit/aggregate/1/fit_rows".to_string(),
+                    _ => "/derived/udp_fit/aggregate/2/fit_rows".to_string(),
+                },
+                sheet_label: format!(
+                    "UDP fit, aggregate — {suffix}, modelled responses fitting the 1,232-byte UDP payload"
+                ),
+            });
+        }
+    }
+
+    // --- Memory at the largest measured size. -----------------------------
+    if let Some(memory) = memory_row(results, "Large") {
+        let memory_index = results
+            .memory
+            .measured
+            .iter()
+            .position(|m| m.size.eq_ignore_ascii_case("Large"))
+            .unwrap_or(0);
+        metrics.push(Metric {
+            id: "large_memory_median".to_string(),
+            label: "Large memory (measured resident median)".to_string(),
+            unit: "B",
+            class: "MEASURED",
+            baseline: "n/a",
+            value: memory.median_bytes as f64,
+            denominator: None,
+            display: fmt_count(memory.median_bytes as f64),
+            pointer: format!("/memory/measured/{memory_index}/median_bytes"),
+            denominator_pointer: None,
+            report_pointer: format!("/memory/measured/{memory_index}/median_bytes"),
+            sheet_label: "Large — resident median (measured)".to_string(),
+        });
+        if memory.analytical_total_bytes > 0 {
+            let ratio = memory.median_bytes as f64 / memory.analytical_total_bytes as f64;
+            metrics.push(Metric {
+                id: "large_memory_ratio".to_string(),
+                label: "Large memory (measured / analytical ratio)".to_string(),
+                unit: "\u{d7}",
+                class: "DERIVED",
+                baseline: "n/a",
+                value: ratio,
+                denominator: None,
+                display: format!("{ratio:.2}"),
+                pointer: format!(
+                    "/memory/measured/{memory_index}/measured_analytical_total_ratio"
+                ),
+                denominator_pointer: None,
+                report_pointer: format!(
+                    "/memory/measured/{memory_index}/measured_analytical_total_ratio"
+                ),
+                sheet_label: "Large — measured / analytical ratio".to_string(),
+            });
+        }
+    }
+
+    // --- Ladder shape at the published leaf count. -------------------------
+    if let Some(ladder) = results.ladder.as_ref() {
+        if let Some(row) = ladder
+            .sizes
+            .iter()
+            .find(|row| row.leaf_count == LADDER_LEAF_COUNT)
+        {
+            let index = ladder
+                .sizes
+                .iter()
+                .position(|row| row.leaf_count == LADDER_LEAF_COUNT)
+                .unwrap_or(0);
+            metrics.push(Metric {
+                id: "ladder_buffer_n100".to_string(),
+                label: "Ladder buffer at N=100 (Small dataset), 3 rungs".to_string(),
+                unit: "B",
+                class: class_label(EvidenceClass::Measured),
+                baseline: "n/a",
+                value: row.ladder_buffer_len as f64,
+                denominator: None,
+                display: fmt_count(row.ladder_buffer_len as f64),
+                pointer: format!("/ladder/sizes/{index}/ladder_buffer_len"),
+                denominator_pointer: None,
+                report_pointer: format!("/ladder/sizes/{index}/ladder_buffer_len"),
+                sheet_label: "Ladder, N=100 — ladder buffer bytes".to_string(),
+            });
+        }
+    }
+
+    metrics
+}
+
+/// Classical DNSSEC baselines measured by the benchmark, for the README's
+/// context block. These are reference points, not the benchmark's subject.
+pub fn classical_metrics(results: &ClimbResults) -> Vec<Metric> {
+    let mut metrics = Vec::new();
+    for (index, row) in results.classical.iter().enumerate() {
+        if !row.size.eq_ignore_ascii_case(HEADLINE_SIZE) {
+            continue;
+        }
+        let Some(verify) = row.verifying_mean_ns else {
+            continue;
+        };
+        let bytes = row.signature_len_bytes as f64;
+        let slug = row
+            .algorithm
+            .to_ascii_lowercase()
+            .replace(|c: char| !c.is_ascii_alphanumeric(), "-");
+        let context_index = classical_context_index(results, &row.algorithm).unwrap_or(0);
+        metrics.push(Metric {
+            id: format!("classical_{slug}_bytes"),
+            label: format!("Medium — {} signature bytes", row.algorithm),
+            unit: "B",
+            class: class_label(row.class),
+            baseline: "n/a",
+            value: bytes,
+            denominator: None,
+            display: fmt_count(bytes),
+            pointer: format!("/classical/{index}/signature_len_bytes"),
+            denominator_pointer: None,
+            report_pointer: format!(
+                "/derived/signature_context/{context_index}/signature_bytes"
+            ),
+            sheet_label: format!("Medium — {} signature bytes", row.algorithm),
+        });
+        metrics.push(Metric {
+            id: format!("classical_{slug}_verify"),
+            label: format!("Medium — {} verify per message", row.algorithm),
+            unit: "\u{b5}s",
+            class: class_label(row.class),
+            baseline: "n/a",
+            value: verify,
+            denominator: None,
+            display: fmt_micros(verify),
+            pointer: format!("/classical/{index}/verifying_mean_ns"),
+            denominator_pointer: None,
+            report_pointer: format!(
+                "/derived/signature_context/{context_index}/verifying_mean_ns"
+            ),
+            sheet_label: format!("Medium — {} verify per message", row.algorithm),
+        });
+    }
+    metrics
+}
+
+fn classical_context_index(results: &ClimbResults, algorithm: &str) -> Option<usize> {
+    results
+        .derived
+        .signature_context
+        .iter()
+        .position(|row| row.label == algorithm && row.size == "Medium")
+}
+
+/// Median and range of one stability ratio.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Spread {
+    pub median: f64,
+    pub min: f64,
+    pub max: f64,
+    pub runs: usize,
+}
+
+/// Look up a stability ratio by name.
+pub fn spread(results: &ClimbResults, ratio_name: &str) -> Option<Spread> {
+    results
+        .derived
+        .stability
+        .as_ref()
+        .and_then(|section| section.runs.iter().find(|run| run.ratio_name == ratio_name))
+        .map(|run| Spread {
+            median: run.median,
+            min: run.min,
+            max: run.max,
+            runs: run.n_runs,
+        })
+}
+
+/// Spread cell for the headline table: `—` when no stability data exists,
+/// `pending` when this row expects one, and the model median plus range when
+/// it does.
+pub fn spread_cell(results: &ClimbResults, metric_id: &str) -> String {
+    let ratio = match metric_id {
+        "signing_speedup_medium_c_vs_a" => "signing_speedup_c_vs_a_model_medium",
+        "verifying_speedup_medium_cached_c_vs_a" => {
+            "verifying_speedup_cached_c_vs_a_model_medium"
+        }
+        _ => return "\u{2014}".to_string(),
+    };
+    match spread(results, ratio) {
+        Some(spread) => format!(
+            "model median {:.1} \u{d7} ({:.1}\u{2013}{:.1}, n={})",
+            spread.median, spread.min, spread.max, spread.runs
+        ),
+        None => "pending".to_string(),
+    }
+}
+
+/// Render the README headline table (without the surrounding markers).
+pub fn render_headline_block(
+    results: &ClimbResults,
+    metrics: &[Metric],
+) -> Result<String, ReportError> {
+    if metrics.is_empty() {
+        return Err(ReportError::MalformedData {
+            path: PathBuf::from("<results>"),
+            reason: "no headline metrics could be recomputed from the raw rows".to_string(),
+        });
+    }
+    let mut out = String::new();
+    out.push_str("| Metric | Value | Evidence class | Baseline | Spread |\n");
+    out.push_str("| --- | --- | --- | --- | --- |\n");
+    for metric in metrics {
+        out.push_str(&format!(
+            "| {} | {} | {} | {} | {} |\n",
+            metric.label,
+            metric.value_cell(),
+            metric.class,
+            metric.baseline,
+            spread_cell(results, &metric.id)
+        ));
+    }
+    out.push('\n');
+    out.push_str(SCOPE_SENTENCE);
+    out.push('\n');
+    Ok(out)
+}
+
+/// Scope note under the headline table. No unapproved digits: `1,232` and
+/// `n=5` have no result unit and are not scanned as results.
+pub const SCOPE_SENTENCE: &str = "**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.";
+
+/// Render the README classical-baseline table (without markers).
+pub fn render_classical_block(metrics: &[Metric]) -> String {
+    let mut out = String::new();
+    out.push_str(
+        "| Algorithm | Signature bytes | Verify per message | Evidence class | Baseline |\n",
+    );
+    out.push_str("| --- | --- | --- | --- | --- |\n");
+    for metric in metrics {
+        // Two metrics per algorithm: bytes then verify.
+        if !metric.id.ends_with("_bytes") {
+            continue;
+        }
+        let algorithm = metric
+            .sheet_label
+            .strip_prefix("Medium — ")
+            .and_then(|rest| rest.strip_suffix(" signature bytes"))
+            .unwrap_or(&metric.sheet_label);
+        let verify = metrics
+            .iter()
+            .find(|other| {
+                other.id.ends_with("_verify") && other.sheet_label.starts_with(&format!(
+                    "Medium — {algorithm} verify"
+                ))
+            })
+            .map(|other| format!("{} {}", other.display, other.unit))
+            .unwrap_or_else(|| "\u{2014}".to_string());
+        out.push_str(&format!(
+            "| {} (context) | {} {} | {} | {} | {} |\n",
+            algorithm, metric.display, metric.unit, verify, metric.class, metric.baseline
+        ));
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The committed sample artifact is the real fixture: every surface is
+    /// built from this exact document, so the recomputation is tested against
+    /// recorded rows rather than a hand-written subset.
+    fn sample_results() -> ClimbResults {
+        serde_json::from_str(include_str!(
+            "../../../docs/sample-output/climb-results.json"
+        ))
+        .expect("committed sample artifact parses")
+    }
+
+    fn metric<'a>(metrics: &'a [Metric], id: &str) -> &'a Metric {
+        metrics
+            .iter()
+            .find(|m| m.id == id)
+            .unwrap_or_else(|| panic!("metric {id}"))
+    }
+
+    #[test]
+    fn headline_metrics_recompute_from_the_real_fixture() {
+        let results = sample_results();
+        let metrics = headline_metrics(&results);
+        let dns = metric(&metrics, "dns_reduction");
+        assert!((dns.value - 97.30747197).abs() < 1e-6, "{}", dns.value);
+        let wire = metric(&metrics, "wire_reduction_medium_c_vs_a");
+        assert!((wire.value - 96.5079531568).abs() < 1e-6, "{}", wire.value);
+        assert_eq!(metric(&metrics, "wire_a_medium").display, "78,560,000");
+        let signing = metric(&metrics, "signing_speedup_medium_c_vs_a");
+        assert!((signing.value - 9405.20631576).abs() < 1e-5);
+        let verifying = metric(&metrics, "verifying_speedup_medium_cached_c_vs_a");
+        assert!((verifying.value - 215.311121087).abs() < 1e-5);
+        assert_eq!(metric(&metrics, "large_memory_median").display, "1,087,139,840");
+        assert!((metric(&metrics, "large_memory_ratio").value - 1.1044228).abs() < 1e-5);
+        assert_eq!(metric(&metrics, "ladder_buffer_n100").value, 132.0);
+    }
+
+    #[test]
+    fn udp_aggregate_reports_k_of_n_from_the_real_fixture() {
+        let results = sample_results();
+        let metrics = headline_metrics(&results);
+        let a = metric(&metrics, "udp_fit_a");
+        assert_eq!(a.display, "0 of 12");
+        assert_eq!(a.denominator, Some(12));
+        let b = metric(&metrics, "udp_fit_b");
+        assert_eq!(b.display, "0 of 12");
+        let c = metric(&metrics, "udp_fit_c");
+        assert_eq!(c.display, "11 of 12");
+        assert!(a.value_cell().contains(" of "));
+    }
+
+    #[test]
+    fn spread_cell_names_the_model_and_range_or_pending() {
+        let results = sample_results();
+        let metric_id = "verifying_speedup_medium_cached_c_vs_a";
+        let cell = spread_cell(&results, metric_id);
+        assert!(
+            cell == "pending" || cell.starts_with("model median"),
+            "{cell}"
+        );
+        assert_eq!(spread_cell(&results, "dns_reduction"), "\u{2014}");
+    }
+
+    #[test]
+    fn headline_block_carries_a_scope_sentence_and_three_udp_rows() {
+        let results = sample_results();
+        let metrics = headline_metrics(&results);
+        let block = render_headline_block(&results, &metrics).unwrap();
+        assert!(block.contains("| 0 of 12 | ANALYTICAL | A |"), "{block}");
+        assert!(block.contains("| 11 of 12 | ANALYTICAL | C |"), "{block}");
+        assert!(block.contains("analytical payload model"), "{block}");
+        assert_eq!(metrics.iter().filter(|m| m.is_count_of()).count(), 3);
+    }
+
+    #[test]
+    fn classical_block_lists_every_measured_algorithm() {
+        let results = sample_results();
+        let metrics = classical_metrics(&results);
+        let block = render_classical_block(&metrics);
+        assert!(block.contains("Ed25519 (context)"), "{block}");
+        assert!(block.contains("ECDSA P-256 (context)"), "{block}");
+        assert!(block.contains("RSA-2048 (context)"), "{block}");
+        assert!(block.contains("MEASURED"), "{block}");
+    }
+}

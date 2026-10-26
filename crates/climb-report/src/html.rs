@@ -267,6 +267,36 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             .bound_ok
             .map(|ok| if ok { "ok" } else { "violated" }.to_string()),
     );
+    // Wire totals per size, so the report shows the same A/B/C bytes as the
+    // headline table rather than only their reductions.
+    for (idx, wire) in results.wire_size.iter().enumerate() {
+        let base = format!("/wire_size/{idx}");
+        for (field, id, value) in [
+            (
+                "plain_total_bytes",
+                "a",
+                Some(wire.plain_total_bytes.to_string()),
+            ),
+            (
+                "without_mtl_total_bytes",
+                "b",
+                Some(wire.without_mtl_total_bytes.to_string()),
+            ),
+            (
+                "with_mtl_total_bytes",
+                "c",
+                Some(wire.with_mtl_total_bytes.to_string()),
+            ),
+        ] {
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("wire-{}-{}-total", wire.size.to_lowercase(), id),
+                &format!("{base}/{field}"),
+                value,
+            );
+        }
+    }
     for (idx, comp) in results.comparisons.iter().enumerate() {
         let base = format!("/comparisons/{idx}");
         push_claim(
@@ -391,6 +421,13 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         push_claim(
             &mut claims,
             &root,
+            &format!("memory-{}-median", m.size),
+            &format!("{}/median_bytes", base),
+            Some(m.median_bytes.to_string()),
+        );
+        push_claim(
+            &mut claims,
+            &root,
             &format!("memory-{}-dataset-buffers", m.size),
             &format!("{}/dataset_buffers_bytes", base),
             Some(m.dataset_buffers_bytes.to_string()),
@@ -488,6 +525,23 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             "/derived/udp_fit/rtt_ms",
             udp.rtt_ms.map(|rtt| format!("{rtt:.1} ms")),
         );
+        for (idx, row) in udp.aggregate.iter().enumerate() {
+            let base = format!("/derived/udp_fit/aggregate/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-aggregate-{}-fit-rows", row.config),
+                &format!("{base}/fit_rows"),
+                Some(row.fit_rows.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("udpfit-aggregate-{}-total-rows", row.config),
+                &format!("{base}/total_rows"),
+                Some(row.total_rows.to_string()),
+            );
+        }
         for (idx, row) in udp.rows.iter().enumerate() {
             let base = format!("/derived/udp_fit/rows/{idx}");
             push_claim(

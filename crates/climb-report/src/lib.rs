@@ -10,6 +10,7 @@ pub mod error;
 pub mod html;
 pub mod ladder;
 pub mod memory;
+pub mod numbers;
 pub mod record;
 pub mod render;
 pub mod results;

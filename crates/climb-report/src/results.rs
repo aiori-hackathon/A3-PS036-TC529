@@ -696,12 +696,41 @@ pub struct UdpFitValidation {
     pub matches: bool,
 }
 
-/// The analytical UDP-fit section: one row per (profile, config, size) plus
-/// the capture cross-check.
+/// Aggregate UDP fit for one post-quantum configuration, across every
+/// response profile and dataset size. A row counts as a full fit only when
+/// every modelled response in it fits the 1,232-byte UDP payload budget;
+/// partial fits stay visible through `fit_messages` / `total_messages`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UdpFitAggregateRow {
+    /// Signature configuration id: `plain`, `mtl-full`, or `mtl-amortised`.
+    pub config: String,
+    /// Human label of the signature configuration.
+    pub config_label: String,
+    /// Rows in which every modelled response fits 1,232 bytes.
+    pub fit_rows: u64,
+    /// Modelled rows aggregated (one per profile and dataset size).
+    pub total_rows: u64,
+    /// Modelled messages that fit 1,232 bytes, summed over the rows.
+    pub fit_messages: u64,
+    /// Modelled messages represented by the rows, summed.
+    pub total_messages: u64,
+    /// Evidence class: always `analytical` for this section.
+    pub class: EvidenceClass,
+}
+
+/// The analytical UDP-fit section: one row per (profile, config, size), the
+/// aggregate per post-quantum configuration, and the capture cross-check.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UdpFitSection {
     /// Modelled rows, in (profile, config, size) order.
     pub rows: Vec<UdpFitRowArtifact>,
+    /// Per-configuration aggregate over every profile and dataset size. Only
+    /// the three post-quantum configurations are aggregated; the classical
+    /// context rows stay in `rows` only.
+    /// `#[serde(default)]` keeps results written before this field existed
+    /// parseable.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub aggregate: Vec<UdpFitAggregateRow>,
     /// Model-vs-capture cross-check, when the capture carried signature
     /// fields to check against.
     pub validation: Option<UdpFitValidation>,
@@ -1197,12 +1226,49 @@ fn build_udp_fit(
     }
 
     let validation = validate_udp_fit_against_capture(plain_len, plain_usize, warnings);
+    let aggregate = build_udp_fit_aggregate(&rows);
 
     Some(UdpFitSection {
         rows,
+        aggregate,
         validation,
         rtt_ms,
     })
+}
+
+/// Aggregate the modelled rows into one `k of n` summary per post-quantum
+/// configuration.
+///
+/// The three A/B/C configurations are always listed, in that order, even
+/// when a profile produced no row for one of them: a missing configuration
+/// must not disappear from the summary. Classical rows are context only and
+/// are not aggregated.
+fn build_udp_fit_aggregate(rows: &[UdpFitRowArtifact]) -> Vec<UdpFitAggregateRow> {
+    let mut aggregate = Vec::new();
+    for (config, label) in [
+        ("plain", "A (plain SLH-DSA)"),
+        ("mtl-full", "B (MTL non-amortised)"),
+        ("mtl-amortised", "C (MTL amortised)"),
+    ] {
+        let matching: Vec<&UdpFitRowArtifact> =
+            rows.iter().filter(|row| row.config == config).collect();
+        if matching.is_empty() {
+            continue;
+        }
+        aggregate.push(UdpFitAggregateRow {
+            config: config.to_string(),
+            config_label: label.to_string(),
+            fit_rows: matching
+                .iter()
+                .filter(|row| row.fit_1232_percent == 100.0)
+                .count() as u64,
+            total_rows: matching.len() as u64,
+            fit_messages: matching.iter().map(|row| row.fit_1232_count).sum(),
+            total_messages: matching.iter().map(|row| row.messages).sum(),
+            class: EvidenceClass::Analytical,
+        });
+    }
+    aggregate
 }
 
 /// Cross-check the model against the recorded capture's headline responses.
@@ -2083,6 +2149,43 @@ fn load_ladder_section(live: &Path, fixture: &Path) -> Result<Option<LadderSecti
     Ok(Some(LadderSection::from_document(&document, source)))
 }
 
+/// Normalise an absolute path for storage in a published artifact.
+///
+/// The checkout root becomes `<repo>` and a path below the user's home
+/// directory becomes `~`-relative, so a committed artifact never carries a
+/// developer's directory layout. Every other path is returned unchanged.
+///
+/// The substitution is textual and prefix-only: it never rewrites a path
+/// component that merely contains the root as a substring.
+pub fn normalise_path_with(value: &str, repo_root: Option<&Path>, home: Option<&Path>) -> String {
+    if let Some(root) = repo_root {
+        let root = root.to_string_lossy();
+        if value == root {
+            return "<repo>".to_string();
+        }
+        if let Some(rest) = value.strip_prefix(&format!("{root}/")) {
+            return format!("<repo>/{rest}");
+        }
+    }
+    if let Some(home) = home {
+        let home = home.to_string_lossy();
+        if value == home {
+            return "~".to_string();
+        }
+        if let Some(rest) = value.strip_prefix(&format!("{home}/")) {
+            return format!("~/{rest}");
+        }
+    }
+    value.to_string()
+}
+
+/// [`normalise_path_with`] using this process's working directory and `HOME`.
+pub fn normalise_path(value: &str) -> String {
+    let cwd = std::env::current_dir().ok();
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    normalise_path_with(value, cwd.as_deref(), home.as_deref())
+}
+
 pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, ReportError> {
     let max_age = Duration::from_secs(24 * 3600);
     let mut warnings: Vec<String> = Vec::new();
@@ -2091,6 +2194,11 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         .unwrap_or_else(|_| PathBuf::from("."))
         .to_string_lossy()
         .to_string();
+    // The artifact stores its own root as `<repo>`; anything else below the
+    // home directory is stored `~`-relative.
+    let home = std::env::var_os("HOME").map(PathBuf::from);
+    let workspace_root =
+        normalise_path_with(&workspace_root, Some(Path::new(&workspace_root)), home.as_deref());
 
     let (summary_rows, plain_records, classical_records) =
         read_summary_rows(&opts.criterion_dir, &opts.baseline, &mut warnings)?;
@@ -3355,6 +3463,41 @@ mod tests {
     }
 
     #[test]
+    fn normalise_path_replaces_only_a_real_prefix() {
+        let repo = Path::new("/home/dev/work/climb");
+        let home = Path::new("/home/dev");
+        assert_eq!(
+            normalise_path_with("/home/dev/work/climb", Some(repo), Some(home)),
+            "<repo>"
+        );
+        assert_eq!(
+            normalise_path_with("/home/dev/work/climb/target/climb-results.json", Some(repo), Some(home)),
+            "<repo>/target/climb-results.json"
+        );
+        assert_eq!(
+            normalise_path_with("/home/dev/notes.txt", Some(repo), Some(home)),
+            "~/notes.txt"
+        );
+        assert_eq!(
+            normalise_path_with("/opt/climb", Some(repo), Some(home)),
+            "/opt/climb"
+        );
+        // A sibling directory whose name merely starts with the root is not
+        // rewritten: the prefix ends at a path separator.
+        assert_eq!(
+            normalise_path_with("/home/dev/work/climb-other/file", Some(repo), Some(home)),
+            "~/work/climb-other/file"
+        );
+    }
+
+    #[test]
+    fn consolidate_stores_a_repo_relative_workspace_root() {
+        let root = temp_root("workspace-root");
+        let results = consolidate_with(&root, None, None);
+        assert_eq!(results.workspace_root, "<repo>");
+    }
+
+    #[test]
     fn consolidate_derives_harness_from_wire_condensed_payload() {
         let root = temp_root("memory-wire");
         let (wire, memory) = write_report_inputs(&root);
@@ -3486,6 +3629,17 @@ mod tests {
         // comparison sizes.
         assert_eq!(section.rows.len(), 36);
         assert!(section.rows.iter().all(|r| r.messages > 0));
+        let aggregate = &section.aggregate;
+        assert_eq!(
+            aggregate.iter().map(|r| r.config.as_str()).collect::<Vec<_>>(),
+            ["plain", "mtl-full", "mtl-amortised"],
+            "aggregate covers the three post-quantum configurations in A/B/C order"
+        );
+        assert!(aggregate.iter().all(|r| r.total_rows == 12));
+        assert!(aggregate.iter().all(|r| r.fit_rows <= r.total_rows));
+        assert!(aggregate
+            .iter()
+            .all(|r| r.fit_messages <= r.total_messages));
         assert_eq!(section.rtt_ms, None, "no RTT was supplied");
         let validation = section.validation.as_ref().expect("capture cross-check");
         assert_eq!(validation.tolerance_bytes, 0);

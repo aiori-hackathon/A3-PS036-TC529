@@ -110,6 +110,21 @@ Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
 the full table (every size, both time metrics, memory, ladder shape, DNS
 capture rows) lives there with JSON pointers into the artifacts.
 
+## Versus classical DNSSEC algorithms
+
+The subject of this benchmark is post-quantum DNSSEC signing. The classical
+algorithms below were measured on the same host at Medium as reference points
+only: they are not quantum-resistant, and nothing here claims otherwise.
+Signature size is the signature field carried on the wire; verify time is per
+message.
+
+<!-- classical:begin -->
+<!-- classical:end -->
+
+Classical rows carry baseline `n/a` because they are context, not variants of
+the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
+`cargo xtask verify-numbers` fails if either drifts from the artifact.
+
 ## Built in the open
 
 <!-- commit-graph:begin -->
