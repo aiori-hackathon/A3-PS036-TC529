@@ -23,6 +23,19 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 </div>
 <!-- badges:end -->
 
+
+<!-- commit-graph-strip:begin -->
+<div align="center">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/01e6320dc982f878eda56a01d480dafab2959a92" target="_blank" rel="noopener">
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
+  <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
+</picture>
+</a>
+</div>
+<!-- commit-graph-strip:end -->
+
+
 <!-- demo-video:begin -->
 <div align="center">
 
@@ -36,18 +49,6 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 <sub><a href="docs/media/CLIMB-TUI-demo-video.mp4">Download the recording</a> · <a href="https://www.youtube.com/watch?v=gDHYamjWmtE">Team introduction on YouTube</a></sub>
 </div>
 <!-- demo-video:end -->
-
-
-<!-- commit-graph-strip:begin -->
-<div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/01e6320dc982f878eda56a01d480dafab2959a92" target="_blank" rel="noopener">
-<picture>
-  <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
-  <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
-</picture>
-</a>
-</div>
-<!-- commit-graph-strip:end -->
 
 
 **Jump to:** [Demo video](#watch-the-demo) · [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Run the dashboard](#run-the-dashboard-on-your-machine) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
@@ -438,3 +439,25 @@ or certification is claimed for MTL mode, SLH-DSA or any component here.
 - **The live DNS pipeline runs locally only** — a Docker bridge network bound
   to localhost, with patched reference NSD and Unbound builds; there is no
   Internet deployment and no resolver was written from scratch.
+
+<!-- footer:begin -->
+
+---
+
+<div align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/climb-icon.png">
+    <img src="docs/media/climb-icon.png" alt="CLIMB icon" width="36">
+  </picture>
+</div>
+
+<sub>CLIMB - Cryptographic Ladder Impact Measurement Benchmark</sub>  
+<sub>Team A3-PS036-TC529 - AIORI-3 Hackathon - PS-036 - Track 2 Cyber Security</sub>  
+<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](https://www.youtube.com/watch?v=gDHYamjWmtE) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE) · [Back to top](#climb--cryptographic-ladder-impact-measurement-benchmark)</sub>  
+<sub>Built on the Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>
+
+<div align="center">
+  <sub><em>Measured, not claimed.</em></sub>
+</div>
+
+<!-- footer:end -->

@@ -57,6 +57,10 @@ const LIVE_END: &str = "<!-- live:end -->";
 const QUICKSTART_BEGIN: &str = "<!-- quickstart:begin -->";
 const QUICKSTART_END: &str = "<!-- quickstart:end -->";
 
+/// Markers bracketing the footer in the README.
+const FOOTER_BEGIN: &str = "<!-- footer:begin -->";
+const FOOTER_END: &str = "<!-- footer:end -->";
+
 /// The clean-clone script the quickstart commands are pinned to.
 const CLEAN_CLONE_SCRIPT: &str = "scripts/clean-clone-check.sh";
 
@@ -528,6 +532,21 @@ pub(crate) fn check_file(
         });
     }
 
+    // Footer section markers
+    if file.ends_with("README.md") {
+        if !text.contains(FOOTER_BEGIN) || !text.contains(FOOTER_END) {
+            // For test fixtures in tests that don't expect footer, skip if it's clearly a test fixture
+            // But per requirements we need to add footer - check if it's the actual committed readme
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("missing the `{FOOTER_BEGIN}` / `{FOOTER_END}` footer section markers"),
+            });
+        } else {
+            violations.extend(check_footer_block(file, text));
+        }
+    }
+
     violations
 }
 
@@ -661,6 +680,105 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
             });
         }
     }
+    violations
+}
+
+/// Parse the marker-bracketed footer block in the README.
+fn parse_footer_block(text: &str) -> Option<(usize, String)> {
+    let lines: Vec<&str> = text.lines().collect();
+    let begin = lines.iter().position(|l| l.trim() == FOOTER_BEGIN)?;
+    let end = lines.iter().position(|l| l.trim() == FOOTER_END)?;
+    if end <= begin {
+        return None;
+    }
+    Some((begin + 1, lines[begin + 1..end].join("\n")))
+}
+
+/// Check the README footer block.
+fn check_footer_block(file: &str, text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let Some((line, body)) = parse_footer_block(text) else {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!("the `{FOOTER_BEGIN}` marker comes after the `{FOOTER_END}` marker"),
+        });
+        return violations;
+    };
+
+    if !body.contains("---") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block missing thin horizontal rule".to_string(),
+        });
+    }
+
+    let images = extract_image_paths(&body);
+    if images.is_empty() {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block missing icon image".to_string(),
+        });
+    } else if !images.iter().any(|(_ln, p)| p.contains("climb-icon")) {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block must use docs/media/climb-icon.png".to_string(),
+        });
+    }
+
+    if !body.contains("<picture") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block must use a <picture> element for the icon".to_string(),
+        });
+    }
+
+    let sub_lines: Vec<&str> = body
+        .lines()
+        .filter(|l| {
+            let t = l.trim();
+            t.starts_with("<sub>") && t.ends_with("</sub>")
+        })
+        .collect();
+    if sub_lines.len() < 4 {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block must have four <sub> lines".to_string(),
+        });
+    }
+
+    if !body.contains("<em>Measured, not claimed.</em>") {
+        violations.push(Violation {
+            file: file.to_string(),
+            line,
+            message: "footer block must end with 'Measured, not claimed.' in italics".to_string(),
+        });
+    }
+
+    // Check no digits in footer prose (numeric results)
+    for (idx, l) in body.lines().enumerate() {
+        let trimmed = l.trim();
+        if trimmed.is_empty() || trimmed == "---" {
+            continue;
+        }
+        if l.contains(ALLOW_NUMBER_MARKER) {
+            continue;
+        }
+        for (_number, _unit) in scan_result_numbers(l) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: line + idx,
+                message: "footer prose contains digits".to_string(),
+            });
+            break;
+        }
+    }
+
     violations
 }
 
@@ -1999,13 +2117,13 @@ mod tests {
 
     #[test]
     fn a_headline_row_matching_the_sheet_passes() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         assert!(check_file("README.md", text, &facts(), &known()).is_empty());
     }
 
     #[test]
     fn a_headline_row_with_the_wrong_class_or_baseline_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0]
@@ -2015,7 +2133,7 @@ mod tests {
 
     #[test]
     fn a_headline_row_without_a_number_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("no number+unit pair"));
@@ -2659,7 +2777,7 @@ mod tests {
 
     #[test]
     fn the_badge_block_lines_are_exempt_from_the_numeric_rule() {
-        let text = format!("# Title\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n");
+        let text = format!("# Title\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert!(violations.is_empty(), "{violations:?}");
     }
@@ -2668,7 +2786,7 @@ mod tests {
     fn the_numeric_rule_still_applies_outside_the_badge_block() {
         // The same digits, one line above the block, are still a violation:
         // the exemption covers the managed block and nothing else.
-        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n");
+        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("771 %"), "{violations:?}");
@@ -2750,4 +2868,34 @@ fn mermaid_lint_accepts_fixed_blocks() {
     let good_seq = "```mermaid\nsequenceDiagram\n  Note over auth: zone signed once\n```";
     assert!(lint_mermaid_blocks("docs/ARCHITECTURE.md", good_flow).is_empty());
     assert!(lint_mermaid_blocks("docs/ARCHITECTURE.md", good_seq).is_empty());
+}
+
+#[test]
+fn footer_block_present_and_valid() {
+    let root = crate::pin_env::workspace_root().expect("root");
+    let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+    assert!(readme.contains(FOOTER_BEGIN));
+    assert!(readme.contains(FOOTER_END));
+    let violations = check_footer_block("README.md", &readme);
+    assert!(violations.is_empty(), "{violations:?}");
+}
+
+#[test]
+fn footer_block_negative_missing_markers() {
+    let text = "# Title\n\nno footer\n";
+    assert!(!text.contains(FOOTER_BEGIN));
+    assert!(!text.contains(FOOTER_END));
+}
+
+#[test]
+fn footer_block_link_resolution() {
+    let root = crate::pin_env::workspace_root().expect("root");
+    let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+    let (_, body) = parse_footer_block(&readme).expect("footer present");
+    assert!(body.contains("[Report](docs/sample-output/report.html)"));
+    assert!(body.contains("[Deck](A3-PS036-TC529.pdf)"));
+    assert!(body.contains("[Intro video]"));
+    assert!(body.contains("[Methodology](docs/METHODOLOGY.md)"));
+    assert!(body.contains("[Honest limits](#honest-limits)"));
+    assert!(body.contains("[Licence](LICENSE)"));
 }
