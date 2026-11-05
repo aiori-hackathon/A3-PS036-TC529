@@ -43,7 +43,83 @@ impl Kpi {
     }
 }
 
+/// One Overview-displayed number, kept numerically so the verify-numbers
+/// cross-check compares values rather than display rounding.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HeadlineSurface {
+    /// Metric id shared with the headline definition module.
+    pub id: String,
+    /// Numeric value the card or cell shows.
+    pub numeric: f64,
+    /// The exact rendered string.
+    pub display: String,
+}
+
+/// Parse a leading number from a display string (`≈9,405x` → `9405`).
+fn leading_number(text: &str) -> Option<f64> {
+    let normalised = text.replace('\u{2212}', "-").replace('\u{2248}', "");
+    let token: String = normalised
+        .chars()
+        .skip_while(|c| !c.is_ascii_digit() && *c != '-')
+        .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == '-' || *c == ',')
+        .filter(|c| *c != ',')
+        .collect();
+    token.parse().ok()
+}
+
 impl ResultsView {
+    // --- Headline surface ---------------------------------------------------
+
+    /// Every headline number the Overview actually displays, as numbers.
+    ///
+    /// The five KPI cards and the signature-context rows are parsed back from
+    /// their rendered strings, so a formatting change that silently alters a
+    /// value is caught by `cargo xtask verify-numbers`.
+    pub fn headline_surface(&self) -> Vec<HeadlineSurface> {
+        let mut out = Vec::new();
+        let mut push = |id: &str, kpi: Option<Kpi>| {
+            if let Some(kpi) = kpi {
+                if let Some(numeric) = leading_number(&kpi.value) {
+                    out.push(HeadlineSurface {
+                        id: id.to_string(),
+                        numeric,
+                        display: kpi.value,
+                    });
+                }
+            }
+        };
+        push("dns_reduction", self.dns_reduction());
+        push("wire_reduction_large_c_vs_b", self.wire_reduction_largest());
+        push(
+            "signing_speedup_medium_c_vs_b",
+            self.signing_speedup_at("Medium"),
+        );
+        push(
+            "verifying_speedup_avg_cached_c_vs_a",
+            self.cached_verify_speedup(),
+        );
+        push(
+            "signing_speedup_medium_c_vs_a",
+            self.c_vs_a_signing_speedup(),
+        );
+        for row in self.context_table() {
+            let slug = row
+                .name
+                .to_ascii_lowercase()
+                .replace(|c: char| !c.is_ascii_alphanumeric(), "-");
+            for (suffix, cell) in [("_bytes", &row.bytes), ("_verify", &row.verify)] {
+                if let Some(numeric) = leading_number(cell) {
+                    out.push(HeadlineSurface {
+                        id: format!("classical_{slug}{suffix}"),
+                        numeric,
+                        display: cell.clone(),
+                    });
+                }
+            }
+        }
+        out
+    }
+
     // --- KPI 1: live/recorded DNS response reduction -----------------------
 
     /// The headline DNS reduction (full vs. condensed response bytes), from

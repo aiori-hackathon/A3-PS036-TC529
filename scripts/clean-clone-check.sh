@@ -2,6 +2,7 @@
 set -euo pipefail
 
 WORKTREE="/tmp/climb-clean"
+REPO_ROOT="$PWD"
 
 if [ -d "$WORKTREE" ]; then
   rm -rf "$WORKTREE"
@@ -20,12 +21,12 @@ cd "$WORKTREE"
 
 # Copy required build artifacts and recorded data if available
 mkdir -p target
-[ -d "/home/pratyay/Documents/My Codes/climb/target/criterion" ] && cp -a "/home/pratyay/Documents/My Codes/climb/target/criterion" target/
-[ -f "/home/pratyay/Documents/My Codes/climb/target/climb-results.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/climb-results.json" target/
-[ -f "/home/pratyay/Documents/My Codes/climb/target/wire-report.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/wire-report.json" target/
-[ -f "/home/pratyay/Documents/My Codes/climb/target/memory-report.json" ] && cp "/home/pratyay/Documents/My Codes/climb/target/memory-report.json" target/
-[ -d "/home/pratyay/Documents/My Codes/climb/target/climb-report" ] && cp -a "/home/pratyay/Documents/My Codes/climb/target/climb-report" target/
-[ -d "/home/pratyay/Documents/My Codes/climb/data" ] && cp -a "/home/pratyay/Documents/My Codes/climb/data" .
+[ -d "$REPO_ROOT/target/criterion" ] && cp -a "$REPO_ROOT/target/criterion" target/
+[ -f "$REPO_ROOT/target/climb-results.json" ] && cp "$REPO_ROOT/target/climb-results.json" target/
+[ -f "$REPO_ROOT/target/wire-report.json" ] && cp "$REPO_ROOT/target/wire-report.json" target/
+[ -f "$REPO_ROOT/target/memory-report.json" ] && cp "$REPO_ROOT/target/memory-report.json" target/
+[ -d "$REPO_ROOT/target/climb-report" ] && cp -a "$REPO_ROOT/target/climb-report" target/
+[ -d "$REPO_ROOT/data" ] && cp -a "$REPO_ROOT/data" .
 
 echo ""
 echo "=== STEP 1: cargo build --workspace ==="

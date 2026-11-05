@@ -40,6 +40,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::readme_badges;
+use crate::verify_numbers::VerifyNumbersArgs;
 use climb_report::{BOUND_POINTER, CONSOLIDATE_COMMAND};
 
 /// Marker line that exempts its own line from the numeric-result check.
@@ -658,6 +659,24 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
     };
     let mut violations = Vec::new();
     for (line, value, class, baseline) in rows {
+        // A `k of n` count has no unit: compare the whole cell against the
+        // quote sheet's `k of n` value.
+        if value.contains(" of ") {
+            let normalised = normalize_value(&value);
+            let matched = facts.iter().any(|f| {
+                f.value == normalised && f.class == class && f.baseline == baseline
+            });
+            if !matched {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line,
+                    message: format!(
+                        "headline row `{value} | {class} | {baseline}` does not match any quote-sheet row"
+                    ),
+                });
+            }
+            continue;
+        }
         let pairs = scan_result_numbers(&value);
         let Some((number, unit)) = pairs.first() else {
             violations.push(Violation {
@@ -1712,6 +1731,92 @@ fn check_viewer_build(root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Path/identity hygiene: a committed text file must not carry a developer's
+/// absolute home directory, Windows user directory, personal email address or
+/// username in a path/email context. The repository root is published as
+/// `<repo>`, the home directory as `~`, and example/invalid domains are fine.
+pub(crate) fn scan_path_hygiene_line(line: &str) -> Vec<String> {
+    let mut hits = Vec::new();
+    for (prefix, what) in [
+        ("/home/", "home-directory path"),
+        ("/Users/", "macOS home-directory path"),
+        ("C:\\Users\\", "Windows home-directory path"),
+    ] {
+        if let Some(pos) = line.find(prefix) {
+            let rest = &line[pos + prefix.len()..];
+            let component = rest
+                .split(['/', '\\', '"', '\'', ' ', ')', ']', '>'])
+                .next()
+                .unwrap_or("");
+            if !component.is_empty() {
+                hits.push(format!("{what} `{prefix}{component}`"));
+            }
+        }
+    }
+    // Developer username in a path/email context. A public display name is
+    // deliberately not matched.
+    if let Ok(user) = std::env::var("USER") {
+        if !user.is_empty()
+            && (line.contains(&format!("/{user}/"))
+                || line.contains(&format!("\\{user}\\"))
+                || line.contains(&format!("{user}@")))
+        {
+            hits.push(format!("developer username `{user}`"));
+        }
+    }
+    // Email-like tokens: allow the project's documented example/invalid
+    // domains and GitHub's noreply address, flag anything else.
+    for token in line.split(|c: char| {
+        c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | ',')
+    }) {
+        let Some((local, domain)) = token.split_once('@') else {
+            continue;
+        };
+        if local.is_empty() || domain.is_empty() || domain.contains('/') {
+            continue;
+        }
+        let lower = domain.to_ascii_lowercase();
+        let allowed = lower.ends_with("example.invalid")
+            || lower.ends_with("example.com")
+            || lower.ends_with("example.org")
+            || lower.ends_with("example.net")
+            || lower == "github.com"
+            || lower == "users.noreply.github.com";
+        if !allowed {
+            hits.push(format!("email address `{token}`"));
+        }
+    }
+    hits
+}
+
+/// Scan every tracked text file (except the vendored `third_party/` tree).
+fn check_path_hygiene(root: &Path, tracked: &HashSet<String>) -> Result<Vec<Violation>> {
+    let mut violations = Vec::new();
+    for file in tracked {
+        if file.starts_with("third_party/") {
+            continue;
+        }
+        let path = root.join(file);
+        let Ok(bytes) = std::fs::read(&path) else {
+            continue;
+        };
+        if bytes.contains(&0) {
+            continue;
+        }
+        let text = String::from_utf8_lossy(&bytes);
+        for (idx, line) in text.lines().enumerate() {
+            for hit in scan_path_hygiene_line(line) {
+                violations.push(Violation {
+                    file: file.clone(),
+                    line: idx + 1,
+                    message: format!("path/identity hygiene: {hit}"),
+                });
+            }
+        }
+    }
+    Ok(violations)
+}
+
 pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     let sheet_path = args.root.join(&args.quote_sheet);
     let sheet_text = std::fs::read_to_string(&sheet_path)
@@ -1857,6 +1962,30 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // artifact whose reported speed-up exceeds 1.05xN must not back the
     // documented numbers. `bound_ok == false` is treated as a failing claim.
     check_signing_bound(&args.root.join(&args.results))?;
+
+    // Every tracked text file is published; no developer path or personal
+    // identity may survive in one.
+    violations.extend(check_path_hygiene(&args.root, &tracked)?);
+
+    // The README's generated tables are rebuilt from the same artifact the
+    // quote sheet reads, and every surface is recomputed from raw rows.
+    let results_path = args.root.join(&args.results);
+    if let Err(err) = crate::headline::check_readme(&args.root, &results_path) {
+        violations.push(Violation {
+            file: "README.md".to_string(),
+            line: 1,
+            message: format!("generated headline/classical block drifted: {err:#}"),
+        });
+    }
+    if let Err(err) = crate::verify_numbers::cmd_verify_numbers(
+        VerifyNumbersArgs::for_root(args.root.clone(), true),
+    ) {
+        violations.push(Violation {
+            file: "docs/sample-output/climb-results.json".to_string(),
+            line: 1,
+            message: format!("verify-numbers failed: {err:#}"),
+        });
+    }
 
     if violations.is_empty() && graph_violations.is_empty() {
         // A single command guards the whole documentation surface, so the
@@ -2822,7 +2951,13 @@ mod tests {
     fn an_injected_edit_in_the_badge_block_is_reported_as_drift() {
         let root = workspace_root();
         let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
-        let edited = readme.replace("771%2F771", "772%2F771");
+        let re = regex_lite::Regex::new(r"message=(\d+)%2F(\d+)").expect("regex");
+        let caps = re.captures(&readme).expect("claims badge message");
+        let passed: u64 = caps[1].parse().expect("passed count");
+        let total: u64 = caps[2].parse().expect("total count");
+        let from = format!("{passed}%2F{total}");
+        let to = format!("{}%2F{total}", passed + 1);
+        let edited = readme.replacen(&from, &to, 1);
         assert_ne!(edited, readme, "the injection must change the block");
         let violations = check_badge_block("README.md", &edited, &root);
         assert_eq!(violations.len(), 1, "{violations:?}");
@@ -2830,10 +2965,7 @@ mod tests {
             violations[0].message.contains("has drifted"),
             "{violations:?}"
         );
-        assert!(
-            violations[0].message.contains("772%2F771"),
-            "{violations:?}"
-        );
+        assert!(violations[0].message.contains(&to), "{violations:?}");
     }
 
     #[test]
@@ -2898,4 +3030,43 @@ fn footer_block_link_resolution() {
     assert!(body.contains("[Methodology](docs/METHODOLOGY.md)"));
     assert!(body.contains("[Honest limits](#honest-limits)"));
     assert!(body.contains("[Licence](LICENSE)"));
+}
+
+#[test]
+fn path_hygiene_flags_home_and_windows_paths() {
+    assert!(!scan_path_hygiene_line("clone at /home/someone/work/climb").is_empty());
+    assert!(!scan_path_hygiene_line("clone at /Users/someone/work/climb").is_empty());
+    assert!(!scan_path_hygiene_line(r"clone at C:\Users\someone\climb").is_empty());
+    assert!(scan_path_hygiene_line("clone at <repo>/target").is_empty());
+    assert!(scan_path_hygiene_line("clone at ~/work/climb").is_empty());
+}
+
+#[test]
+fn path_hygiene_allows_documented_example_domains_and_flags_personal_mail() {
+    for allowed in [
+        "harness@example.invalid",
+        "someone@example.com",
+        "git@github.com",
+    ] {
+        assert!(
+            scan_path_hygiene_line(allowed).is_empty(),
+            "{allowed} must be allowed"
+        );
+    }
+    assert!(!scan_path_hygiene_line("contact dev.person@gmail.com").is_empty());
+}
+
+#[test]
+fn a_k_of_n_headline_row_matches_a_sheet_count_row() {
+    let facts = vec![FactRow {
+        label: "UDP fit, aggregate — A".to_string(),
+        value: "0 of 12".to_string(),
+        unit: "rows".to_string(),
+        class: "ANALYTICAL".to_string(),
+        baseline: "A".to_string(),
+    }];
+    let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline | Spread |\n| --- | --- | --- | --- | --- |\n| UDP fit A | 0 of 12 | ANALYTICAL | A | — |\n<!-- headline:end -->\n";
+    assert!(check_headline_block("README.md", text, &facts).is_empty());
+    let wrong = text.replace("0 of 12", "1 of 12");
+    assert!(!check_headline_block("README.md", &wrong, &facts).is_empty());
 }

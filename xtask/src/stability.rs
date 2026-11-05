@@ -187,6 +187,29 @@ fn model_speedup(n: usize, t_mtl_single: f64, t_tree: f64) -> Option<f64> {
     }
 }
 
+/// The modelled signing speed-up `C vs A`: signing `n` messages in one
+/// amortised batch (`t_tree`) versus signing each message with a plain
+/// SLH-DSA signature (`t_sig`).
+fn signing_c_vs_a_model(n: usize, t_sig: f64, t_tree: f64) -> Option<f64> {
+    if t_tree <= 0.0 || t_sig <= 0.0 {
+        None
+    } else {
+        Some((n as f64) * t_sig / t_tree)
+    }
+}
+
+/// The modelled verifying speed-up `C vs A`, trust cached: verifying `n`
+/// condensed signatures against one cached ladder (`t_verify_condensed_n`
+/// for the whole batch) versus verifying each message's plain SLH-DSA
+/// signature (`t_verify_sig`).
+fn verifying_c_vs_a_model(n: usize, t_verify_sig: f64, t_verify_condensed_n: f64) -> Option<f64> {
+    if t_verify_condensed_n <= 0.0 || t_verify_sig <= 0.0 {
+        None
+    } else {
+        Some((n as f64) * t_verify_sig / t_verify_condensed_n)
+    }
+}
+
 pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
     let sizes = parse_sizes(&args.sizes)?;
     if args.runs == 0 {
@@ -207,6 +230,10 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
 
         let t_mtl_single = read_criterion_mean(&args.criterion_dir, "primitives_t_mtl_single")
             .with_context(|| "missing primitives_t_mtl_single estimate after the run")?;
+        let t_sig = read_criterion_mean(&args.criterion_dir, "primitives_t_sig")
+            .with_context(|| "missing primitives_t_sig estimate after the run")?;
+        let t_verify_sig = read_criterion_mean(&args.criterion_dir, "primitives_t_verify_sig")
+            .with_context(|| "missing primitives_t_verify_sig estimate after the run")?;
 
         for (label, n) in &sizes {
             let group = format!("primitives_t_tree_{n}");
@@ -223,6 +250,27 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
                 .entry(format!("signing_speedup_model_{label}"))
                 .or_default()
                 .push(speedup);
+
+            let Some(c_vs_a) = signing_c_vs_a_model(*n, t_sig, t_tree) else {
+                bail!("{group} reported a non-positive C-vs-A signing model input");
+            };
+            per_ratio
+                .entry(format!("signing_speedup_c_vs_a_model_{label}"))
+                .or_default()
+                .push(c_vs_a);
+
+            let verify_group = format!("primitives_t_verify_condensed_{n}");
+            let t_verify_condensed = read_criterion_mean(&args.criterion_dir, &verify_group)
+                .with_context(|| format!("missing {verify_group} estimate after the run"))?;
+            let Some(verify_speedup) =
+                verifying_c_vs_a_model(*n, t_verify_sig, t_verify_condensed)
+            else {
+                bail!("{verify_group} reported a non-positive C-vs-A verifying model input");
+            };
+            per_ratio
+                .entry(format!("verifying_speedup_cached_c_vs_a_model_{label}"))
+                .or_default()
+                .push(verify_speedup);
         }
     }
 
@@ -491,5 +539,24 @@ mod tests {
         assert_eq!(min, 5.0);
         assert_eq!(max, 5.0);
         assert_eq!(cv, 0.0);
+    }
+
+    #[test]
+    fn c_vs_a_signing_model_scales_with_batch_size() {
+        // 100 messages, each a 500 ns plain signature, one 50,000 ns batch.
+        assert_eq!(signing_c_vs_a_model(100, 500.0, 50_000.0), Some(1.0));
+        assert_eq!(signing_c_vs_a_model(1_000, 500.0, 50_000.0), Some(10.0));
+        assert_eq!(signing_c_vs_a_model(100, 500.0, 0.0), None);
+    }
+
+    #[test]
+    fn c_vs_a_verifying_model_uses_the_batch_verifying_cost() {
+        // 100 messages; 1,000 ns to verify one plain signature; 20,000 ns to
+        // verify the whole condensed batch against the cached ladder.
+        assert_eq!(
+            verifying_c_vs_a_model(100, 1_000.0, 20_000.0),
+            Some(5.0)
+        );
+        assert_eq!(verifying_c_vs_a_model(100, 1_000.0, 0.0), None);
     }
 }

@@ -98,17 +98,41 @@ in this table drifts from the quote sheet.
 | Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A | — |
 | Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B | — |
 | Wire bytes, Medium — C (MTL amortised) | 2,743,352 B | MEASURED | C | — |
-| Signing speed-up, Medium — C vs A | 9405 × | DERIVED | A | — |
-| Verifying speed-up, Medium, trust cached ladder — C vs A | 215.3 × | DERIVED | A | — |
-| UDP fit (how many modelled rows each of A,B,C fits within MTU) | 0.000 % | ANALYTICAL | n/a | — |
+| Signing speed-up, Medium — C vs A | 9405 × | DERIVED | A | pending |
+| Verifying speed-up, Medium, trust cached ladder — C vs A | 215.3 × | DERIVED | A | pending |
+| UDP fit, 12 analytical rows — A (plain SLH-DSA) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | A | — |
+| UDP fit, 12 analytical rows — B (MTL, no amortisation) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | B | — |
+| UDP fit, 12 analytical rows — C (MTL amortised) modelled responses fitting the 1,232-byte UDP payload | 11 of 12 | ANALYTICAL | C | — |
 | Large memory (measured resident median) | 1,087,139,840 B | MEASURED | n/a | — |
 | Large memory (measured / analytical ratio) | 1.10 × | DERIVED | n/a | — |
-| Ladder shape | 132 B | MEASURED | n/a | — |
+| Ladder buffer at N=100 (Small dataset), 3 rungs | 132 B | MEASURED | n/a | — |
+
+**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.
 <!-- headline:end -->
 
 Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
 the full table (every size, both time metrics, memory, ladder shape, DNS
 capture rows) lives there with JSON pointers into the artifacts.
+
+## Versus classical DNSSEC algorithms
+
+The subject of this benchmark is post-quantum DNSSEC signing. The classical
+algorithms below were measured on the same host at Medium as reference points
+only: they are not quantum-resistant, and nothing here claims otherwise.
+Signature size is the signature field carried on the wire; verify time is per
+message.
+
+<!-- classical:begin -->
+| Algorithm | Signature bytes | Verify per message | Evidence class | Baseline |
+| --- | --- | --- | --- | --- |
+| Ed25519 (context) | 64 B | 90.28 µs | MEASURED | n/a |
+| ECDSA P-256 (context) | 64 B | 704.76 µs | MEASURED | n/a |
+| RSA-2048 (context) | 256 B | 499.72 µs | MEASURED | n/a |
+<!-- classical:end -->
+
+Classical rows carry baseline `n/a` because they are context, not variants of
+the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
+`cargo xtask verify-numbers` fails if either drifts from the artifact.
 
 ## Built in the open
 

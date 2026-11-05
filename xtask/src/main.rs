@@ -17,6 +17,7 @@ mod dist_tui;
 mod dns_demo;
 mod docs_check;
 mod groups;
+mod headline;
 mod ladder_verify;
 mod memory;
 mod package;
@@ -26,6 +27,7 @@ mod reproduce;
 mod source_hygiene;
 mod stability;
 mod verify_consolidated;
+mod verify_numbers;
 mod wire;
 use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
@@ -37,6 +39,7 @@ use dist_tui::{cmd_dist_tui, DistTuiArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use docs_check::{cmd_docs_check, DocsCheckArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
+use headline::{cmd_headline, HeadlineArgs};
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use package::{cmd_package, PackageArgs};
@@ -46,6 +49,7 @@ use reproduce::{cmd_reproduce, ReproduceArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
+use verify_numbers::{cmd_verify_numbers, VerifyNumbersArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
 /// The logical CPU to pin benchmarks to.
@@ -188,6 +192,29 @@ enum Commands {
     Reproduce(ReproduceArgs),
     /// Run stability check (repeat signing/verify benches under pinned governor).
     Stability(StabilityArgs),
+    /// Recompute every headline number from raw rows and compare every surface.
+    ///
+    /// Checks the consolidated artifact, the quote sheet, the README headline
+    /// and classical blocks, the HTML report's claims and the TUI Overview.
+    /// Exits non-zero with a disagreement table when any surface differs.
+    VerifyNumbers(VerifyNumbersArgs),
+    /// Regenerate the README headline and classical blocks from one artifact.
+    ///
+    /// `--check` compares the committed blocks with the artifact and fails on
+    /// drift, which is how `docs-check` keeps them honest.
+    Headline(HeadlineArgs),
+    /// Run the published-artifact gate: verify-numbers, then docs-check.
+    Preflight(PreflightArgs),
+}
+
+#[derive(Args)]
+struct PreflightArgs {
+    /// Workspace root.
+    #[arg(long, default_value = ".")]
+    root: PathBuf,
+    /// Fail when a headline spread is only `pending`.
+    #[arg(long)]
+    require_spread: bool,
 }
 
 #[derive(Args)]
@@ -282,7 +309,22 @@ fn main() -> Result<()> {
         Commands::DistTui(args) => cmd_dist_tui(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
         Commands::Stability(args) => cmd_stability(args),
+        Commands::VerifyNumbers(args) => cmd_verify_numbers(args),
+        Commands::Headline(args) => cmd_headline(args),
+        Commands::Preflight(args) => cmd_preflight(args),
     }
+}
+
+fn cmd_preflight(args: PreflightArgs) -> Result<()> {
+    cmd_verify_numbers(VerifyNumbersArgs::for_root(
+        args.root.clone(),
+        args.require_spread,
+    ))?;
+    cmd_docs_check(DocsCheckArgs {
+        root: args.root,
+        quote_sheet: PathBuf::from("docs/deck-facts.md"),
+        results: PathBuf::from("docs/sample-output/climb-results.json"),
+    })
 }
 
 fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
