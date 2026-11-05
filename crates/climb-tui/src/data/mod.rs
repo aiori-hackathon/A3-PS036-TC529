@@ -611,6 +611,7 @@ pub(crate) mod test_support {
         }
         UdpFitSection {
             rows,
+            aggregate: Vec::new(),
             validation: Some(UdpFitValidation {
                 zone_leaves: 16,
                 plain_signature_len_bytes: 7856,
