@@ -262,8 +262,7 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
             let verify_group = format!("primitives_t_verify_condensed_{n}");
             let t_verify_condensed = read_criterion_mean(&args.criterion_dir, &verify_group)
                 .with_context(|| format!("missing {verify_group} estimate after the run"))?;
-            let Some(verify_speedup) =
-                verifying_c_vs_a_model(*n, t_verify_sig, t_verify_condensed)
+            let Some(verify_speedup) = verifying_c_vs_a_model(*n, t_verify_sig, t_verify_condensed)
             else {
                 bail!("{verify_group} reported a non-positive C-vs-A verifying model input");
             };
@@ -553,10 +552,7 @@ mod tests {
     fn c_vs_a_verifying_model_uses_the_batch_verifying_cost() {
         // 100 messages; 1,000 ns to verify one plain signature; 20,000 ns to
         // verify the whole condensed batch against the cached ladder.
-        assert_eq!(
-            verifying_c_vs_a_model(100, 1_000.0, 20_000.0),
-            Some(5.0)
-        );
+        assert_eq!(verifying_c_vs_a_model(100, 1_000.0, 20_000.0), Some(5.0));
         assert_eq!(verifying_c_vs_a_model(100, 1_000.0, 0.0), None);
     }
 }

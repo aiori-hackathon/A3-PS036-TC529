@@ -216,7 +216,7 @@ mod tests {
                             style: SegmentStyle::Dotted,
                         },
                     ],
-                    note: "24,424 B \u{00b7} \u{2212}97.0%".to_string(),
+                    note: "24,424 B \u{00b7} 97.0%".to_string(),
                 },
                 StackBar {
                     name: "No amortisation".to_string(),

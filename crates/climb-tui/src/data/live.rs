@@ -66,8 +66,10 @@ impl LiveLoadState {
             LiveLoadState::Loaded(view) => {
                 format!("loaded: {} steps ({:?})", view.steps.len(), view.source)
             }
-            LiveLoadState::Missing { path } => format!("missing: {}", path.display()),
-            LiveLoadState::Invalid { path, .. } => format!("invalid: {}", path.display()),
+            LiveLoadState::Missing { path } => format!("missing: {}", crate::paths::display(path)),
+            LiveLoadState::Invalid { path, .. } => {
+                format!("invalid: {}", crate::paths::display(path))
+            }
         }
     }
 }

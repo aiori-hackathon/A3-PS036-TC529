@@ -15,7 +15,7 @@ use std::path::PathBuf;
 
 use crate::charts::fmt_count;
 use crate::error::ReportError;
-use crate::results::{ClimbResults, EvidenceClass};
+use crate::results::{size_display, ClimbResults, EvidenceClass};
 
 /// Dataset size the headline comparison rows are quoted at.
 pub const HEADLINE_SIZE: &str = "Medium";
@@ -80,12 +80,73 @@ fn fmt_percent(value: f64) -> String {
     format!("{value:.3}")
 }
 
-/// Format a speed-up: whole numbers once it is large, one decimal below.
-fn fmt_speedup(value: f64) -> String {
-    if value >= 1000.0 {
-        format!("{value:.0}")
-    } else {
-        format!("{value:.1}")
+/// The size-and-baseline descriptor every surface uses beside a ratio, so a
+/// reader never has to guess which dataset and comparison a card quotes.
+///
+/// The separator is a single space rather than a dash so the descriptor fits
+/// the narrowest KPI card (14 inner columns at 80x24) without truncating the
+/// baseline.
+pub fn kpi_caption(size: &str, baseline: &str) -> String {
+    format!("{} {}", size_display(size), baseline)
+}
+
+/// Format a ratio (a speed-up factor) for every surface: README, quote sheet,
+/// HTML report and the TUI.
+///
+/// The rendering keeps four significant digits, groups the integer part with
+/// thousands separators and trims trailing zeros. Four significant digits
+/// means the value parses back to within 0.05% of the input, so a rendered
+/// `0x` or `1x` only ever appears when the ratio really is within 5% of zero
+/// or one — it is never a rounding artefact.
+pub fn fmt_ratio(value: f64) -> String {
+    if !value.is_finite() {
+        return "\u{2014}".to_string();
+    }
+    if value == 0.0 {
+        return "0".to_string();
+    }
+    let magnitude = value.abs().log10().floor() as i32;
+    let decimals = (3 - magnitude).clamp(0, 17) as usize;
+    let mut text = format!("{:.*}", decimals, value);
+    if text.contains('.') {
+        while text.ends_with('0') {
+            text.pop();
+        }
+        if text.ends_with('.') {
+            text.pop();
+        }
+    }
+    if text == "0" || text == "-0" {
+        // The requested precision could not represent a tiny non-zero ratio;
+        // fall back to scientific notation rather than printing a false zero.
+        return format!("{value:.3e}");
+    }
+    group_integer_part(&text)
+}
+
+/// Insert thousands separators into the integer part of a decimal string.
+fn group_integer_part(text: &str) -> String {
+    if text.contains('e') || text.contains('E') {
+        return text.to_string();
+    }
+    let (sign, rest) = match text.strip_prefix('-') {
+        Some(rest) => ("-", rest),
+        None => ("", text),
+    };
+    let (integer, fraction) = match rest.split_once('.') {
+        Some((integer, fraction)) => (integer, Some(fraction)),
+        None => (rest, None),
+    };
+    let mut grouped = String::with_capacity(integer.len() + integer.len() / 3);
+    for (index, digit) in integer.chars().enumerate() {
+        if index > 0 && (integer.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(digit);
+    }
+    match fraction {
+        Some(fraction) => format!("{sign}{grouped}.{fraction}"),
+        None => format!("{sign}{grouped}"),
     }
 }
 
@@ -225,23 +286,29 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                 pointer: "/dns_pipeline/reduction_percent_www_a".to_string(),
                 denominator_pointer: None,
                 report_pointer: "/dns_pipeline/reduction_percent_www_a".to_string(),
-                sheet_label: "DNS, www.climb.example. A — reduction, condensed vs full"
-                    .to_string(),
+                sheet_label: "DNS, www.climb.example. A — reduction, condensed vs full".to_string(),
             });
         }
     }
 
     // --- Wire bytes at the headline size, from the wire report rows. -------
     if let Some(wire) = wire_row(results, HEADLINE_SIZE) {
-        let index = results
+        let wire_index = results
             .wire_size
             .iter()
             .position(|w| w.size.eq_ignore_ascii_case(HEADLINE_SIZE))
             .unwrap_or(0);
+        // The wire reduction lives on the comparison row, not the wire-size
+        // row: those arrays are ordered independently, so select by size.
+        let comparison_index = results
+            .comparisons
+            .iter()
+            .position(|c| c.size.eq_ignore_ascii_case(HEADLINE_SIZE))
+            .unwrap_or(0);
         if wire.plain_total_bytes > 0 {
             let reduction = 100.0
                 * (wire.plain_total_bytes as f64 - wire.with_mtl_total_bytes as f64)
-                    / wire.plain_total_bytes as f64;
+                / wire.plain_total_bytes as f64;
             metrics.push(Metric {
                 id: "wire_reduction_medium_c_vs_a".to_string(),
                 label: "Wire reduction, Medium — C vs A".to_string(),
@@ -251,9 +318,11 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                 value: reduction,
                 denominator: None,
                 display: fmt_percent(reduction),
-                pointer: format!("/comparisons/{index}/wire_reduction_c_vs_a_percent"),
+                pointer: format!("/comparisons/{comparison_index}/wire_reduction_c_vs_a_percent"),
                 denominator_pointer: None,
-                report_pointer: format!("/comparisons/{index}/wire_reduction_c_vs_a_percent"),
+                report_pointer: format!(
+                    "/comparisons/{comparison_index}/wire_reduction_c_vs_a_percent"
+                ),
                 sheet_label: "Medium — wire reduction, C vs A".to_string(),
             });
         }
@@ -281,9 +350,9 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
             ),
         ] {
             let pointer = match id {
-                "wire_a_medium" => format!("/wire_size/{index}/plain_total_bytes"),
-                "wire_b_medium" => format!("/wire_size/{index}/without_mtl_total_bytes"),
-                _ => format!("/wire_size/{index}/with_mtl_total_bytes"),
+                "wire_a_medium" => format!("/wire_size/{wire_index}/plain_total_bytes"),
+                "wire_b_medium" => format!("/wire_size/{wire_index}/without_mtl_total_bytes"),
+                _ => format!("/wire_size/{wire_index}/with_mtl_total_bytes"),
             };
             let claim_suffix = match id {
                 "wire_a_medium" => "plain_total_bytes",
@@ -301,7 +370,7 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                 display: fmt_count(value as f64),
                 pointer,
                 denominator_pointer: None,
-                report_pointer: format!("/wire_size/{index}/{claim_suffix}"),
+                report_pointer: format!("/wire_size/{wire_index}/{claim_suffix}"),
                 sheet_label: sheet.to_string(),
             });
         }
@@ -328,7 +397,7 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                     baseline: "A",
                     value: speedup,
                     denominator: None,
-                    display: fmt_speedup(speedup),
+                    display: fmt_ratio(speedup),
                     pointer: pointer.clone(),
                     denominator_pointer: None,
                     report_pointer: pointer,
@@ -351,7 +420,7 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                     baseline: "A",
                     value: speedup,
                     denominator: None,
-                    display: fmt_speedup(speedup),
+                    display: fmt_ratio(speedup),
                     pointer: pointer.clone(),
                     denominator_pointer: None,
                     report_pointer: pointer,
@@ -378,8 +447,8 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
             let pointer = index
                 .map(|i| format!("/derived/udp_fit/aggregate/{i}/fit_rows"))
                 .unwrap_or_default();
-            let denominator_pointer = index
-                .map(|i| format!("/derived/udp_fit/aggregate/{i}/total_rows"));
+            let denominator_pointer =
+                index.map(|i| format!("/derived/udp_fit/aggregate/{i}/total_rows"));
             let total_rows = results
                 .derived
                 .udp_fit
@@ -448,10 +517,8 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
                 baseline: "n/a",
                 value: ratio,
                 denominator: None,
-                display: format!("{ratio:.2}"),
-                pointer: format!(
-                    "/memory/measured/{memory_index}/measured_analytical_total_ratio"
-                ),
+                display: fmt_ratio(ratio),
+                pointer: format!("/memory/measured/{memory_index}/measured_analytical_total_ratio"),
                 denominator_pointer: None,
                 report_pointer: format!(
                     "/memory/measured/{memory_index}/measured_analytical_total_ratio"
@@ -521,9 +588,7 @@ pub fn classical_metrics(results: &ClimbResults) -> Vec<Metric> {
             display: fmt_count(bytes),
             pointer: format!("/classical/{index}/signature_len_bytes"),
             denominator_pointer: None,
-            report_pointer: format!(
-                "/derived/signature_context/{context_index}/signature_bytes"
-            ),
+            report_pointer: format!("/derived/signature_context/{context_index}/signature_bytes"),
             sheet_label: format!("Medium — {} signature bytes", row.algorithm),
         });
         metrics.push(Metric {
@@ -537,9 +602,7 @@ pub fn classical_metrics(results: &ClimbResults) -> Vec<Metric> {
             display: fmt_micros(verify),
             pointer: format!("/classical/{index}/verifying_mean_ns"),
             denominator_pointer: None,
-            report_pointer: format!(
-                "/derived/signature_context/{context_index}/verifying_mean_ns"
-            ),
+            report_pointer: format!("/derived/signature_context/{context_index}/verifying_mean_ns"),
             sheet_label: format!("Medium — {} verify per message", row.algorithm),
         });
     }
@@ -547,11 +610,14 @@ pub fn classical_metrics(results: &ClimbResults) -> Vec<Metric> {
 }
 
 fn classical_context_index(results: &ClimbResults, algorithm: &str) -> Option<usize> {
-    results
-        .derived
-        .signature_context
-        .iter()
-        .position(|row| row.label == algorithm && row.size == "Medium")
+    // Context labels carry the algorithm inside a decoration, e.g.
+    // `E (Ed25519, context)`, so match on the algorithm substring rather than
+    // requiring the whole label to equal it.
+    let needle = algorithm.to_ascii_lowercase();
+    results.derived.signature_context.iter().position(|row| {
+        row.size.eq_ignore_ascii_case(HEADLINE_SIZE)
+            && row.label.to_ascii_lowercase().contains(&needle)
+    })
 }
 
 /// Median and range of one stability ratio.
@@ -584,9 +650,7 @@ pub fn spread(results: &ClimbResults, ratio_name: &str) -> Option<Spread> {
 pub fn spread_cell(results: &ClimbResults, metric_id: &str) -> String {
     let ratio = match metric_id {
         "signing_speedup_medium_c_vs_a" => "signing_speedup_c_vs_a_model_medium",
-        "verifying_speedup_medium_cached_c_vs_a" => {
-            "verifying_speedup_cached_c_vs_a_model_medium"
-        }
+        "verifying_speedup_medium_cached_c_vs_a" => "verifying_speedup_cached_c_vs_a_model_medium",
         _ => return "\u{2014}".to_string(),
     };
     match spread(results, ratio) {
@@ -652,9 +716,10 @@ pub fn render_classical_block(metrics: &[Metric]) -> String {
         let verify = metrics
             .iter()
             .find(|other| {
-                other.id.ends_with("_verify") && other.sheet_label.starts_with(&format!(
-                    "Medium — {algorithm} verify"
-                ))
+                other.id.ends_with("_verify")
+                    && other
+                        .sheet_label
+                        .starts_with(&format!("Medium — {algorithm} verify"))
             })
             .map(|other| format!("{} {}", other.display, other.unit))
             .unwrap_or_else(|| "\u{2014}".to_string());
@@ -700,7 +765,10 @@ mod tests {
         assert!((signing.value - 9405.20631576).abs() < 1e-5);
         let verifying = metric(&metrics, "verifying_speedup_medium_cached_c_vs_a");
         assert!((verifying.value - 215.311121087).abs() < 1e-5);
-        assert_eq!(metric(&metrics, "large_memory_median").display, "1,087,139,840");
+        assert_eq!(
+            metric(&metrics, "large_memory_median").display,
+            "1,087,139,840"
+        );
         assert!((metric(&metrics, "large_memory_ratio").value - 1.1044228).abs() < 1e-5);
         assert_eq!(metric(&metrics, "ladder_buffer_n100").value, 132.0);
     }
@@ -751,5 +819,80 @@ mod tests {
         assert!(block.contains("ECDSA P-256 (context)"), "{block}");
         assert!(block.contains("RSA-2048 (context)"), "{block}");
         assert!(block.contains("MEASURED"), "{block}");
+    }
+
+    #[test]
+    fn ratio_format_groups_thousands_and_keeps_honest_precision() {
+        assert_eq!(fmt_ratio(9_433.089_280_263_535), "9,433");
+        assert_eq!(fmt_ratio(119_656.685_718_215_54), "119,657");
+        assert_eq!(fmt_ratio(215.311_121_086_966_15), "215.3");
+        assert_eq!(fmt_ratio(83.282_744_164_802_05), "83.28");
+        assert_eq!(fmt_ratio(0.925_218_329_794_511), "0.9252");
+        assert_eq!(fmt_ratio(1.0), "1");
+        assert_eq!(fmt_ratio(0.0), "0");
+    }
+
+    #[test]
+    fn kpi_caption_states_the_canonical_size_and_baseline() {
+        assert_eq!(kpi_caption("medium", "C vs A"), "Medium C vs A");
+        assert_eq!(kpi_caption("1000", "C vs B"), "OneK C vs B");
+        assert_eq!(kpi_caption("Large", "C vs B"), "Large C vs B");
+    }
+
+    #[test]
+    fn ratio_format_parses_back_within_half_a_percent_for_a_thousand_ratios() {
+        // Deterministic LCG so the property test is reproducible. The range
+        // spans every ratio the recorded artifacts publish, plus the boundary
+        // values that used to render as a bare `0x` or `1x`.
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut ratios = vec![
+            0.0,
+            0.01,
+            0.05,
+            0.95,
+            1.0,
+            1.05,
+            9.999,
+            99.99,
+            999.9,
+            1_000.0,
+            119_656.685_718_215_54,
+        ];
+        for _ in 0..1000 {
+            state = state
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            let unit = (state >> 11) as f64 / (1u64 << 53) as f64;
+            let exponent = -3.0 + unit * 9.0;
+            ratios.push(10f64.powf(exponent));
+        }
+        for ratio in ratios {
+            let rendered = fmt_ratio(ratio);
+            let parsed: f64 = rendered
+                .replace(',', "")
+                .parse()
+                .unwrap_or_else(|error| panic!("{ratio} rendered {rendered}: {error}"));
+            let error = if ratio == 0.0 {
+                parsed.abs()
+            } else {
+                (parsed - ratio).abs() / ratio.abs()
+            };
+            assert!(
+                error <= 0.005,
+                "{ratio} rendered {rendered}, parsed {parsed} (relative error {error})"
+            );
+            if rendered == "0" {
+                assert!(
+                    ratio.abs() <= 0.05,
+                    "{ratio} rendered a false zero as {rendered}"
+                );
+            }
+            if rendered == "1" {
+                assert!(
+                    (ratio - 1.0).abs() <= 0.05,
+                    "{ratio} rendered a false one as {rendered}"
+                );
+            }
+        }
     }
 }

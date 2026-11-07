@@ -15,9 +15,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde_json::Value;
 
-use climb_report::numbers::{
-    classical_metrics, headline_metrics, spread, Metric, SPREAD_RATIOS,
-};
+use climb_report::numbers::{classical_metrics, headline_metrics, spread, Metric, SPREAD_RATIOS};
 use climb_report::ClimbResults;
 use climb_tui::data::{HeadlineSurface, ReportHealth, ResultsView};
 
@@ -92,7 +90,6 @@ impl Cell {
     fn failed(&self) -> bool {
         matches!(self, Cell::Missing(_) | Cell::Disagree(_))
     }
-
 }
 
 impl fmt::Display for Cell {
@@ -179,10 +176,7 @@ fn resolve<'a>(root: &'a Value, pointer: &str) -> Option<&'a Value> {
 /// Normalise a published value cell for comparison: thousands separators,
 /// the extrapolation marker and surrounding whitespace do not change it.
 fn normalise_value(text: &str) -> String {
-    text.replace(',', "")
-        .replace('\u{2248}', "")
-        .trim()
-        .to_string()
+    text.replace([',', '\u{2248}'], "").trim().to_string()
 }
 
 fn first_number_and_unit(cell: &str) -> Option<(f64, String)> {
@@ -220,10 +214,7 @@ pub fn parse_marked_rows(text: &str, begin: &str, end: &str) -> Vec<ReadmeRow> {
         }
         let label = cells[1];
         let value = cells[2];
-        if label == "Metric"
-            || label == "Algorithm"
-            || value == "Value"
-            || value.starts_with("---")
+        if label == "Metric" || label == "Algorithm" || value == "Value" || value.starts_with("---")
         {
             continue;
         }
@@ -386,8 +377,8 @@ fn check_spread(metric: &Metric, results: &ClimbResults, require_spread: bool) -
 }
 
 /// The Overview's extra numbers (not headline rows, but still published TUI
-/// values): wire reduction (C vs B), signing B vs C, and the legacy average
-/// cached-verify speed-up. They are checked so no Overview card is exempt.
+/// values): wire reduction (C vs B) and signing B vs C. They are checked so no
+/// Overview card is exempt.
 fn tui_extra_checks(results: &ClimbResults, tui: &[HeadlineSurface]) -> Vec<CheckRow> {
     let mut rows = Vec::new();
     let mut push = |id: &str, expected: Option<f64>| {
@@ -428,27 +419,20 @@ fn tui_extra_checks(results: &ClimbResults, tui: &[HeadlineSurface]) -> Vec<Chec
         .signing
         .iter()
         .find(|row| row.size.eq_ignore_ascii_case("Medium") && row.condition == "With MTL")
-        .map(|row| row.mean_ns);
+        .map(|row| (row.mean_ns, row.messages));
     let without = results
         .benchmark
         .signing
         .iter()
         .find(|row| row.size.eq_ignore_ascii_case("Medium") && row.condition == "Without MTL")
-        .map(|row| row.mean_ns);
+        .map(|row| (row.mean_ns, row.messages));
     push(
         "signing_speedup_medium_c_vs_b",
-        with.zip(without).and_then(|(with, without)| {
-            (with > 0.0).then(|| without / with)
-        }),
-    );
-    let cached: Vec<f64> = results
-        .comparisons
-        .iter()
-        .filter_map(|row| row.verifying_speedup_cached_vs_a)
-        .collect();
-    push(
-        "verifying_speedup_avg_cached_c_vs_a",
-        (!cached.is_empty()).then(|| cached.iter().sum::<f64>() / cached.len() as f64),
+        with.zip(without)
+            .and_then(|((with, with_n), (without, without_n))| {
+                (with > 0.0 && with_n > 0 && without_n > 0)
+                    .then(|| (without / without_n as f64) / (with / with_n as f64))
+            }),
     );
     rows
 }
@@ -514,8 +498,16 @@ fn check_classical_readme(metric: &Metric, rows: &[ReadmeRow]) -> Cell {
     let Some((shown, unit)) = first_number_and_unit(cell) else {
         return Cell::Disagree("classical cell carries no number".to_string());
     };
-    if !approx_display(metric.value, shown) {
-        return Cell::Disagree(format!("value {shown} != {}", metric.value));
+    // The README publishes the display unit (µs for verify), while
+    // `metric.value` is stored in nanoseconds; compare the rendered value.
+    let Some(expected) = metric.display.replace(',', "").parse::<f64>().ok() else {
+        return Cell::Disagree(format!(
+            "classical display `{}` carries no number",
+            metric.display
+        ));
+    };
+    if !approx_display(expected, shown) {
+        return Cell::Disagree(format!("value {shown} != {expected}"));
     }
     if unit != metric.unit {
         return Cell::Disagree(format!("unit `{unit}` != `{}`", metric.unit));
@@ -533,10 +525,7 @@ fn check_classical_readme(metric: &Metric, rows: &[ReadmeRow]) -> Cell {
 /// signature and verify cells as `bytes | verify`.
 pub(crate) fn parse_classical_rows(text: &str) -> Vec<ReadmeRow> {
     let lines: Vec<&str> = text.lines().collect();
-    let Some(start) = lines
-        .iter()
-        .position(|line| line.trim() == CLASSICAL_BEGIN)
-    else {
+    let Some(start) = lines.iter().position(|line| line.trim() == CLASSICAL_BEGIN) else {
         return Vec::new();
     };
     let Some(stop) = lines
@@ -676,12 +665,7 @@ pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
             ("spread", &row.spread),
         ] {
             if cell.failed() {
-                println!(
-                    "  {} | {} | {}",
-                    row.metric,
-                    surface,
-                    cell
-                );
+                println!("  {} | {} | {}", row.metric, surface, cell);
             }
         }
     }
@@ -704,25 +688,36 @@ fn truncate(text: &str, width: usize) -> String {
 /// Build the in-memory inputs from the committed fixture files. Kept for the
 /// tests, which exercise one surface at a time.
 #[cfg(test)]
+type FixtureInputs = (
+    Vec<FactRow>,
+    Vec<ReadmeRow>,
+    Vec<ReadmeRow>,
+    HashMap<String, Value>,
+    Vec<HeadlineSurface>,
+);
+
+/// Build the in-memory inputs from the committed fixture files. Kept for the
+/// tests, which exercise one surface at a time.
+#[cfg(test)]
 fn fixture_inputs<'a>(
     results: &'a ClimbResults,
     _results_json: &'a Value,
     sheet: &'a str,
     readme: &'a str,
     report: &'a str,
-) -> (
-    Vec<FactRow>,
-    Vec<ReadmeRow>,
-    Vec<ReadmeRow>,
-    HashMap<String, Value>,
-    Vec<HeadlineSurface>,
-) {
+) -> FixtureInputs {
     let facts = parse_quote_sheet(sheet);
     let headline_rows = parse_marked_rows(readme, HEADLINE_BEGIN, HEADLINE_END);
     let classical_rows = parse_classical_rows(readme);
     let claims = parse_claims(report);
     let view = ResultsView::new(results.clone(), None, ReportHealth::Agree);
-    (facts, headline_rows, classical_rows, claims, view.headline_surface())
+    (
+        facts,
+        headline_rows,
+        classical_rows,
+        claims,
+        view.headline_surface(),
+    )
 }
 
 #[cfg(test)]
@@ -730,17 +725,13 @@ mod tests {
     use super::*;
 
     fn sample_results() -> ClimbResults {
-        serde_json::from_str(include_str!(
-            "../../docs/sample-output/climb-results.json"
-        ))
-        .expect("committed sample parses")
+        serde_json::from_str(include_str!("../../docs/sample-output/climb-results.json"))
+            .expect("committed sample parses")
     }
 
     fn sample_json() -> Value {
-        serde_json::from_str(include_str!(
-            "../../docs/sample-output/climb-results.json"
-        ))
-        .expect("committed sample parses")
+        serde_json::from_str(include_str!("../../docs/sample-output/climb-results.json"))
+            .expect("committed sample parses")
     }
 
     const SHEET: &str = include_str!("../../docs/deck-facts.md");
@@ -805,7 +796,7 @@ mod tests {
     fn an_injected_sheet_disagreement_is_caught() {
         let results = sample_results();
         let json = sample_json();
-        let sheet = SHEET.replacen("| 9405 | × | DERIVED |", "| 1 | × | DERIVED |", 1);
+        let sheet = SHEET.replacen("| 9,405 | × | DERIVED |", "| 1 | × | DERIVED |", 1);
         assert_ne!(sheet, SHEET, "fixture row shape changed");
         let rows = run(&results, &json, &sheet, README, REPORT, false);
         let row = rows
@@ -819,7 +810,7 @@ mod tests {
     fn an_injected_readme_disagreement_is_caught() {
         let results = sample_results();
         let json = sample_json();
-        let readme = README.replacen("| 9405 × | DERIVED |", "| 1 × | DERIVED |", 1);
+        let readme = README.replacen("| 9,405 × | DERIVED |", "| 1 × | DERIVED |", 1);
         assert_ne!(readme, README, "fixture row shape changed");
         let rows = run(&results, &json, SHEET, &readme, REPORT, false);
         let row = rows

@@ -23,7 +23,7 @@ fn main() -> Result<()> {
     let color_depth = theme::depth_from_env();
     let mut app = App::from_cli(&cli, color_depth);
     tracing::info!(
-        results = %app.results_path.display(),
+        results = %climb_tui::paths::display(&app.results_path),
         theme = app.theme.label(),
         depth = color_depth.label(),
         "climb-tui starting"

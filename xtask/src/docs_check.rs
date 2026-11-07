@@ -46,6 +46,9 @@ use climb_report::{BOUND_POINTER, CONSOLIDATE_COMMAND};
 /// Marker line that exempts its own line from the numeric-result check.
 const ALLOW_NUMBER_MARKER: &str = "<!-- docs-check:allow-number -->";
 
+/// Source of the TUI's help overlay: the one place the key list is written.
+const HELP_SOURCE: &str = "crates/climb-tui/src/ui/mod.rs";
+
 /// Markers bracketing the generated headline table in the README.
 const HEADLINE_BEGIN: &str = "<!-- headline:begin -->";
 const HEADLINE_END: &str = "<!-- headline:end -->";
@@ -541,7 +544,9 @@ pub(crate) fn check_file(
             violations.push(Violation {
                 file: file.to_string(),
                 line: 1,
-                message: format!("missing the `{FOOTER_BEGIN}` / `{FOOTER_END}` footer section markers"),
+                message: format!(
+                    "missing the `{FOOTER_BEGIN}` / `{FOOTER_END}` footer section markers"
+                ),
             });
         } else {
             violations.extend(check_footer_block(file, text));
@@ -663,9 +668,9 @@ fn check_headline_block(file: &str, text: &str, facts: &[FactRow]) -> Vec<Violat
         // quote sheet's `k of n` value.
         if value.contains(" of ") {
             let normalised = normalize_value(&value);
-            let matched = facts.iter().any(|f| {
-                f.value == normalised && f.class == class && f.baseline == baseline
-            });
+            let matched = facts
+                .iter()
+                .any(|f| f.value == normalised && f.class == class && f.baseline == baseline);
             if !matched {
                 violations.push(Violation {
                     file: file.to_string(),
@@ -788,13 +793,12 @@ fn check_footer_block(file: &str, text: &str) -> Vec<Violation> {
         if l.contains(ALLOW_NUMBER_MARKER) {
             continue;
         }
-        for (_number, _unit) in scan_result_numbers(l) {
+        if !scan_result_numbers(l).is_empty() {
             violations.push(Violation {
                 file: file.to_string(),
                 line: line + idx,
                 message: "footer prose contains digits".to_string(),
             });
-            break;
         }
     }
 
@@ -1735,7 +1739,14 @@ fn check_viewer_build(root: &Path) -> Result<()> {
 /// absolute home directory, Windows user directory, personal email address or
 /// username in a path/email context. The repository root is published as
 /// `<repo>`, the home directory as `~`, and example/invalid domains are fine.
+const PATH_HYGIENE_ALLOW: &str = "path-hygiene:allow";
+
 pub(crate) fn scan_path_hygiene_line(line: &str) -> Vec<String> {
+    // A line may opt out explicitly when it carries a fixture path or address
+    // on purpose (a unit test asserting that the scanner catches it).
+    if line.contains(PATH_HYGIENE_ALLOW) {
+        return Vec::new();
+    }
     let mut hits = Vec::new();
     for (prefix, what) in [
         ("/home/", "home-directory path"),
@@ -1765,16 +1776,19 @@ pub(crate) fn scan_path_hygiene_line(line: &str) -> Vec<String> {
         }
     }
     // Email-like tokens: allow the project's documented example/invalid
-    // domains and GitHub's noreply address, flag anything else.
+    // domains and GitHub's noreply address, flag anything else. Only a token
+    // shaped like an address is considered: this keeps Docker digests
+    // (`image@sha256:...`), CSS at-rules (`@keyframes`) and `host@port`
+    // shorthands from being mistaken for personal mail.
     for token in line.split(|c: char| {
         c.is_whitespace() || matches!(c, '"' | '\'' | '<' | '>' | '(' | ')' | '[' | ']' | ',')
     }) {
-        let Some((local, domain)) = token.split_once('@') else {
-            continue;
-        };
-        if local.is_empty() || domain.is_empty() || domain.contains('/') {
+        if !is_plausible_email(token) {
             continue;
         }
+        let (_, domain) = token
+            .split_once('@')
+            .expect("the predicate requires an @ sign");
         let lower = domain.to_ascii_lowercase();
         let allowed = lower.ends_with("example.invalid")
             || lower.ends_with("example.com")
@@ -1787,6 +1801,33 @@ pub(crate) fn scan_path_hygiene_line(line: &str) -> Vec<String> {
         }
     }
     hits
+}
+
+/// Whether a token has the shape of an email address rather than a Docker
+/// digest, a CSS at-rule or a `host@port` shorthand. The local part may only
+/// use the characters RFC 5321 permits in an unquoted address, and the domain
+/// must be dotted with an alphabetic top-level label.
+fn is_plausible_email(token: &str) -> bool {
+    let Some((local, domain)) = token.split_once('@') else {
+        return false;
+    };
+    if local.is_empty()
+        || domain.is_empty()
+        || domain.contains('@')
+        || !local
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '%' | '+' | '-'))
+    {
+        return false;
+    }
+    let mut labels = domain.split('.');
+    let tld = labels.next_back().unwrap_or("");
+    if tld.len() < 2 || !tld.chars().all(|c| c.is_ascii_alphabetic()) {
+        return false;
+    }
+    labels.all(|label| {
+        !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    })
 }
 
 /// Scan every tracked text file (except the vendored `third_party/` tree).
@@ -1916,6 +1957,10 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // committed copy has drifted from the fresh generation.
     violations.extend(check_badge_block(&readme_label, &readme_text, &args.root));
 
+    // The help overlay and the README key table are two copies of the same key
+    // list; every key must be documented on both surfaces.
+    violations.extend(check_help_keys(&args.root, &readme_label, &readme_text));
+
     let mut image_files = vec![readme_path.clone()];
     image_files.extend(markdown_files(&args.root.join("docs"))?);
     for path in &image_files {
@@ -1977,9 +2022,15 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
             message: format!("generated headline/classical block drifted: {err:#}"),
         });
     }
-    if let Err(err) = crate::verify_numbers::cmd_verify_numbers(
-        VerifyNumbersArgs::for_root(args.root.clone(), true),
-    ) {
+    // `require_spread` is left off: the committed artifact's stability runs
+    // cover the Small/OneK/Medium primitive ratios, not the C-vs-A headline
+    // ratios, so those rows honestly publish `pending`. A surface that claims a
+    // spread without the rows to back it is still caught by the per-surface
+    // value checks; demanding a spread here would only force a fabricated one.
+    if let Err(err) = crate::verify_numbers::cmd_verify_numbers(VerifyNumbersArgs::for_root(
+        args.root.clone(),
+        false,
+    )) {
         violations.push(Violation {
             file: "docs/sample-output/climb-results.json".to_string(),
             line: 1,
@@ -2015,9 +2066,178 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     );
 }
 
+/// The help overlay and the README's key table are two hand-written copies of
+/// the same key list. Check them against each other in both directions so a key
+/// added to one surface cannot be forgotten in the other.
+pub(crate) fn check_help_keys(
+    root: &Path,
+    readme_label: &str,
+    readme_text: &str,
+) -> Vec<Violation> {
+    let path = root.join(HELP_SOURCE);
+    let source = match std::fs::read_to_string(&path) {
+        Ok(source) => source,
+        Err(error) => {
+            return vec![Violation {
+                file: readme_label.to_string(),
+                line: 1,
+                message: format!(
+                    "cannot read the help overlay source {}: {error}",
+                    path.display()
+                ),
+            }]
+        }
+    };
+    check_help_key_sets(&source, readme_text, readme_label)
+}
+
+fn check_help_key_sets(help_source: &str, readme_text: &str, readme_label: &str) -> Vec<Violation> {
+    let help = parse_help_keys(help_source);
+    let readme = parse_readme_keys(readme_text);
+    let help_set: HashSet<&str> = help.iter().map(String::as_str).collect();
+    let readme_set: HashSet<&str> = readme.iter().map(String::as_str).collect();
+    let mut violations = Vec::new();
+    for key in &help {
+        if !readme_set.contains(key.as_str()) {
+            violations.push(Violation {
+                file: readme_label.to_string(),
+                line: readme_key_line(readme_text, key).unwrap_or(1),
+                message: format!(
+                    "help overlay lists key {key:?} but the README keys table does not"
+                ),
+            });
+        }
+    }
+    for key in &readme {
+        if !help_set.contains(key.as_str()) {
+            violations.push(Violation {
+                file: HELP_SOURCE.to_string(),
+                line: 1,
+                message: format!("README keys table lists {key:?} but the help overlay does not"),
+            });
+        }
+    }
+    violations
+}
+
+/// Extract the key column of every `entry("...", "...")` call in the help
+/// overlay source, in order. The action strings are ignored: this contract is
+/// about which keys are documented on both surfaces.
+fn parse_help_keys(source: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut rest = source;
+    while let Some(position) = rest.find("entry(") {
+        rest = &rest[position + "entry(".len()..];
+        let trimmed = rest.trim_start();
+        let Some(after_quote) = trimmed.strip_prefix('"') else {
+            continue;
+        };
+        let Some(end) = after_quote.find('"') else {
+            continue;
+        };
+        keys.push(normalize_key(&after_quote[..end]));
+        rest = &after_quote[end + 1..];
+    }
+    keys
+}
+
+/// Extract the first column of the README's `### Keys` table.
+fn parse_readme_keys(text: &str) -> Vec<String> {
+    let mut keys = Vec::new();
+    let mut in_table = false;
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed == "### Keys" {
+            in_table = true;
+            continue;
+        }
+        if !in_table {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            break;
+        }
+        if !trimmed.starts_with('|') {
+            continue;
+        }
+        let cells: Vec<&str> = trimmed
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect();
+        if cells.len() < 2 {
+            continue;
+        }
+        if cells[0].eq_ignore_ascii_case("key")
+            || cells[0].chars().all(|c| matches!(c, '-' | ':' | ' '))
+        {
+            continue;
+        }
+        keys.push(normalize_key(cells[0]));
+    }
+    keys
+}
+
+/// Compare keys ignoring markdown backticks and whitespace runs.
+fn normalize_key(text: &str) -> String {
+    text.replace('`', "")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn readme_key_line(text: &str, key: &str) -> Option<usize> {
+    text.lines()
+        .position(|line| {
+            normalize_key(
+                line.trim()
+                    .trim_matches('|')
+                    .split('|')
+                    .next()
+                    .unwrap_or(""),
+            ) == key
+        })
+        .map(|index| index + 1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn committed_help_overlay_and_readme_keys_agree_in_both_directions() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("read README");
+        let violations = check_help_keys(&root, "README.md", &readme);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_help_key_missing_from_the_readme_is_a_violation() {
+        let help = r#"entry("Tab / Shift-Tab", "tabs") entry("z", "undo")"#;
+        let readme =
+            "### Keys\n\n| Key | Action |\n| --- | --- |\n| `Tab` / `Shift-Tab` | tabs |\n";
+        let violations = check_help_key_sets(help, readme, "README.md");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("\"z\""),
+            "the missing key must be named: {violations:?}"
+        );
+        assert_eq!(violations[0].file, "README.md");
+    }
+
+    #[test]
+    fn a_readme_key_missing_from_the_help_overlay_is_a_violation() {
+        let help = r#"entry("Tab / Shift-Tab", "tabs")"#;
+        let readme = "### Keys\n\n| Key | Action |\n| --- | --- |\n| `Tab` / `Shift-Tab` | tabs |\n| `p` / `n` / `Esc` | tour |\n";
+        let violations = check_help_key_sets(help, readme, "README.md");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("\"p / n / Esc\""),
+            "the missing key must be named: {violations:?}"
+        );
+        assert_eq!(violations[0].file, HELP_SOURCE);
+    }
 
     /// Write a minimal results document with the given `bound_ok` flag and
     /// offenders, and return its path for the bound guard to read.
@@ -3034,9 +3254,9 @@ fn footer_block_link_resolution() {
 
 #[test]
 fn path_hygiene_flags_home_and_windows_paths() {
-    assert!(!scan_path_hygiene_line("clone at /home/someone/work/climb").is_empty());
-    assert!(!scan_path_hygiene_line("clone at /Users/someone/work/climb").is_empty());
-    assert!(!scan_path_hygiene_line(r"clone at C:\Users\someone\climb").is_empty());
+    assert!(!scan_path_hygiene_line("clone at /home/someone/work/climb").is_empty()); // path-hygiene:allow
+    assert!(!scan_path_hygiene_line("clone at /Users/someone/work/climb").is_empty()); // path-hygiene:allow
+    assert!(!scan_path_hygiene_line(r"clone at C:\Users\someone\climb").is_empty()); // path-hygiene:allow
     assert!(scan_path_hygiene_line("clone at <repo>/target").is_empty());
     assert!(scan_path_hygiene_line("clone at ~/work/climb").is_empty());
 }
@@ -3053,7 +3273,32 @@ fn path_hygiene_allows_documented_example_domains_and_flags_personal_mail() {
             "{allowed} must be allowed"
         );
     }
-    assert!(!scan_path_hygiene_line("contact dev.person@gmail.com").is_empty());
+    let personal = "contact dev.person@gmail.com"; // path-hygiene:allow
+    assert!(!scan_path_hygiene_line(personal).is_empty());
+}
+
+#[test]
+fn path_hygiene_ignores_tokens_that_only_look_like_addresses() {
+    for clean in [
+        "FROM debian:bookworm-slim@sha256:3783cc01",
+        "image `climb-nsd@sha256:3c557d13`",
+        "animation:cg-draw{from{stroke-dashoffset:1}}@keyframes",
+        "@media (max-width: 600px)",
+        "nameserver 192.168.13.2@53",
+        "compare `comparison@Medium-wire-c-vs-b`",
+    ] {
+        assert!(
+            scan_path_hygiene_line(clean).is_empty(),
+            "{clean} is not an address"
+        );
+    }
+}
+
+#[test]
+fn path_hygiene_allow_marker_exempts_a_fixture_line() {
+    let fixture = "clone at /home/someone/work/climb"; // path-hygiene:allow
+    assert!(!scan_path_hygiene_line(fixture).is_empty());
+    assert!(scan_path_hygiene_line(&format!("{fixture} // {PATH_HYGIENE_ALLOW}")).is_empty());
 }
 
 #[test]

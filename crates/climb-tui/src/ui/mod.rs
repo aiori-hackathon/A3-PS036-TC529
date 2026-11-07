@@ -125,7 +125,7 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
             theme,
             glyphs,
             "results file not found",
-            path.display().to_string(),
+            crate::paths::display(path),
             None,
         ),
         LoadState::Invalid { path, error } => render_load_error(
@@ -134,7 +134,7 @@ fn render_body(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
             theme,
             glyphs,
             "results file unreadable",
-            path.display().to_string(),
+            crate::paths::display(path),
             Some(error),
         ),
         LoadState::NotLoaded => render_load_error(
@@ -358,9 +358,9 @@ mod tests {
 
     use clap::Parser;
     use climb_report::results::{
-        AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
-        EvidenceClass, MemoryResults, ReuseCurvePoint, ReuseResult, SigningBenchmarkResult,
-        WireSizeResult,
+        AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
+        EnvironmentFingerprint, EvidenceClass, MemoryResults, ReuseCurvePoint, ReuseResult,
+        SigningBenchmarkResult, WireSizeResult,
     };
     use climb_report::{ClimbResults, DnsCaptureSource, DnsPipelineHeadline};
     use ratatui::backend::TestBackend;
@@ -469,7 +469,16 @@ mod tests {
                 ladder: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
-                comparisons: Vec::new(),
+                comparisons: vec![ConfigComparison {
+                    size: "Medium".to_string(),
+                    wire_reduction_c_vs_a_percent: Some(96.5),
+                    wire_reduction_c_vs_b_percent: Some(96.7),
+                    signing_speedup_c_vs_a: Some(9_405.206),
+                    signing_speedup_c_vs_b: Some(9_433.089),
+                    verifying_speedup_cached_vs_a: Some(215.311),
+                    verifying_speedup_cold_vs_a: Some(0.954),
+                    class: EvidenceClass::Derived,
+                }],
                 derived: DerivedSummary {
                     overall_wire_reduction_percent: None,
                     largest_wire_reduction_percent: None,
@@ -510,6 +519,78 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    /// The committed sample results, loaded through the TUI's own loader, so a
+    /// snapshot exercises the same path a user does. The file age is pinned so
+    /// the golden frame does not drift as the checkout gets older.
+    fn sample_app() -> App {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let mut app = app_with(false, ThemeId::Dark, false);
+        let state = match crate::data::load(&path) {
+            LoadState::Loaded(view) => LoadState::Loaded(Box::new(ResultsView::new(
+                view.results().clone(),
+                Some(std::time::Duration::from_secs(60)),
+                view.report_health(),
+            ))),
+            other => other,
+        };
+        app.set_data(state);
+        app
+    }
+
+    /// Golden-frame snapshots at the minimum and the reference terminal size.
+    /// The 120x40 frame includes the Overview's signature-context table. Set
+    /// `CLIMB_UPDATE_SNAPSHOTS=1` to rewrite the committed copies.
+    #[test]
+    fn overview_frames_match_committed_snapshots() {
+        let mut app = sample_app();
+        app.tab = Tab::Overview;
+        for (width, height) in [(80u16, 24u16), (120, 40)] {
+            let out = render_to_string(&app, width, height);
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/ui/snapshots")
+                .join(format!("overview-{width}x{height}.txt"));
+            if std::env::var_os("CLIMB_UPDATE_SNAPSHOTS").is_some() {
+                std::fs::create_dir_all(path.parent().expect("snapshot dir"))
+                    .expect("create snapshot dir");
+                std::fs::write(&path, &out).expect("write snapshot");
+                continue;
+            }
+            let expected = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "missing snapshot {} ({error}); run with CLIMB_UPDATE_SNAPSHOTS=1",
+                    path.display()
+                )
+            });
+            assert_eq!(
+                out,
+                expected,
+                "rendered frame drifted from {}",
+                path.display()
+            );
+        }
+    }
+
+    /// No frame, at either supported terminal size, may print an absolute path
+    /// or the developer's username.
+    #[test]
+    fn no_rendered_frame_leaks_an_absolute_path_or_username() {
+        let mut app = sample_app();
+        for tab in Tab::ALL {
+            app.tab = tab;
+            for (width, height) in [(80u16, 24u16), (120, 40)] {
+                let out = render_to_string(&app, width, height);
+                for needle in ["/home/", "/Users/", "pratyay"] {
+                    assert!(
+                        !out.contains(needle),
+                        "{} at {width}x{height} leaks {needle:?}:\n{out}",
+                        tab.title()
+                    );
+                }
+            }
+        }
     }
 
     #[test]
@@ -794,10 +875,11 @@ mod tests {
         for needle in [
             "CLIMB",
             "97.3%",
-            "24,438 B",
+            "Live C vs A",
             "40x",
-            "Medium",
-            "388x",
+            "Medium C vs B",
+            "215.3x",
+            "9,405x",
             "Test CPU Model",
         ] {
             assert!(

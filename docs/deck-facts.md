@@ -59,8 +59,6 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Signing time
 
-> Large — signing speed-up, C vs A: spread pending
-
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Small — signing per batch, C (MTL amortised) | 586.8 | ms | MEASURED | n = 100 | C | /benchmark/signing/0/mean_ns | target/climb-results.json |
@@ -87,24 +85,25 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Medium — signing per batch, A (plain SLH-DSA) | ≈1.44 | h | EXTRAPOLATED | k = 1 | A | /plain/2/signing_mean_ns | target/climb-results.json |
 | Large — signing per message, A (plain SLH-DSA) | ≈517.9 | ms | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
 | Large — signing per batch, A (plain SLH-DSA) | ≈143.85 | h | EXTRAPOLATED | k = 2 | A | /plain/3/signing_mean_ns | target/climb-results.json |
-| Small — signing speed-up, C vs A (spread) | 88.31 | × | DERIVED | n = 5 | A | /comparisons/0/signing_speedup_c_vs_a | target/climb-results.json |
-| Small — signing speed-up, C vs B | 88.70 | × | DERIVED | n = 100 | B | /comparisons/0/signing_speedup_c_vs_b | target/climb-results.json |
-| OneK — signing speed-up, C vs A (spread) | ≈995.2 | × | EXTRAPOLATED | n = 5 | A | /comparisons/1/signing_speedup_c_vs_a | target/climb-results.json |
+| Small — signing speed-up, C vs A | 88.31 | × | DERIVED | n = 100 | A | /comparisons/0/signing_speedup_c_vs_a | target/climb-results.json |
+| Small — signing speed-up, C vs B | 88.7 | × | DERIVED | n = 100 | B | /comparisons/0/signing_speedup_c_vs_b | target/climb-results.json |
+| OneK — signing speed-up, C vs A | ≈995.2 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/signing_speedup_c_vs_a | target/climb-results.json |
 | OneK — signing speed-up, C vs B | ≈992.8 | × | EXTRAPOLATED | n = 1000 | B | /comparisons/1/signing_speedup_c_vs_b | target/climb-results.json |
-| Medium — signing speed-up, C vs A (spread) | 9405 | × | DERIVED | n = 5 | A | /comparisons/2/signing_speedup_c_vs_a | target/climb-results.json |
-| Medium — signing speed-up, C vs B | 9433 | × | DERIVED | n = 10000 | B | /comparisons/2/signing_speedup_c_vs_b | target/climb-results.json |
-| Large — signing speed-up, C vs A | ≈119657 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/signing_speedup_c_vs_a | target/climb-results.json |
-| Large — signing speed-up, C vs B | ≈120899 | × | EXTRAPOLATED | n = 1000000 | B | /comparisons/3/signing_speedup_c_vs_b | target/climb-results.json |
+| Medium — signing speed-up, C vs A | 9,405 | × | DERIVED | n = 10000 | A | /comparisons/2/signing_speedup_c_vs_a | target/climb-results.json |
+| Medium — signing speed-up, C vs B | 9,433 | × | DERIVED | n = 10000 | B | /comparisons/2/signing_speedup_c_vs_b | target/climb-results.json |
+| Large — signing speed-up, C vs A | ≈119,657 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/signing_speedup_c_vs_a | target/climb-results.json |
+| Large — signing speed-up, C vs B | ≈120,899 | × | EXTRAPOLATED | n = 1000000 | B | /comparisons/3/signing_speedup_c_vs_b | target/climb-results.json |
+| Medium — signing speed-up model, B vs C — spread median | 9476.1 | × | DERIVED | n = 5 | B | /derived/stability/runs/0/median | target/climb-results.json |
+| Medium — signing speed-up model, B vs C — spread minimum | 9442.5 | × | DERIVED | n = 5 | B | /derived/stability/runs/0/min | target/climb-results.json |
+| Medium — signing speed-up model, B vs C — spread maximum | 9575.2 | × | DERIVED | n = 5 | B | /derived/stability/runs/0/max | target/climb-results.json |
+| OneK — signing speed-up model, B vs C — spread median | 1006.9 | × | DERIVED | n = 5 | B | /derived/stability/runs/1/median | target/climb-results.json |
+| OneK — signing speed-up model, B vs C — spread minimum | 996.6 | × | DERIVED | n = 5 | B | /derived/stability/runs/1/min | target/climb-results.json |
+| OneK — signing speed-up model, B vs C — spread maximum | 1017.4 | × | DERIVED | n = 5 | B | /derived/stability/runs/1/max | target/climb-results.json |
+| Small — signing speed-up model, B vs C — spread median | 101.0 | × | DERIVED | n = 5 | B | /derived/stability/runs/2/median | target/climb-results.json |
+| Small — signing speed-up model, B vs C — spread minimum | 99.5 | × | DERIVED | n = 5 | B | /derived/stability/runs/2/min | target/climb-results.json |
+| Small — signing speed-up model, B vs C — spread maximum | 102.7 | × | DERIVED | n = 5 | B | /derived/stability/runs/2/max | target/climb-results.json |
 
 ## Verifying time
-
-> Small — verifying speed-up (trust cached), C vs A: spread pending
-
-> OneK — verifying speed-up (trust cached), C vs A: spread pending
-
-> Medium — verifying speed-up (trust cached), C vs A: spread pending
-
-> Large — verifying speed-up (trust cached), C vs A: spread pending
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -131,33 +130,27 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Large — verifying per message, A (plain SLH-DSA) | ≈1.4 | ms | EXTRAPOLATED | k = 2 | A | /plain/3/verifying_mean_ns | target/climb-results.json |
 | Large — verifying per batch, A (plain SLH-DSA) | ≈23.44 | min | EXTRAPOLATED | k = 2 | A | /plain/3/verifying_mean_ns | target/climb-results.json |
 | Small — verifying speed-up (trust cached), C vs A | 402.2 | × | DERIVED | n = 100 | A | /comparisons/0/verifying_speedup_cached_vs_a | target/climb-results.json |
-| Small — verifying speed-up (ladder re-validated), C vs A | 0.93 | × | DERIVED | n = 100 | A | /comparisons/0/verifying_speedup_cold_vs_a | target/climb-results.json |
+| Small — verifying speed-up (ladder re-validated), C vs A | 0.9252 | × | DERIVED | n = 100 | A | /comparisons/0/verifying_speedup_cold_vs_a | target/climb-results.json |
 | OneK — verifying speed-up (trust cached), C vs A | ≈156.5 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/verifying_speedup_cached_vs_a | target/climb-results.json |
-| OneK — verifying speed-up (ladder re-validated), C vs A | ≈0.94 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/verifying_speedup_cold_vs_a | target/climb-results.json |
+| OneK — verifying speed-up (ladder re-validated), C vs A | ≈0.9395 | × | EXTRAPOLATED | n = 1000 | A | /comparisons/1/verifying_speedup_cold_vs_a | target/climb-results.json |
 | Medium — verifying speed-up (trust cached), C vs A | 215.3 | × | DERIVED | n = 10000 | A | /comparisons/2/verifying_speedup_cached_vs_a | target/climb-results.json |
-| Medium — verifying speed-up (ladder re-validated), C vs A | 0.95 | × | DERIVED | n = 10000 | A | /comparisons/2/verifying_speedup_cold_vs_a | target/climb-results.json |
+| Medium — verifying speed-up (ladder re-validated), C vs A | 0.9538 | × | DERIVED | n = 10000 | A | /comparisons/2/verifying_speedup_cold_vs_a | target/climb-results.json |
 | Large — verifying speed-up (trust cached), C vs A | ≈83.28 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/verifying_speedup_cached_vs_a | target/climb-results.json |
-| Large — verifying speed-up (ladder re-validated), C vs A | ≈0.94 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/verifying_speedup_cold_vs_a | target/climb-results.json |
+| Large — verifying speed-up (ladder re-validated), C vs A | ≈0.9395 | × | EXTRAPOLATED | n = 1000000 | A | /comparisons/3/verifying_speedup_cold_vs_a | target/climb-results.json |
 | Average trust-cached verify speed-up | 569.3 | × | DERIVED | n = 3 | n/a | /derived/overall_verifying_trust_cached_speedup_avg | target/climb-results.json |
 
 ## Memory
+
+> artifact absent — target/memory-report.json
 
 > measurement method: isolated-process
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Small — resident median (measured) | 4145152 | B | MEASURED | n = 7 | n/a | /runs/0/median_bytes + /memory/measured/0/median_bytes | target/memory-report.json + target/climb-results.json |
-| Small — resident min (measured) | 4087808 | B | MEASURED | n = 7 | n/a | /runs/0/min_bytes + /memory/measured/0/measured_range_min_bytes | target/memory-report.json + target/climb-results.json |
-| Small — resident max (measured) | 4227072 | B | MEASURED | n = 7 | n/a | /runs/0/max_bytes + /memory/measured/0/measured_range_max_bytes | target/memory-report.json + target/climb-results.json |
-| Small — resident IQR (measured) | 94208 | B | MEASURED | n = 7 | n/a | /runs/0/iqr_bytes + /memory/measured/0/iqr_bytes | target/memory-report.json + target/climb-results.json |
-| Medium — resident median (measured) | 14032896 | B | MEASURED | n = 7 | n/a | /runs/1/median_bytes + /memory/measured/1/median_bytes | target/memory-report.json + target/climb-results.json |
-| Medium — resident min (measured) | 13987840 | B | MEASURED | n = 7 | n/a | /runs/1/min_bytes + /memory/measured/1/measured_range_min_bytes | target/memory-report.json + target/climb-results.json |
-| Medium — resident max (measured) | 14213120 | B | MEASURED | n = 7 | n/a | /runs/1/max_bytes + /memory/measured/1/measured_range_max_bytes | target/memory-report.json + target/climb-results.json |
-| Medium — resident IQR (measured) | 94208 | B | MEASURED | n = 7 | n/a | /runs/1/iqr_bytes + /memory/measured/1/iqr_bytes | target/memory-report.json + target/climb-results.json |
-| Large — resident median (measured) | 1087139840 | B | MEASURED | n = 7 | n/a | /runs/2/median_bytes + /memory/measured/2/median_bytes | target/memory-report.json + target/climb-results.json |
-| Large — resident min (measured) | 1087107072 | B | MEASURED | n = 7 | n/a | /runs/2/min_bytes + /memory/measured/2/measured_range_min_bytes | target/memory-report.json + target/climb-results.json |
-| Large — resident max (measured) | 1087217664 | B | MEASURED | n = 7 | n/a | /runs/2/max_bytes + /memory/measured/2/measured_range_max_bytes | target/memory-report.json + target/climb-results.json |
-| Large — resident IQR (measured) | 81920 | B | MEASURED | n = 7 | n/a | /runs/2/iqr_bytes + /memory/measured/2/iqr_bytes | target/memory-report.json + target/climb-results.json |
+| Small — resident median (measured) | 4145152 | B | MEASURED | n = 7 | n/a | /memory/measured/0/median_bytes | target/climb-results.json |
+| Small — resident min (measured) | 4087808 | B | MEASURED | n = 7 | n/a | /memory/measured/0/measured_range_min_bytes | target/climb-results.json |
+| Small — resident max (measured) | 4227072 | B | MEASURED | n = 7 | n/a | /memory/measured/0/measured_range_max_bytes | target/climb-results.json |
+| Small — resident IQR (measured) | 94208 | B | MEASURED | n = 7 | n/a | /memory/measured/0/iqr_bytes | target/climb-results.json |
 | Small — peak median (measured) | 4145152 | B | MEASURED | n = 7 | n/a | /memory/measured/0/measured_peak_bytes | target/climb-results.json |
 | Small — measurement samples | 7 | — | MEASURED | n = 7 | n/a | /memory/measured/0/samples | target/climb-results.json |
 | Small — analytical, libMTL pages | 2097152 | B | ANALYTICAL | — | n/a | /memory/measured/0/libmtl_analytical_bytes | target/climb-results.json |
@@ -166,7 +159,11 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Small — analytical, keypair | 186 | B | ANALYTICAL | — | n/a | /memory/measured/0/keypair_bytes | target/climb-results.json |
 | Small — analytical total | 2178594 | B | ANALYTICAL | — | n/a | /memory/measured/0/analytical_total_bytes | target/climb-results.json |
 | Small — residual (measured − analytical) | 1966558 | B | DERIVED | n = 7 | n/a | /memory/measured/0/residual_bytes | target/climb-results.json |
-| Small — measured / analytical ratio | 1.90 | × | DERIVED | n = 7 | n/a | /memory/measured/0/measured_analytical_total_ratio | target/climb-results.json |
+| Small — measured / analytical ratio | 1.903 | × | DERIVED | n = 7 | n/a | /memory/measured/0/measured_analytical_total_ratio | target/climb-results.json |
+| Medium — resident median (measured) | 14032896 | B | MEASURED | n = 7 | n/a | /memory/measured/1/median_bytes | target/climb-results.json |
+| Medium — resident min (measured) | 13987840 | B | MEASURED | n = 7 | n/a | /memory/measured/1/measured_range_min_bytes | target/climb-results.json |
+| Medium — resident max (measured) | 14213120 | B | MEASURED | n = 7 | n/a | /memory/measured/1/measured_range_max_bytes | target/climb-results.json |
+| Medium — resident IQR (measured) | 94208 | B | MEASURED | n = 7 | n/a | /memory/measured/1/iqr_bytes | target/climb-results.json |
 | Medium — peak median (measured) | 14446592 | B | MEASURED | n = 7 | n/a | /memory/measured/1/measured_peak_bytes | target/climb-results.json |
 | Medium — measurement samples | 7 | — | MEASURED | n = 7 | n/a | /memory/measured/1/samples | target/climb-results.json |
 | Medium — analytical, libMTL pages | 2097152 | B | ANALYTICAL | — | n/a | /memory/measured/1/libmtl_analytical_bytes | target/climb-results.json |
@@ -175,7 +172,11 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Medium — analytical, keypair | 186 | B | ANALYTICAL | — | n/a | /memory/measured/1/keypair_bytes | target/climb-results.json |
 | Medium — analytical total | 10520722 | B | ANALYTICAL | — | n/a | /memory/measured/1/analytical_total_bytes | target/climb-results.json |
 | Medium — residual (measured − analytical) | 3512174 | B | DERIVED | n = 7 | n/a | /memory/measured/1/residual_bytes | target/climb-results.json |
-| Medium — measured / analytical ratio | 1.33 | × | DERIVED | n = 7 | n/a | /memory/measured/1/measured_analytical_total_ratio | target/climb-results.json |
+| Medium — measured / analytical ratio | 1.334 | × | DERIVED | n = 7 | n/a | /memory/measured/1/measured_analytical_total_ratio | target/climb-results.json |
+| Large — resident median (measured) | 1087139840 | B | MEASURED | n = 7 | n/a | /memory/measured/2/median_bytes | target/climb-results.json |
+| Large — resident min (measured) | 1087107072 | B | MEASURED | n = 7 | n/a | /memory/measured/2/measured_range_min_bytes | target/climb-results.json |
+| Large — resident max (measured) | 1087217664 | B | MEASURED | n = 7 | n/a | /memory/measured/2/measured_range_max_bytes | target/climb-results.json |
+| Large — resident IQR (measured) | 81920 | B | MEASURED | n = 7 | n/a | /memory/measured/2/iqr_bytes | target/climb-results.json |
 | Large — peak median (measured) | 1143099392 | B | MEASURED | n = 7 | n/a | /memory/measured/2/measured_peak_bytes | target/climb-results.json |
 | Large — measurement samples | 7 | — | MEASURED | n = 7 | n/a | /memory/measured/2/samples | target/climb-results.json |
 | Large — analytical, libMTL pages | 49283072 | B | ANALYTICAL | — | n/a | /memory/measured/2/libmtl_analytical_bytes | target/climb-results.json |
@@ -184,7 +185,7 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Large — analytical, keypair | 186 | B | ANALYTICAL | — | n/a | /memory/measured/2/keypair_bytes | target/climb-results.json |
 | Large — analytical total | 984351122 | B | ANALYTICAL | — | n/a | /memory/measured/2/analytical_total_bytes | target/climb-results.json |
 | Large — residual (measured − analytical) | 102788718 | B | DERIVED | n = 7 | n/a | /memory/measured/2/residual_bytes | target/climb-results.json |
-| Large — measured / analytical ratio | 1.10 | × | DERIVED | n = 7 | n/a | /memory/measured/2/measured_analytical_total_ratio | target/climb-results.json |
+| Large — measured / analytical ratio | 1.104 | × | DERIVED | n = 7 | n/a | /memory/measured/2/measured_analytical_total_ratio | target/climb-results.json |
 | Analytical model — tree page size | 1048576 | B | ANALYTICAL | — | n/a | /memory/analytical_model/tree_page_size_bytes | target/climb-results.json |
 | Analytical model — tree max pages | 8192 | — | ANALYTICAL | — | n/a | /memory/analytical_model/tree_max_pages | target/climb-results.json |
 | Analytical model — randomizer pages | 8192 | — | ANALYTICAL | — | n/a | /memory/analytical_model/randomizer_pages | target/climb-results.json |
@@ -194,108 +195,108 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Ladder, N=1 — rung count | 1 | — | MEASURED | n = 1 | n/a | /sizes/0/rung_count + /ladder/sizes/0/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1 — ladder buffer bytes | 68 | B | MEASURED | n = 1 | n/a | /sizes/0/ladder_buffer_len + /ladder/sizes/0/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1 — signed ladder bytes | 7928 | B | MEASURED | n = 1 | n/a | /sizes/0/signed_ladder_len + /ladder/sizes/0/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1 — condensed min | 76 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/min + /ladder/sizes/0/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1 — condensed max | 76 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/max + /ladder/sizes/0/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1 — condensed mean | 76.00 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/mean + /ladder/sizes/0/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — rung count | 1 | — | MEASURED | n = 2 | n/a | /sizes/1/rung_count + /ladder/sizes/1/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — ladder buffer bytes | 68 | B | MEASURED | n = 2 | n/a | /sizes/1/ladder_buffer_len + /ladder/sizes/1/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — signed ladder bytes | 7928 | B | MEASURED | n = 2 | n/a | /sizes/1/signed_ladder_len + /ladder/sizes/1/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — condensed min | 92 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/min + /ladder/sizes/1/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — condensed max | 92 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/max + /ladder/sizes/1/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=2 — condensed mean | 92.00 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/mean + /ladder/sizes/1/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — rung count | 2 | — | MEASURED | n = 3 | n/a | /sizes/2/rung_count + /ladder/sizes/2/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — ladder buffer bytes | 100 | B | MEASURED | n = 3 | n/a | /sizes/2/ladder_buffer_len + /ladder/sizes/2/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — signed ladder bytes | 7960 | B | MEASURED | n = 3 | n/a | /sizes/2/signed_ladder_len + /ladder/sizes/2/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — condensed min | 76 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/min + /ladder/sizes/2/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — condensed max | 92 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/max + /ladder/sizes/2/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=3 — condensed mean | 86.67 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/mean + /ladder/sizes/2/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — rung count | 1 | — | MEASURED | n = 4 | n/a | /sizes/3/rung_count + /ladder/sizes/3/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — ladder buffer bytes | 68 | B | MEASURED | n = 4 | n/a | /sizes/3/ladder_buffer_len + /ladder/sizes/3/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — signed ladder bytes | 7928 | B | MEASURED | n = 4 | n/a | /sizes/3/signed_ladder_len + /ladder/sizes/3/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — condensed min | 108 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/min + /ladder/sizes/3/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — condensed max | 108 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/max + /ladder/sizes/3/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=4 — condensed mean | 108.00 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/mean + /ladder/sizes/3/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — rung count | 2 | — | MEASURED | n = 5 | n/a | /sizes/4/rung_count + /ladder/sizes/4/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — ladder buffer bytes | 100 | B | MEASURED | n = 5 | n/a | /sizes/4/ladder_buffer_len + /ladder/sizes/4/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — signed ladder bytes | 7960 | B | MEASURED | n = 5 | n/a | /sizes/4/signed_ladder_len + /ladder/sizes/4/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — condensed min | 76 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/min + /ladder/sizes/4/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — condensed max | 108 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/max + /ladder/sizes/4/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=5 — condensed mean | 101.60 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/mean + /ladder/sizes/4/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — rung count | 2 | — | MEASURED | n = 6 | n/a | /sizes/5/rung_count + /ladder/sizes/5/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — ladder buffer bytes | 100 | B | MEASURED | n = 6 | n/a | /sizes/5/ladder_buffer_len + /ladder/sizes/5/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — signed ladder bytes | 7960 | B | MEASURED | n = 6 | n/a | /sizes/5/signed_ladder_len + /ladder/sizes/5/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — condensed min | 92 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/min + /ladder/sizes/5/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — condensed max | 108 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/max + /ladder/sizes/5/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=6 — condensed mean | 102.67 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/mean + /ladder/sizes/5/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — rung count | 3 | — | MEASURED | n = 7 | n/a | /sizes/6/rung_count + /ladder/sizes/6/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — ladder buffer bytes | 132 | B | MEASURED | n = 7 | n/a | /sizes/6/ladder_buffer_len + /ladder/sizes/6/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — signed ladder bytes | 7992 | B | MEASURED | n = 7 | n/a | /sizes/6/signed_ladder_len + /ladder/sizes/6/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — condensed min | 76 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/min + /ladder/sizes/6/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — condensed max | 108 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/max + /ladder/sizes/6/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=7 — condensed mean | 98.86 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/mean + /ladder/sizes/6/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — rung count | 1 | — | MEASURED | n = 8 | n/a | /sizes/7/rung_count + /ladder/sizes/7/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — ladder buffer bytes | 68 | B | MEASURED | n = 8 | n/a | /sizes/7/ladder_buffer_len + /ladder/sizes/7/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — signed ladder bytes | 7928 | B | MEASURED | n = 8 | n/a | /sizes/7/signed_ladder_len + /ladder/sizes/7/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — condensed min | 124 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/min + /ladder/sizes/7/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — condensed max | 124 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/max + /ladder/sizes/7/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=8 — condensed mean | 124.00 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/mean + /ladder/sizes/7/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — rung count | 2 | — | MEASURED | n = 9 | n/a | /sizes/8/rung_count + /ladder/sizes/8/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — ladder buffer bytes | 100 | B | MEASURED | n = 9 | n/a | /sizes/8/ladder_buffer_len + /ladder/sizes/8/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — signed ladder bytes | 7960 | B | MEASURED | n = 9 | n/a | /sizes/8/signed_ladder_len + /ladder/sizes/8/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — condensed min | 76 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/min + /ladder/sizes/8/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — condensed max | 124 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/max + /ladder/sizes/8/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=9 — condensed mean | 118.67 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/mean + /ladder/sizes/8/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — rung count | 3 | — | MEASURED | n = 13 | n/a | /sizes/9/rung_count + /ladder/sizes/9/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — ladder buffer bytes | 132 | B | MEASURED | n = 13 | n/a | /sizes/9/ladder_buffer_len + /ladder/sizes/9/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — signed ladder bytes | 7992 | B | MEASURED | n = 13 | n/a | /sizes/9/signed_ladder_len + /ladder/sizes/9/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — condensed min | 76 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/min + /ladder/sizes/9/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — condensed max | 124 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/max + /ladder/sizes/9/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=13 — condensed mean | 115.38 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/mean + /ladder/sizes/9/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — rung count | 1 | — | MEASURED | n = 16 | n/a | /sizes/10/rung_count + /ladder/sizes/10/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — ladder buffer bytes | 68 | B | MEASURED | n = 16 | n/a | /sizes/10/ladder_buffer_len + /ladder/sizes/10/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — signed ladder bytes | 7928 | B | MEASURED | n = 16 | n/a | /sizes/10/signed_ladder_len + /ladder/sizes/10/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — condensed min | 140 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/min + /ladder/sizes/10/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — condensed max | 140 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/max + /ladder/sizes/10/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=16 — condensed mean | 140.00 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/mean + /ladder/sizes/10/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — rung count | 5 | — | MEASURED | n = 31 | n/a | /sizes/11/rung_count + /ladder/sizes/11/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — ladder buffer bytes | 196 | B | MEASURED | n = 31 | n/a | /sizes/11/ladder_buffer_len + /ladder/sizes/11/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — signed ladder bytes | 8056 | B | MEASURED | n = 31 | n/a | /sizes/11/signed_ladder_len + /ladder/sizes/11/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — condensed min | 76 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/min + /ladder/sizes/11/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — condensed max | 140 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/max + /ladder/sizes/11/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=31 — condensed mean | 126.58 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/mean + /ladder/sizes/11/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — rung count | 1 | — | MEASURED | n = 32 | n/a | /sizes/12/rung_count + /ladder/sizes/12/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — ladder buffer bytes | 68 | B | MEASURED | n = 32 | n/a | /sizes/12/ladder_buffer_len + /ladder/sizes/12/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — signed ladder bytes | 7928 | B | MEASURED | n = 32 | n/a | /sizes/12/signed_ladder_len + /ladder/sizes/12/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — condensed min | 156 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/min + /ladder/sizes/12/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — condensed max | 156 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/max + /ladder/sizes/12/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=32 — condensed mean | 156.00 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/mean + /ladder/sizes/12/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — rung count | 2 | — | MEASURED | n = 33 | n/a | /sizes/13/rung_count + /ladder/sizes/13/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — ladder buffer bytes | 100 | B | MEASURED | n = 33 | n/a | /sizes/13/ladder_buffer_len + /ladder/sizes/13/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — signed ladder bytes | 7960 | B | MEASURED | n = 33 | n/a | /sizes/13/signed_ladder_len + /ladder/sizes/13/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — condensed min | 76 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/min + /ladder/sizes/13/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — condensed max | 156 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/max + /ladder/sizes/13/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=33 — condensed mean | 153.58 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/mean + /ladder/sizes/13/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — rung count | 1 | — | MEASURED | n = 64 | n/a | /sizes/14/rung_count + /ladder/sizes/14/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — ladder buffer bytes | 68 | B | MEASURED | n = 64 | n/a | /sizes/14/ladder_buffer_len + /ladder/sizes/14/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — signed ladder bytes | 7928 | B | MEASURED | n = 64 | n/a | /sizes/14/signed_ladder_len + /ladder/sizes/14/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — condensed min | 172 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/min + /ladder/sizes/14/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — condensed max | 172 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/max + /ladder/sizes/14/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=64 — condensed mean | 172.00 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/mean + /ladder/sizes/14/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — rung count | 3 | — | MEASURED | n = 100 | n/a | /sizes/15/rung_count + /ladder/sizes/15/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — ladder buffer bytes | 132 | B | MEASURED | n = 100 | n/a | /sizes/15/ladder_buffer_len + /ladder/sizes/15/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — signed ladder bytes | 7992 | B | MEASURED | n = 100 | n/a | /sizes/15/signed_ladder_len + /ladder/sizes/15/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — condensed min | 108 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/min + /ladder/sizes/15/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — condensed max | 172 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/max + /ladder/sizes/15/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=100 — condensed mean | 164.32 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/mean + /ladder/sizes/15/condensed_mean | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — rung count | 6 | — | MEASURED | n = 1000 | n/a | /sizes/16/rung_count + /ladder/sizes/16/rung_count | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — ladder buffer bytes | 228 | B | MEASURED | n = 1000 | n/a | /sizes/16/ladder_buffer_len + /ladder/sizes/16/ladder_buffer_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — signed ladder bytes | 8088 | B | MEASURED | n = 1000 | n/a | /sizes/16/signed_ladder_len + /ladder/sizes/16/signed_ladder_len | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — condensed min | 124 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/min + /ladder/sizes/16/condensed_min | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — condensed max | 220 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/max + /ladder/sizes/16/condensed_max | target/ladder-verification.json + target/climb-results.json |
-| Ladder, N=1000 — condensed mean | 205.92 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/mean + /ladder/sizes/16/condensed_mean | target/ladder-verification.json + target/climb-results.json |
+| Ladder, N=1 — rung count | 1 | — | MEASURED | n = 1 | n/a | /sizes/0/rung_count + /ladder/sizes/0/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1 — ladder buffer bytes | 68 | B | MEASURED | n = 1 | n/a | /sizes/0/ladder_buffer_len + /ladder/sizes/0/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1 — signed ladder bytes | 7928 | B | MEASURED | n = 1 | n/a | /sizes/0/signed_ladder_len + /ladder/sizes/0/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1 — condensed min | 76 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/min + /ladder/sizes/0/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1 — condensed max | 76 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/max + /ladder/sizes/0/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1 — condensed mean | 76.00 | B | MEASURED | n = 1 | n/a | /sizes/0/condensed/mean + /ladder/sizes/0/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — rung count | 1 | — | MEASURED | n = 2 | n/a | /sizes/1/rung_count + /ladder/sizes/1/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — ladder buffer bytes | 68 | B | MEASURED | n = 2 | n/a | /sizes/1/ladder_buffer_len + /ladder/sizes/1/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — signed ladder bytes | 7928 | B | MEASURED | n = 2 | n/a | /sizes/1/signed_ladder_len + /ladder/sizes/1/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — condensed min | 92 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/min + /ladder/sizes/1/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — condensed max | 92 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/max + /ladder/sizes/1/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=2 — condensed mean | 92.00 | B | MEASURED | n = 2 | n/a | /sizes/1/condensed/mean + /ladder/sizes/1/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — rung count | 2 | — | MEASURED | n = 3 | n/a | /sizes/2/rung_count + /ladder/sizes/2/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — ladder buffer bytes | 100 | B | MEASURED | n = 3 | n/a | /sizes/2/ladder_buffer_len + /ladder/sizes/2/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — signed ladder bytes | 7960 | B | MEASURED | n = 3 | n/a | /sizes/2/signed_ladder_len + /ladder/sizes/2/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — condensed min | 76 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/min + /ladder/sizes/2/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — condensed max | 92 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/max + /ladder/sizes/2/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=3 — condensed mean | 86.67 | B | MEASURED | n = 3 | n/a | /sizes/2/condensed/mean + /ladder/sizes/2/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — rung count | 1 | — | MEASURED | n = 4 | n/a | /sizes/3/rung_count + /ladder/sizes/3/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — ladder buffer bytes | 68 | B | MEASURED | n = 4 | n/a | /sizes/3/ladder_buffer_len + /ladder/sizes/3/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — signed ladder bytes | 7928 | B | MEASURED | n = 4 | n/a | /sizes/3/signed_ladder_len + /ladder/sizes/3/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — condensed min | 108 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/min + /ladder/sizes/3/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — condensed max | 108 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/max + /ladder/sizes/3/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=4 — condensed mean | 108.00 | B | MEASURED | n = 4 | n/a | /sizes/3/condensed/mean + /ladder/sizes/3/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — rung count | 2 | — | MEASURED | n = 5 | n/a | /sizes/4/rung_count + /ladder/sizes/4/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — ladder buffer bytes | 100 | B | MEASURED | n = 5 | n/a | /sizes/4/ladder_buffer_len + /ladder/sizes/4/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — signed ladder bytes | 7960 | B | MEASURED | n = 5 | n/a | /sizes/4/signed_ladder_len + /ladder/sizes/4/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — condensed min | 76 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/min + /ladder/sizes/4/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — condensed max | 108 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/max + /ladder/sizes/4/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=5 — condensed mean | 101.60 | B | MEASURED | n = 5 | n/a | /sizes/4/condensed/mean + /ladder/sizes/4/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — rung count | 2 | — | MEASURED | n = 6 | n/a | /sizes/5/rung_count + /ladder/sizes/5/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — ladder buffer bytes | 100 | B | MEASURED | n = 6 | n/a | /sizes/5/ladder_buffer_len + /ladder/sizes/5/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — signed ladder bytes | 7960 | B | MEASURED | n = 6 | n/a | /sizes/5/signed_ladder_len + /ladder/sizes/5/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — condensed min | 92 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/min + /ladder/sizes/5/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — condensed max | 108 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/max + /ladder/sizes/5/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=6 — condensed mean | 102.67 | B | MEASURED | n = 6 | n/a | /sizes/5/condensed/mean + /ladder/sizes/5/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — rung count | 3 | — | MEASURED | n = 7 | n/a | /sizes/6/rung_count + /ladder/sizes/6/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — ladder buffer bytes | 132 | B | MEASURED | n = 7 | n/a | /sizes/6/ladder_buffer_len + /ladder/sizes/6/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — signed ladder bytes | 7992 | B | MEASURED | n = 7 | n/a | /sizes/6/signed_ladder_len + /ladder/sizes/6/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — condensed min | 76 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/min + /ladder/sizes/6/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — condensed max | 108 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/max + /ladder/sizes/6/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=7 — condensed mean | 98.86 | B | MEASURED | n = 7 | n/a | /sizes/6/condensed/mean + /ladder/sizes/6/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — rung count | 1 | — | MEASURED | n = 8 | n/a | /sizes/7/rung_count + /ladder/sizes/7/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — ladder buffer bytes | 68 | B | MEASURED | n = 8 | n/a | /sizes/7/ladder_buffer_len + /ladder/sizes/7/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — signed ladder bytes | 7928 | B | MEASURED | n = 8 | n/a | /sizes/7/signed_ladder_len + /ladder/sizes/7/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — condensed min | 124 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/min + /ladder/sizes/7/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — condensed max | 124 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/max + /ladder/sizes/7/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=8 — condensed mean | 124.00 | B | MEASURED | n = 8 | n/a | /sizes/7/condensed/mean + /ladder/sizes/7/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — rung count | 2 | — | MEASURED | n = 9 | n/a | /sizes/8/rung_count + /ladder/sizes/8/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — ladder buffer bytes | 100 | B | MEASURED | n = 9 | n/a | /sizes/8/ladder_buffer_len + /ladder/sizes/8/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — signed ladder bytes | 7960 | B | MEASURED | n = 9 | n/a | /sizes/8/signed_ladder_len + /ladder/sizes/8/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — condensed min | 76 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/min + /ladder/sizes/8/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — condensed max | 124 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/max + /ladder/sizes/8/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=9 — condensed mean | 118.67 | B | MEASURED | n = 9 | n/a | /sizes/8/condensed/mean + /ladder/sizes/8/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — rung count | 3 | — | MEASURED | n = 13 | n/a | /sizes/9/rung_count + /ladder/sizes/9/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — ladder buffer bytes | 132 | B | MEASURED | n = 13 | n/a | /sizes/9/ladder_buffer_len + /ladder/sizes/9/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — signed ladder bytes | 7992 | B | MEASURED | n = 13 | n/a | /sizes/9/signed_ladder_len + /ladder/sizes/9/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — condensed min | 76 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/min + /ladder/sizes/9/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — condensed max | 124 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/max + /ladder/sizes/9/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=13 — condensed mean | 115.38 | B | MEASURED | n = 13 | n/a | /sizes/9/condensed/mean + /ladder/sizes/9/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — rung count | 1 | — | MEASURED | n = 16 | n/a | /sizes/10/rung_count + /ladder/sizes/10/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — ladder buffer bytes | 68 | B | MEASURED | n = 16 | n/a | /sizes/10/ladder_buffer_len + /ladder/sizes/10/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — signed ladder bytes | 7928 | B | MEASURED | n = 16 | n/a | /sizes/10/signed_ladder_len + /ladder/sizes/10/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — condensed min | 140 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/min + /ladder/sizes/10/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — condensed max | 140 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/max + /ladder/sizes/10/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=16 — condensed mean | 140.00 | B | MEASURED | n = 16 | n/a | /sizes/10/condensed/mean + /ladder/sizes/10/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — rung count | 5 | — | MEASURED | n = 31 | n/a | /sizes/11/rung_count + /ladder/sizes/11/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — ladder buffer bytes | 196 | B | MEASURED | n = 31 | n/a | /sizes/11/ladder_buffer_len + /ladder/sizes/11/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — signed ladder bytes | 8056 | B | MEASURED | n = 31 | n/a | /sizes/11/signed_ladder_len + /ladder/sizes/11/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — condensed min | 76 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/min + /ladder/sizes/11/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — condensed max | 140 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/max + /ladder/sizes/11/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=31 — condensed mean | 126.58 | B | MEASURED | n = 31 | n/a | /sizes/11/condensed/mean + /ladder/sizes/11/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — rung count | 1 | — | MEASURED | n = 32 | n/a | /sizes/12/rung_count + /ladder/sizes/12/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — ladder buffer bytes | 68 | B | MEASURED | n = 32 | n/a | /sizes/12/ladder_buffer_len + /ladder/sizes/12/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — signed ladder bytes | 7928 | B | MEASURED | n = 32 | n/a | /sizes/12/signed_ladder_len + /ladder/sizes/12/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — condensed min | 156 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/min + /ladder/sizes/12/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — condensed max | 156 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/max + /ladder/sizes/12/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=32 — condensed mean | 156.00 | B | MEASURED | n = 32 | n/a | /sizes/12/condensed/mean + /ladder/sizes/12/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — rung count | 2 | — | MEASURED | n = 33 | n/a | /sizes/13/rung_count + /ladder/sizes/13/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — ladder buffer bytes | 100 | B | MEASURED | n = 33 | n/a | /sizes/13/ladder_buffer_len + /ladder/sizes/13/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — signed ladder bytes | 7960 | B | MEASURED | n = 33 | n/a | /sizes/13/signed_ladder_len + /ladder/sizes/13/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — condensed min | 76 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/min + /ladder/sizes/13/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — condensed max | 156 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/max + /ladder/sizes/13/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=33 — condensed mean | 153.58 | B | MEASURED | n = 33 | n/a | /sizes/13/condensed/mean + /ladder/sizes/13/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — rung count | 1 | — | MEASURED | n = 64 | n/a | /sizes/14/rung_count + /ladder/sizes/14/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — ladder buffer bytes | 68 | B | MEASURED | n = 64 | n/a | /sizes/14/ladder_buffer_len + /ladder/sizes/14/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — signed ladder bytes | 7928 | B | MEASURED | n = 64 | n/a | /sizes/14/signed_ladder_len + /ladder/sizes/14/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — condensed min | 172 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/min + /ladder/sizes/14/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — condensed max | 172 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/max + /ladder/sizes/14/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=64 — condensed mean | 172.00 | B | MEASURED | n = 64 | n/a | /sizes/14/condensed/mean + /ladder/sizes/14/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — rung count | 3 | — | MEASURED | n = 100 | n/a | /sizes/15/rung_count + /ladder/sizes/15/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — ladder buffer bytes | 132 | B | MEASURED | n = 100 | n/a | /sizes/15/ladder_buffer_len + /ladder/sizes/15/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — signed ladder bytes | 7992 | B | MEASURED | n = 100 | n/a | /sizes/15/signed_ladder_len + /ladder/sizes/15/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — condensed min | 108 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/min + /ladder/sizes/15/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — condensed max | 172 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/max + /ladder/sizes/15/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=100 — condensed mean | 164.32 | B | MEASURED | n = 100 | n/a | /sizes/15/condensed/mean + /ladder/sizes/15/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — rung count | 6 | — | MEASURED | n = 1000 | n/a | /sizes/16/rung_count + /ladder/sizes/16/rung_count | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — ladder buffer bytes | 228 | B | MEASURED | n = 1000 | n/a | /sizes/16/ladder_buffer_len + /ladder/sizes/16/ladder_buffer_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — signed ladder bytes | 8088 | B | MEASURED | n = 1000 | n/a | /sizes/16/signed_ladder_len + /ladder/sizes/16/signed_ladder_len | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — condensed min | 124 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/min + /ladder/sizes/16/condensed_min | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — condensed max | 220 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/max + /ladder/sizes/16/condensed_max | data/ladder-verification.recorded.json + target/climb-results.json |
+| Ladder, N=1000 — condensed mean | 205.92 | B | MEASURED | n = 1000 | n/a | /sizes/16/condensed/mean + /ladder/sizes/16/condensed_mean | data/ladder-verification.recorded.json + target/climb-results.json |
 | Ladder, N=1 — matches the closed-form model | yes | — | DERIVED | n = 1 | n/a | /ladder/sizes/0/model_matches | target/climb-results.json |
 | Ladder, N=2 — matches the closed-form model | yes | — | DERIVED | n = 2 | n/a | /ladder/sizes/1/model_matches | target/climb-results.json |
 | Ladder, N=3 — matches the closed-form model | yes | — | DERIVED | n = 3 | n/a | /ladder/sizes/2/model_matches | target/climb-results.json |
@@ -323,28 +324,28 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| DNS, climb.example. SOA [full] — response bytes | 24465 | B | MEASURED | — | B | /queries/0/response_bytes | target/dns-capture.json |
-| DNS, climb.example. SOA [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/0/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, www.climb.example. A [full] — response bytes | 24438 | B | MEASURED | — | B | /queries/1/response_bytes + /dns_pipeline/full_signature_bytes_www_a | target/dns-capture.json + target/climb-results.json |
-| DNS, www.climb.example. A [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/1/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [full] — response bytes | 32572 | B | MEASURED | — | B | /queries/2/response_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/2/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, climb.example. SOA [condensed] — response bytes | 685 | B | MEASURED | — | C | /queries/3/response_bytes | target/dns-capture.json |
-| DNS, climb.example. SOA [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/3/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, www.climb.example. A [condensed] — response bytes | 658 | B | MEASURED | — | C | /queries/4/response_bytes + /dns_pipeline/condensed_proof_bytes_www_a | target/dns-capture.json + target/climb-results.json |
-| DNS, www.climb.example. A [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/4/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [condensed] — response bytes | 864 | B | MEASURED | — | C | /queries/5/response_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/5/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, climb.example. SOA [unbound] — response bytes | 8207 | B | MEASURED | — | B | /queries/6/response_bytes | target/dns-capture.json |
-| DNS, climb.example. SOA [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/6/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, www.climb.example. A [unbound] — response bytes | 8176 | B | MEASURED | — | B | /queries/7/response_bytes | target/dns-capture.json |
-| DNS, www.climb.example. A [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/7/answer_rrsig_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [unbound] — response bytes | 8180 | B | MEASURED | — | B | /queries/8/response_bytes | target/dns-capture.json |
-| DNS, mail.climb.example. MX [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/8/answer_rrsig_bytes | target/dns-capture.json |
-| DNS — algorithm | SLH-DSA-SHA2-128s-MTL-SHA2-128 | — | MEASURED | — | n/a | /algorithm + /dns_pipeline/algorithm | target/dns-capture.json + target/climb-results.json |
-| DNS — recorded at | 2026-10-20T14:30:35+05:30 | — | MEASURED | — | n/a | /recorded_at + /dns_pipeline/recorded_at | target/dns-capture.json + target/climb-results.json |
-| DNS, www.climb.example. A — response reduction, condensed vs full | 97.307 | % | DERIVED | — | B | /dns_pipeline/reduction_percent_www_a | target/climb-results.json |
+| DNS, climb.example. SOA [full] — response bytes | 24465 | B | MEASURED | — | B | /queries/0/response_bytes | data/dns-capture.recorded.json |
+| DNS, climb.example. SOA [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/0/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, www.climb.example. A [full] — response bytes | 24438 | B | MEASURED | — | B | /queries/1/response_bytes + /dns_pipeline/full_signature_bytes_www_a | data/dns-capture.recorded.json + target/climb-results.json |
+| DNS, www.climb.example. A [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/1/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [full] — response bytes | 32572 | B | MEASURED | — | B | /queries/2/response_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [full] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/2/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, climb.example. SOA [condensed] — response bytes | 685 | B | MEASURED | — | C | /queries/3/response_bytes | data/dns-capture.recorded.json |
+| DNS, climb.example. SOA [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/3/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, www.climb.example. A [condensed] — response bytes | 658 | B | MEASURED | — | C | /queries/4/response_bytes + /dns_pipeline/condensed_proof_bytes_www_a | data/dns-capture.recorded.json + target/climb-results.json |
+| DNS, www.climb.example. A [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/4/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [condensed] — response bytes | 864 | B | MEASURED | — | C | /queries/5/response_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [condensed] — answer RRSIG bytes | 141 | B | MEASURED | — | C | /queries/5/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, climb.example. SOA [unbound] — response bytes | 8207 | B | MEASURED | — | B | /queries/6/response_bytes | data/dns-capture.recorded.json |
+| DNS, climb.example. SOA [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/6/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, www.climb.example. A [unbound] — response bytes | 8176 | B | MEASURED | — | B | /queries/7/response_bytes | data/dns-capture.recorded.json |
+| DNS, www.climb.example. A [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/7/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [unbound] — response bytes | 8180 | B | MEASURED | — | B | /queries/8/response_bytes | data/dns-capture.recorded.json |
+| DNS, mail.climb.example. MX [unbound] — answer RRSIG bytes | 8069 | B | MEASURED | — | B | /queries/8/answer_rrsig_bytes | data/dns-capture.recorded.json |
+| DNS, www.climb.example. A — reduction, condensed vs full | 97.307 | % | DERIVED | — | B | /dns_pipeline/reduction_percent_www_a | target/climb-results.json |
 | DNS — capture source | live | — | MEASURED | — | n/a | /dns_pipeline/source | target/climb-results.json |
+| DNS — recorded at | 2026-10-20T14:30:35+05:30 | — | MEASURED | — | n/a | /dns_pipeline/recorded_at | target/climb-results.json |
+| DNS — algorithm | SLH-DSA-SHA2-128s-MTL-SHA2-128 | — | MEASURED | — | n/a | /dns_pipeline/algorithm | target/climb-results.json |
 
 ## Reuse
 
@@ -368,18 +369,21 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | UDP fit — model matches capture | yes | — | DERIVED | — | n/a | /derived/udp_fit/validation/matches | target/climb-results.json |
-| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/0/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/1/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/2/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/3/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=100 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/4/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/5/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/6/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/7/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=100 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/8/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/9/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/10/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/11/fit_1232_percent | target/climb-results.json |
+| UDP fit, aggregate — A (plain SLH-DSA), modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | rows | ANALYTICAL | k = 0 / n = 12 | A | /derived/udp_fit/aggregate/0/fit_rows | target/climb-results.json |
+| UDP fit, aggregate — B (MTL, no amortisation), modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | rows | ANALYTICAL | k = 0 / n = 12 | B | /derived/udp_fit/aggregate/1/fit_rows | target/climb-results.json |
+| UDP fit, aggregate — C (MTL amortised), modelled responses fitting the 1,232-byte UDP payload | 11 of 12 | rows | ANALYTICAL | k = 11 / n = 12 | C | /derived/udp_fit/aggregate/2/fit_rows | target/climb-results.json |
+| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | A | /derived/udp_fit/rows/0/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | A | /derived/udp_fit/rows/1/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | A | /derived/udp_fit/rows/2/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | A | /derived/udp_fit/rows/3/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | B | /derived/udp_fit/rows/4/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | B | /derived/udp_fit/rows/5/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | B | /derived/udp_fit/rows/6/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A (www) fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | B | /derived/udp_fit/rows/7/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | C | /derived/udp_fit/rows/8/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | C | /derived/udp_fit/rows/9/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | C | /derived/udp_fit/rows/10/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — C (MTL amortised) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | C | /derived/udp_fit/rows/11/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=100 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/12/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=1000 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/13/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=10000 — E (Ed25519, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/14/fit_1232_percent | target/climb-results.json |
@@ -392,18 +396,18 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | UDP fit, leaves=1000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/21/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=10000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/22/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=1000000 — R (RSA-2048, context) Positive A (www) fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/23/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/24/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/25/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/26/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/27/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=100 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/28/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/29/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/30/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/31/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=100 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/32/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/33/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=10000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/34/fit_1232_percent | target/climb-results.json |
-| UDP fit, leaves=1000000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 0.358 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/35/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | A | /derived/udp_fit/rows/24/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | A | /derived/udp_fit/rows/25/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | A | /derived/udp_fit/rows/26/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — A (plain SLH-DSA) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | A | /derived/udp_fit/rows/27/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 100 | B | /derived/udp_fit/rows/28/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000 | B | /derived/udp_fit/rows/29/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 10000 | B | /derived/udp_fit/rows/30/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — B (MTL non-amortised) Positive A with NS fit ≤1232 B | 0.000 | % | ANALYTICAL | n = 1000000 | B | /derived/udp_fit/rows/31/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=100 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | C | /derived/udp_fit/rows/32/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | C | /derived/udp_fit/rows/33/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=10000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | C | /derived/udp_fit/rows/34/fit_1232_percent | target/climb-results.json |
+| UDP fit, leaves=1000000 — C (MTL amortised) Positive A with NS fit ≤1232 B | 0.358 | % | ANALYTICAL | n = 1000000 | C | /derived/udp_fit/rows/35/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=100 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 100 | n/a | /derived/udp_fit/rows/36/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=1000 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000 | n/a | /derived/udp_fit/rows/37/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=10000 — E (Ed25519, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/38/fit_1232_percent | target/climb-results.json |
@@ -417,6 +421,29 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | UDP fit, leaves=10000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 10000 | n/a | /derived/udp_fit/rows/46/fit_1232_percent | target/climb-results.json |
 | UDP fit, leaves=1000000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/47/fit_1232_percent | target/climb-results.json |
 | UDP fit — worst case fit ≤1232 B | 0.000 | % | ANALYTICAL | — | n/a | /derived/udp_fit/rows/*/fit_1232_percent | target/climb-results.json |
+
+## Classical baselines
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Small — Ed25519 signature bytes | 64 | B | MEASURED | — | n/a | /classical/0/signature_len_bytes | target/climb-results.json |
+| Small — Ed25519 signing per message | 43.48 | µs | MEASURED | — | n/a | /classical/0/signing_mean_ns | target/climb-results.json |
+| Small — Ed25519 verify per message | 93.15 | µs | MEASURED | — | n/a | /classical/0/verifying_mean_ns | target/climb-results.json |
+| Medium — Ed25519 signature bytes | 64 | B | MEASURED | — | n/a | /classical/1/signature_len_bytes | target/climb-results.json |
+| Medium — Ed25519 signing per message | 43.76 | µs | MEASURED | — | n/a | /classical/1/signing_mean_ns | target/climb-results.json |
+| Medium — Ed25519 verify per message | 90.28 | µs | MEASURED | — | n/a | /classical/1/verifying_mean_ns | target/climb-results.json |
+| Small — ECDSA P-256 signature bytes | 64 | B | MEASURED | — | n/a | /classical/2/signature_len_bytes | target/climb-results.json |
+| Small — ECDSA P-256 signing per message | 415.75 | µs | MEASURED | — | n/a | /classical/2/signing_mean_ns | target/climb-results.json |
+| Small — ECDSA P-256 verify per message | 724.20 | µs | MEASURED | — | n/a | /classical/2/verifying_mean_ns | target/climb-results.json |
+| Medium — ECDSA P-256 signature bytes | 64 | B | MEASURED | — | n/a | /classical/3/signature_len_bytes | target/climb-results.json |
+| Medium — ECDSA P-256 signing per message | 417.87 | µs | MEASURED | — | n/a | /classical/3/signing_mean_ns | target/climb-results.json |
+| Medium — ECDSA P-256 verify per message | 704.76 | µs | MEASURED | — | n/a | /classical/3/verifying_mean_ns | target/climb-results.json |
+| Small — RSA-2048 signature bytes | 256 | B | MEASURED | — | n/a | /classical/4/signature_len_bytes | target/climb-results.json |
+| Small — RSA-2048 signing per message | 4086.29 | µs | MEASURED | — | n/a | /classical/4/signing_mean_ns | target/climb-results.json |
+| Small — RSA-2048 verify per message | 510.60 | µs | MEASURED | — | n/a | /classical/4/verifying_mean_ns | target/climb-results.json |
+| Medium — RSA-2048 signature bytes | 256 | B | MEASURED | — | n/a | /classical/5/signature_len_bytes | target/climb-results.json |
+| Medium — RSA-2048 signing per message | 4157.52 | µs | MEASURED | — | n/a | /classical/5/signing_mean_ns | target/climb-results.json |
+| Medium — RSA-2048 verify per message | 499.72 | µs | MEASURED | — | n/a | /classical/5/verifying_mean_ns | target/climb-results.json |
 
 ## Environment
 
@@ -434,22 +461,22 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | ef8d86f40fb809e2c5ac7642b0e2127e97c25d00 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | 2a2b093534b5d1c0855d4cfcf5abb216f21b0154 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 988 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 6 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 1 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 27 | — | MEASURED | n = 27 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1077 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 0 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 1 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 36 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
 
 ---
 
 ## Footer
 
-- Rows rendered: 361 (from 521 collected facts; 160 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 202, ANALYTICAL: 68, EXTRAPOLATED: 24, DERIVED: 66; UNCLASSIFIED: 1.
+- Rows rendered: 391 (from 537 collected facts; 146 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 220, ANALYTICAL: 71, EXTRAPOLATED: 24, DERIVED: 75; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

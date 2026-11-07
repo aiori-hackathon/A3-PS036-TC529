@@ -599,6 +599,61 @@ fn text_ink_stays_inside_the_canvas_and_its_margins() {
 }
 
 #[test]
+fn a_freshly_rendered_card_keeps_its_text_inside_the_margins() {
+    // Render from the committed document rather than reading the committed
+    // SVG, so a layout regression in the generator is caught even when the
+    // history that produced the card is not available in this checkout.
+    let graph = committed_graph();
+    let style = style();
+    let palette = Palette::load(&workspace_root(), &style).expect("a palette");
+    for (name, svg) in [
+        (
+            WIDE,
+            render_full(&graph, &palette, &style).expect("wide card"),
+        ),
+        (
+            NARROW,
+            render_narrow(&graph, &palette, &style).expect("narrow card"),
+        ),
+        (
+            COMPACT,
+            render_compact(&graph, &palette, &style).expect("compact card"),
+        ),
+        (
+            COMPACT_NARROW,
+            render_compact_narrow(&graph, &palette, &style).expect("compact narrow card"),
+        ),
+    ] {
+        let document = parse(&svg);
+        let root = document.root_element();
+        let width: f64 = root
+            .attribute("width")
+            .expect("width")
+            .parse()
+            .expect("a number");
+        let height: f64 = root
+            .attribute("height")
+            .expect("height")
+            .parse()
+            .expect("a number");
+        let margin = if name.contains("narrow") { 24.0 } else { 32.0 };
+        for (x, y, w, h) in text_runs(&document) {
+            assert!(
+                x >= margin - 1.5,
+                "{name}: text starts at {x}, inside the {margin} px margin"
+            );
+            assert!(
+                x + w <= width - margin + 1.5,
+                "{name}: text ends at {}, past the right margin",
+                x + w
+            );
+            assert!(y >= 0.0, "{name}: text starts above the canvas");
+            assert!(y + h <= height, "{name}: text ends below the canvas");
+        }
+    }
+}
+
+#[test]
 fn text_group_boxes_stay_inside_the_canvas() {
     for name in ALL {
         let svg = committed(name);

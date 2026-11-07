@@ -20,7 +20,8 @@ use serde_json::Value;
 
 use crate::error::ReportError;
 use crate::ladder::LadderVerification;
-use crate::results::{DnsCapture, EvidenceClass};
+use crate::numbers::fmt_ratio;
+use crate::results::{size_display, DnsCapture, EvidenceClass};
 use crate::summary::BenchKind;
 
 /// Sections of the quote sheet, in render order.
@@ -332,13 +333,17 @@ fn load_ladder(
 }
 
 /// Load the DNS capture, preferring a live recording over the committed
-/// fixture; `None` when neither exists. A present-but-unparseable artifact is
-/// a hard error naming the path.
-fn load_dns(live: &Path, fixture: &Path) -> Result<Option<(PathBuf, DnsCapture)>, ReportError> {
-    let path = if live.exists() {
-        live
+/// fixture; `None` when neither exists. The boolean is true when the live
+/// capture was used. A present-but-unparseable artifact is a hard error naming
+/// the path.
+fn load_dns(
+    live: &Path,
+    fixture: &Path,
+) -> Result<Option<(PathBuf, DnsCapture, bool)>, ReportError> {
+    let (path, is_live) = if live.exists() {
+        (live, true)
     } else if fixture.exists() {
-        fixture
+        (fixture, false)
     } else {
         return Ok(None);
     };
@@ -350,7 +355,7 @@ fn load_dns(live: &Path, fixture: &Path) -> Result<Option<(PathBuf, DnsCapture)>
         path: path.to_path_buf(),
         source: e,
     })?;
-    Ok(Some((path.to_path_buf(), capture)))
+    Ok(Some((path.to_path_buf(), capture, is_live)))
 }
 
 // ---------------------------------------------------------------------------
@@ -451,18 +456,6 @@ fn fmt_percent(v: f64) -> String {
     format!("{v:.3}")
 }
 
-/// Ratios render coarsely for large values and precisely for small ones,
-/// mirroring the report tables' speed-up formatting.
-fn fmt_ratio(v: f64) -> String {
-    if v >= 1000.0 {
-        format!("{v:.0}")
-    } else if v >= 100.0 {
-        format!("{v:.1}")
-    } else {
-        format!("{v:.2}")
-    }
-}
-
 /// Format a duration and split it into its numeric value and unit, so the
 /// value and unit land in separate table columns.
 fn fmt_duration(ns: f64) -> (String, String) {
@@ -470,16 +463,6 @@ fn fmt_duration(ns: f64) -> (String, String) {
     match rendered.rsplit_once(' ') {
         Some((value, unit)) => (value.to_string(), unit.to_string()),
         None => (rendered, String::new()),
-    }
-}
-
-/// Capitalize a size key from an artifact (`small` → `Small`) so labels built
-/// from differently-cased copies of the same size group together.
-fn size_display(size: &str) -> String {
-    let mut chars = size.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
     }
 }
 
@@ -1633,12 +1616,21 @@ fn dns_baseline(label: &str) -> Baseline {
 /// capture provenance the headline repeats.
 fn collect_dns(
     out: &mut Collected,
-    capture: Option<(&Path, &DnsCapture)>,
+    capture: Option<(&Path, &DnsCapture, bool)>,
     results: Option<(&Path, &Value)>,
 ) -> Result<(), ReportError> {
     let present = capture.is_some() || results.is_some();
+    // A fixture is a structural fallback, not necessarily the same recording
+    // the consolidated results were built from. When the results document
+    // already carries DNS provenance, publish that row and skip the fixture's
+    // timestamp/algorithm so two different recordings are not compared as if
+    // they were the same measurement.
+    let results_has_provenance = results.is_some_and(|(_, root)| {
+        root.pointer("/dns_pipeline/recorded_at").is_some()
+            || root.pointer("/dns_pipeline/algorithm").is_some()
+    });
 
-    if let Some((path, capture)) = capture {
+    if let Some((path, capture, is_live)) = capture {
         let source = path.display().to_string();
         for (i, query) in capture.queries.iter().enumerate() {
             let base = format!("/queries/{i}");
@@ -1678,27 +1670,29 @@ fn collect_dns(
                 ));
             }
         }
-        for (pointer, label, value) in [
-            ("/algorithm", "DNS — algorithm", capture.algorithm.clone()),
-            (
-                "/recorded_at",
-                "DNS — recorded at",
-                capture.recorded_at.clone(),
-            ),
-        ] {
-            out.facts.push(fact(
-                Row {
-                    section: Section::DnsLive,
-                    label: label.to_string(),
-                    unit: "—".to_string(),
-                    class: Some(EvidenceClass::Measured),
-                    nk: None,
-                    baseline: Baseline::Na,
-                },
-                value,
-                pointer,
-                &source,
-            ));
+        if is_live || !results_has_provenance {
+            for (pointer, label, value) in [
+                ("/algorithm", "DNS — algorithm", capture.algorithm.clone()),
+                (
+                    "/recorded_at",
+                    "DNS — recorded at",
+                    capture.recorded_at.clone(),
+                ),
+            ] {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::DnsLive,
+                        label: label.to_string(),
+                        unit: "—".to_string(),
+                        class: Some(EvidenceClass::Measured),
+                        nk: None,
+                        baseline: Baseline::Na,
+                    },
+                    value,
+                    pointer,
+                    &source,
+                ));
+            }
         }
     }
 
@@ -2539,7 +2533,8 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     )?;
     collect_dns(
         &mut collected,
-        dns.as_ref().map(|(path, doc)| (path.as_path(), doc)),
+        dns.as_ref()
+            .map(|(path, doc, is_live)| (path.as_path(), doc, *is_live)),
         results_ref,
     )?;
     collect_environment(
@@ -3009,6 +3004,35 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
         assert!(output.markdown.contains("Workspace tests — passed"));
         assert!(output.markdown.contains("UNCLASSIFIED"));
         assert!(output.markdown.contains("artifact absent"));
+    }
+
+    #[test]
+    fn fixture_provenance_is_not_compared_with_a_different_live_recording() {
+        // The committed fixture and the consolidated results can come from
+        // different recordings. Their per-query byte counts still cross-check,
+        // but the fixture's timestamp must not be reported as a disagreement
+        // with the results' own provenance.
+        let fixture =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../data/dns-capture.recorded.json");
+        let mut input = sample_input();
+        input.dns_fixture_path = fixture;
+        let output = generate(&input).expect("sample results plus fixture must render");
+        assert!(
+            output.inconsistencies.is_empty(),
+            "{:?}",
+            output.inconsistencies
+        );
+        let recorded: Vec<&Fact> = output
+            .rows
+            .iter()
+            .filter(|row| row.label == "DNS — recorded at")
+            .collect();
+        assert_eq!(recorded.len(), 1, "one published provenance row");
+        assert!(
+            recorded[0].source.ends_with("climb-results.json"),
+            "the results document owns the published timestamp: {}",
+            recorded[0].source
+        );
     }
 
     #[test]

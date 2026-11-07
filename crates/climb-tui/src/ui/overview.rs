@@ -1,16 +1,18 @@
 //! The Overview tab: the headline story in ten seconds.
 //!
-//! Layout, top to bottom: the CLIMB word mark with the animated ladder on its
-//! right, subtitle + tagline, four KPI cards and the extrapolation footnote,
-//! then the environment and artifact-health panels. Every number on screen
-//! comes from [`crate::data::ResultsView`]; nothing here is hardcoded result
-//! data. The ladder animation is driven by [`crate::data::rung_state`] over
-//! wall-clock time, so it only advances when this tab is actually rendered.
+//! Layout, top to bottom: the CLIMB word mark with the animated ladder
+//! immediately beside it (the ladder is a deliberate, looping decoration — not
+//! a stray glyph), subtitle + tagline, four KPI cards and the extrapolation
+//! footnote, then the environment and artifact-health panels. Every number on
+//! screen comes from [`crate::data::ResultsView`]; nothing here is hardcoded
+//! result data. The ladder animation is driven by
+//! [`crate::data::rung_state`] over wall-clock time, so it only advances when
+//! this tab is actually rendered.
 
 use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph};
+use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
 use crate::app::App;
@@ -30,6 +32,12 @@ const CLIMB: [&str; RUNGS] = [
     concat!("X     ", " ", "X     ", " ", "  XX  ", " ", "X    X", " ", "X    X"),
     concat!("XXXXXX", " ", "XXXXXX", " ", "XXXXXX", " ", "X    X", " ", "XXXXX "),
 ];
+
+/// Width of the word mark in columns.
+const CLIMB_WIDTH: u16 = 34;
+
+/// Gap between the word mark and the animated ladder that climbs beside it.
+const LADDER_GAP: u16 = 2;
 
 /// Wide enough below the KPIs to keep the environment and artifact panels
 /// side by side; narrower terminals stack them into one block.
@@ -80,34 +88,57 @@ fn render_context(
     rows: &[ContextRow],
 ) {
     let dim = Style::new().fg(theme.muted);
-    let mut lines = vec![Line::from(vec![
-        Span::styled(format!("{:<4}", "cfg"), dim),
-        Span::styled(format!("{:<24}", "configuration"), dim),
-        Span::styled(format!("{:>9}", "sig B"), dim),
-        Span::styled(format!("{:>8}", "sign \u{b5}s"), dim),
-        Span::styled(format!("{:>8}", "verify \u{b5}s"), dim),
-        Span::styled(format!("{:>8}", "fits 1,232"), dim),
-    ])];
-    for row in rows {
-        let style = if row.classical {
-            dim
-        } else {
-            Style::new().fg(theme.fg)
-        };
-        lines.push(Line::from(vec![
-            Span::styled(format!("{:<4}", row.letter), style),
-            Span::styled(format!("{:<24}", row.name), style),
-            Span::styled(format!("{:>9}", row.bytes), style),
-            Span::styled(format!("{:>8}", row.sign), style),
-            Span::styled(format!("{:>8}", row.verify), style),
-            Span::styled(format!("{:>8}", row.fits), style),
-        ]));
-    }
-    lines.push(Line::from(Span::styled(
-        "classical rows are not quantum-resistant \u{b7} context only",
-        dim,
-    )));
-    let body = Paragraph::new(lines).block(
+    let header_style = dim.add_modifier(Modifier::BOLD);
+    let header = Row::new(vec![
+        header_cell("cfg", Alignment::Left, header_style),
+        header_cell("configuration", Alignment::Left, header_style),
+        header_cell("sig B", Alignment::Right, header_style),
+        header_cell("sign \u{b5}s", Alignment::Right, header_style),
+        header_cell("verify \u{b5}s", Alignment::Right, header_style),
+        header_cell("fits 1,232", Alignment::Right, header_style),
+    ]);
+
+    let mut body: Vec<Row> = rows
+        .iter()
+        .map(|row| {
+            let style = if row.classical {
+                dim
+            } else {
+                Style::new().fg(theme.fg)
+            };
+            Row::new(vec![
+                text_cell(row.letter.clone(), Alignment::Left, style),
+                text_cell(row.name.clone(), Alignment::Left, style),
+                text_cell(row.bytes.clone(), Alignment::Right, style),
+                text_cell(row.sign.clone(), Alignment::Right, style),
+                text_cell(row.verify.clone(), Alignment::Right, style),
+                text_cell(row.fits.clone(), Alignment::Right, style),
+            ])
+        })
+        .collect();
+    body.push(Row::new(vec![Cell::from(
+        Line::from(Span::styled(
+            "classical rows are not quantum-resistant \u{b7} context only",
+            dim,
+        ))
+        .alignment(Alignment::Left),
+    )
+    .column_span(6)]));
+
+    let table = Table::new(
+        body,
+        [
+            Constraint::Length(4),
+            Constraint::Length(24),
+            Constraint::Length(9),
+            Constraint::Length(9),
+            Constraint::Length(10),
+            Constraint::Length(10),
+        ],
+    )
+    .column_spacing(1)
+    .header(header)
+    .block(
         Block::bordered()
             .border_set(glyphs.border)
             .border_style(Style::new().fg(theme.border))
@@ -116,7 +147,15 @@ fn render_context(
                 Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
             )),
     );
-    frame.render_widget(body, area);
+    frame.render_widget(table, area);
+}
+
+fn header_cell(text: &str, alignment: Alignment, style: Style) -> Cell<'static> {
+    Cell::from(Line::from(Span::styled(text.to_string(), style)).alignment(alignment))
+}
+
+fn text_cell(text: String, alignment: Alignment, style: Style) -> Cell<'static> {
+    Cell::from(Line::from(Span::styled(text, style)).alignment(alignment))
 }
 
 fn render_hero(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
@@ -127,8 +166,12 @@ fn render_hero(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: 
     ])
     .areas(area);
 
-    let [letters_col, ladder_col] =
-        Layout::horizontal([Constraint::Min(10), Constraint::Length(5)]).areas(word_row);
+    let [letters_col, ladder_col, _spacer] = Layout::horizontal([
+        Constraint::Length(CLIMB_WIDTH + LADDER_GAP),
+        Constraint::Length(5),
+        Constraint::Min(0),
+    ])
+    .areas(word_row);
 
     frame.render_widget(Paragraph::new(wordmark_lines(glyphs, theme)), letters_col);
 
@@ -203,7 +246,7 @@ fn render_kpis(frame: &mut Frame, area: Rect, view: &ResultsView, theme: &Theme,
         ("DNS", view.dns_reduction()),
         ("Wire", view.wire_reduction_largest()),
         ("Signing", view.signing_speedup_at("Medium")),
-        ("Verify", view.cached_verify_speedup()),
+        ("Verify", view.cached_verify_speedup_at("Medium")),
         ("C vs A", view.c_vs_a_signing_speedup()),
     ];
 
@@ -363,7 +406,7 @@ fn health_lines(view: &ResultsView, theme: &Theme) -> Vec<Line<'static>> {
         Some(age) if view.is_fresh() => {
             format!("{fresh_mark} fresh \u{00b7} {} old", fmt_age(age))
         }
-        Some(age) => format!("{warn_mark} stale \u{00b7} {} old", fmt_age(age)),
+        Some(_) => format!("{warn_mark} older than 24 hours"),
         None => format!("{warn_mark} age unknown"),
     };
     let report_line = match view.report_health() {
@@ -389,7 +432,7 @@ fn health_lines(view: &ResultsView, theme: &Theme) -> Vec<Line<'static>> {
 
 fn label_value(label: &str, value: String, theme: &Theme) -> Line<'static> {
     Line::from(vec![
-        Span::styled(format!("{label:<10}"), Style::new().fg(theme.accent)),
+        Span::styled(format!("{label:<12}"), Style::new().fg(theme.accent)),
         Span::styled(value, Style::new().fg(theme.fg)),
     ])
 }

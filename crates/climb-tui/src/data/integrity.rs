@@ -21,6 +21,9 @@ use climb_report::{CheckReport, CheckStatus, ClimbResults, CONSOLIDATE_COMMAND};
 
 use super::{mtime, report_path, MAX_FRESH_AGE};
 
+/// The command that refreshes every artifact the inventory lists.
+pub const REFRESH_COMMAND: &str = "cargo xtask reproduce --quick --skip-dns";
+
 /// Role of an inventoried artifact relative to the results file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ArtifactRole {
@@ -198,7 +201,7 @@ impl IntegrityView {
         };
         Self {
             check,
-            artifacts: inventory(results_path),
+            artifacts: inventory(results_path, Path::new(&results.workspace_root)),
             provenance: Provenance::of(results),
             bound: BoundState::of(results),
         }
@@ -268,7 +271,7 @@ impl IntegrityView {
             CheckState::NotRun => (BannerTone::Warn, "CHECK NOT RUN".to_string()),
             CheckState::ReportMissing { path, .. } => (
                 BannerTone::Warn,
-                format!("REPORT NOT FOUND \u{2014} {}", path.display()),
+                format!("REPORT NOT FOUND \u{2014} {}", crate::paths::display(path)),
             ),
             CheckState::Failed { error, .. } => {
                 (BannerTone::Bad, format!("CHECK FAILED \u{2014} {error}"))
@@ -391,12 +394,17 @@ fn git_commit_sha(workspace_root: &str) -> Option<String> {
 
 /// Build the artifact inventory: the reference row, then the outputs and
 /// inputs in display order.
-fn inventory(results_path: &Path) -> Vec<ArtifactRow> {
+///
+/// Artifacts normally sit beside the results file. The environment fingerprint
+/// is the exception: it is written at the repository root and, in older runs,
+/// under `target/`. Every candidate is checked in turn while the row keeps its
+/// stable display name (`environment.json`).
+fn inventory(results_path: &Path, workspace_root: &Path) -> Vec<ArtifactRow> {
     let results_mtime = mtime(results_path);
     let dir = results_path.parent().unwrap_or_else(|| Path::new("."));
     let mut rows = vec![reference_row(results_path)];
     for (relative, role) in ARTIFACTS {
-        let path = dir.join(relative);
+        let path = artifact_path(dir, workspace_root, relative);
         let modified = mtime(&path);
         let state = match (role, modified) {
             (_, None) => ArtifactState::Missing,
@@ -422,6 +430,26 @@ fn inventory(results_path: &Path) -> Vec<ArtifactRow> {
     rows
 }
 
+/// Resolve one inventoried artifact to the file actually on disk. Most live
+/// beside the results file; `environment.json` is also accepted at the
+/// workspace root and under `target/`, which are the two places different runs
+/// have written it.
+fn artifact_path(dir: &Path, workspace_root: &Path, relative: &str) -> PathBuf {
+    let beside = dir.join(relative);
+    if relative != "environment.json" {
+        return beside;
+    }
+    let candidates = [
+        beside.clone(),
+        workspace_root.join("target").join(relative),
+        workspace_root.join(relative),
+    ];
+    candidates
+        .into_iter()
+        .find(|candidate| candidate.exists())
+        .unwrap_or(beside)
+}
+
 /// The reference row: the results file itself, stale once older than the
 /// freshness threshold.
 fn reference_row(results_path: &Path) -> ArtifactRow {
@@ -435,7 +463,7 @@ fn reference_row(results_path: &Path) -> ArtifactRow {
         path: results_path
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
-            .unwrap_or_else(|| results_path.display().to_string()),
+            .unwrap_or_else(|| "climb-results.json".to_string()),
         role: ArtifactRole::Reference,
         modified,
         state,
@@ -493,12 +521,16 @@ fn civil_from_days(days: i64) -> (i64, u32, u32) {
 pub fn artifact_line(row: &ArtifactRow, width: usize, ascii: bool) -> String {
     let modified = row.modified.and_then(format_utc);
     let placeholder = if ascii { "--" } else { "\u{2014}" };
+    let state = match (row.role, row.state) {
+        (ArtifactRole::Reference, ArtifactState::Stale) => "older than 24 hours",
+        _ => row.state.label(),
+    };
     let line = format!(
         "[{}] {}  {}  {}",
         row.role.tag(),
         row.path,
         modified.unwrap_or_else(|| placeholder.to_string()),
-        row.state.label()
+        state
     );
     crate::widgets::ellipsize(&line, width, ascii)
 }
@@ -684,6 +716,61 @@ mod tests {
         assert_eq!(report_row.state, ArtifactState::Stale);
         assert_eq!(report_row.modified, Some(old));
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn environment_fingerprint_is_found_at_the_workspace_root() {
+        let root = sample_dir("env-root");
+        let results_path = root.join("climb-results.json");
+        rewrite_workspace_root(&results_path, &root);
+        std::fs::write(root.join("environment.json"), "{}").expect("write environment");
+        let state = super::super::load(&results_path);
+        let super::super::LoadState::Loaded(view) = state else {
+            panic!("expected the sample results to load, got {state:?}");
+        };
+        let row = view
+            .integrity()
+            .artifacts()
+            .iter()
+            .find(|row| row.path == "environment.json")
+            .expect("environment row");
+        assert_eq!(row.state, ArtifactState::Present);
+        assert!(row.modified.is_some());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn environment_fingerprint_is_found_under_target() {
+        let root = sample_dir("env-target");
+        let results_path = root.join("climb-results.json");
+        rewrite_workspace_root(&results_path, &root);
+        std::fs::create_dir_all(root.join("target")).expect("target dir");
+        std::fs::write(root.join("target/environment.json"), "{}").expect("write environment");
+        let state = super::super::load(&results_path);
+        let super::super::LoadState::Loaded(view) = state else {
+            panic!("expected the sample results to load, got {state:?}");
+        };
+        let row = view
+            .integrity()
+            .artifacts()
+            .iter()
+            .find(|row| row.path == "environment.json")
+            .expect("environment row");
+        assert_eq!(row.state, ArtifactState::Present);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Point a copied results document at a test workspace so its root-level
+    /// artifacts resolve inside the temp directory, not this checkout.
+    fn rewrite_workspace_root(results_path: &Path, workspace_root: &Path) {
+        let text = std::fs::read_to_string(results_path).expect("read results");
+        let mut doc: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
+        doc["workspace_root"] = serde_json::json!(workspace_root.display().to_string());
+        std::fs::write(
+            results_path,
+            serde_json::to_vec_pretty(&doc).expect("serialize"),
+        )
+        .expect("write results");
     }
 
     /// Set a file's modification time by reading, rewriting and restoring

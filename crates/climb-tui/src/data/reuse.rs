@@ -4,7 +4,9 @@
 //! parsed artifact — no break-even is recomputed here — so the Verifying tab
 //! can never disagree with the HTML report or the chart.
 
-use super::{title_size, ResultsView};
+use climb_report::results::size_display;
+
+use super::ResultsView;
 
 /// One row of the Verifying tab's reuse panel.
 #[derive(Debug, Clone, PartialEq)]
@@ -32,7 +34,7 @@ impl ResultsView {
             .iter()
             .filter(|row| !row.curve.is_empty())
             .map(|row| ReuseRow {
-                size: title_size(&row.size),
+                size: size_display(&row.size),
                 time_r: row.breakeven_reuse_time.or(row.r_star_time),
                 bytes_r: row.breakeven_reuse_bytes.or(row.r_star_bytes),
                 class: row.class.label().to_string(),

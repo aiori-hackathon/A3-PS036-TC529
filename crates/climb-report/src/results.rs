@@ -120,10 +120,19 @@ impl EvidenceClass {
 /// way, so this normalises the label at display time without touching the
 /// artifact value.
 pub fn size_display(label: &str) -> String {
-    let mut chars = label.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
+    let trimmed = label.trim();
+    match trimmed.to_ascii_lowercase().as_str() {
+        "onek" | "one-k" | "1k" | "1000" | "1,000" => "OneK".to_string(),
+        "small" => "Small".to_string(),
+        "medium" => "Medium".to_string(),
+        "large" => "Large".to_string(),
+        _ => {
+            let mut chars = trimmed.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        }
     }
 }
 
@@ -2197,8 +2206,11 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     // The artifact stores its own root as `<repo>`; anything else below the
     // home directory is stored `~`-relative.
     let home = std::env::var_os("HOME").map(PathBuf::from);
-    let workspace_root =
-        normalise_path_with(&workspace_root, Some(Path::new(&workspace_root)), home.as_deref());
+    let workspace_root = normalise_path_with(
+        &workspace_root,
+        Some(Path::new(&workspace_root)),
+        home.as_deref(),
+    );
 
     let (summary_rows, plain_records, classical_records) =
         read_summary_rows(&opts.criterion_dir, &opts.baseline, &mut warnings)?;
@@ -2764,11 +2776,15 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
-    fn size_display_title_cases_only_the_first_letter() {
+    fn size_display_canonicalises_every_spelling_of_a_dataset_size() {
         assert_eq!(size_display("small"), "Small");
         assert_eq!(size_display("medium"), "Medium");
         assert_eq!(size_display("Small"), "Small", "already title-cased");
         assert_eq!(size_display("oneK"), "OneK");
+        assert_eq!(size_display("OneK"), "OneK");
+        assert_eq!(size_display("1000"), "OneK");
+        assert_eq!(size_display("1,000"), "OneK");
+        assert_eq!(size_display("LARGE"), "Large");
         assert_eq!(size_display(""), "");
     }
 
@@ -3464,18 +3480,22 @@ mod tests {
 
     #[test]
     fn normalise_path_replaces_only_a_real_prefix() {
-        let repo = Path::new("/home/dev/work/climb");
-        let home = Path::new("/home/dev");
+        let repo = Path::new("/home/dev/work/climb"); // path-hygiene:allow
+        let home = Path::new("/home/dev"); // path-hygiene:allow
         assert_eq!(
-            normalise_path_with("/home/dev/work/climb", Some(repo), Some(home)),
+            normalise_path_with("/home/dev/work/climb", Some(repo), Some(home)), // path-hygiene:allow
             "<repo>"
         );
         assert_eq!(
-            normalise_path_with("/home/dev/work/climb/target/climb-results.json", Some(repo), Some(home)),
+            normalise_path_with(
+                "/home/dev/work/climb/target/climb-results.json", // path-hygiene:allow
+                Some(repo),
+                Some(home)
+            ),
             "<repo>/target/climb-results.json"
         );
         assert_eq!(
-            normalise_path_with("/home/dev/notes.txt", Some(repo), Some(home)),
+            normalise_path_with("/home/dev/notes.txt", Some(repo), Some(home)), // path-hygiene:allow
             "~/notes.txt"
         );
         assert_eq!(
@@ -3485,7 +3505,7 @@ mod tests {
         // A sibling directory whose name merely starts with the root is not
         // rewritten: the prefix ends at a path separator.
         assert_eq!(
-            normalise_path_with("/home/dev/work/climb-other/file", Some(repo), Some(home)),
+            normalise_path_with("/home/dev/work/climb-other/file", Some(repo), Some(home)), // path-hygiene:allow
             "~/work/climb-other/file"
         );
     }
@@ -3631,15 +3651,16 @@ mod tests {
         assert!(section.rows.iter().all(|r| r.messages > 0));
         let aggregate = &section.aggregate;
         assert_eq!(
-            aggregate.iter().map(|r| r.config.as_str()).collect::<Vec<_>>(),
+            aggregate
+                .iter()
+                .map(|r| r.config.as_str())
+                .collect::<Vec<_>>(),
             ["plain", "mtl-full", "mtl-amortised"],
             "aggregate covers the three post-quantum configurations in A/B/C order"
         );
         assert!(aggregate.iter().all(|r| r.total_rows == 12));
         assert!(aggregate.iter().all(|r| r.fit_rows <= r.total_rows));
-        assert!(aggregate
-            .iter()
-            .all(|r| r.fit_messages <= r.total_messages));
+        assert!(aggregate.iter().all(|r| r.fit_messages <= r.total_messages));
         assert_eq!(section.rtt_ms, None, "no RTT was supplied");
         let validation = section.validation.as_ref().expect("capture cross-check");
         assert_eq!(validation.tolerance_bytes, 0);

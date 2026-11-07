@@ -19,7 +19,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
   <br>
   <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
   <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
-  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 771/771" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=771%2F771&amp;color=C55E33&amp;labelColor=5C8E8D&amp;style=for-the-badge"></a>
+  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 789/789" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=789%2F789&amp;color=C55E33&amp;labelColor=5C8E8D&amp;style=for-the-badge"></a>
 </div>
 <!-- badges:end -->
 
@@ -98,13 +98,13 @@ in this table drifts from the quote sheet.
 | Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A | — |
 | Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B | — |
 | Wire bytes, Medium — C (MTL amortised) | 2,743,352 B | MEASURED | C | — |
-| Signing speed-up, Medium — C vs A | 9405 × | DERIVED | A | pending |
+| Signing speed-up, Medium — C vs A | 9,405 × | DERIVED | A | pending |
 | Verifying speed-up, Medium, trust cached ladder — C vs A | 215.3 × | DERIVED | A | pending |
 | UDP fit, 12 analytical rows — A (plain SLH-DSA) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | A | — |
 | UDP fit, 12 analytical rows — B (MTL, no amortisation) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | B | — |
 | UDP fit, 12 analytical rows — C (MTL amortised) modelled responses fitting the 1,232-byte UDP payload | 11 of 12 | ANALYTICAL | C | — |
 | Large memory (measured resident median) | 1,087,139,840 B | MEASURED | n/a | — |
-| Large memory (measured / analytical ratio) | 1.10 × | DERIVED | n/a | — |
+| Large memory (measured / analytical ratio) | 1.104 × | DERIVED | n/a | — |
 | Ladder buffer at N=100 (Small dataset), 3 rungs | 132 B | MEASURED | n/a | — |
 
 **Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.
@@ -262,6 +262,7 @@ extrapolated values are also marked with `≈`.
 | `Space` / `Backspace` | Live: next or previous step |
 | `Enter` | Live: auto-play the replay |
 | `t` | Live: switch between logarithmic and linear byte scale |
+| `p` / `n` / `Esc` | Guided tour: pause, next step, quit |
 | `r` | Reload the results from disk (on Integrity this also re-runs the claim check) |
 | `T` | Cycle the theme: dark, light, contrast |
 | `a` | Toggle ASCII glyphs, for terminals with poor fonts |

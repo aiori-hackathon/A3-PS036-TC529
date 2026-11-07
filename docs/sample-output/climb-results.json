@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "generated_at": "2026-10-22T15:30:06+05:30",
-  "workspace_root": "/home/pratyay/Documents/My Codes/climb",
+  "workspace_root": "<repo>",
   "benchmark": {
     "signing": [
       {
@@ -2457,7 +2457,36 @@
         "modeled_condensed_response_bytes": 658,
         "tolerance_bytes": 0,
         "matches": true
-      }
+      },
+      "aggregate": [
+        {
+          "config": "plain",
+          "config_label": "A (plain SLH-DSA)",
+          "fit_rows": 0,
+          "total_rows": 12,
+          "fit_messages": 0,
+          "total_messages": 3033300,
+          "class": "analytical"
+        },
+        {
+          "config": "mtl-full",
+          "config_label": "B (MTL non-amortised)",
+          "fit_rows": 0,
+          "total_rows": 12,
+          "fit_messages": 0,
+          "total_messages": 3033300,
+          "class": "analytical"
+        },
+        {
+          "config": "mtl-amortised",
+          "config_label": "C (MTL amortised)",
+          "fit_rows": 11,
+          "total_rows": 12,
+          "fit_messages": 2036878,
+          "total_messages": 3033300,
+          "class": "analytical"
+        }
+      ]
     },
     "signature_context": [
       {

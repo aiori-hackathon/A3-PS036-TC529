@@ -10,7 +10,9 @@ use climb_report::condition_short_label;
 use crate::widgets::stacked_bars::{SegmentStyle, StackBar, StackGroup, StackSegment};
 use crate::widgets::udp_gauge::{nice_axis_max, GaugeMarker, MarkerKind, REFERENCE_SIZES};
 
-use super::{title_size, ResultsView};
+use climb_report::results::size_display;
+
+use super::ResultsView;
 
 /// Render-ready payloads and axis for the UDP-fit gauge.
 #[derive(Debug, Clone, PartialEq)]
@@ -115,7 +117,7 @@ impl ResultsView {
                         },
                     ],
                     note: format!(
-                        "{} B \u{00b7} \u{2212}{:.1}%",
+                        "{} B \u{00b7} {:.1}%",
                         fmt_count(row.with_mtl_total_bytes as f64),
                         row.reduction_percent,
                     ),
@@ -131,7 +133,7 @@ impl ResultsView {
                     note: format!("{} B", fmt_count(row.without_mtl_total_bytes as f64)),
                 });
                 StackGroup {
-                    label: title_size(&row.size),
+                    label: size_display(&row.size),
                     scale_max: row.without_mtl_total_bytes.max(1),
                     caption: Some(caption),
                     bars,

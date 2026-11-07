@@ -2,9 +2,9 @@
 //! bars on the shared log scale plus the numbers table. Values come from
 //! [`crate::data::ResultsView`], which mirrors the report charts exactly.
 
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
-use ratatui::text::Span;
+use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
 use ratatui::Frame;
 
@@ -76,15 +76,18 @@ fn render_reuse(frame: &mut Frame, area: Rect, rows: &[ReuseRow], theme: &Theme,
         return;
     }
 
-    let header = ["Size", "Time r*", "Bytes r*", "Class"]
-        .into_iter()
-        .map(|text| {
-            Cell::from(Span::styled(
-                text,
-                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-            ))
-        });
-    let header_row = Row::new(header);
+    let header = Row::new(vec![
+        Cell::from(Span::styled(
+            "Size",
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        )),
+        header_cell("Time r* (reuses)".to_string(), theme),
+        header_cell("Bytes r* (reuses)".to_string(), theme),
+        Cell::from(Span::styled(
+            "Class",
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        )),
+    ]);
 
     let body = rows.iter().map(|row| {
         Row::new([
@@ -92,8 +95,8 @@ fn render_reuse(frame: &mut Frame, area: Rect, rows: &[ReuseRow], theme: &Theme,
                 row.size.clone(),
                 Style::new().fg(theme.accent2),
             )),
-            Cell::from(reuse_r(row.time_r, theme)),
-            Cell::from(reuse_r(row.bytes_r, theme)),
+            numeric_cell(reuse_r(row.time_r, theme)),
+            numeric_cell(reuse_r(row.bytes_r, theme)),
             Cell::from(Span::styled(
                 row.class.clone(),
                 Style::new().fg(theme.muted),
@@ -105,13 +108,13 @@ fn render_reuse(frame: &mut Frame, area: Rect, rows: &[ReuseRow], theme: &Theme,
         body,
         [
             Constraint::Length(12),
-            Constraint::Min(10),
-            Constraint::Min(10),
+            Constraint::Length(18),
+            Constraint::Length(18),
             Constraint::Min(12),
         ],
     )
     .column_spacing(1)
-    .header(header_row)
+    .header(header)
     .block(
         Block::bordered()
             .border_set(glyphs.border)
@@ -141,15 +144,16 @@ fn render_table(
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let header = ["Size", "Trust-cached", "Full ladder", "Without MTL"]
-        .into_iter()
-        .map(|text| {
-            Cell::from(Span::styled(
-                text,
-                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-            ))
-        });
-    let header_row = Row::new(header);
+    let auto_unit = if theme.ascii { "ns..s" } else { "ns\u{2026}s" };
+    let header = Row::new(vec![
+        Cell::from(Span::styled(
+            "Size",
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        )),
+        header_cell(format!("Trust-cached ({auto_unit})"), theme),
+        header_cell(format!("Full ladder ({auto_unit})"), theme),
+        header_cell(format!("Without MTL ({auto_unit})"), theme),
+    ]);
 
     let body = rows.iter().enumerate().map(|(i, row)| {
         let cells = [
@@ -157,9 +161,9 @@ fn render_table(
                 row.size.clone(),
                 Style::new().fg(theme.accent2),
             )),
-            Cell::from(cell_text(row.trust.as_ref(), theme)),
-            Cell::from(cell_text(row.full.as_ref(), theme)),
-            Cell::from(cell_text(row.without.as_ref(), theme)),
+            numeric_cell(cell_text(row.trust.as_ref(), theme)),
+            numeric_cell(cell_text(row.full.as_ref(), theme)),
+            numeric_cell(cell_text(row.without.as_ref(), theme)),
         ];
         let style = if i == selected {
             Style::new().add_modifier(Modifier::REVERSED)
@@ -173,13 +177,13 @@ fn render_table(
         body,
         [
             Constraint::Length(12),
-            Constraint::Min(12),
-            Constraint::Min(12),
-            Constraint::Min(12),
+            Constraint::Length(20),
+            Constraint::Length(20),
+            Constraint::Length(20),
         ],
     )
     .column_spacing(1)
-    .header(header_row)
+    .header(header)
     .block(
         Block::bordered()
             .border_set(glyphs.border)
@@ -216,6 +220,21 @@ fn cell_text(cell: Option<&PerfCell>, theme: &Theme) -> Span<'static> {
             Span::styled(format!("{prefix}{}", fmt_time_ns(cell.value_ns)), style)
         }
     }
+}
+
+fn header_cell(text: String, theme: &Theme) -> Cell<'static> {
+    Cell::from(
+        Line::from(Span::styled(
+            text,
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ))
+        .alignment(Alignment::Right),
+    )
+}
+
+/// A numeric cell, right-aligned so digits line up down the column.
+fn numeric_cell(span: Span<'static>) -> Cell<'static> {
+    Cell::from(Line::from(span).alignment(Alignment::Right))
 }
 
 fn dash(theme: &Theme) -> &'static str {

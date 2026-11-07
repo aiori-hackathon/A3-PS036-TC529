@@ -66,8 +66,12 @@ impl LadderLoadState {
             LadderLoadState::Loaded { document, source } => {
                 format!("loaded: {} sizes ({source:?})", document.sizes.len())
             }
-            LadderLoadState::Missing { path } => format!("missing: {}", path.display()),
-            LadderLoadState::Invalid { path, .. } => format!("invalid: {}", path.display()),
+            LadderLoadState::Missing { path } => {
+                format!("missing: {}", crate::paths::display(path))
+            }
+            LadderLoadState::Invalid { path, .. } => {
+                format!("invalid: {}", crate::paths::display(path))
+            }
         }
     }
 }

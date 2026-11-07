@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use climb_report::charts::{fmt_count, per_msg_mean};
+use climb_report::numbers::{fmt_ratio, kpi_caption};
 use climb_report::DnsCaptureSource;
 
 use super::ResultsView;
@@ -95,8 +96,8 @@ impl ResultsView {
             self.signing_speedup_at("Medium"),
         );
         push(
-            "verifying_speedup_avg_cached_c_vs_a",
-            self.cached_verify_speedup(),
+            "verifying_speedup_medium_cached_c_vs_a",
+            self.cached_verify_speedup_at("Medium"),
         );
         push(
             "signing_speedup_medium_c_vs_a",
@@ -126,16 +127,10 @@ impl ResultsView {
     /// the capture or recorded fixture.
     pub fn dns_reduction(&self) -> Option<Kpi> {
         let d = self.results.dns_pipeline.as_ref()?;
-        let full = d.full_signature_bytes_www_a?;
-        let condensed = d.condensed_proof_bytes_www_a?;
         let percent = d.reduction_percent_www_a?;
         Some(Kpi::measured(
             format!("{percent:.1}%"),
-            format!(
-                "{} B \u{2192} {} B",
-                fmt_count(full as f64),
-                fmt_count(condensed as f64)
-            ),
+            kpi_caption("live", "C vs A"),
         ))
     }
 
@@ -150,14 +145,15 @@ impl ResultsView {
             .iter()
             .max_by_key(|w| w.message_count)?;
         Some(Kpi::measured(
-            format!("\u{2212}{:.1}%", largest.reduction_percent),
-            format!("{} msgs", fmt_count(largest.message_count as f64)),
+            format!("{:.1}%", largest.reduction_percent),
+            kpi_caption(&largest.size, "C vs B"),
         ))
     }
 
     // --- KPI 3: signing speed-up at one size --------------------------------
 
-    /// Signing speed-up at `size`: without-MTL mean ÷ with-MTL mean.
+    /// Signing speed-up at `size`: per-message without-MTL cost ÷ per-message
+    /// with-MTL cost (baseline B vs C).
     ///
     /// Measured when both conditions exist for that size; otherwise
     /// extrapolated from the per-message cost of measured without-MTL rows,
@@ -170,49 +166,61 @@ impl ResultsView {
             .iter()
             .filter(|r| r.size.eq_ignore_ascii_case(size))
             .collect();
-        let with = rows
-            .iter()
-            .find(|r| r.condition.contains("With MTL"))
-            .map(|r| r.mean_ns)?;
-        if with <= 0.0 {
+        let with_row = rows.iter().find(|r| r.condition.contains("With MTL"))?;
+        if with_row.messages == 0 || with_row.mean_ns <= 0.0 {
             return None;
         }
+        let with_per_message = with_row.mean_ns / with_row.messages as f64;
+        let caption = kpi_caption(size, "C vs B");
         match rows
             .iter()
             .find(|r| r.condition == "Without MTL")
-            .map(|r| r.mean_ns)
+            .map(|r| (r.mean_ns, r.messages))
         {
-            Some(without) => Some(Kpi::measured(speedup(without, with), size.to_string())),
-            None => {
+            Some((without, messages)) if messages > 0 => Some(Kpi::measured(
+                format!(
+                    "{}x",
+                    fmt_ratio(without / messages as f64 / with_per_message)
+                ),
+                caption,
+            )),
+            _ => {
                 let per_msg = per_msg_mean(&self.results.benchmark.signing, "Without MTL")?;
-                let messages = rows
-                    .iter()
-                    .find(|r| r.condition.contains("With MTL"))
-                    .map(|r| r.messages)?;
-                if messages == 0 {
-                    return None;
-                }
                 Some(Kpi::extrapolated(
-                    format!("≈{}", speedup(per_msg * messages as f64, with)),
-                    size.to_string(),
+                    format!("\u{2248}{}x", fmt_ratio(per_msg / with_per_message)),
+                    caption,
                 ))
             }
         }
     }
 
-    // --- KPI 4: cached-ladder verifying speed-up ----------------------------
+    // --- KPI 4: cached-ladder verifying speed-up at one size ----------------
 
-    /// Average trust-cached verifying speed-up across sizes (derived by the
-    /// consolidator, same number the report's derived summary carries).
-    pub fn cached_verify_speedup(&self) -> Option<Kpi> {
-        let avg = self
+    /// Trust-cached verifying speed-up at `size`: plain SLH-DSA per-message
+    /// verification ÷ amortised MTL with a trust-cached ladder (baseline A vs
+    /// C). Reads the consolidated comparison row for the requested size.
+    pub fn cached_verify_speedup_at(&self, size: &str) -> Option<Kpi> {
+        let comp = self
             .results
-            .derived
-            .overall_verifying_trust_cached_speedup_avg?;
-        Some(Kpi::measured(
-            format!("{}x", fmt_count(avg)),
-            "trust-cached verify".to_string(),
-        ))
+            .comparisons
+            .iter()
+            .find(|c| c.size.eq_ignore_ascii_case(size))?;
+        let speedup = comp.verifying_speedup_cached_vs_a?;
+        let kind = if comp.class == climb_report::results::EvidenceClass::Extrapolated {
+            KpiKind::Extrapolated
+        } else {
+            KpiKind::Measured
+        };
+        let prefix = if kind == KpiKind::Extrapolated {
+            "\u{2248}"
+        } else {
+            ""
+        };
+        Some(Kpi {
+            value: format!("{prefix}{}x", fmt_ratio(speedup)),
+            caption: kpi_caption(size, "C vs A"),
+            kind,
+        })
     }
 
     // --- KPI 5: C vs A (plain) three-way hero metric -----------------------
@@ -227,20 +235,19 @@ impl ResultsView {
             .iter()
             .find(|c| c.size.eq_ignore_ascii_case("Medium"))?;
         let speedup = comp.signing_speedup_c_vs_a?;
-        let class = comp.class;
-        let kind = if class == climb_report::results::EvidenceClass::Measured {
-            KpiKind::Measured
-        } else {
+        let kind = if comp.class == climb_report::results::EvidenceClass::Extrapolated {
             KpiKind::Extrapolated
+        } else {
+            KpiKind::Measured
         };
         let prefix = if kind == KpiKind::Extrapolated {
-            "≈"
+            "\u{2248}"
         } else {
             ""
         };
         Some(Kpi {
-            value: format!("{}{}x", prefix, fmt_count(speedup)),
-            caption: "C vs A signing (Medium)".to_string(),
+            value: format!("{prefix}{}x", fmt_ratio(speedup)),
+            caption: kpi_caption("Medium", "C vs A"),
             kind,
         })
     }
@@ -389,10 +396,6 @@ fn context_percent(v: f64) -> String {
     }
 }
 
-fn speedup(slower: f64, faster: f64) -> String {
-    format!("{}x", fmt_count(slower / faster))
-}
-
 /// Read a string field from an environment JSON object, if present.
 pub(super) fn json_str(obj: &serde_json::Value, key: &str) -> Option<String> {
     obj.get(key)?.as_str().map(str::to_string)
@@ -432,7 +435,7 @@ mod tests {
     use crate::data::test_support::{
         dns_headline, empty_derived, signing_row, view_with, wire_row,
     };
-    use climb_report::results::{DerivedSummary, EnvironmentFingerprint};
+    use climb_report::results::EnvironmentFingerprint;
 
     #[test]
     fn dns_kpi_matches_the_report_headline_numbers() {
@@ -446,8 +449,8 @@ mod tests {
         let kpi = view.dns_reduction().expect("dns headline present");
         assert_eq!(kpi.value, "97.3%");
         assert_eq!(
-            kpi.caption, "24,438 B \u{2192} 658 B",
-            "same strings as the report"
+            kpi.caption, "Live C vs A",
+            "the card states the scope and baseline"
         );
         assert_eq!(kpi.kind, KpiKind::Measured);
     }
@@ -471,8 +474,8 @@ mod tests {
             empty_derived(),
         );
         let kpi = view.wire_reduction_largest().expect("wire row present");
-        assert_eq!(kpi.value, "\u{2212}97.0%");
-        assert_eq!(kpi.caption, "1,000,000 msgs");
+        assert_eq!(kpi.value, "97.0%");
+        assert_eq!(kpi.caption, "Large C vs B");
     }
 
     #[test]
@@ -515,8 +518,8 @@ mod tests {
         .c_vs_a_signing_speedup()
         .expect("medium row present");
         assert_eq!(canonical.value, shuffled.value);
-        assert_eq!(canonical.caption, "C vs A signing (Medium)");
-        assert!(canonical.value.contains("276"), "{}", canonical.value);
+        assert_eq!(canonical.caption, "Medium C vs A");
+        assert!(canonical.value.contains("275"), "{}", canonical.value);
     }
 
     #[test]
@@ -551,7 +554,7 @@ mod tests {
         );
         let kpi = view.signing_speedup_at("Medium").expect("row present");
         assert_eq!(kpi.value, "40x");
-        assert_eq!(kpi.caption, "Medium");
+        assert_eq!(kpi.caption, "Medium C vs B");
         assert_eq!(kpi.kind, KpiKind::Measured);
     }
 
@@ -591,21 +594,25 @@ mod tests {
     }
 
     #[test]
-    fn cached_verify_kpi_comes_from_the_derived_summary() {
-        let view = view_with(
-            Vec::new(),
-            Vec::new(),
-            Vec::new(),
-            None,
-            DerivedSummary {
-                overall_verifying_trust_cached_speedup_avg: Some(388.162),
-                ..empty_derived()
-            },
-        );
+    fn cached_verify_kpi_comes_from_the_medium_comparison_row() {
+        use crate::data::test_support::view_with_comparisons;
+        use climb_report::results::{ConfigComparison, EvidenceClass};
+
+        let view = view_with_comparisons(vec![ConfigComparison {
+            size: "Medium".to_string(),
+            wire_reduction_c_vs_a_percent: None,
+            wire_reduction_c_vs_b_percent: None,
+            signing_speedup_c_vs_a: None,
+            signing_speedup_c_vs_b: None,
+            verifying_speedup_cached_vs_a: Some(215.311),
+            verifying_speedup_cold_vs_a: None,
+            class: EvidenceClass::Derived,
+        }]);
         let kpi = view
-            .cached_verify_speedup()
-            .expect("derived average present");
-        assert_eq!(kpi.value, "388x");
+            .cached_verify_speedup_at("Medium")
+            .expect("comparison row present");
+        assert_eq!(kpi.value, "215.3x");
+        assert_eq!(kpi.caption, "Medium C vs A");
         assert_eq!(kpi.kind, KpiKind::Measured);
     }
 
@@ -615,7 +622,62 @@ mod tests {
         assert_eq!(view.dns_reduction(), None);
         assert_eq!(view.wire_reduction_largest(), None);
         assert_eq!(view.signing_speedup_at("Medium"), None);
-        assert_eq!(view.cached_verify_speedup(), None);
+        assert_eq!(view.cached_verify_speedup_at("Medium"), None);
+    }
+
+    #[test]
+    fn every_overview_kpi_matches_its_deck_facts_row() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output/climb-results.json");
+        let crate::data::LoadState::Loaded(view) = crate::data::load(&path) else {
+            panic!("committed sample artifact loads");
+        };
+
+        let sheet = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/deck-facts.md"),
+        )
+        .expect("committed quote sheet is readable");
+        let sheet_value = |label: &str| -> f64 {
+            let prefix = format!("| {label}");
+            let line = sheet
+                .lines()
+                .find(|line| line.starts_with(&prefix))
+                .unwrap_or_else(|| panic!("quote sheet row {label:?}"));
+            let cell = line.split('|').nth(2).expect("value cell").trim();
+            cell.trim_start_matches('\u{2248}')
+                .replace(',', "")
+                .parse()
+                .unwrap_or_else(|error| panic!("{label:?} value {cell:?}: {error}"))
+        };
+
+        for (name, kpi, label) in [
+            (
+                "Signing",
+                view.signing_speedup_at("Medium"),
+                "Medium \u{2014} signing speed-up, C vs B",
+            ),
+            (
+                "Verify",
+                view.cached_verify_speedup_at("Medium"),
+                "Medium \u{2014} verifying speed-up (trust cached), C vs A",
+            ),
+            (
+                "C vs A",
+                view.c_vs_a_signing_speedup(),
+                "Medium \u{2014} signing speed-up, C vs A",
+            ),
+        ] {
+            let kpi = kpi.unwrap_or_else(|| panic!("{name} card has a value"));
+            let shown = leading_number(&kpi.value)
+                .unwrap_or_else(|| panic!("{name} value parses: {}", kpi.value));
+            let quoted = sheet_value(label);
+            let error = (shown - quoted).abs() / quoted;
+            assert!(
+                error <= 0.005,
+                "{name} card shows {} but the quote sheet says {quoted}",
+                kpi.value
+            );
+        }
     }
 
     #[test]

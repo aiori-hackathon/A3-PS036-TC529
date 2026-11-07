@@ -540,7 +540,7 @@ fn render_problem(
         )),
         Line::from(""),
         Line::from(Span::styled(
-            fit(format!("capture: {}", path.display())),
+            fit(format!("capture: {}", crate::paths::display(path))),
             Style::new().fg(theme.fg),
         )),
     ];

@@ -21,6 +21,7 @@ use serde_json::Value;
 use crate::app::App;
 use crate::data::{
     artifact_line, ArtifactState, BannerTone, CheckState, IntegrityView, ResultsView,
+    REFRESH_COMMAND,
 };
 use crate::theme::{Glyphs, Theme};
 use crate::widgets::{ellipsize, ellipsize_tokens};
@@ -29,10 +30,12 @@ use crate::widgets::{ellipsize, ellipsize_tokens};
 /// legend stack, with the artifact inventory on its own full-width row.
 const WIDE_WIDTH: u16 = 100;
 /// Rows the narrow layout gives the artifact/provenance/legend block
-/// (border title plus twelve content lines).
-const NARROW_LOWER_HEIGHT: u16 = 14;
-/// Rows the wide layout gives the full-width artifact inventory.
-const WIDE_ARTIFACT_HEIGHT: u16 = 11;
+/// (border title plus thirteen content lines: nine artifacts, two provenance
+/// lines, the legend and the refresh command).
+const NARROW_LOWER_HEIGHT: u16 = 15;
+/// Rows the wide layout gives the full-width artifact inventory (nine artifact
+/// rows plus the refresh command inside the border).
+const WIDE_ARTIFACT_HEIGHT: u16 = 12;
 
 /// Render the Integrity tab into `area`.
 pub fn render_integrity(
@@ -271,7 +274,7 @@ fn render_artifacts(
 ) {
     let width = area.width.saturating_sub(2) as usize;
     let lines = artifact_lines(integrity, width, theme);
-    let title = " Artifacts \u{b7} outputs stale vs results \u{b7} reference stale over 24h ";
+    let title = " Artifacts \u{b7} outputs stale vs results \u{b7} reference older than 24 hours ";
     let title = if theme.ascii {
         title.replace('\u{b7}', "-")
     } else {
@@ -290,7 +293,7 @@ fn render_artifacts(
 }
 
 fn artifact_lines(integrity: &IntegrityView, width: usize, theme: &Theme) -> Vec<Line<'static>> {
-    integrity
+    let mut lines: Vec<Line<'static>> = integrity
         .artifacts()
         .iter()
         .map(|row| {
@@ -301,7 +304,12 @@ fn artifact_lines(integrity: &IntegrityView, width: usize, theme: &Theme) -> Vec
             };
             Line::from(Span::styled(artifact_line(row, width, theme.ascii), style))
         })
-        .collect()
+        .collect();
+    lines.push(Line::from(Span::styled(
+        ellipsize(&format!("  refresh: {REFRESH_COMMAND}"), width, theme.ascii),
+        Style::new().fg(theme.muted),
+    )));
+    lines
 }
 
 /// The provenance block: commit, rustc, submodule SHAs, host fingerprint
@@ -605,6 +613,8 @@ mod tests {
             "EXTRAPOLATED",
             "ANALYTICAL",
             "DERIVED",
+            "refresh:",
+            "cargo xtask reproduce --quick --skip-dns",
         ] {
             assert!(
                 out.contains(needle),
@@ -652,6 +662,8 @@ mod tests {
             "host",
             "MEASURED",
             "DERIVED",
+            "refresh:",
+            "cargo xtask reproduce --quick --skip-dns",
         ] {
             assert!(
                 out.contains(needle),

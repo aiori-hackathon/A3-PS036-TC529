@@ -63,7 +63,7 @@ pub fn render_method(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, gl
 /// The one-line provenance strip above the document.
 fn render_head(frame: &mut Frame, area: Rect, view: &MethodView, theme: &Theme) {
     let source = match view.baselines().source() {
-        BaselineSource::File(path) => format!("baselines: {}", path.display()),
+        BaselineSource::File(path) => format!("baselines: {}", crate::paths::display(path)),
         BaselineSource::Embedded => "baselines: embedded copy".to_string(),
     };
     let hint = "(Up/Down scroll)";
@@ -227,6 +227,46 @@ enum DocBody {
     Note(String),
     /// A labelled value.
     Field { label: String, value: String },
+    /// A paragraph line carrying inline emphasis or code.
+    Rich(Vec<RichSpan>),
+    /// One row of a markdown table, already measured for alignment.
+    TableRow {
+        cells: Vec<Vec<RichSpan>>,
+        widths: Vec<usize>,
+        header: bool,
+    },
+    /// The rule under a table header, one run per column.
+    TableRule { widths: Vec<usize> },
+    /// A line inside a fenced code block, shown dim.
+    DimCode(String),
+}
+
+/// One run of inline text and how it should be drawn.
+#[derive(Debug, Clone, PartialEq)]
+struct RichSpan {
+    text: String,
+    kind: InlineKind,
+}
+
+/// The inline markdown subset the document renderer understands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InlineKind {
+    /// Ordinary prose.
+    Plain,
+    /// `**bold**`.
+    Bold,
+    /// `` `code` ``.
+    Code,
+}
+
+impl RichSpan {
+    fn style(&self, theme: &Theme) -> Style {
+        match self.kind {
+            InlineKind::Plain => Style::new().fg(theme.fg),
+            InlineKind::Bold => Style::new().fg(theme.fg).add_modifier(Modifier::BOLD),
+            InlineKind::Code => Style::new().fg(theme.accent2),
+        }
+    }
 }
 
 impl DocLine {
@@ -258,6 +298,51 @@ impl DocLine {
                     Span::styled(value.clone(), Style::new().fg(theme.fg)),
                 ]);
             }
+            DocBody::Rich(spans) => {
+                let mut line = vec![Span::raw("  ")];
+                line.extend(
+                    spans
+                        .iter()
+                        .map(|span| Span::styled(span.text.clone(), span.style(theme))),
+                );
+                return Line::from(line);
+            }
+            DocBody::TableRow {
+                cells,
+                widths,
+                header,
+            } => {
+                let mut spans = vec![Span::raw("  ")];
+                for (index, cell) in cells.iter().enumerate() {
+                    let used: usize = cell.iter().map(|span| span.text.chars().count()).sum();
+                    let width = widths.get(index).copied().unwrap_or(used);
+                    for span in cell {
+                        let style = if *header {
+                            span.style(theme).add_modifier(Modifier::BOLD)
+                        } else {
+                            span.style(theme)
+                        };
+                        spans.push(Span::styled(span.text.clone(), style));
+                    }
+                    if index + 1 < cells.len() {
+                        spans.push(Span::raw(" ".repeat(width.saturating_sub(used) + 2)));
+                    }
+                }
+                return Line::from(spans);
+            }
+            DocBody::TableRule { widths } => {
+                let rule = if theme.ascii { "-" } else { "\u{2500}" };
+                let text = widths
+                    .iter()
+                    .map(|width| rule.repeat(*width))
+                    .collect::<Vec<_>>()
+                    .join("  ");
+                return Line::from(Span::styled(
+                    format!("  {text}"),
+                    Style::new().fg(theme.muted),
+                ));
+            }
+            DocBody::DimCode(text) => (Style::new().fg(theme.muted), 4usize, text.clone()),
         };
         Line::from(Span::styled(
             format!("{}{}", " ".repeat(indent), text),
@@ -300,26 +385,192 @@ fn flatten(view: &MethodView, ascii: bool) -> Vec<DocLine> {
     out
 }
 
-/// The baseline document as document lines: markdown headings become headings,
-/// tables and code fences become code lines, the rest plain text.
+/// The baseline document as document lines. A deliberately small markdown
+/// subset: headings become section headings, `**bold**` and `` `code` `` keep
+/// their emphasis, pipe tables are measured and aligned, fenced code blocks are
+/// shown dim without their fences, and every other line is prose.
 fn baseline_lines(view: &MethodView, section: usize, ascii: bool) -> Vec<DocLine> {
-    view.baselines()
-        .text()
-        .lines()
-        .map(|raw| {
-            let body = if raw.starts_with('#') {
-                let title = raw.trim_start_matches('#').trim();
-                DocBody::Heading(sanitize(title, ascii))
-            } else if raw.trim().is_empty() {
-                DocBody::Text(String::new())
-            } else if raw.starts_with('|') || raw.starts_with("```") {
-                DocBody::Code(sanitize(raw, ascii))
-            } else {
-                DocBody::Text(sanitize(raw, ascii))
-            };
-            DocLine { section, body }
+    let text = view.baselines().text();
+    let lines: Vec<&str> = text.lines().collect();
+    let mut out = Vec::new();
+    let mut index = 0;
+    while index < lines.len() {
+        let raw = lines[index];
+        let trimmed = raw.trim();
+
+        if trimmed.starts_with("```") {
+            index += 1;
+            while index < lines.len() && !lines[index].trim().starts_with("```") {
+                out.push(DocLine {
+                    section,
+                    body: DocBody::DimCode(sanitize(lines[index], ascii)),
+                });
+                index += 1;
+            }
+            // Skip the closing fence (and tolerate an unterminated block).
+            index += usize::from(index < lines.len());
+            continue;
+        }
+
+        if trimmed.starts_with('|') {
+            let start = index;
+            while index < lines.len() && lines[index].trim().starts_with('|') {
+                index += 1;
+            }
+            out.extend(table_lines(&lines[start..index], section, ascii));
+            continue;
+        }
+
+        let body = if trimmed.is_empty() {
+            DocBody::Text(String::new())
+        } else if trimmed.starts_with('#') {
+            DocBody::Heading(sanitize(trimmed.trim_start_matches('#').trim(), ascii))
+        } else {
+            DocBody::Rich(parse_inline(raw, ascii))
+        };
+        out.push(DocLine { section, body });
+        index += 1;
+    }
+    out
+}
+
+/// Parse a run of pipe-table rows into aligned [`DocBody::TableRow`] lines.
+/// The markdown separator row (`|---|:--:|`) is replaced by a rule under the
+/// header; column widths come from the widest cell in each column.
+fn table_lines(rows: &[&str], section: usize, ascii: bool) -> Vec<DocLine> {
+    let parsed: Vec<Vec<Vec<RichSpan>>> =
+        rows.iter().map(|row| split_table_row(row, ascii)).collect();
+    let separator = |cells: &Vec<Vec<RichSpan>>| {
+        !cells.is_empty()
+            && cells.iter().all(|cell| {
+                let plain: String = cell.iter().map(|span| span.text.as_str()).collect();
+                let plain = plain.trim();
+                !plain.is_empty() && plain.chars().all(|c| matches!(c, '-' | ':' | ' '))
+            })
+    };
+    let columns = parsed
+        .iter()
+        .map(|cells| cells.len())
+        .max()
+        .unwrap_or_default();
+    let mut widths = vec![0usize; columns];
+    for cells in &parsed {
+        if separator(cells) {
+            continue;
+        }
+        for (column, cell) in cells.iter().enumerate() {
+            let used: usize = cell.iter().map(|span| span.text.chars().count()).sum();
+            widths[column] = widths[column].max(used);
+        }
+    }
+
+    let mut out = Vec::new();
+    for (row, cells) in parsed.into_iter().enumerate() {
+        if separator(&cells) {
+            out.push(DocLine {
+                section,
+                body: DocBody::TableRule {
+                    widths: widths.clone(),
+                },
+            });
+            continue;
+        }
+        out.push(DocLine {
+            section,
+            body: DocBody::TableRow {
+                cells,
+                widths: widths.clone(),
+                header: row == 0,
+            },
+        });
+    }
+    out
+}
+
+/// Split one pipe-table row into cells, preserving inline emphasis inside each
+/// cell. The leading and trailing pipes are structural, not content.
+fn split_table_row(row: &str, ascii: bool) -> Vec<Vec<RichSpan>> {
+    let trimmed = row.trim();
+    let trimmed = trimmed.strip_prefix('|').unwrap_or(trimmed);
+    let trimmed = trimmed.strip_suffix('|').unwrap_or(trimmed);
+    trimmed
+        .split('|')
+        .map(|cell| parse_inline(cell.trim(), ascii))
+        .collect()
+}
+
+/// Split text into plain, bold and inline-code runs. Unmatched markers stay as
+/// literal text so a stray `*` or backtick can never swallow the rest of a line.
+fn parse_inline(text: &str, ascii: bool) -> Vec<RichSpan> {
+    let chars: Vec<char> = text.chars().collect();
+    let mut spans = Vec::new();
+    let mut plain = String::new();
+    let mut index = 0;
+
+    let flush = |plain: &mut String, spans: &mut Vec<RichSpan>| {
+        if !plain.is_empty() {
+            spans.push(RichSpan {
+                text: std::mem::take(plain),
+                kind: InlineKind::Plain,
+            });
+        }
+    };
+
+    while index < chars.len() {
+        if chars[index] == '*' && chars.get(index + 1) == Some(&'*') {
+            if let Some(end) = find_marker(&chars, index + 2, &['*', '*']) {
+                flush(&mut plain, &mut spans);
+                let content: String = chars[index + 2..end].iter().collect();
+                spans.push(RichSpan {
+                    text: sanitize(&content, ascii),
+                    kind: InlineKind::Bold,
+                });
+                index = end + 2;
+                continue;
+            }
+        }
+        if chars[index] == '`' {
+            if let Some(end) = chars[index + 1..].iter().position(|c| *c == '`') {
+                let end = index + 1 + end;
+                flush(&mut plain, &mut spans);
+                let content: String = chars[index + 1..end].iter().collect();
+                spans.push(RichSpan {
+                    text: sanitize(&content, ascii),
+                    kind: InlineKind::Code,
+                });
+                index = end + 1;
+                continue;
+            }
+        }
+        plain.push(chars[index]);
+        index += 1;
+    }
+    flush(&mut plain, &mut spans);
+    if spans.is_empty() {
+        spans.push(RichSpan {
+            text: String::new(),
+            kind: InlineKind::Plain,
+        });
+    }
+    spans
+        .into_iter()
+        .map(|mut span| {
+            span.text = sanitize(&span.text, ascii);
+            span
         })
         .collect()
+}
+
+/// Find the next occurrence of a two-character marker at or after `from`.
+fn find_marker(chars: &[char], from: usize, marker: &[char; 2]) -> Option<usize> {
+    let mut index = from;
+    while index + 1 < chars.len() {
+        if chars[index] == marker[0] && chars[index + 1] == marker[1] {
+            return Some(index);
+        }
+        index += 1;
+    }
+    None
 }
 
 /// The environment rows as document lines.
@@ -601,6 +852,114 @@ mod tests {
         assert_eq!(sanitize("a\u{2014}b\u{b7}c", false), "a\u{2014}b\u{b7}c");
         assert_eq!(sanitize("a\u{2014}b\u{b7}c", true), "a-b-c");
         assert_eq!(sanitize("x\u{d7}y\u{2248}z", true), "xxy~z");
+    }
+
+    #[test]
+    fn markdown_subset_parses_bold_and_inline_code() {
+        let spans = parse_inline("a **bold** and `code` end", false);
+        assert_eq!(
+            spans,
+            vec![
+                RichSpan {
+                    text: "a ".to_string(),
+                    kind: InlineKind::Plain
+                },
+                RichSpan {
+                    text: "bold".to_string(),
+                    kind: InlineKind::Bold
+                },
+                RichSpan {
+                    text: " and ".to_string(),
+                    kind: InlineKind::Plain
+                },
+                RichSpan {
+                    text: "code".to_string(),
+                    kind: InlineKind::Code
+                },
+                RichSpan {
+                    text: " end".to_string(),
+                    kind: InlineKind::Plain
+                },
+            ]
+        );
+        assert_eq!(
+            parse_inline("unmatched ** marker", false)
+                .iter()
+                .map(|span| span.text.as_str())
+                .collect::<String>(),
+            "unmatched ** marker",
+            "an unmatched marker must stay literal"
+        );
+    }
+
+    #[test]
+    fn markdown_subset_aligns_table_columns_and_replaces_the_separator() {
+        let rows = ["| Setting | Wire bytes |", "|---|---|", "| **A** | `x` |"];
+        let lines = table_lines(&rows, 0, false);
+        assert_eq!(lines.len(), 3, "header, rule and one body row");
+        let DocBody::TableRow {
+            cells,
+            widths,
+            header,
+        } = &lines[0].body
+        else {
+            panic!(
+                "first table row must be the header, got {:?}",
+                lines[0].body
+            );
+        };
+        assert!(*header);
+        assert_eq!(widths, &vec![7, 10]);
+        assert_eq!(cells.len(), 2);
+        assert!(matches!(lines[1].body, DocBody::TableRule { .. }));
+        let DocBody::TableRow { header, .. } = &lines[2].body else {
+            panic!("third table row must be a body row");
+        };
+        assert!(!*header);
+    }
+
+    #[test]
+    fn baseline_document_renders_the_markdown_subset_without_raw_markers() {
+        let view = MethodView::embedded();
+        let lines = baseline_lines(&view, 0, false);
+        assert!(
+            lines.iter().any(
+                |line| matches!(&line.body, DocBody::Heading(text) if text == "Signing baselines")
+            ),
+            "markdown headings become section headings"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|line| matches!(&line.body, DocBody::TableRow { header: true, .. })),
+            "the baseline table is parsed into aligned rows"
+        );
+        assert!(
+            lines.iter().any(
+                |line| matches!(&line.body, DocBody::DimCode(text) if text.contains("without"))
+            ),
+            "a fenced code block is kept as dim code without its fences"
+        );
+        for line in &lines {
+            let raw = match &line.body {
+                DocBody::Heading(text)
+                | DocBody::Text(text)
+                | DocBody::Code(text)
+                | DocBody::Note(text)
+                | DocBody::DimCode(text) => text.clone(),
+                DocBody::Rich(spans) => spans.iter().map(|span| span.text.as_str()).collect(),
+                DocBody::TableRow { cells, .. } => cells
+                    .iter()
+                    .flatten()
+                    .map(|span| span.text.as_str())
+                    .collect(),
+                DocBody::TableRule { .. } | DocBody::Field { .. } => String::new(),
+            };
+            assert!(
+                !raw.contains("**") && !raw.contains('`'),
+                "raw markdown marker survived: {raw:?}"
+            );
+        }
     }
 
     #[test]

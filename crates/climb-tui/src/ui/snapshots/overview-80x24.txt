@@ -1,0 +1,24 @@
+┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method           │
+└──────────────────────────────────────────────────────────────────────────────┘
+██████ █      ██████ █    █ █████    │ │                                        
+█      █        ██   ██  ██ █    █   │ │                                        
+█      █        ██   █ ██ █ █████    │ │                                        
+█      █        ██   █    █ █    █   │ │                                        
+██████ ██████ ██████ █    █ █████    │╫│                                        
+Cryptographic Ladder Impact Measurement Benchmark                               
+post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036      
+┌ DNS ─────────┐┌ Wire ────────┐┌ Signing ─────┐┌ Verify ──────┐┌ C vs A ──────┐
+│97.3%         ││95.7%         ││9,433x        ││215.3x        ││9,405x        │
+│Live C vs A   ││Large C vs B  ││Medium C vs B ││Medium C vs A ││Medium C vs A │
+└──────────────┘└──────────────┘└──────────────┘└──────────────┘└──────────────┘
+                                                                                
+┌ Signature context ───────────────────────────────────────────────────────────┐
+│cfg  configuration                sig B   sign µs  verify µs fits 1,232       │
+│E    Ed25519, context              64 B     43.76      90.28       100%       │
+│P    ECDSA P-256, context          64 B    417.87     704.76       100%       │
+│R    RSA-2048, context            256 B   4157.52     499.72       100%       │
+│A    plain SLH-DSA              7,856 B 517519.29    1424.13         0%       │
+│B    MTL non-amortised        8329.53 B 519053.54    1450.71         0%       │
+└──────────────────────────────────────────────────────────────────────────────┘
+ ⠋ theme: dark (truecolor) ascii: off mode: live tour: off source: [e… · ? help 

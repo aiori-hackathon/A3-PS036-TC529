@@ -4,7 +4,9 @@ use climb_report::charts::fmt_bytes;
 
 use crate::widgets::stacked_bars::{SegmentStyle, StackBar, StackGroup, StackSegment};
 
-use super::{title_size, ResultsView};
+use climb_report::results::size_display;
+
+use super::ResultsView;
 
 impl ResultsView {
     /// Per-size measured-vs-analytical memory bars.
@@ -62,7 +64,7 @@ impl ResultsView {
                     model_note,
                 );
                 StackGroup {
-                    label: title_size(&row.size),
+                    label: size_display(&row.size),
                     scale_max: row
                         .measured_mean_bytes
                         .max(row.measured_peak_bytes)

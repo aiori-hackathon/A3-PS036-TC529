@@ -21,7 +21,7 @@ mod wire;
 pub use amortization::{per_message, AmortizationView, ValueMode};
 pub use integrity::{
     artifact_line, ArtifactRole, ArtifactRow, ArtifactState, BannerTone, CheckState, IntegrityView,
-    Provenance,
+    Provenance, REFRESH_COMMAND,
 };
 pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, load_ladder_auto_from,
@@ -36,9 +36,7 @@ pub use method::{
     ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
     MethodView, SeedRow,
 };
-pub use overview::{
-    rung_state, ContextRow, HeadlineSurface, Kpi, KpiKind, RUNG_TICK,
-};
+pub use overview::{rung_state, ContextRow, HeadlineSurface, Kpi, KpiKind, RUNG_TICK};
 pub use reuse::ReuseRow;
 pub use signing::{DetailLine, PerfCell, SigningRow, VerifyingRow};
 pub use wire::{UdpFitTableData, UdpFitTableRow, UdpGaugeData};
@@ -70,8 +68,8 @@ impl LoadState {
         match self {
             LoadState::NotLoaded => "not loaded".to_string(),
             LoadState::Loaded(_) => "loaded".to_string(),
-            LoadState::Missing { path } => format!("missing: {}", path.display()),
-            LoadState::Invalid { path, .. } => format!("invalid: {}", path.display()),
+            LoadState::Missing { path } => format!("missing: {}", crate::paths::display(path)),
+            LoadState::Invalid { path, .. } => format!("invalid: {}", crate::paths::display(path)),
         }
     }
 
@@ -218,7 +216,7 @@ impl ArtifactSource {
     #[must_use]
     pub fn label(&self) -> String {
         match &self.path {
-            Some(path) => format!("[{}] {}", self.origin.label(), path.display()),
+            Some(path) => format!("[{}] {}", self.origin.label(), crate::paths::display(path)),
             None => format!("[embedded] <built-in {}>", embedded::RESULTS_NAME),
         }
     }
@@ -309,16 +307,6 @@ fn load_bytes(bytes: &[u8], name: &str, origin: ArtifactOrigin) -> LoadState {
 impl ArtifactOrigin {
     fn path(self, path: &Path) -> ArtifactSource {
         ArtifactSource::from_path(self, path)
-    }
-}
-
-/// Title-case a section's size label so the Wire/Memory tabs (which store it
-/// lowercase) match the Signing/Verifying tabs' spelling.
-pub(crate) fn title_size(size: &str) -> String {
-    let mut chars = size.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-        None => String::new(),
     }
 }
 
@@ -729,6 +717,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::test_support::{empty_derived, view_with};
     use super::*;
+    use climb_report::results::size_display;
 
     #[test]
     fn freshness_flag_uses_the_24h_threshold() {
@@ -1058,7 +1047,7 @@ mod tests {
         );
         assert_eq!(rows.len(), expected.len());
         for (row, raw) in rows.iter().zip(expected) {
-            assert_eq!(row.size, title_size(&raw.size));
+            assert_eq!(row.size, size_display(&raw.size));
             assert_eq!(row.time_r, raw.breakeven_reuse_time.or(raw.r_star_time));
             assert_eq!(row.bytes_r, raw.breakeven_reuse_bytes.or(raw.r_star_bytes));
             assert_eq!(row.class, raw.class.label());

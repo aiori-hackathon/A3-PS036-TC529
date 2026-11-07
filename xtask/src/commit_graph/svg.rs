@@ -1358,8 +1358,11 @@ fn draw_annotations(
         .into_iter()
         .find(|bar| bar.index == busiest_index)
         .context("the busiest day has no bar")?;
+    // Keep this compact: the label is anchored to the tallest bar, which can
+    // sit near the right edge, so a longer sentence would run past the card's
+    // right margin on the wide layout.
     let busiest = format!(
-        "busiest day - {} commits - {}",
+        "busiest: {} commits, {}",
         graph.totals.busiest_day.commits,
         short_date(&graph.totals.busiest_day.date)?
     );

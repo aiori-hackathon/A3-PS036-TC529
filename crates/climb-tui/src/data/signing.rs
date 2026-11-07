@@ -106,13 +106,14 @@ fn size_labels<T: BenchRow>(rows: &[T]) -> Vec<(u64, String)> {
     out
 }
 
-/// Label for a size, falling back to the formatted message count.
+/// Label for a size, falling back to the canonical display name for the
+/// message count.
 fn label_for(labels: &[(u64, String)], n: u64) -> String {
     labels
         .iter()
         .find(|(m, _)| *m == n)
-        .map(|(_, label)| label.clone())
-        .unwrap_or_else(|| fmt_count(n as f64))
+        .map(|(_, label)| climb_report::results::size_display(label))
+        .unwrap_or_else(|| climb_report::results::size_display(&fmt_count(n as f64)))
 }
 
 /// Distinct sizes across the entries, ascending.
@@ -439,8 +440,8 @@ mod tests {
         );
         assert_eq!(
             view.verifying_sizes(),
-            vec!["Small", "1,000", "Medium", "Large"],
-            "OneK has no measured row so its label falls back to the count"
+            vec!["Small", "OneK", "Medium", "Large"],
+            "OneK has no measured row, so the canonical size name is used"
         );
 
         let groups = view.verifying_groups(ValueMode::Total);
@@ -486,7 +487,7 @@ mod tests {
         );
         let rows = view.verifying_rows(ValueMode::Total);
         let sizes: Vec<&str> = rows.iter().map(|r| r.size.as_str()).collect();
-        assert_eq!(sizes, vec!["Small", "1,000", "Medium", "Large"]);
+        assert_eq!(sizes, vec!["Small", "OneK", "Medium", "Large"]);
 
         let small = &rows[0];
         assert_eq!(small.trust.as_ref().unwrap().value_ns, 5000.0);

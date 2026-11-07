@@ -4,7 +4,7 @@
 //! [`crate::data::ResultsView`], which mirrors the report charts exactly —
 //! nothing here hardcodes a result number.
 
-use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::layout::{Alignment, Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Cell, Paragraph, Row, Table};
@@ -76,6 +76,10 @@ pub fn render_signing(
 
 /// Columns reserved for the dataset-size column of the numbers table.
 const SIZE_COLUMN_WIDTH: u16 = 12;
+/// Fixed width of each time column: wide enough for the longest header.
+const TIME_COLUMN_WIDTH: u16 = 22;
+/// Fixed width of the speed-up column.
+const SPEEDUP_COLUMN_WIDTH: u16 = 12;
 
 fn render_table(
     frame: &mut Frame,
@@ -86,15 +90,16 @@ fn render_table(
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let header = ["Size", "MTL amortised", "No amortisation", "Speed-up"]
-        .into_iter()
-        .map(|text| {
-            Cell::from(Span::styled(
-                text,
-                Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
-            ))
-        });
-    let header_row = Row::new(header);
+    let auto_unit = if theme.ascii { "ns..s" } else { "ns\u{2026}s" };
+    let header = Row::new(vec![
+        Cell::from(Span::styled(
+            "Size",
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        )),
+        header_cell(format!("MTL amortised ({auto_unit})"), theme),
+        header_cell(format!("No amortisation ({auto_unit})"), theme),
+        header_cell("Speed-up (\u{00d7})".to_string(), theme),
+    ]);
 
     let body = rows.iter().enumerate().map(|(i, row)| {
         let cells = [
@@ -102,9 +107,9 @@ fn render_table(
                 ellipsize(&row.size, SIZE_COLUMN_WIDTH as usize, theme.ascii),
                 Style::new().fg(theme.accent2),
             )),
-            Cell::from(cell_text(row.with.as_ref(), theme)),
-            Cell::from(cell_text(row.without.as_ref(), theme)),
-            Cell::from(Span::styled(
+            numeric_cell(cell_text(row.with.as_ref(), theme)),
+            numeric_cell(cell_text(row.without.as_ref(), theme)),
+            numeric_cell(Span::styled(
                 speedup_text(row).unwrap_or_else(|| dash(theme).to_string()),
                 theme.measured,
             )),
@@ -121,13 +126,13 @@ fn render_table(
         body,
         [
             Constraint::Length(SIZE_COLUMN_WIDTH),
-            Constraint::Min(12),
-            Constraint::Min(12),
-            Constraint::Length(10),
+            Constraint::Length(TIME_COLUMN_WIDTH),
+            Constraint::Length(TIME_COLUMN_WIDTH),
+            Constraint::Length(SPEEDUP_COLUMN_WIDTH),
         ],
     )
     .column_spacing(1)
-    .header(header_row)
+    .header(header)
     .block(
         Block::bordered()
             .border_set(glyphs.border)
@@ -142,6 +147,21 @@ fn render_table(
             )),
     );
     frame.render_widget(table, area);
+}
+
+fn header_cell(text: String, theme: &Theme) -> Cell<'static> {
+    Cell::from(
+        Line::from(Span::styled(
+            text,
+            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+        ))
+        .alignment(Alignment::Right),
+    )
+}
+
+/// A numeric cell, right-aligned so digits line up down the column.
+fn numeric_cell(span: Span<'static>) -> Cell<'static> {
+    Cell::from(Line::from(span).alignment(Alignment::Right))
 }
 
 /// One detail line per condition for the selected size.

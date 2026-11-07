@@ -142,7 +142,7 @@ impl BaselineSource {
     /// Short label naming the origin, shown in the panel.
     pub fn label(&self) -> String {
         match self {
-            BaselineSource::File(path) => format!("read from {}", path.display()),
+            BaselineSource::File(path) => format!("read from {}", crate::paths::display(path)),
             BaselineSource::Embedded => "embedded copy of the baseline document".to_string(),
         }
     }
@@ -630,7 +630,7 @@ fn sampling_section(view: &ResultsView, seeds: &[SeedRow]) -> MethodSection {
 fn signing_sizes(view: &ResultsView) -> Vec<String> {
     let mut sizes: Vec<String> = Vec::new();
     for row in &view.results().benchmark.signing {
-        let label = super::title_size(&row.size);
+        let label = climb_report::results::size_display(&row.size);
         if !sizes.contains(&label) {
             sizes.push(label);
         }
@@ -651,7 +651,7 @@ fn memory_rows(view: &ResultsView) -> Vec<MemoryRow> {
         .measured
         .iter()
         .map(|row| MemoryRow {
-            size: super::title_size(&row.size),
+            size: climb_report::results::size_display(&row.size),
             samples: row.samples,
             method: row.method.clone(),
         })
@@ -670,7 +670,7 @@ fn plain_rows(view: &ResultsView) -> Vec<PlainRow> {
         .plain
         .iter()
         .map(|row| PlainRow {
-            size: super::title_size(&row.size),
+            size: climb_report::results::size_display(&row.size),
             class: row.class,
             samples: row.samples,
         })
@@ -688,7 +688,7 @@ fn comparison_rows(view: &ResultsView) -> Vec<ComparisonRow> {
         .comparisons
         .iter()
         .map(|row| ComparisonRow {
-            size: super::title_size(&row.size),
+            size: climb_report::results::size_display(&row.size),
             class: row.class,
         })
         .collect()
@@ -705,7 +705,7 @@ fn seed_text(read: &ArtifactRead) -> String {
         },
         ArtifactRead::Missing => "not on disk — this run did not produce it".to_string(),
         ArtifactRead::Invalid { path, error } => {
-            format!("unreadable — {}: {error}", path.display())
+            format!("unreadable — {}: {error}", crate::paths::display(path))
         }
         ArtifactRead::Unread => "not read — no results load has happened yet".to_string(),
     }
