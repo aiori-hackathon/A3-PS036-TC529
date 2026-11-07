@@ -1,18 +1,18 @@
 {
   "schema_version": 4,
-  "as_of_sha": "01e6320dc982f878eda56a01d480dafab2959a92",
-  "as_of_date": "2026-10-24",
+  "as_of_sha": "8059a65bc26df41d43112b3e55a949eeb2d76cf4",
+  "as_of_date": "2026-11-07",
   "pending_refresh": true,
-  "pending_date": "2026-10-24",
+  "pending_date": "2026-11-07",
   "timezone": "Asia/Kolkata",
   "range": {
     "start": "2026-09-26",
-    "end": "2026-10-24"
+    "end": "2026-11-07"
   },
   "totals": {
-    "commits": 87,
+    "commits": 93,
     "first_commit_date": "2026-09-26",
-    "last_commit_date": "2026-10-24",
+    "last_commit_date": "2026-11-07",
     "busiest_day": {
       "date": "2026-10-24",
       "commits": 10
@@ -21,13 +21,13 @@
       "start": "2026-10-11",
       "end": "2026-10-24"
     },
-    "refresh_commits": 4,
-    "active_days": 20,
+    "refresh_commits": 5,
+    "active_days": 23,
     "longest_streak": 14,
-    "current_streak": 14,
-    "lines_added": 91747,
-    "lines_removed": 9654,
-    "files_touched": 846
+    "current_streak": 2,
+    "lines_added": 96792,
+    "lines_removed": 10452,
+    "files_touched": 913
   },
   "per_day": [
     {
@@ -267,8 +267,112 @@
     {
       "date": "2026-10-24",
       "commits": 10,
-      "added": 3766,
-      "removed": 609,
+      "added": 3785,
+      "removed": 627,
+      "authors": [
+        "Pratyay Mukherjee"
+      ]
+    },
+    {
+      "date": "2026-10-25",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-26",
+      "commits": 2,
+      "added": 2927,
+      "removed": 112,
+      "authors": [
+        "Pratyay Mukherjee"
+      ]
+    },
+    {
+      "date": "2026-10-27",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-28",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-29",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-30",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-10-31",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-01",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-02",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-03",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-04",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-05",
+      "commits": 0,
+      "added": 0,
+      "removed": 0,
+      "authors": []
+    },
+    {
+      "date": "2026-11-06",
+      "commits": 2,
+      "added": 27,
+      "removed": 4,
+      "authors": [
+        "Pratyay Mukherjee"
+      ]
+    },
+    {
+      "date": "2026-11-07",
+      "commits": 2,
+      "added": 2072,
+      "removed": 664,
       "authors": [
         "Pratyay Mukherjee"
       ]
@@ -277,7 +381,7 @@
   "per_author": [
     {
       "display": "Pratyay Mukherjee",
-      "commits": 86
+      "commits": 92
     }
   ],
   "milestones": [
