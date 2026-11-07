@@ -445,6 +445,9 @@ disagrees with the results it ships beside.
 CLIMB reports empirical measurements only: no formal security guarantee, proof
 or certification is claimed for MTL mode, SLH-DSA or any component here.
 
+- **The benchmark follows an experimental Internet-Draft, not a ratified
+  standard**, and [`docs/RESEARCH.md`](docs/RESEARCH.md) records the revision
+  and status of every source it relies on.
 - **One algorithm, one reference implementation.** Results cover
   SLH-DSA-SHA2-128s-MTL-SHA2-128 through the supplied libMTL; they may not
   transfer to other parameter sets, to ML-DSA, or to other implementations.

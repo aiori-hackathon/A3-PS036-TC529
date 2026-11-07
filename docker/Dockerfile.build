@@ -8,7 +8,7 @@
 # ── Pinned dependencies ──
 # Base image:  debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
 # OpenSSL:     3.4.1 (bootstrapped — Bookworm's 3.0.x < libMTL's 3.1.0 floor)
-# liboqs:      0.16.0  (git submodule at third_party/liboqs)
+# liboqs:      5a1a854  (liboqs 0.16.0; git submodule at third_party/liboqs)
 # libMTL:      53ce25d (git submodule at third_party/MTL)
 # ──────────────────────────
 
