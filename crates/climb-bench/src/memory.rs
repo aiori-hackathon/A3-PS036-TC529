@@ -268,8 +268,23 @@ pub fn compare_to_analytical(report: &RssSizeReport, analytical: MemoryEstimate)
 // ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
+    use std::sync::{Mutex, MutexGuard};
+
     use super::*;
     use climb_analytical::estimate_memory_footprint;
+
+    /// RSS is a process-wide quantity: a measurement running on another thread
+    /// can land between one test's before/after samples and change its delta.
+    /// These two tests therefore take this lock so they never overlap.
+    static RSS_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    /// Take the RSS-test lock, recovering the guard if a previous holder
+    /// panicked (the measurement itself has no state to poison).
+    fn rss_test_guard() -> MutexGuard<'static, ()> {
+        RSS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     /// Smoke test: a single RSS delta measurement must return a
     /// non-negative, reasonable delta for Small.  We do NOT assert a
@@ -279,6 +294,7 @@ mod tests {
     #[test]
     #[cfg(feature = "native")]
     fn rss_delta_small_is_positive_and_plausible() {
+        let _guard = rss_test_guard();
         let run = measure_rss_delta(
             DatasetSize::Small,
             0x434C494D425F5635, // CLIMB_V5
@@ -318,6 +334,7 @@ mod tests {
     #[test]
     #[cfg(feature = "native")]
     fn rss_delta_repeated_is_plausible() {
+        let _guard = rss_test_guard();
         let report = measure_rss_delta_repeated(DatasetSize::Small, 0x434C494D425F5635, 2)
             .expect("measure_rss_delta_repeated(Small, 2)");
 

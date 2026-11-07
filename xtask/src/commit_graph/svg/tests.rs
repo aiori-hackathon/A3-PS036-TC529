@@ -857,6 +857,17 @@ fn the_wide_staircase_keeps_a_seventy_thirty_split() {
 fn the_day_bars_match_the_document() {
     let graph = committed_graph();
     for (name, baseline) in [(WIDE, 464.0), (NARROW, 512.0)] {
+        // The narrow card plots only its most recent window of days; the wide
+        // card plots the whole range.
+        let last_days = match name {
+            NARROW => Layout::narrow()
+                .bars
+                .and_then(|bars| bars.last_days),
+            _ => None,
+        };
+        let skip = last_days
+            .map(|limit| graph.per_day.len().saturating_sub(limit))
+            .unwrap_or(0);
         let svg = committed(name);
         let document = parse(&svg);
         let plot = document
@@ -892,7 +903,12 @@ fn the_day_bars_match_the_document() {
                 )
             })
             .collect();
-        let active: Vec<_> = graph.per_day.iter().filter(|day| day.commits > 0).collect();
+        let active: Vec<_> = graph
+            .per_day
+            .iter()
+            .skip(skip)
+            .filter(|day| day.commits > 0)
+            .collect();
         assert_eq!(bars.len(), active.len(), "{name}: one bar per active day");
         for (date, commits, x, y, width, height) in bars {
             let day = graph

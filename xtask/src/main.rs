@@ -2,6 +2,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use climb_report::charts::generate_charts;
 use climb_report::html::{check_report, relative_href, render_html};
@@ -315,16 +316,133 @@ fn main() -> Result<()> {
     }
 }
 
+/// One completed preflight step, kept so the summary can be printed even when
+/// a later step fails.
+struct PreflightTiming {
+    name: &'static str,
+    elapsed: Duration,
+    passed: bool,
+}
+
+/// Run one preflight step, timing it and recording the outcome before
+/// propagating any error with the step named.
+fn run_preflight_step(
+    name: &'static str,
+    timings: &mut Vec<PreflightTiming>,
+    step: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    let started = Instant::now();
+    let result = step();
+    timings.push(PreflightTiming {
+        name,
+        elapsed: started.elapsed(),
+        passed: result.is_ok(),
+    });
+    result.with_context(|| format!("preflight failed at `{name}`"))
+}
+
+/// Run an external command for a preflight step, inheriting its output so the
+/// usual diagnostics stay visible.
+fn run_preflight_command(root: &Path, program: &str, args: &[&str]) -> Result<()> {
+    let status = Command::new(program)
+        .args(args)
+        .current_dir(root)
+        .status()
+        .with_context(|| format!("failed to execute `{program}`"))?;
+    if !status.success() {
+        bail!(
+            "`{program} {}` exited with {status}",
+            args.join(" ")
+        );
+    }
+    Ok(())
+}
+
+/// The wall-clock total of every recorded step.
+fn preflight_total(timings: &[PreflightTiming]) -> Duration {
+    timings.iter().map(|row| row.elapsed).sum()
+}
+
+/// Print the duration table, including a failed row when there is one.
+fn print_preflight_timings(timings: &[PreflightTiming]) {
+    println!();
+    println!("preflight timings");
+    println!("{:<22} {:>10}  {}", "step", "duration", "result");
+    for row in timings {
+        println!(
+            "{:<22} {:>9.2}s  {}",
+            row.name,
+            row.elapsed.as_secs_f64(),
+            if row.passed { "ok" } else { "FAILED" }
+        );
+    }
+    println!(
+        "{:<22} {:>9.2}s",
+        "total",
+        preflight_total(timings).as_secs_f64()
+    );
+}
+
 fn cmd_preflight(args: PreflightArgs) -> Result<()> {
-    cmd_verify_numbers(VerifyNumbersArgs::for_root(
-        args.root.clone(),
-        args.require_spread,
-    ))?;
-    cmd_docs_check(DocsCheckArgs {
-        root: args.root,
-        quote_sheet: PathBuf::from("docs/deck-facts.md"),
-        results: PathBuf::from("docs/sample-output/climb-results.json"),
-    })
+    let root = args.root;
+    let mut timings = Vec::new();
+
+    let outcome = (|| -> Result<()> {
+        run_preflight_step("build", &mut timings, || {
+            run_preflight_command(&root, "cargo", &["build", "--workspace"])
+        })?;
+        run_preflight_step("fmt", &mut timings, || {
+            run_preflight_command(&root, "cargo", &["fmt", "--all", "--", "--check"])
+        })?;
+        run_preflight_step("clippy", &mut timings, || {
+            run_preflight_command(
+                &root,
+                "cargo",
+                &[
+                    "clippy",
+                    "--all-targets",
+                    "--all-features",
+                    "--",
+                    "-D",
+                    "warnings",
+                ],
+            )
+        })?;
+        run_preflight_step("test", &mut timings, || {
+            run_preflight_command(&root, "cargo", &["test", "--workspace"])
+        })?;
+        run_preflight_step("docs-check", &mut timings, || {
+            cmd_docs_check(DocsCheckArgs {
+                root: root.clone(),
+                quote_sheet: PathBuf::from("docs/deck-facts.md"),
+                results: PathBuf::from("docs/sample-output/climb-results.json"),
+                skip_side_checks: true,
+                require_spread: args.require_spread,
+            })
+        })?;
+        run_preflight_step("source-hygiene", &mut timings, || {
+            source_hygiene::run(&root)
+        })?;
+        run_preflight_step("check-pins", &mut timings, || check_pins::run(&root))?;
+        run_preflight_step("check-viewer-build", &mut timings, || {
+            docs_check::check_viewer_build(&root)
+        })?;
+        run_preflight_step("report --check", &mut timings, || {
+            cmd_report(ReportArgs {
+                baseline: "new".to_string(),
+                criterion_dir: PathBuf::from("target/criterion"),
+                format: ReportFormat::Html,
+                out: root.join("docs/sample-output/report.html"),
+                results: root.join("docs/sample-output/climb-results.json"),
+                charts: PathBuf::from("target/climb-report/charts"),
+                check: true,
+            })
+        })?;
+        Ok(())
+    })();
+
+    print_preflight_timings(&timings);
+    outcome
 }
 
 fn cmd_bench_all(args: BenchAllArgs) -> Result<()> {
@@ -640,6 +758,48 @@ mod tests {
     #[test]
     fn binary_on_path_returns_false_for_nonexistent() {
         assert!(!binary_on_path("__nonexistent_command_xyzzy__"));
+    }
+
+    #[test]
+    fn preflight_step_records_a_successful_timing() {
+        let mut timings = Vec::new();
+        run_preflight_step("build", &mut timings, || Ok(())).expect("the step passes");
+        assert_eq!(timings.len(), 1);
+        assert_eq!(timings[0].name, "build");
+        assert!(timings[0].passed);
+    }
+
+    #[test]
+    fn preflight_step_names_the_failed_step_and_records_it() {
+        let mut timings = Vec::new();
+        let error = run_preflight_step("clippy", &mut timings, || bail!("a warning"))
+            .expect_err("the step fails");
+        assert_eq!(timings.len(), 1);
+        assert_eq!(timings[0].name, "clippy");
+        assert!(!timings[0].passed);
+        let message = format!("{error:#}");
+        assert!(
+            message.contains("preflight failed at `clippy`"),
+            "the failure names the step: {message}"
+        );
+        assert!(message.contains("a warning"), "the cause is preserved");
+    }
+
+    #[test]
+    fn preflight_total_sums_every_recorded_step() {
+        let timings = vec![
+            PreflightTiming {
+                name: "build",
+                elapsed: Duration::from_millis(250),
+                passed: true,
+            },
+            PreflightTiming {
+                name: "test",
+                elapsed: Duration::from_millis(500),
+                passed: false,
+            },
+        ];
+        assert_eq!(preflight_total(&timings), Duration::from_millis(750));
     }
 
     #[test]

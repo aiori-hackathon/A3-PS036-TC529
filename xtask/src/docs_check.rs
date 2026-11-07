@@ -152,6 +152,18 @@ pub(crate) struct DocsCheckArgs {
     /// Consolidated results artifact whose signing speed-up bound is enforced.
     #[arg(long, default_value = SAMPLE_RESULTS)]
     pub(crate) results: PathBuf,
+
+    /// Run only the documentation rules. Callers that time the source-hygiene,
+    /// pin-agreement and viewer-build checks separately set this and run those
+    /// checks themselves, so they are not executed twice.
+    #[arg(long, hide = true)]
+    pub(crate) skip_side_checks: bool,
+
+    /// Fail when a headline row that needs a spread only has `pending`.
+    /// Off by default: the committed artifact honestly publishes pending for
+    /// headline ratios the stability runs do not cover.
+    #[arg(long)]
+    pub(crate) require_spread: bool,
 }
 
 /// Normalise a crate/binary name for comparison: lowercase, `_` for `-`.
@@ -1719,7 +1731,7 @@ fn check_signing_bound(results_path: &Path) -> Result<()> {
 
 /// Build the viewer with no native prefix and reject any native dependency in
 /// its resolved tree, by running the committed check script.
-fn check_viewer_build(root: &Path) -> Result<()> {
+pub(crate) fn check_viewer_build(root: &Path) -> Result<()> {
     let script = root.join("scripts/check-viewer-build.sh");
     let status = Command::new("bash")
         .arg(&script)
@@ -2022,14 +2034,15 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
             message: format!("generated headline/classical block drifted: {err:#}"),
         });
     }
-    // `require_spread` is left off: the committed artifact's stability runs
-    // cover the Small/OneK/Medium primitive ratios, not the C-vs-A headline
-    // ratios, so those rows honestly publish `pending`. A surface that claims a
-    // spread without the rows to back it is still caught by the per-surface
-    // value checks; demanding a spread here would only force a fabricated one.
+    // `require_spread` is off by default: the committed artifact's stability
+    // runs cover the Small/OneK/Medium primitive ratios, not the C-vs-A
+    // headline ratios, so those rows honestly publish `pending`. A surface that
+    // claims a spread without the rows to back it is still caught by the
+    // per-surface value checks; demanding a spread by default would only force
+    // a fabricated one. The flag exists for callers that have re-measured.
     if let Err(err) = crate::verify_numbers::cmd_verify_numbers(VerifyNumbersArgs::for_root(
         args.root.clone(),
-        false,
+        args.require_spread,
     )) {
         violations.push(Violation {
             file: "docs/sample-output/climb-results.json".to_string(),
@@ -2042,10 +2055,12 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         // A single command guards the whole documentation surface, so the
         // source-tree hygiene scan, the pinned-dependency agreement check and
         // the no-native-prefix viewer build run alongside the documentation
-        // rules.
-        crate::source_hygiene::run(&args.root).context("source-hygiene scan failed")?;
-        crate::check_pins::run(&args.root).context("pin agreement check failed")?;
-        check_viewer_build(&args.root).context("viewer build check failed")?;
+        // rules. A caller that times them separately opts out.
+        if !args.skip_side_checks {
+            crate::source_hygiene::run(&args.root).context("source-hygiene scan failed")?;
+            crate::check_pins::run(&args.root).context("pin agreement check failed")?;
+            check_viewer_build(&args.root).context("viewer build check failed")?;
+        }
         println!(
             "docs-check: {} documentation file(s) clean against {} ({} facts)",
             doc_files.len(),
