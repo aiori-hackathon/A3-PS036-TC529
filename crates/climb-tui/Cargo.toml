@@ -4,6 +4,8 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
 rust-version.workspace = true
 
 description = "Ratatui live-run dashboard for benchmark visualization (Batch 6)"
@@ -34,4 +36,7 @@ tracing-appender.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
-climb-bench = { path = "../climb-bench" }
+# The ladder tests only use the recorded artifact types. Disabling the native
+# feature keeps `cargo test -p climb-tui --no-default-features` free of libMTL,
+# liboqs and OpenSSL, matching the viewer-only build it verifies.
+climb-bench = { path = "../climb-bench", default-features = false }

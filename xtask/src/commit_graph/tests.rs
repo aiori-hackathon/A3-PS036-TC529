@@ -652,7 +652,14 @@ fn the_committed_document_reproduces_from_the_history_that_contains_it() {
         );
         return;
     };
-    let (_, regenerated) = generate(&history, &config, Some(&graph.as_of_sha))
+    // The committed document records the pending day it was generated for.
+    // Re-generating with "today" would make this test fail after midnight, so
+    // treat the recorded day as an input and reproduce it exactly.
+    let pending = match graph.pending_date.as_deref() {
+        Some(day) => Pending::On(parse_iso_date(day).expect("committed pending date is valid")),
+        None => Pending::Disabled,
+    };
+    let (_, regenerated) = generate_with(&history, &config, Some(&graph.as_of_sha), pending)
         .expect("regenerate from the containing history");
     assert_eq!(regenerated, committed);
 }

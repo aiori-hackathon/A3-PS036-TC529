@@ -112,6 +112,61 @@ impl EvidenceClass {
     }
 }
 
+/// What a reproduction run actually did.
+///
+/// A report can be regenerated from untouched measurement files, or the
+/// measurements themselves can be re-run. Those are different claims, so the
+/// mode is recorded in the consolidated artifact and printed by the report.
+/// Artifacts written before the field existed, and direct `consolidate`
+/// invocations that do not name a mode, deserialize as [`Unknown`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ReproductionMode {
+    #[default]
+    Unknown,
+    /// Existing measurement artifacts were reused; only derived artifacts
+    /// (consolidation, charts, report) were regenerated.
+    ReportOnly,
+    /// The benchmarks and measurements were re-run before consolidation.
+    Remeasure,
+}
+
+impl ReproductionMode {
+    /// Artifact-stable lower-case name, matching the serde representation.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ReproductionMode::Unknown => "unknown",
+            ReproductionMode::ReportOnly => "report-only",
+            ReproductionMode::Remeasure => "remeasure",
+        }
+    }
+
+    /// Human-readable label used by the report subtitle and notes.
+    pub fn label(self) -> &'static str {
+        self.as_str()
+    }
+
+    /// True only when the measurements themselves were re-run.
+    pub fn is_remeasure(self) -> bool {
+        self == ReproductionMode::Remeasure
+    }
+}
+
+impl std::str::FromStr for ReproductionMode {
+    type Err = String;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "unknown" => Ok(ReproductionMode::Unknown),
+            "report-only" | "report_only" => Ok(ReproductionMode::ReportOnly),
+            "remeasure" | "re-measure" => Ok(ReproductionMode::Remeasure),
+            other => Err(format!(
+                "unknown reproduction mode `{other}` (expected `report-only`, `remeasure` or `unknown`)"
+            )),
+        }
+    }
+}
+
 /// Title-case a dataset size label for display (`"small"` → `"Small"`).
 ///
 /// The wire and reuse sections of the results artifact carry the label
@@ -788,6 +843,11 @@ pub struct ClimbResults {
     #[serde(default)]
     pub comparisons: Vec<ConfigComparison>,
     pub derived: DerivedSummary,
+    /// What the run that produced this artifact did: reused existing
+    /// measurements or re-ran them. `#[serde(default)]` keeps artifacts from
+    /// before this field existed parseable, as `unknown`.
+    #[serde(default)]
+    pub reproduction_mode: ReproductionMode,
     /// Non-fatal consolidation warnings (missing or stale optional inputs).
     ///
     /// These are surfaced in the consolidated output so a reader can tell an
@@ -851,6 +911,9 @@ pub struct ConsolidateOptions {
     /// lengths; present-but-invalid is a hard error naming the path.
     pub classical_signatures_path: PathBuf,
     pub output_path: PathBuf,
+    /// What the invoking `reproduce` run did. Direct consolidation leaves this
+    /// at [`ReproductionMode::Unknown`].
+    pub reproduction_mode: ReproductionMode,
 }
 
 /// Pure freshness decision for an already-stat'd input file.
@@ -2451,6 +2514,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         classical,
         comparisons,
         derived,
+        reproduction_mode: opts.reproduction_mode,
         warnings,
     };
 
@@ -3029,6 +3093,7 @@ mod tests {
             classical: Vec::new(),
             comparisons,
             derived,
+            reproduction_mode: ReproductionMode::Unknown,
             warnings: vec!["wire report missing: /x".to_string()],
         }
     }
@@ -3039,6 +3104,65 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let restored: ClimbResults = serde_json::from_str(&json).unwrap();
         assert_eq!(original, restored);
+    }
+
+    #[test]
+    fn reproduction_mode_serializes_as_its_documented_name() {
+        let mut results = full_fixture();
+        for mode in [
+            ReproductionMode::Unknown,
+            ReproductionMode::ReportOnly,
+            ReproductionMode::Remeasure,
+        ] {
+            results.reproduction_mode = mode;
+            let value: serde_json::Value = serde_json::to_value(&results).unwrap();
+            assert_eq!(value["reproduction_mode"], mode.as_str());
+            assert_eq!(
+                mode.as_str().parse::<ReproductionMode>().unwrap(),
+                mode,
+                "the artifact name must parse back"
+            );
+        }
+        assert!("not-a-mode".parse::<ReproductionMode>().is_err());
+    }
+
+    #[test]
+    fn an_artifact_without_a_reproduction_mode_parses_as_unknown() {
+        // Backward compatibility: artifacts written before the field existed
+        // must still parse, and must not claim a re-measurement they never did.
+        let results = full_fixture();
+        let mut value: serde_json::Value = serde_json::to_value(&results).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .remove("reproduction_mode")
+            .expect("the fixture carries the field");
+        let restored: ClimbResults = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.reproduction_mode, ReproductionMode::Unknown);
+    }
+
+    #[test]
+    fn consolidation_records_the_reproduction_mode_it_was_given() {
+        let root = temp_root("mode-consolidate");
+        std::fs::create_dir_all(root.join("criterion")).unwrap();
+        let results = consolidate_results(ConsolidateOptions {
+            force: true,
+            criterion_dir: root.join("criterion"),
+            wire_report_path: None,
+            memory_report_path: None,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-live.json"),
+            ladder_fixture_path: root.join("no-fixture.json"),
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            rtt_ms: None,
+            classical_signatures_path: root.join("no-classical-signatures.json"),
+            output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Remeasure,
+        })
+        .unwrap();
+        assert_eq!(results.reproduction_mode, ReproductionMode::Remeasure);
     }
 
     #[test]
@@ -3078,6 +3202,7 @@ mod tests {
                 bound_offenders: Vec::new(),
                 baseline_offenders: Vec::new(),
             },
+            reproduction_mode: ReproductionMode::Unknown,
             warnings: Vec::new(),
         };
         let json = serde_json::to_string(&original).unwrap();
@@ -3313,6 +3438,7 @@ mod tests {
             rtt_ms: None,
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Unknown,
         };
 
         let results = consolidate_results(opts).unwrap();
@@ -3377,6 +3503,7 @@ mod tests {
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: output.clone(),
+            reproduction_mode: ReproductionMode::Unknown,
         };
 
         let results = consolidate_results(opts).unwrap();
@@ -3465,6 +3592,7 @@ mod tests {
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Unknown,
         };
         consolidate_results(opts).unwrap()
     }
@@ -3693,6 +3821,7 @@ mod tests {
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Unknown,
         };
         let results = consolidate_results(opts).unwrap();
         assert!(
@@ -4001,6 +4130,7 @@ mod tests {
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Unknown,
         })
         .unwrap();
 
@@ -4361,6 +4491,7 @@ mod tests {
                 classical: Vec::new(),
                 comparisons,
                 derived,
+                reproduction_mode: ReproductionMode::Unknown,
                 warnings: Vec::new(),
             }
         };

@@ -716,7 +716,8 @@ mod tests {
             "Environment and pinning",
             "Sampling and extrapolation",
             "Known limits",
-            "cargo xtask reproduce",
+            "cargo xtask reproduce --report-only",
+            "cargo xtask reproduce --remeasure",
             "Signing baselines",
         ] {
             assert!(
@@ -735,7 +736,12 @@ mod tests {
             !out.contains("Contents"),
             "the contents column is dropped below {WIDE_WIDTH} columns:\n{out}"
         );
-        for needle in ["Method", "Scope", "cargo xtask reproduce"] {
+        for needle in [
+            "Method",
+            "Scope",
+            "cargo xtask reproduce --report-only",
+            "cargo xtask reproduce --remeasure",
+        ] {
             assert!(out.contains(needle), "80x24 loses {needle:?}:\n{out}");
         }
         let _ = std::fs::remove_dir_all(&root);

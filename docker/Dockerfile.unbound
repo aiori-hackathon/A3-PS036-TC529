@@ -43,7 +43,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # 1. OpenSSL ≥ 3.1.0  (Bookworm ships 3.0.x — not new enough for libMTL)
 # ─────────────────────────────────────────────────────────────────────────
 ARG OPENSSL_VERSION=3.4.1
+ARG OPENSSL_SHA256=002a2d6b30b58bf4bea46c43bdd96365aaf8daa6c428782aa4feee06da197df3
 RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && echo "${OPENSSL_SHA256}  openssl-${OPENSSL_VERSION}.tar.gz" | sha256sum -c - \
     && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
     && cd "openssl-${OPENSSL_VERSION}" \
     && ./Configure --prefix=/usr/local --libdir=lib \

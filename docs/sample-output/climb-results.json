@@ -2587,6 +2587,7 @@
     "bound_ok": true,
     "baseline_ok": true
   },
+  "reproduction_mode": "unknown",
   "warnings": [
     "dropped superseded benchmark row `Signing OneK Without MTL`: it measured a batch of 1000 messages instead of one signature per iteration"
   ]

@@ -1228,6 +1228,18 @@ pub fn render_html(
     let ladder_html = render_ladder_section(results, &claims);
     let reuse_html = render_reuse_section(results, &claims);
     let udp_fit_html = render_udp_fit_section(results, &claims);
+    let reproduction_mode = results.reproduction_mode.label();
+    let reproduction_note = match results.reproduction_mode {
+        crate::results::ReproductionMode::Remeasure => {
+            "The benchmarks and measurements were re-run before this report was rendered."
+        }
+        crate::results::ReproductionMode::ReportOnly => {
+            "Existing measurements were reused; only derived artifacts (consolidation, charts and this report) were regenerated. This is not a re-measurement."
+        }
+        crate::results::ReproductionMode::Unknown => {
+            "This artifact does not record whether the measurements were re-run."
+        }
+    };
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
     let context_html = render_context_section(results, &claims);
@@ -1279,7 +1291,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 <div class="wrap">
 <header>
 <h1>CLIMB — Cryptographic Ladder Impact Measurement Benchmark</h1>
-<p class="subtitle">Merkle Tree Ladder mode vs full-signature DNSSEC signing (PS-036) &middot; schema {version} &middot; generated {generated_at}</p>
+<p class="subtitle">Merkle Tree Ladder mode vs full-signature DNSSEC signing (PS-036) &middot; schema {version} &middot; generated {generated_at} &middot; reproduction {reproduction_mode}</p>
 <p class="links"><a href="{results_href}">results.json</a> — machine-readable source for every number on this page.</p>
 {headline_html}</header>
 <section aria-labelledby="summary-h">
@@ -1301,6 +1313,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </section>
 {wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
+<p class="note"><strong>Reproduction mode: {reproduction_mode}.</strong> {reproduction_note}</p>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
 <details>
@@ -1316,6 +1329,8 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 "#,
         version = escape_html(&results.version),
         generated_at = escape_html(&results.generated_at),
+        reproduction_mode = escape_html(reproduction_mode),
+        reproduction_note = escape_html(reproduction_note),
         results_href = escape_html(results_href),
         headline_html = headline_html,
         summary = summary,
@@ -1826,6 +1841,7 @@ mod tests {
                 bound_offenders: Vec::new(),
                 baseline_offenders: Vec::new(),
             },
+            reproduction_mode: crate::results::ReproductionMode::Unknown,
             warnings: Vec::new(),
         }
     }
@@ -1881,6 +1897,50 @@ mod tests {
         assert!(html.contains("97.0%"));
         assert!(html.contains("24,438 B"));
         assert!(html.contains("10.2\u{d7}") || html.contains("10.1\u{d7}"));
+    }
+
+    #[test]
+    fn the_report_names_the_reproduction_mode_without_overselling_it() {
+        use crate::results::ReproductionMode;
+
+        for mode in [
+            ReproductionMode::Unknown,
+            ReproductionMode::ReportOnly,
+            ReproductionMode::Remeasure,
+        ] {
+            let mut results = synthetic_results();
+            results.reproduction_mode = mode;
+            let dir = unique_temp_dir("html-mode");
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("mkdir");
+            crate::charts::generate_charts(&results, &dir).expect("charts");
+            let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+            let _ = std::fs::remove_dir_all(&dir);
+
+            assert!(
+                html.contains(&format!("reproduction {}", mode.as_str())),
+                "the subtitle must name the mode `{}`",
+                mode.as_str()
+            );
+            assert!(
+                html.contains(&format!("Reproduction mode: {}.", mode.as_str())),
+                "the methodology note must name the mode `{}`",
+                mode.as_str()
+            );
+        }
+
+        let mut results = synthetic_results();
+        results.reproduction_mode = ReproductionMode::ReportOnly;
+        let dir = unique_temp_dir("html-report-only");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            html.contains("This is not a re-measurement."),
+            "a report-only render must say plainly that it is not a re-measurement"
+        );
     }
 
     #[test]

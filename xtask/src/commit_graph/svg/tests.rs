@@ -860,9 +860,7 @@ fn the_day_bars_match_the_document() {
         // The narrow card plots only its most recent window of days; the wide
         // card plots the whole range.
         let last_days = match name {
-            NARROW => Layout::narrow()
-                .bars
-                .and_then(|bars| bars.last_days),
+            NARROW => Layout::narrow().bars.and_then(|bars| bars.last_days),
             _ => None,
         };
         let skip = last_days

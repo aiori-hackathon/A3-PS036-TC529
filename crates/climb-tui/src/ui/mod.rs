@@ -494,6 +494,7 @@ mod tests {
                     bound_offenders: Vec::new(),
                     baseline_offenders: Vec::new(),
                 },
+                reproduction_mode: climb_report::ReproductionMode::Unknown,
                 warnings: Vec::new(),
             },
             Some(Duration::from_secs(60)),
@@ -712,7 +713,8 @@ mod tests {
             "Contents",
             "Scope",
             "Sampling and extrapolation",
-            "cargo xtask reproduce",
+            "cargo xtask reproduce --report-only",
+            "cargo xtask reproduce --remeasure",
         ] {
             assert!(out.contains(needle), "method tab misses {needle:?}:\n{out}");
         }
@@ -952,6 +954,7 @@ mod tests {
                     bound_offenders: Vec::new(),
                     baseline_offenders: Vec::new(),
                 },
+                reproduction_mode: climb_report::ReproductionMode::Unknown,
                 warnings: Vec::new(),
             },
             Some(Duration::from_secs(60)),

@@ -350,10 +350,7 @@ fn run_preflight_command(root: &Path, program: &str, args: &[&str]) -> Result<()
         .status()
         .with_context(|| format!("failed to execute `{program}`"))?;
     if !status.success() {
-        bail!(
-            "`{program} {}` exited with {status}",
-            args.join(" ")
-        );
+        bail!("`{program} {}` exited with {status}", args.join(" "));
     }
     Ok(())
 }
@@ -367,7 +364,7 @@ fn preflight_total(timings: &[PreflightTiming]) -> Duration {
 fn print_preflight_timings(timings: &[PreflightTiming]) {
     println!();
     println!("preflight timings");
-    println!("{:<22} {:>10}  {}", "step", "duration", "result");
+    println!("{:<22} {:>10}  result", "step", "duration");
     for row in timings {
         println!(
             "{:<22} {:>9.2}s  {}",

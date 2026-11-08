@@ -110,7 +110,7 @@ fn agreeing_sample_pair_renders_the_full_tab_at_120x40() {
         "ANALYTICAL",
         "DERIVED",
         "refresh:",
-        "cargo xtask reproduce --quick --skip-dns",
+        "cargo xtask reproduce --report-only --quick --skip-dns",
     ] {
         assert!(
             out.contains(needle),
@@ -159,7 +159,7 @@ fn narrow_layout_lists_every_artifact_and_the_legend_at_80x24() {
         "MEASURED",
         "DERIVED",
         "refresh:",
-        "cargo xtask reproduce --quick --skip-dns",
+        "cargo xtask reproduce --report-only --quick --skip-dns",
     ] {
         assert!(
             out.contains(needle),

@@ -184,6 +184,10 @@ git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529
 docker build -f docker/Dockerfile.build -t climb-builder:phase1 . && docker/extract-libs.sh
 cargo run -p climb-tui
 ```
+
+To verify the same path from a cold checkout that copies nothing, run
+`scripts/clean-clone-fresh.sh --full` instead; `scripts/clean-clone-fresh.sh --viewer-only`
+is the fast variant that needs no native libraries.
 <!-- quickstart:end -->
 
 The first command clones the repository with its pinned submodules; the second
@@ -191,9 +195,10 @@ builds the pinned native toolchain (OpenSSL, liboqs, libMTL) in Docker and
 extracts it into `.mtl-install/`, which the FFI build script finds
 automatically; the third compiles the workspace and opens the dashboard. On a
 fresh checkout the dashboard reads the committed sample results under
-`docs/sample-output/`, so it renders immediately; point it at regenerated
-artifacts with `cargo run -p climb-tui -- target/climb-results.json` after
-`cargo xtask reproduce`.
+`docs/sample-output/`, so it renders immediately; point it at regenerated artifacts
+with `cargo run -p climb-tui -- target/climb-results.json` after
+`cargo xtask reproduce --report-only` (reuse existing measurements) or
+`cargo xtask reproduce --remeasure` (re-run benchmarks first).
 
 ## Run the dashboard on your machine
 
@@ -286,8 +291,10 @@ step and `Esc` ends the tour. `--tour-speed` changes the pace.
 In order: a path you pass, `target/climb-results.json`, `docs/sample-output/`,
 and finally the copy compiled into the program. The status bar names the one in
 use: `[explicit]`, `[target]`, `[sample]` or `[embedded]`. To use your own
-results, run `cargo xtask reproduce`, start the dashboard with the path
-`target/climb-results.json`, and press `r` after any later run to reload.
+results, run `cargo xtask reproduce --report-only` (reuse existing measurements)
+or `cargo xtask reproduce --remeasure` (re-run benchmarks first), start the
+dashboard with the path `target/climb-results.json`, and press `r` after any
+later run to reload.
 
 ### Terminal tips
 
@@ -296,7 +303,7 @@ results, run `cargo xtask reproduce`, start the dashboard with the path
 - If glyphs render badly press `a`; if colours are hard to read press `T`.
 - Running it through a pipe or an editor's task runner fails with a raw-mode error.
 - The Live view replays a recording. Recording a fresh one needs the full native build and Docker: `cargo xtask dns-demo`.
-- To reproduce the measurements themselves, see [Full reproduction](#full-reproduction--build-the-native-stack).
+- To re-measure the benchmark suite itself, see [Full reproduction](#full-reproduction--build-the-native-stack).
 <!-- tui-guide:end -->
 
 ## Baselines
@@ -357,7 +364,8 @@ Supporting directories:
 - `third_party/` — pinned submodules: `liboqs` and `MTL` (the reference
   implementation);
 - `docs/` — `ARCHITECTURE.md`, `METHODOLOGY.md`, `BASELINES.md`,
-  `RESEARCH.md` (reading list), the generated quote sheet `deck-facts.md`, and
+  `RESEARCH.md` (source provenance), `REPRODUCIBILITY.md` (every input and the
+  check that enforces it), the generated quote sheet `deck-facts.md`, and
   `sample-output/` (committed, provenance-stamped sample artifacts);
 - `data/` — recorded fixtures (DNS capture, ladder verification);
 - `scripts/` — environment pinning, clean-clone check helpers, the logo asset
@@ -395,24 +403,34 @@ Rust/Cargo versions, submodule commits, and other build-environment metadata.
 
 ### Reproduce
 
-One command runs the whole artifact chain in order and leaves the report
-self-check passing:
+The default mode rebuilds the derived chain only — consolidation, charts, the
+report and the viewer data — from measurements already on disk:
 
 ```bash
-cargo xtask reproduce
+cargo xtask reproduce --report-only
 ```
 
-It pins the environment, measures wire sizes and memory, optionally re-runs the
-benchmark suite, captures the live DNS pipeline (or falls back to the committed
+It reuses measurements and does not claim to have re-measured them. To re-run the
+benchmarks and measurements first, ask for the other mode explicitly:
+
+```bash
+cargo xtask reproduce --remeasure
+```
+
+`--remeasure` pins the environment, measures wire sizes and memory, runs the
+Criterion suite, captures the live DNS pipeline (or falls back to the committed
 recorded capture), then consolidates, charts, renders and self-checks the
-report. Each step's status and duration is printed, and the run stops at the
-first failure with the failing step named. The final step is the report
-self-check, so a zero exit means the artifacts and the rendered report agree.
+report. Each run prints a banner naming the mode, and the mode is written into
+the artifact and shown in the report. Each step's status and duration is
+printed, and the run stops at the first failure with the failing step named. The
+final step is the report self-check, so a zero exit means the artifacts and the
+rendered report agree.
 
 | Flag | Effect |
 |---|---|
-| `--quick` | Limit every measurement to the Small and Medium datasets |
-| `--bench` | Re-run the Criterion benchmark suite (default: reuse the last output) |
+| `--report-only` | Rebuild the derived artifacts only and reuse measurements (the default) |
+| `--remeasure` | Re-run every benchmark and measurement before regenerating |
+| `--quick` | Limit a `--remeasure` run to the Small and Medium datasets; no effect in report-only |
 | `--skip-dns` | Skip the live DNS pipeline and use the recorded capture |
 | `--force` | Accept optional inputs regardless of age when consolidating |
 

@@ -65,8 +65,16 @@ const QUICKSTART_END: &str = "<!-- quickstart:end -->";
 const FOOTER_BEGIN: &str = "<!-- footer:begin -->";
 const FOOTER_END: &str = "<!-- footer:end -->";
 
-/// The clean-clone script the quickstart commands are pinned to.
-const CLEAN_CLONE_SCRIPT: &str = "scripts/clean-clone-check.sh";
+/// The two clean-clone scripts the quickstart commands are pinned to. The
+/// cache-assisted script proves the documented path with a warm target tree;
+/// the fresh script proves it from a checkout that copies nothing.
+const CLEAN_CLONE_SCRIPTS: &[&str] = &[
+    "scripts/clean-clone-cached.sh",
+    "scripts/clean-clone-fresh.sh",
+];
+
+/// Label reported when a pinned command is missing from the scripts.
+const CLEAN_CLONE_LABEL: &str = "scripts/clean-clone-*.sh";
 
 /// Commands the README quickstart must carry, and that must also appear in the
 /// clean-clone script. Each entry is a literal substring, so a renamed flag or
@@ -1052,10 +1060,10 @@ pub(crate) fn check_quickstart(file: &str, text: &str, script: &str) -> Vec<Viol
         }
         if !script.contains(command) {
             violations.push(Violation {
-                file: CLEAN_CLONE_SCRIPT.to_string(),
+                file: CLEAN_CLONE_LABEL.to_string(),
                 line: 1,
                 message: format!(
-                    "the clean-clone script no longer carries the quickstart command `{command}`"
+                    "neither clean-clone script carries the quickstart command `{command}`"
                 ),
             });
         }
@@ -1729,6 +1737,73 @@ fn check_signing_bound(results_path: &Path) -> Result<()> {
     );
 }
 
+/// The sample-output checksum manifest is an input record: every digest it
+/// publishes must still describe the committed file. A fixture edited without
+/// refreshing `SHA256SUMS` would otherwise make the recorded provenance false
+/// while every other gate stayed green.
+pub(crate) fn check_sample_checksums(root: &Path) -> Result<Vec<Violation>> {
+    const MANIFEST: &str = "docs/sample-output/SHA256SUMS";
+    let manifest_path = root.join(MANIFEST);
+    let text = std::fs::read_to_string(&manifest_path)
+        .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+    let dir = root.join("docs/sample-output");
+    let mut violations = Vec::new();
+    for (idx, raw) in text.lines().enumerate() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let line_number = idx + 1;
+        let Some((digest, name)) = line.split_once("  ") else {
+            violations.push(Violation {
+                file: MANIFEST.to_string(),
+                line: line_number,
+                message: format!("malformed line `{line}` (expected `<sha256>  <file>`)"),
+            });
+            continue;
+        };
+        if digest.len() != 64 || !digest.chars().all(|c| c.is_ascii_hexdigit()) {
+            violations.push(Violation {
+                file: MANIFEST.to_string(),
+                line: line_number,
+                message: format!("`{digest}` is not a 64-character hex digest"),
+            });
+            continue;
+        }
+        // Entries name files in this directory only; a path separator would let
+        // the manifest point outside the sample-output folder.
+        if name.is_empty() || name.contains('/') || name.contains('\\') {
+            violations.push(Violation {
+                file: MANIFEST.to_string(),
+                line: line_number,
+                message: format!("`{name}` is not a plain file name in this directory"),
+            });
+            continue;
+        }
+        match std::fs::read(dir.join(name)) {
+            Ok(bytes) => {
+                let actual = crate::package::sha256_hex(&bytes);
+                if !actual.eq_ignore_ascii_case(digest) {
+                    violations.push(Violation {
+                        file: MANIFEST.to_string(),
+                        line: line_number,
+                        message: format!(
+                            "`{name}` hashes to {actual}, not the recorded {digest}; \
+                             regenerate the manifest with `scripts/make-sample-output.sh`"
+                        ),
+                    });
+                }
+            }
+            Err(error) => violations.push(Violation {
+                file: MANIFEST.to_string(),
+                line: line_number,
+                message: format!("cannot read `{name}`: {error}"),
+            }),
+        }
+    }
+    Ok(violations)
+}
+
 /// Build the viewer with no native prefix and reject any native dependency in
 /// its resolved tree, by running the committed check script.
 pub(crate) fn check_viewer_build(root: &Path) -> Result<()> {
@@ -1803,7 +1878,7 @@ pub(crate) fn scan_path_hygiene_line(line: &str) -> Vec<String> {
             .expect("the predicate requires an @ sign");
         let lower = domain.to_ascii_lowercase();
         let allowed = lower.ends_with("example.invalid")
-            || lower.ends_with("example.com")
+            || lower.ends_with("example.com") // source-hygiene:allow
             || lower.ends_with("example.org")
             || lower.ends_with("example.net")
             || lower == "github.com"
@@ -1936,11 +2011,16 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     violations.extend(check_logo_block(&readme_label, &readme_text));
 
     // The README's quickstart is marker-bracketed and its commands are pinned
-    // to the clean-clone script, so the documented path and the verified path
-    // cannot drift apart.
-    let script_path = args.root.join(CLEAN_CLONE_SCRIPT);
-    let script_text = std::fs::read_to_string(&script_path)
-        .with_context(|| format!("failed to read {}", script_path.display()))?;
+    // to the two clean-clone scripts, so the documented path and the verified
+    // path cannot drift apart.
+    let mut script_text = String::new();
+    for relative in CLEAN_CLONE_SCRIPTS {
+        let script_path = args.root.join(relative);
+        let text = std::fs::read_to_string(&script_path)
+            .with_context(|| format!("failed to read {}", script_path.display()))?;
+        script_text.push_str(&text);
+        script_text.push('\n');
+    }
     violations.extend(check_quickstart(&readme_label, &readme_text, &script_text));
 
     // The README's "Built in the open" block is marker-bracketed, must name the
@@ -2019,6 +2099,10 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // artifact whose reported speed-up exceeds 1.05xN must not back the
     // documented numbers. `bound_ok == false` is treated as a failing claim.
     check_signing_bound(&args.root.join(&args.results))?;
+
+    // The sample-output checksum manifest is an input record: every digest it
+    // publishes must still describe the committed file.
+    violations.extend(check_sample_checksums(&args.root)?);
 
     // Every tracked text file is published; no developer path or personal
     // identity may survive in one.
@@ -2314,6 +2398,65 @@ mod tests {
             "the regenerating command must be named: {err}"
         );
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Build a temporary workspace root holding only a sample-output folder
+    /// with `files` and a manifest built from `lines`.
+    fn sample_root(label: &str, files: &[(&str, &[u8])], manifest: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "climb-docs-checksums-{}-{label}",
+            std::process::id()
+        ));
+        let dir = root.join("docs/sample-output");
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&dir).expect("create sample-output");
+        for (name, bytes) in files {
+            std::fs::write(dir.join(name), bytes).expect("write sample file");
+        }
+        std::fs::write(dir.join("SHA256SUMS"), manifest).expect("write manifest");
+        root
+    }
+
+    #[test]
+    fn a_matching_sample_checksum_manifest_passes() {
+        let digest = crate::package::sha256_hex(b"payload");
+        let manifest = format!("{digest}  fixture.json\n");
+        let root = sample_root("good", &[("fixture.json", b"payload")], &manifest);
+        let violations = check_sample_checksums(&root).expect("check");
+        assert!(violations.is_empty(), "{violations:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_stale_sample_checksum_is_a_violation() {
+        let manifest = format!("{}  fixture.json\n", "0".repeat(64));
+        let root = sample_root("stale", &[("fixture.json", b"payload")], &manifest);
+        let violations = check_sample_checksums(&root).expect("check");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("hashes to"),
+            "the mismatch must be described: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_malformed_sample_checksum_line_is_a_violation() {
+        let root = sample_root("malformed", &[], "not-a-checksum fixture.json\n");
+        let violations = check_sample_checksums(&root).expect("check");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("malformed"),
+            "the shape must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_committed_sample_checksums_match_their_files() {
+        let root = workspace_root();
+        let violations = check_sample_checksums(&root).expect("check the committed manifest");
+        assert!(violations.is_empty(), "{violations:?}");
     }
 
     /// A miniature quote sheet: two facts, the same shape as the real one.
@@ -2677,7 +2820,7 @@ mod tests {
         let violations = check_quickstart("README.md", &doc, &script);
         assert!(
             violations.iter().any(|v| {
-                v.file == CLEAN_CLONE_SCRIPT && v.message.contains("cargo xtask dist-tui")
+                v.file == CLEAN_CLONE_LABEL && v.message.contains("cargo xtask dist-tui")
             }),
             "{violations:?}"
         );
@@ -2706,8 +2849,14 @@ mod tests {
     fn the_committed_quickstart_is_pinned_to_the_clean_clone_script() {
         let root = workspace_root();
         let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
-        let script = std::fs::read_to_string(root.join(CLEAN_CLONE_SCRIPT))
-            .expect("clean-clone script is committed");
+        let mut script = String::new();
+        for relative in CLEAN_CLONE_SCRIPTS {
+            script.push_str(
+                &std::fs::read_to_string(root.join(relative))
+                    .unwrap_or_else(|_| panic!("{relative} is committed")),
+            );
+            script.push('\n');
+        }
         let violations = check_quickstart("README.md", &readme, &script);
         assert!(violations.is_empty(), "{violations:?}");
     }
@@ -3280,7 +3429,7 @@ fn path_hygiene_flags_home_and_windows_paths() {
 fn path_hygiene_allows_documented_example_domains_and_flags_personal_mail() {
     for allowed in [
         "harness@example.invalid",
-        "someone@example.com",
+        "someone@example.com", // source-hygiene:allow
         "git@github.com",
     ] {
         assert!(

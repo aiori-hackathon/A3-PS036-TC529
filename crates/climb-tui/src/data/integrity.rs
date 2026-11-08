@@ -22,7 +22,7 @@ use climb_report::{CheckReport, CheckStatus, ClimbResults, CONSOLIDATE_COMMAND};
 use super::{mtime, report_path, MAX_FRESH_AGE};
 
 /// The command that refreshes every artifact the inventory lists.
-pub const REFRESH_COMMAND: &str = "cargo xtask reproduce --quick --skip-dns";
+pub const REFRESH_COMMAND: &str = "cargo xtask reproduce --report-only --quick --skip-dns";
 
 /// Role of an inventoried artifact relative to the results file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -717,6 +717,7 @@ mod tests {
                     bound_offenders: Vec::new(),
                     baseline_offenders: Vec::new(),
                 },
+                reproduction_mode: climb_report::ReproductionMode::Unknown,
                 warnings: Vec::new(),
             },
             Some(std::time::Duration::from_secs(60)),

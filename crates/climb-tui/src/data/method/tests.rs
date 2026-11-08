@@ -89,15 +89,15 @@ fn scope_carries_the_algorithm_sizes_and_reproduce_commands() {
     assert!(
         scope
             .lines
-            .contains(&MethodLine::code("cargo xtask reproduce")),
+            .contains(&MethodLine::code("cargo xtask reproduce --report-only")),
         "scope must carry the reproduce command: {:?}",
         scope.lines
     );
     assert!(
         scope
             .lines
-            .contains(&MethodLine::code("cargo xtask report --check")),
-        "scope must carry the report check command"
+            .contains(&MethodLine::code("cargo xtask reproduce --remeasure")),
+        "scope must carry the remeasure command"
     );
     assert!(
         scope.lines.contains(&MethodLine::Field {

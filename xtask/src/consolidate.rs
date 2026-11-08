@@ -2,7 +2,7 @@ use anyhow::{Context, Result};
 use clap::Args;
 use std::path::PathBuf;
 
-use climb_report::{consolidate_results, ConsolidateOptions};
+use climb_report::{consolidate_results, ConsolidateOptions, ReproductionMode};
 
 #[derive(Args)]
 pub(crate) struct ConsolidateArgs {
@@ -59,6 +59,12 @@ pub(crate) struct ConsolidateArgs {
     #[arg(long, default_value = "target/climb-results.json")]
     output: PathBuf,
 
+    /// What produced the measurement inputs: `report-only` (reused),
+    /// `remeasure` (re-run) or `unknown` (direct consolidation). Recorded in
+    /// the artifact and shown in the report.
+    #[arg(long, default_value = "unknown", value_name = "MODE")]
+    reproduction_mode: ReproductionMode,
+
     /// Assumed network round-trip time in milliseconds, used only to model
     /// the TCP fallback delay for truncated responses; omitted, the model
     /// reports round trips and bytes but no latency
@@ -81,6 +87,7 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         rtt_ms: args.rtt_ms,
         classical_signatures_path: args.classical_signatures,
         output_path: args.output.clone(),
+        reproduction_mode: args.reproduction_mode,
     };
     let _results = consolidate_results(opts).context("failed to consolidate results")?;
     println!("wrote consolidated results to {}", args.output.display());

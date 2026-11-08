@@ -5,14 +5,14 @@
 # a static musl binary; the runtime stage is a minimal Alpine image that runs
 # the viewer as a non-root user.
 
-FROM rust:1.98.1-bookworm AS build
+FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288a37b5a285fc83971e AS build
 WORKDIR /src
 COPY . .
 RUN rustup target add x86_64-unknown-linux-musl \
     && cargo build -p climb-tui --release --no-default-features \
         --target x86_64-unknown-linux-musl
 
-FROM alpine:3.22
+FROM alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034
 RUN adduser -D -u 10001 viewer
 COPY --from=build \
     /src/target/x86_64-unknown-linux-musl/release/climb-tui \

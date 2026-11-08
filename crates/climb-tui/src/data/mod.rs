@@ -482,6 +482,7 @@ pub(crate) mod test_support {
                 comparisons: Vec::new(),
                 derived,
                 dns_anatomy: None,
+                reproduction_mode: climb_report::ReproductionMode::Unknown,
                 warnings: Vec::new(),
             },
             Some(Duration::from_secs(60)),
@@ -1004,6 +1005,7 @@ mod tests {
             rtt_ms: None,
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: results_path.clone(),
+            reproduction_mode: climb_report::ReproductionMode::Unknown,
         })
         .expect("consolidate from the committed ladder fixture");
 

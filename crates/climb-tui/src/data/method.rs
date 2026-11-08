@@ -243,7 +243,8 @@ fn scope_section(view: &ResultsView) -> MethodSection {
         ),
         MethodLine::field("results generated", view.results().generated_at.clone()),
         MethodLine::text("Reproduce every artifact from a clean checkout:"),
-        MethodLine::code("cargo xtask reproduce"),
+        MethodLine::code("cargo xtask reproduce --report-only"),
+        MethodLine::code("cargo xtask reproduce --remeasure"),
         MethodLine::code("cargo xtask report --check"),
         MethodLine::code("cargo run -p climb-tui"),
         MethodLine::note(

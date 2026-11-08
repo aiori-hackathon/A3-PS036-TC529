@@ -56,6 +56,24 @@ const SCAN_ROOTS: &[ScanRoot] = &[
         dir: "scripts",
         extensions: &[],
     },
+    ScanRoot {
+        dir: "docs",
+        extensions: &["md"],
+    },
+];
+
+/// Individual tracked files outside the scanned directories that ship to the
+/// mirror and must not carry a placeholder repository or TODO/FIXME marker.
+const EXTRA_FILES: &[&str] = &[
+    "Cargo.toml",
+    "README.md",
+    "rust-toolchain.toml",
+    "deny.toml",
+    "SECURITY.md",
+    "CONTRIBUTING.md",
+    "CITATION.cff",
+    ".github/workflows/ci.yml",
+    ".github/workflows/release.yml",
 ];
 
 /// Banned patterns: the planning/process filenames, the tool name and the model
@@ -72,6 +90,15 @@ fn banned_patterns() -> Vec<String> {
         "open".to_string() + "code",
         "Sisy".to_string() + "phus",
         "Big ".to_string() + "Pickle",
+        // Placeholder repository and author fields that must never ship.
+        "your".to_string() + "-org",
+        "CHANGE".to_string() + "ME",
+        // Reserved example hostname: fine in a DNS fixture only when the line
+        // carries the allow marker; a placeholder URL or address is not.
+        "example".to_string() + ".com",
+        // Unfinished-work markers in tracked code and documentation.
+        "TO".to_string() + "DO",
+        "FIX".to_string() + "ME",
     ]
 }
 
@@ -190,6 +217,12 @@ pub(crate) fn scan(workspace_root: &Path) -> Result<Vec<HygieneViolation>> {
     for scan_root in SCAN_ROOTS {
         collect_files(scan_root, workspace_root, &mut files)?;
     }
+    for relative in EXTRA_FILES {
+        let path = workspace_root.join(relative);
+        if path.is_file() {
+            files.push(path);
+        }
+    }
     files.sort();
     files.dedup();
 
@@ -293,6 +326,52 @@ mod tests {
         );
         check_text("c.rs", &fixture, &mut v);
         assert_eq!(v.len(), 3, "{v:?}");
+    }
+
+    #[test]
+    fn placeholder_repository_and_author_fields_are_violations() {
+        let mut v = Vec::new();
+        check_text(
+            "Cargo.toml",
+            "repository = \"https://github.com/your-org/climb\"\nauthors = [\"CHANGEME\"]\n",
+            &mut v,
+        );
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert_eq!(v[0].pattern, "your-org");
+        assert_eq!(v[1].pattern, "CHANGEME");
+    }
+
+    #[test]
+    fn an_example_hostname_is_a_violation_unless_its_line_is_marked() {
+        let mut v = Vec::new();
+        check_text(
+            "README.md",
+            "Visit https://example.com/climb for details.\n",
+            &mut v,
+        );
+        assert_eq!(v.len(), 1, "{v:?}");
+        assert_eq!(v[0].pattern, "example.com");
+
+        let mut allowed = Vec::new();
+        check_text(
+            "docs/fixture.md",
+            "The capture query was www.example.com. source-hygiene:allow\n",
+            &mut allowed,
+        );
+        assert!(allowed.is_empty(), "{allowed:?}");
+    }
+
+    #[test]
+    fn unfinished_work_markers_are_violations() {
+        let mut v = Vec::new();
+        check_text(
+            "a.rs",
+            "// TODO: replace the placeholder\n// FIXME: this is wrong\n",
+            &mut v,
+        );
+        assert_eq!(v.len(), 2, "{v:?}");
+        assert_eq!(v[0].pattern, "TODO");
+        assert_eq!(v[1].pattern, "FIXME");
     }
 
     #[test]

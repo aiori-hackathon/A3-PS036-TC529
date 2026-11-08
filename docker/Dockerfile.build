@@ -7,7 +7,8 @@
 #
 # ── Pinned dependencies ──
 # Base image:  debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251
-# OpenSSL:     3.4.1 (bootstrapped — Bookworm's 3.0.x < libMTL's 3.1.0 floor)
+# apt packages: explicit versions resolved from that pinned image on 2026-11-08
+# OpenSSL:     3.4.1, SHA-256 002a2d6b30b58bf4bea46c43bdd96365aaf8daa6c428782aa4feee06da197df3
 # liboqs:      5a1a854  (liboqs 0.16.0; git submodule at third_party/liboqs)
 # libMTL:      53ce25d (git submodule at third_party/MTL)
 # ──────────────────────────
@@ -15,26 +16,31 @@
 # ── Stage 1: full builder (default) ──────────────────────────────────────
 FROM debian:bookworm-slim@sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251 AS builder
 
-# Build dependencies — the minimum needed for autotools + CMake + OpenSSL
+# Build dependencies — the minimum needed for autotools + CMake + OpenSSL.
+# Every direct package is version-pinned to the candidate that the pinned base
+# image resolved on 2026-11-08. Transitive dependencies still come from the
+# live Debian repository; the reproducibility note lists that limitation.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    autoconf \
-    automake \
-    bc \
-    build-essential \
-    ca-certificates \
-    cmake \
-    libtool \
-    ninja-build \
-    perl \
-    pkg-config \
-    wget \
+    autoconf=2.71-3 \
+    automake=1:1.16.5-1.3 \
+    bc=1.07.1-3+b1 \
+    build-essential=12.9 \
+    ca-certificates=20250419~deb12u2 \
+    cmake=3.25.1-1 \
+    libtool=2.4.7-7~deb12u1 \
+    ninja-build=1.11.1-2~deb12u1 \
+    perl=5.36.0-7+deb12u4 \
+    pkg-config=1.8.1-1 \
+    wget=1.21.3-1+deb12u1 \
     && rm -rf /var/lib/apt/lists/*
 
 # ─────────────────────────────────────────────────────────────────────────
 # 1. OpenSSL ≥ 3.1.0  (Bookworm ships 3.0.x — not new enough for libMTL)
 # ─────────────────────────────────────────────────────────────────────────
 ARG OPENSSL_VERSION=3.4.1
+ARG OPENSSL_SHA256=002a2d6b30b58bf4bea46c43bdd96365aaf8daa6c428782aa4feee06da197df3
 RUN wget -q "https://www.openssl.org/source/openssl-${OPENSSL_VERSION}.tar.gz" \
+    && echo "${OPENSSL_SHA256}  openssl-${OPENSSL_VERSION}.tar.gz" | sha256sum -c - \
     && tar xzf "openssl-${OPENSSL_VERSION}.tar.gz" \
     && cd "openssl-${OPENSSL_VERSION}" \
     && ./Configure --prefix=/usr/local --libdir=lib \

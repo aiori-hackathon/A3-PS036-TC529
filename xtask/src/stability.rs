@@ -449,6 +449,7 @@ mod tests {
                 "classical",
                 "comparisons",
                 "derived",
+                "reproduction_mode",
                 "warnings",
             ],
             "the merge must write the artifact in the model's field order"

@@ -1850,6 +1850,7 @@ mod tests {
                 bound_offenders: Vec::new(),
                 baseline_offenders: Vec::new(),
             },
+            reproduction_mode: crate::results::ReproductionMode::Unknown,
             warnings: Vec::new(),
         }
     }

@@ -112,6 +112,138 @@ impl std::fmt::Display for PinMismatch {
     }
 }
 
+/// One container image reference that is not pinned by digest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ImagePinViolation {
+    pub(crate) file: String,
+    pub(crate) line: usize,
+    pub(crate) image: String,
+}
+
+impl std::fmt::Display for ImagePinViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}: container image `{}` is not pinned by digest (expected `image@sha256:<64 hex>`)",
+            self.file, self.line, self.image
+        )
+    }
+}
+
+/// True when `image` names an immutable digest (`name@sha256:<64 hex>`).
+pub(crate) fn is_digest_pinned(image: &str) -> bool {
+    let Some((_, digest)) = image.split_once("@sha256:") else {
+        return false;
+    };
+    digest.len() == 64 && digest.chars().all(|c| c.is_ascii_hexdigit())
+}
+
+/// Scan every `FROM` line in the supplied `(file name, text)` pairs. A bare
+/// tag (`debian:bookworm-slim`) can move; only a digest cannot. `scratch` is a
+/// reserved empty base and needs no digest. Pure, so the rule is unit-testable.
+pub(crate) fn scan_from_pins(files: &[(String, String)]) -> Vec<ImagePinViolation> {
+    let mut violations = Vec::new();
+    for (file, text) in files {
+        for (idx, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            let upper = trimmed.to_ascii_uppercase();
+            if !upper.starts_with("FROM ") {
+                continue;
+            }
+            // Dockerfile flags such as `--platform=linux/amd64` precede the
+            // image reference and are not the image.
+            let image = trimmed[5..]
+                .split_whitespace()
+                .find(|token| !token.starts_with("--"))
+                .unwrap_or("");
+            if image.is_empty() || image.eq_ignore_ascii_case("scratch") {
+                continue;
+            }
+            if !is_digest_pinned(image) {
+                violations.push(ImagePinViolation {
+                    file: file.clone(),
+                    line: idx + 1,
+                    image: image.to_string(),
+                });
+            }
+        }
+    }
+    violations
+}
+
+/// One apt package installed without an explicit `=version` pin.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct AptPinViolation {
+    pub(crate) file: String,
+    pub(crate) line: usize,
+    pub(crate) package: String,
+}
+
+impl std::fmt::Display for AptPinViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}: apt package `{}` is not version-pinned (expected `package=version`)",
+            self.file, self.line, self.package
+        )
+    }
+}
+
+/// Join Dockerfile line continuations, keeping the physical line each logical
+/// line starts on.
+fn logical_lines(text: &str) -> Vec<(usize, String)> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut start = 1;
+    for (idx, line) in text.lines().enumerate() {
+        let trimmed = line.trim_end();
+        if current.is_empty() {
+            start = idx + 1;
+        }
+        if let Some(prefix) = trimmed.strip_suffix('\\') {
+            current.push_str(prefix);
+            current.push(' ');
+        } else {
+            current.push_str(trimmed);
+            out.push((start, std::mem::take(&mut current)));
+        }
+    }
+    if !current.is_empty() {
+        out.push((start, current));
+    }
+    out
+}
+
+/// Scan `apt-get install` invocations and require `package=version` for every
+/// direct package. Option flags are skipped. Only the toolchain Dockerfile is
+/// passed here; the live-pipeline images carry a documented, unpinned set.
+pub(crate) fn scan_apt_pins(file: &str, text: &str) -> Vec<AptPinViolation> {
+    let mut violations = Vec::new();
+    for (line, logical) in logical_lines(text) {
+        let Some(after) = logical.split_once("apt-get install").map(|(_, rest)| rest) else {
+            continue;
+        };
+        // Stop at the next shell command on the same logical line.
+        let packages = after.split("&&").next().unwrap_or(after);
+        for token in packages.split_whitespace() {
+            if token.starts_with('-') {
+                continue;
+            }
+            let pinned = token
+                .split_once('=')
+                .is_some_and(|(name, version)| !name.is_empty() && !version.is_empty());
+            if !pinned {
+                violations.push(AptPinViolation {
+                    file: file.to_string(),
+                    line,
+                    package: token.to_string(),
+                });
+            }
+        }
+    }
+    violations
+}
+
 /// Compare the Dockerfile comment tokens against the git checkouts and the
 /// recorded environment fingerprint. Pure: takes the three inputs as text /
 /// structs, so it is unit-testable without git or the filesystem.
@@ -163,8 +295,56 @@ pub(crate) fn compare_pins(
     mismatches
 }
 
+/// Read every `docker/Dockerfile*` as `(relative name, text)`, sorted by name.
+fn dockerfiles(root: &Path) -> Result<Vec<(String, String)>> {
+    let dir = root.join("docker");
+    let mut files = Vec::new();
+    let entries =
+        std::fs::read_dir(&dir).with_context(|| format!("failed to read {}", dir.display()))?;
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read {}", dir.display()))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.starts_with("Dockerfile") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        files.push((format!("docker/{name}"), text));
+    }
+    files.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(files)
+}
+
 /// Run the pin check against the real workspace.
 pub(crate) fn run(root: &Path) -> Result<()> {
+    let files = dockerfiles(root)?;
+
+    let mut failures: Vec<String> = Vec::new();
+
+    // Every base image in every Dockerfile must be digest-pinned.
+    for violation in scan_from_pins(&files) {
+        failures.push(violation.to_string());
+    }
+
+    // The toolchain image installs build tools directly from apt; those
+    // direct packages must carry an explicit version.
+    if let Some((_, build)) = files
+        .iter()
+        .find(|(name, _)| name == "docker/Dockerfile.build")
+    {
+        for violation in scan_apt_pins("docker/Dockerfile.build", build) {
+            failures.push(violation.to_string());
+        }
+    }
+
+    // The vendored submodules must agree with their restatement in the
+    // toolchain Dockerfile comment and the environment fingerprint.
     let dockerfile_path = root.join("docker").join("Dockerfile.build");
     let dockerfile = std::fs::read_to_string(&dockerfile_path)
         .with_context(|| format!("failed to read {}", dockerfile_path.display()))?;
@@ -179,17 +359,34 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         .collect();
 
     let env_path = root.join("environment.json");
-    let environment_json = std::fs::read_to_string(&env_path)
-        .with_context(|| format!("failed to read {}", env_path.display()))?;
+    let environment_json = match std::fs::read_to_string(&env_path) {
+        Ok(text) => text,
+        // The fingerprint is generated (and gitignored), so a clean checkout
+        // legitimately lacks it. The Dockerfile-vs-submodule comparison still
+        // runs; only the third source is unavailable.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            println!(
+                "check-pins: {} absent; skipping the environment-fingerprint comparison",
+                env_path.display()
+            );
+            "{}".to_string()
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", env_path.display()))
+        }
+    };
 
-    let mismatches = compare_pins(&dockerfile, &submodules, &environment_json);
-    if mismatches.is_empty() {
+    for mismatch in compare_pins(&dockerfile, &submodules, &environment_json) {
+        failures.push(mismatch.to_string());
+    }
+
+    if failures.is_empty() {
         return Ok(());
     }
-    for mismatch in &mismatches {
-        eprintln!("{mismatch}");
+    for failure in &failures {
+        eprintln!("{failure}");
     }
-    bail!("check-pins: {} mismatch(es)", mismatches.len())
+    bail!("check-pins: {} mismatch(es)", failures.len())
 }
 
 #[cfg(test)]
@@ -305,5 +502,139 @@ mod tests {
             .parent()
             .expect("xtask lives in a subdirectory of the workspace");
         run(root).expect("the committed pins agree");
+    }
+
+    #[test]
+    fn a_bare_tag_from_is_a_violation() {
+        let files = vec![(
+            "docker/Dockerfile.tui".to_string(),
+            "FROM alpine:3.22\n".to_string(),
+        )];
+        let violations = scan_from_pins(&files);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].line, 1);
+        assert_eq!(violations[0].image, "alpine:3.22");
+    }
+
+    #[test]
+    fn a_digest_pinned_from_passes() {
+        let files = vec![(
+            "docker/Dockerfile.tui".to_string(),
+            "FROM alpine:3.22@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034\n"
+                .to_string(),
+        )];
+        assert!(scan_from_pins(&files).is_empty());
+    }
+
+    #[test]
+    fn scratch_and_platform_flags_are_ignored() {
+        let files = vec![(
+            "docker/Dockerfile.build".to_string(),
+            "FROM --platform=linux/amd64 scratch AS final\n".to_string(),
+        )];
+        assert!(scan_from_pins(&files).is_empty());
+    }
+
+    #[test]
+    fn a_digest_must_be_64_hex_characters() {
+        assert!(is_digest_pinned(&format!(
+            "alpine@sha256:{}",
+            "a".repeat(64)
+        )));
+        assert!(!is_digest_pinned(&format!(
+            "alpine@sha256:{}",
+            "a".repeat(63)
+        )));
+        assert!(!is_digest_pinned(&format!(
+            "alpine@sha256:{}z",
+            "a".repeat(63)
+        )));
+    }
+
+    #[test]
+    fn every_shipped_dockerfile_from_is_digest_pinned() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let files = dockerfiles(root).expect("docker directory is readable");
+        assert!(!files.is_empty(), "no Dockerfiles found");
+        let violations = scan_from_pins(&files);
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn an_unpinned_apt_package_is_a_violation() {
+        let text = "RUN apt-get update && apt-get install -y --no-install-recommends \\\n    autoconf \\\n    cmake=3.25.1-1 \\\n    && rm -rf /var/lib/apt/lists/*\n";
+        let violations = scan_apt_pins("docker/Dockerfile.build", text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].package, "autoconf");
+        assert_eq!(violations[0].line, 1);
+    }
+
+    #[test]
+    fn version_pinned_apt_packages_pass() {
+        let text = "RUN apt-get update && apt-get install -y --no-install-recommends \\\n    autoconf=2.71-3 \\\n    automake=1:1.16.5-1.3 \\\n    && rm -rf /var/lib/apt/lists/*\n";
+        assert!(scan_apt_pins("docker/Dockerfile.build", text).is_empty());
+    }
+
+    #[test]
+    fn the_toolchain_dockerfile_pins_every_apt_package() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let text = std::fs::read_to_string(root.join("docker/Dockerfile.build"))
+            .expect("toolchain Dockerfile is committed");
+        let violations = scan_apt_pins("docker/Dockerfile.build", &text);
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn the_toolchain_dockerfile_verifies_the_openssl_archive() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let text = std::fs::read_to_string(root.join("docker/Dockerfile.build"))
+            .expect("toolchain Dockerfile is committed");
+        assert!(text.contains("ARG OPENSSL_SHA256="), "{text}");
+        assert!(text.contains("sha256sum -c -"), "{text}");
+    }
+
+    /// Every image that downloads the OpenSSL release archive must verify it
+    /// against the recorded digest, not merely name the version.
+    #[test]
+    fn every_dockerfile_that_downloads_openssl_verifies_the_archive() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let docker_dir = root.join("docker");
+        let mut checked = 0;
+        for entry in std::fs::read_dir(&docker_dir).expect("docker/ exists") {
+            let path = entry.expect("readable entry").path();
+            if !path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("Dockerfile"))
+            {
+                continue;
+            }
+            let text = std::fs::read_to_string(&path).expect("Dockerfile is readable");
+            if !text.contains("openssl-${OPENSSL_VERSION}.tar.gz") {
+                continue;
+            }
+            checked += 1;
+            let label = path.display();
+            assert!(
+                text.contains("ARG OPENSSL_SHA256="),
+                "{label} has no digest"
+            );
+            assert!(
+                text.contains("sha256sum -c -"),
+                "{label} downloads OpenSSL without verifying it"
+            );
+        }
+        assert!(
+            checked >= 3,
+            "expected every OpenSSL image, found {checked}"
+        );
     }
 }

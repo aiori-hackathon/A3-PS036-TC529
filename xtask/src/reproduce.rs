@@ -11,10 +11,17 @@
 //! (or vice versa).
 //!
 //! ```text
-//! cargo xtask reproduce
-//! cargo xtask reproduce --quick --skip-dns
-//! cargo xtask reproduce --bench --force
+//! cargo xtask reproduce --report-only
+//! cargo xtask reproduce --remeasure --quick --skip-dns
+//! cargo xtask reproduce --remeasure --force
 //! ```
+//!
+//! Two modes are deliberately distinct. `--report-only` reuses the measurement
+//! artifacts already on disk and regenerates only the derived chain
+//! (consolidation, charts, report), so it must never be described as a
+//! re-measurement. `--remeasure` re-runs the benchmarks and measurements before
+//! regenerating. The chosen mode is printed as a banner and recorded in the
+//! consolidated artifact, where the report reads it back.
 //!
 //! The command is planned then executed.  [`plan`] is a pure function from
 //! [`ReproduceOpts`] to an ordered list of [`Step`]s: it spawns no process and
@@ -25,6 +32,7 @@
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
+use climb_report::ReproductionMode;
 use std::process::{Command, Stdio};
 use std::time::Instant;
 
@@ -66,15 +74,23 @@ const LADDER_SIZES_QUICK: &str = "1,2,4,5,13";
 /// Arguments for `cargo xtask reproduce`.
 #[derive(Args)]
 pub(crate) struct ReproduceArgs {
-    /// Limit every measurement to Small/Medium and reuse the existing
-    /// Criterion output for those sizes.  Skips nothing else.
+    /// Limit every measurement to Small/Medium and use the short ladder sweep.
+    /// Has no effect in report-only mode.
     #[arg(long)]
     quick: bool,
 
-    /// Re-run the Criterion benchmark suite instead of reusing the last
-    /// output.  Off by default: the suite is slow, and the existing output is
-    /// the common case when re-rendering artifacts.
-    #[arg(long)]
+    /// Reuse the measurement artifacts already on disk and regenerate only the
+    /// derived artifacts (consolidation, charts, report). This is the default.
+    #[arg(long, conflicts_with_all = ["remeasure", "bench"])]
+    report_only: bool,
+
+    /// Re-run the benchmarks and measurements before regenerating the derived
+    /// artifacts. This is the only mode that may be called a re-measurement.
+    #[arg(long, conflicts_with = "report_only")]
+    remeasure: bool,
+
+    /// Hidden alias for `--remeasure`, kept for scripts that used the old flag.
+    #[arg(long, hide = true, conflicts_with = "report_only")]
     bench: bool,
 
     /// Skip the live DNS pipeline and use the committed recorded capture.
@@ -86,6 +102,39 @@ pub(crate) struct ReproduceArgs {
     /// instead of recording freshness warnings for them.
     #[arg(long)]
     force: bool,
+}
+
+/// Resolve the two explicit modes plus the hidden legacy alias. Rejecting both
+/// modes at once is a usage error rather than a silent preference.
+pub(crate) fn resolve_mode(
+    report_only: bool,
+    remeasure: bool,
+    bench_alias: bool,
+) -> Result<ReproductionMode> {
+    if report_only && (remeasure || bench_alias) {
+        bail!("--report-only and --remeasure/--bench are mutually exclusive");
+    }
+    if remeasure || bench_alias {
+        Ok(ReproductionMode::Remeasure)
+    } else {
+        Ok(ReproductionMode::ReportOnly)
+    }
+}
+
+/// The banner printed before any step runs. Naming the mode up front prevents a
+/// cheap re-render from being reported as a re-measurement.
+pub(crate) fn mode_banner(mode: ReproductionMode) -> String {
+    match mode {
+        ReproductionMode::Remeasure => {
+            "reproduce mode: remeasure — re-running benchmarks and measurements, then regenerating derived artifacts".to_string()
+        }
+        ReproductionMode::ReportOnly => {
+            "reproduce mode: report-only — reusing existing measurements; regenerating derived artifacts only (not a re-measurement)".to_string()
+        }
+        ReproductionMode::Unknown => {
+            "reproduce mode: unknown — refusing to guess; pass --report-only or --remeasure".to_string()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -131,8 +180,6 @@ impl StepId {
 /// Why a planned step will not run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SkipReason {
-    /// `--bench` was absent; the last Criterion output is reused as-is.
-    ReuseCriterion,
     /// `--skip-dns` was passed.
     SkipDnsFlag,
     /// The Docker daemon is unreachable.
@@ -143,7 +190,6 @@ impl SkipReason {
     /// The status text shown in the summary table for this skip.
     pub(crate) fn summary(self) -> &'static str {
         match self {
-            SkipReason::ReuseCriterion => "skipped: reusing existing Criterion output",
             SkipReason::SkipDnsFlag => "skipped: using recorded fixture (--skip-dns)",
             SkipReason::DockerUnavailable => "skipped: using recorded fixture (Docker unavailable)",
         }
@@ -185,65 +231,68 @@ impl Step {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ReproduceOpts {
     pub quick: bool,
-    pub bench: bool,
     pub skip_dns: bool,
     pub force: bool,
     pub docker_available: bool,
+    /// `report-only` or `remeasure`; the mode also travels into `consolidate`.
+    pub mode: ReproductionMode,
 }
 
 /// Build the ordered step list for `opts`.  Pure: no I/O, no subprocesses.
 pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
-    let sizes = if opts.quick { SIZES_QUICK } else { SIZES_FULL };
     let mut steps = Vec::with_capacity(11);
+    let remeasure = opts.mode == ReproductionMode::Remeasure;
 
-    steps.push(Step::run(StepId::PinEnv, &["pin-env"]));
+    // Measurements belong only to a re-measurement. A report-only run reuses
+    // whatever measurement artifacts are already on disk (or the committed
+    // fixtures) and starts at consolidation.
+    if remeasure {
+        let sizes = if opts.quick { SIZES_QUICK } else { SIZES_FULL };
+        steps.push(Step::run(StepId::PinEnv, &["pin-env"]));
 
-    steps.push(Step::run(
-        StepId::WireReport,
-        &["wire-report", "--sizes", sizes, "--out", WIRE_REPORT],
-    ));
+        steps.push(Step::run(
+            StepId::WireReport,
+            &["wire-report", "--sizes", sizes, "--out", WIRE_REPORT],
+        ));
 
-    steps.push(Step::run(
-        StepId::MemoryReport,
-        &["memory-report", "--sizes", sizes, "--out", MEMORY_REPORT],
-    ));
+        steps.push(Step::run(
+            StepId::MemoryReport,
+            &["memory-report", "--sizes", sizes, "--out", MEMORY_REPORT],
+        ));
 
-    // Benchmarks are the slow step and are opt-in; without `--bench` the last
-    // Criterion output is reused and the skip is stated explicitly.
-    let bench = Step::run(StepId::BenchAll, &["bench-all", "--sizes", sizes]);
-    steps.push(if opts.bench {
-        bench
-    } else {
-        bench.skipped(SkipReason::ReuseCriterion)
-    });
+        // A re-measurement always re-runs the benchmarks; that is the claim the
+        // mode makes.
+        steps.push(Step::run(
+            StepId::BenchAll,
+            &["bench-all", "--sizes", sizes],
+        ));
 
-    // Ladder verification is a fast measurement and always runs.  `consolidate`
-    // folds the artifact into the results, so it must precede `consolidate`.
-    // `--quick` measures a short size sweep; the full run omits `--sizes` and
-    // uses the command's default 17-size sweep.
-    let mut ladder = vec!["ladder-verify".to_string()];
-    if opts.quick {
-        ladder.push("--sizes".to_string());
-        ladder.push(LADDER_SIZES_QUICK.to_string());
+        // Ladder verification is a fast measurement and always runs.  The
+        // `--quick` sweep is shorter than the command's default 17-size run.
+        let mut ladder = vec!["ladder-verify".to_string()];
+        if opts.quick {
+            ladder.push("--sizes".to_string());
+            ladder.push(LADDER_SIZES_QUICK.to_string());
+        }
+        ladder.push("--out".to_string());
+        ladder.push(LADDER_VERIFICATION.to_string());
+        steps.push(Step {
+            id: StepId::LadderVerify,
+            argv: ladder,
+            skip: None,
+        });
+
+        // The live DNS pipeline requires Docker; either gate falls back to the
+        // committed recorded fixture, which `consolidate` picks up by default.
+        let dns = Step::run(StepId::DnsDemo, &["dns-demo", "--record", DNS_LIVE]);
+        steps.push(if opts.skip_dns {
+            dns.skipped(SkipReason::SkipDnsFlag)
+        } else if !opts.docker_available {
+            dns.skipped(SkipReason::DockerUnavailable)
+        } else {
+            dns
+        });
     }
-    ladder.push("--out".to_string());
-    ladder.push(LADDER_VERIFICATION.to_string());
-    steps.push(Step {
-        id: StepId::LadderVerify,
-        argv: ladder,
-        skip: None,
-    });
-
-    // The live DNS pipeline requires Docker; either gate falls back to the
-    // committed recorded fixture, which `consolidate` picks up by default.
-    let dns = Step::run(StepId::DnsDemo, &["dns-demo", "--record", DNS_LIVE]);
-    steps.push(if opts.skip_dns {
-        dns.skipped(SkipReason::SkipDnsFlag)
-    } else if !opts.docker_available {
-        dns.skipped(SkipReason::DockerUnavailable)
-    } else {
-        dns
-    });
 
     let mut consolidate = vec![
         "consolidate".to_string(),
@@ -255,6 +304,8 @@ pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
         LADDER_VERIFICATION.to_string(),
         "--output".to_string(),
         RESULTS.to_string(),
+        "--reproduction-mode".to_string(),
+        opts.mode.as_str().to_string(),
     ];
     if opts.force {
         consolidate.push("--force".to_string());
@@ -393,14 +444,20 @@ fn print_summary(results: &[StepResult]) {
 }
 
 pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
+    let mode = resolve_mode(args.report_only, args.remeasure, args.bench)?;
+    println!("{}", mode_banner(mode));
+
     let opts = ReproduceOpts {
         quick: args.quick,
-        bench: args.bench,
         skip_dns: args.skip_dns,
         force: args.force,
+        mode,
         // `--skip-dns` already forces the fixture path; only probe Docker when
-        // it could actually change the outcome.
-        docker_available: !args.skip_dns && docker_available(),
+        // it could actually change the outcome, and only a re-measurement runs
+        // the live pipeline at all.
+        docker_available: mode == ReproductionMode::Remeasure
+            && !args.skip_dns
+            && docker_available(),
     };
     let steps = plan(&opts);
     let exe = xtask_executable()?;
@@ -446,6 +503,7 @@ pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
     }
 
     print_summary(&results);
+    println!("reproduce mode: {}", mode.as_str());
     Ok(())
 }
 
@@ -453,13 +511,23 @@ pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
 mod tests {
     use super::*;
 
-    fn base() -> ReproduceOpts {
+    fn remeasure() -> ReproduceOpts {
         ReproduceOpts {
             quick: false,
-            bench: true,
             skip_dns: false,
             force: false,
             docker_available: true,
+            mode: ReproductionMode::Remeasure,
+        }
+    }
+
+    fn report_only() -> ReproduceOpts {
+        ReproduceOpts {
+            quick: false,
+            skip_dns: false,
+            force: false,
+            docker_available: true,
+            mode: ReproductionMode::ReportOnly,
         }
     }
 
@@ -487,38 +555,122 @@ mod tests {
         step.argv[idx + 1].as_str()
     }
 
+    fn full_order() -> Vec<StepId> {
+        vec![
+            StepId::PinEnv,
+            StepId::WireReport,
+            StepId::MemoryReport,
+            StepId::BenchAll,
+            StepId::LadderVerify,
+            StepId::DnsDemo,
+            StepId::Consolidate,
+            StepId::VerifyConsolidated,
+            StepId::Charts,
+            StepId::ReportHtml,
+            StepId::ReportCheck,
+        ]
+    }
+
+    fn report_order() -> Vec<StepId> {
+        vec![
+            StepId::Consolidate,
+            StepId::VerifyConsolidated,
+            StepId::Charts,
+            StepId::ReportHtml,
+            StepId::ReportCheck,
+        ]
+    }
+
     #[test]
-    fn plan_runs_every_step_in_the_documented_order() {
-        let steps = plan(&base());
+    fn remeasure_runs_every_step_in_the_documented_order() {
+        assert_eq!(kinds(&plan(&remeasure())), full_order());
+    }
+
+    #[test]
+    fn report_only_runs_only_the_derived_chain() {
+        assert_eq!(kinds(&plan(&report_only())), report_order());
+    }
+
+    #[test]
+    fn report_only_reuses_measurements_without_naming_a_skip() {
+        let steps = plan(&report_only());
+        assert_eq!(steps.last().unwrap().id, StepId::ReportCheck);
+        for step in &steps {
+            assert!(step.skip.is_none(), "unexpected skip on {:?}", step.id);
+        }
+    }
+
+    #[test]
+    fn last_step_is_the_report_self_check_in_both_modes() {
+        assert_eq!(plan(&remeasure()).last().unwrap().id, StepId::ReportCheck);
+        assert_eq!(plan(&report_only()).last().unwrap().id, StepId::ReportCheck);
+    }
+
+    #[test]
+    fn the_mode_is_recorded_in_the_consolidate_invocation() {
+        for mode in [ReproductionMode::ReportOnly, ReproductionMode::Remeasure] {
+            let steps = plan(&ReproduceOpts {
+                mode,
+                ..remeasure()
+            });
+            assert_eq!(
+                value_of(find(&steps, StepId::Consolidate), "--reproduction-mode"),
+                mode.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_mode_defaults_to_report_only() {
         assert_eq!(
-            kinds(&steps),
-            vec![
-                StepId::PinEnv,
-                StepId::WireReport,
-                StepId::MemoryReport,
-                StepId::BenchAll,
-                StepId::LadderVerify,
-                StepId::DnsDemo,
-                StepId::Consolidate,
-                StepId::VerifyConsolidated,
-                StepId::Charts,
-                StepId::ReportHtml,
-                StepId::ReportCheck,
-            ]
+            resolve_mode(false, false, false).unwrap(),
+            ReproductionMode::ReportOnly
         );
     }
 
     #[test]
-    fn last_step_is_the_report_self_check() {
-        let steps = plan(&base());
-        assert_eq!(steps.last().unwrap().id, StepId::ReportCheck);
+    fn resolve_mode_honours_the_explicit_flags() {
+        assert_eq!(
+            resolve_mode(true, false, false).unwrap(),
+            ReproductionMode::ReportOnly
+        );
+        assert_eq!(
+            resolve_mode(false, true, false).unwrap(),
+            ReproductionMode::Remeasure
+        );
+        assert_eq!(
+            resolve_mode(false, false, true).unwrap(),
+            ReproductionMode::Remeasure
+        );
+    }
+
+    #[test]
+    fn the_hidden_bench_flag_is_an_alias_for_remeasure() {
+        assert_eq!(
+            resolve_mode(false, false, true).unwrap(),
+            ReproductionMode::Remeasure
+        );
+    }
+
+    #[test]
+    fn asking_for_both_modes_is_a_usage_error() {
+        assert!(resolve_mode(true, true, false).is_err());
+        assert!(resolve_mode(true, false, true).is_err());
+    }
+
+    #[test]
+    fn the_banner_names_the_mode() {
+        assert!(mode_banner(ReproductionMode::ReportOnly).contains("report-only"));
+        assert!(mode_banner(ReproductionMode::ReportOnly).contains("not a re-measurement"));
+        assert!(mode_banner(ReproductionMode::Remeasure).contains("remeasure"));
+        assert!(mode_banner(ReproductionMode::Remeasure).contains("re-running"));
     }
 
     #[test]
     fn quick_restricts_measurements_to_small_and_medium() {
         let opts = ReproduceOpts {
             quick: true,
-            ..base()
+            ..remeasure()
         };
         let steps = plan(&opts);
         for id in [StepId::WireReport, StepId::MemoryReport, StepId::BenchAll] {
@@ -530,32 +682,28 @@ mod tests {
 
     #[test]
     fn full_scope_uses_the_three_blueprint_sizes() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         for id in [StepId::WireReport, StepId::MemoryReport, StepId::BenchAll] {
             assert_eq!(value_of(find(&steps, id), "--sizes"), SIZES_FULL);
         }
     }
 
     #[test]
-    fn bench_flag_controls_whether_bench_all_runs() {
-        let off = plan(&ReproduceOpts {
-            bench: false,
-            ..base()
+    fn report_only_ignores_quick_and_docker_gates() {
+        let steps = plan(&ReproduceOpts {
+            quick: true,
+            skip_dns: true,
+            docker_available: false,
+            ..report_only()
         });
-        assert_eq!(
-            find(&off, StepId::BenchAll).skip,
-            Some(SkipReason::ReuseCriterion)
-        );
-
-        let on = plan(&base());
-        assert_eq!(find(&on, StepId::BenchAll).skip, None);
+        assert_eq!(kinds(&steps), report_order());
     }
 
     #[test]
     fn skip_dns_flag_marks_dns_demo_skipped_with_fixture_reason() {
         let steps = plan(&ReproduceOpts {
             skip_dns: true,
-            ..base()
+            ..remeasure()
         });
         let dns = find(&steps, StepId::DnsDemo);
         assert_eq!(dns.skip, Some(SkipReason::SkipDnsFlag));
@@ -570,20 +718,16 @@ mod tests {
     fn docker_unavailable_marks_dns_demo_skipped() {
         let steps = plan(&ReproduceOpts {
             docker_available: false,
-            ..base()
+            ..remeasure()
         });
         let dns = find(&steps, StepId::DnsDemo);
         assert_eq!(dns.skip, Some(SkipReason::DockerUnavailable));
-        assert!(dns
-            .skip
-            .unwrap()
-            .summary()
-            .contains("using recorded fixture"));
+        assert!(dns.skip.unwrap().summary().contains("Docker unavailable"));
     }
 
     #[test]
     fn dns_demo_records_when_allowed() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let dns = find(&steps, StepId::DnsDemo);
         assert_eq!(dns.skip, None);
         assert_eq!(value_of(dns, "--record"), DNS_LIVE);
@@ -591,7 +735,7 @@ mod tests {
 
     #[test]
     fn ladder_verify_runs_immediately_before_dns_and_before_consolidate() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let order = kinds(&steps);
         let ladder = order
             .iter()
@@ -611,7 +755,7 @@ mod tests {
 
     #[test]
     fn ladder_verify_writes_the_canonical_artifact_path() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let ladder = find(&steps, StepId::LadderVerify);
         assert_eq!(value_of(ladder, "--out"), LADDER_VERIFICATION);
         assert_eq!(ladder.skip, None);
@@ -619,7 +763,7 @@ mod tests {
 
     #[test]
     fn full_ladder_verify_omits_sizes_for_the_default_sweep() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let ladder = find(&steps, StepId::LadderVerify);
         assert!(
             !has_flag(ladder, "--sizes"),
@@ -631,35 +775,41 @@ mod tests {
     fn quick_ladder_verify_uses_a_short_size_list() {
         let steps = plan(&ReproduceOpts {
             quick: true,
-            ..base()
+            ..remeasure()
         });
         let ladder = find(&steps, StepId::LadderVerify);
         assert_eq!(value_of(ladder, "--sizes"), LADDER_SIZES_QUICK);
-        let sizes = value_of(ladder, "--sizes");
         assert!(
-            sizes.split(',').count() < 17,
+            value_of(ladder, "--sizes").split(',').count() < 17,
             "quick sweep must be shorter than the default 17-size sweep"
         );
     }
 
     #[test]
     fn force_is_forwarded_to_consolidate() {
-        let steps = plan(&ReproduceOpts {
-            force: true,
-            ..base()
-        });
-        assert!(has_flag(find(&steps, StepId::Consolidate), "--force"));
+        for opts in [
+            ReproduceOpts {
+                force: true,
+                ..remeasure()
+            },
+            ReproduceOpts {
+                force: true,
+                ..report_only()
+            },
+        ] {
+            assert!(has_flag(find(&plan(&opts), StepId::Consolidate), "--force"));
+        }
     }
 
     #[test]
     fn absent_force_is_not_forwarded() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         assert!(!has_flag(find(&steps, StepId::Consolidate), "--force"));
     }
 
     #[test]
     fn consolidate_receives_the_measurement_outputs() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let consolidate = find(&steps, StepId::Consolidate);
         assert_eq!(value_of(consolidate, "--wire-report"), WIRE_REPORT);
         assert_eq!(value_of(consolidate, "--memory-report"), MEMORY_REPORT);
@@ -672,7 +822,7 @@ mod tests {
 
     #[test]
     fn verify_consolidated_receives_the_memory_report_and_results() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let verify = find(&steps, StepId::VerifyConsolidated);
         assert_eq!(value_of(verify, "--memory-report"), MEMORY_REPORT);
         assert_eq!(value_of(verify, "--results"), RESULTS);
@@ -690,7 +840,7 @@ mod tests {
 
     #[test]
     fn wire_and_memory_write_to_the_canonical_paths() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         assert_eq!(
             value_of(find(&steps, StepId::WireReport), "--out"),
             WIRE_REPORT
@@ -703,53 +853,40 @@ mod tests {
 
     #[test]
     fn report_check_validates_the_rendered_html() {
-        let steps = plan(&base());
-        let check = find(&steps, StepId::ReportCheck);
-        assert_eq!(value_of(check, "--out"), REPORT_HTML);
-        assert_eq!(value_of(check, "--results"), RESULTS);
-        assert!(has_flag(check, "--check"));
-        assert_eq!(value_of(check, "--format"), "html");
+        for steps in [plan(&remeasure()), plan(&report_only())] {
+            let check = find(&steps, StepId::ReportCheck);
+            assert_eq!(value_of(check, "--out"), REPORT_HTML);
+            assert_eq!(value_of(check, "--results"), RESULTS);
+            assert!(has_flag(check, "--check"));
+            assert_eq!(value_of(check, "--format"), "html");
+        }
     }
 
     #[test]
-    fn every_skip_and_force_combination_keeps_the_canonical_order() {
-        let expected = vec![
-            StepId::PinEnv,
-            StepId::WireReport,
-            StepId::MemoryReport,
-            StepId::BenchAll,
-            StepId::LadderVerify,
-            StepId::DnsDemo,
-            StepId::Consolidate,
-            StepId::VerifyConsolidated,
-            StepId::Charts,
-            StepId::ReportHtml,
-            StepId::ReportCheck,
-        ];
+    fn every_remeasure_skip_and_force_combination_keeps_the_canonical_order() {
+        let expected = full_order();
         for &quick in &[false, true] {
-            for &bench in &[false, true] {
-                for &skip_dns in &[false, true] {
-                    for &force in &[false, true] {
-                        for &docker_available in &[false, true] {
-                            let steps = plan(&ReproduceOpts {
-                                quick,
-                                bench,
-                                skip_dns,
-                                force,
-                                docker_available,
-                            });
-                            assert_eq!(kinds(&steps), expected, "order is fixed");
-                            assert_eq!(steps.last().unwrap().id, StepId::ReportCheck);
-                            // Only bench-all and dns-demo may be skipped.
-                            for step in &steps {
-                                let skippable =
-                                    matches!(step.id, StepId::BenchAll | StepId::DnsDemo);
-                                assert!(
-                                    skippable || step.skip.is_none(),
-                                    "unexpected skip on {:?}",
-                                    step.id
-                                );
-                            }
+            for &skip_dns in &[false, true] {
+                for &force in &[false, true] {
+                    for &docker_available in &[false, true] {
+                        let steps = plan(&ReproduceOpts {
+                            quick,
+                            skip_dns,
+                            force,
+                            docker_available,
+                            mode: ReproductionMode::Remeasure,
+                        });
+                        assert_eq!(kinds(&steps), expected, "order is fixed");
+                        assert_eq!(steps.last().unwrap().id, StepId::ReportCheck);
+                        // Only dns-demo may be skipped in a remeasure; the
+                        // benchmark suite always re-runs.
+                        for step in &steps {
+                            let skippable = step.id == StepId::DnsDemo;
+                            assert!(
+                                skippable || step.skip.is_none(),
+                                "unexpected skip on {:?}",
+                                step.id
+                            );
                         }
                     }
                 }
@@ -759,7 +896,6 @@ mod tests {
 
     #[test]
     fn skip_reasons_render_distinct_summary_text() {
-        assert!(SkipReason::ReuseCriterion.summary().contains("Criterion"));
         assert!(SkipReason::SkipDnsFlag.summary().contains("--skip-dns"));
         assert!(SkipReason::DockerUnavailable
             .summary()
@@ -768,7 +904,7 @@ mod tests {
 
     #[test]
     fn step_labels_are_unique_and_nonempty() {
-        let steps = plan(&base());
+        let steps = plan(&remeasure());
         let mut labels: Vec<&str> = steps.iter().map(|s| s.id.label()).collect();
         labels.sort_unstable();
         let count = labels.len();
@@ -786,8 +922,8 @@ mod tests {
                 seconds: Some(0.4),
             },
             StepResult {
-                label: "bench-all",
-                status: SkipReason::ReuseCriterion.summary().to_string(),
+                label: "dns-demo",
+                status: SkipReason::SkipDnsFlag.summary().to_string(),
                 seconds: None,
             },
         ];
