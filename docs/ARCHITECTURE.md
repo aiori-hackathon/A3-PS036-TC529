@@ -175,6 +175,29 @@ The data stores, named:
   the quote sheet and fails if a documented number or diagram node name has
   drifted.
 
+## Threat model for key material
+
+This is benchmark tooling, not production key management. The signing keys it
+generates exist only for the lifetime of a measurement process and are never
+used to sign a zone that is published or reachable from a network. The wrapper
+nevertheless reduces the chance that key bytes outlive their owner or appear in
+a log:
+
+- secret key images are held in a buffer that is overwritten with zeros when it
+  is dropped, and the type deliberately does not implement `Clone`;
+- the one intentional duplication (creating a signer from a keypair) is an
+  explicit `duplicate()` call, so every copy of the key image has a named
+  owner and the same drop behaviour;
+- `Debug` output for keypair, signer and plain-keypair types prints
+  `<redacted>` instead of key bytes, and a unit test asserts that the rendered
+  form contains neither the bytes nor their decimal form.
+
+These are accident-prevention measures, not a claim of protection against a
+process that can read the benchmark's memory, a swapped-out page, a core dump,
+or an attacker with the same user account. The benchmark assumes a single-user
+developer machine and makes no confidentiality guarantee. Any deployment that
+needs real key custody must use a dedicated key store, not this crate.
+
 ## Crate responsibilities
 
 | Crate | Responsibility |

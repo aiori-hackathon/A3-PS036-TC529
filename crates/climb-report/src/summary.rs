@@ -185,8 +185,7 @@ fn parse_signing_suffix(s: &str, full_id: &str) -> Result<(Size, MtlMode), Repor
 }
 
 fn parse_verifying_suffix(s: &str, full_id: &str) -> Result<(Size, MtlMode), ReportError> {
-    if s.contains("_trust_true") {
-        let base = s.strip_suffix("_trust_true").unwrap();
+    if let Some(base) = s.strip_suffix("_trust_true") {
         let (size_str, _) =
             split_size_and_suffix(base).ok_or_else(|| ReportError::UnknownGroupId {
                 id: full_id.to_string(),
@@ -195,8 +194,7 @@ fn parse_verifying_suffix(s: &str, full_id: &str) -> Result<(Size, MtlMode), Rep
             id: full_id.to_string(),
         })?;
         Ok((size, MtlMode::WithMtlTrustCached))
-    } else if s.contains("_trust_false") {
-        let base = s.strip_suffix("_trust_false").unwrap();
+    } else if let Some(base) = s.strip_suffix("_trust_false") {
         let (size_str, _) =
             split_size_and_suffix(base).ok_or_else(|| ReportError::UnknownGroupId {
                 id: full_id.to_string(),

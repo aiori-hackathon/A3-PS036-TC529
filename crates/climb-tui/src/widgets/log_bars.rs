@@ -262,7 +262,9 @@ fn ruler_line(
             continue;
         }
         for (i, ch) in chars.iter().enumerate() {
-            cells[*column as usize + i] = *ch;
+            if let Some(cell) = cells.get_mut(*column as usize + i) {
+                *cell = *ch;
+            }
         }
         last_end = end + 1;
     }

@@ -54,6 +54,24 @@ pub enum ReportError {
         id: String,
     },
 
+    /// A JSON artifact exceeds the size the parser is willing to read.
+    #[error("input {path} is {size} bytes, larger than the {limit} byte limit")]
+    InputTooLarge {
+        /// Path to the oversized input.
+        path: PathBuf,
+        /// Size reported by the filesystem.
+        size: u64,
+        /// Maximum number of bytes the parser accepts.
+        limit: u64,
+    },
+
+    /// A chart file has no matching figure caption.
+    #[error("missing figure caption for chart file {file}")]
+    MissingChartCaption {
+        /// Chart file name that lacked a caption.
+        file: &'static str,
+    },
+
     /// The Criterion output root directory does not exist.
     #[error("benchmark output root directory not found: {path}")]
     MissingRoot {

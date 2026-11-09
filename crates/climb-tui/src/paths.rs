@@ -63,7 +63,9 @@ fn repository_relative(path: &Path) -> Option<String> {
         }
     }
     let start = start?;
-    let parts: Vec<String> = components[start..]
+    let parts: Vec<String> = components
+        .get(start..)
+        .unwrap_or(&[])
         .iter()
         .filter_map(|component| match component {
             Component::Normal(part) => Some(part.to_string_lossy().into_owned()),
@@ -91,7 +93,7 @@ fn suffix(path: &Path) -> String {
         parts.drain(0..2.min(parts.len()));
     }
     let take = parts.len().min(3);
-    let tail = &parts[parts.len().saturating_sub(take)..];
+    let tail = parts.get(parts.len().saturating_sub(take)..).unwrap_or(&[]);
     format!("\u{2026}/{}", tail.join("/"))
 }
 

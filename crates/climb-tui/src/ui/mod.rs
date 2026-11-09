@@ -49,14 +49,14 @@ pub fn render(frame: &mut Frame, app: &App) {
     }
     constraints.push(Constraint::Length(1));
     let chunks = Layout::vertical(constraints).split(area);
-    let tabs_area = chunks[0];
-    let body_area = chunks[1];
-    let status_area = chunks[chunks.len() - 1];
+    let tabs_area = chunks.first().copied().unwrap_or(area);
+    let body_area = chunks.get(1).copied().unwrap_or(area);
+    let status_area = chunks.last().copied().unwrap_or(area);
 
     render_tabs(frame, tabs_area, app, &theme, &glyphs);
     render_body(frame, body_area, app, &theme, &glyphs);
-    if let Some(runner) = app.tour() {
-        tour::render_tour_bar(frame, chunks[2], runner, app.clock().now(), &theme);
+    if let (Some(runner), Some(&tour_area)) = (app.tour(), chunks.get(2)) {
+        tour::render_tour_bar(frame, tour_area, runner, app.clock().now(), &theme);
     }
     render_status(frame, status_area, app, &theme, &glyphs);
 
@@ -214,7 +214,11 @@ fn render_load_error(
 }
 
 fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
-    let spinner = glyphs.spinner[app.tick % glyphs.spinner.len()];
+    let spinner = glyphs
+        .spinner
+        .get(app.tick % glyphs.spinner.len())
+        .copied()
+        .unwrap_or(' ');
     let mode = if app.replay { "replay" } else { "live" };
     let tour = if app.tour_active() { "on" } else { "off" };
     let ascii = if app.ascii { "on" } else { "off" };
@@ -529,6 +533,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../docs/sample-output/climb-results.json");
         let mut app = app_with(false, ThemeId::Dark, false);
+        app.set_clock(crate::tour::Clock::fake());
         let state = match crate::data::load(&path) {
             LoadState::Loaded(view) => LoadState::Loaded(Box::new(ResultsView::new(
                 view.results().clone(),

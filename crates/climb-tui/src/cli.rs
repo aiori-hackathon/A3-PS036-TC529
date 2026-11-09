@@ -34,6 +34,22 @@ pub struct Cli {
     #[arg(long)]
     pub replay: bool,
 
+    /// Validate the named artifacts, print one line per problem, and exit
+    /// without opening the terminal. Exit status is non-zero on any missing,
+    /// unreadable or unparseable required artifact.
+    #[arg(long)]
+    pub check: bool,
+
+    /// Ladder-verification artifact to validate with `--check` (defaults to the
+    /// normal live/recorded/embedded search order).
+    #[arg(long, value_name = "PATH")]
+    pub ladder: Option<PathBuf>,
+
+    /// DNS capture to validate with `--check` (defaults to the normal
+    /// live/recorded/embedded search order).
+    #[arg(long, value_name = "PATH")]
+    pub live: Option<PathBuf>,
+
     /// Begin with the guided tour enabled.
     #[arg(long)]
     pub tour: bool,
@@ -95,6 +111,9 @@ mod tests {
         assert_eq!(cli.theme, ThemeId::Dark);
         assert!(!cli.ascii);
         assert!(!cli.replay);
+        assert!(!cli.check);
+        assert!(cli.ladder.is_none());
+        assert!(cli.live.is_none());
         assert!(!cli.tour);
         assert_eq!(cli.tour_speed, 1.0);
     }
@@ -109,6 +128,11 @@ mod tests {
             "contrast",
             "--ascii",
             "--replay",
+            "--check",
+            "--ladder",
+            "/tmp/l.json",
+            "--live",
+            "/tmp/c.json",
             "--tour",
             "--tour-speed",
             "1.5",
@@ -117,6 +141,9 @@ mod tests {
         assert_eq!(cli.theme, ThemeId::Contrast);
         assert!(cli.ascii);
         assert!(cli.replay);
+        assert!(cli.check);
+        assert_eq!(cli.ladder, Some(PathBuf::from("/tmp/l.json")));
+        assert_eq!(cli.live, Some(PathBuf::from("/tmp/c.json")));
         assert!(cli.tour);
         assert_eq!(cli.tour_speed, 1.5);
     }

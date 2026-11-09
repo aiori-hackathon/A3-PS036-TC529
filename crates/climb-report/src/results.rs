@@ -914,6 +914,13 @@ pub struct ConsolidateOptions {
     /// What the invoking `reproduce` run did. Direct consolidation leaves this
     /// at [`ReproductionMode::Unknown`].
     pub reproduction_mode: ReproductionMode,
+    /// Clock value for `generated_at`. `None` reads the wall clock once; a
+    /// fixed value makes two consolidations byte-identical.
+    pub generated_at: Option<String>,
+    /// Workspace root recorded in the artifact. `None` uses the process
+    /// working directory; a fixed value removes the caller's cwd from the
+    /// output.
+    pub workspace_root: Option<PathBuf>,
 }
 
 /// Pure freshness decision for an already-stat'd input file.
@@ -946,7 +953,32 @@ fn path_is_fresh(path: &Path, max_age: Duration, force: bool) -> bool {
     input_is_fresh(modified, SystemTime::now(), max_age, force)
 }
 
+/// Upper bound on any JSON artifact read by this crate. A results file is tens
+/// of kilobytes and a Criterion tree is read leaf by leaf; 64 MiB leaves ample
+/// headroom while stopping a corrupt or substituted multi-gigabyte file from
+/// exhausting memory before serde ever sees it.
+pub const MAX_JSON_INPUT_BYTES: u64 = 64 * 1024 * 1024;
+
 fn read_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, ReportError> {
+    read_json_with_limit(path, MAX_JSON_INPUT_BYTES)
+}
+
+/// [`read_json`] with an explicit size cap, so the bound itself is testable.
+fn read_json_with_limit<T: serde::de::DeserializeOwned>(
+    path: &Path,
+    limit: u64,
+) -> Result<T, ReportError> {
+    let metadata = fs::metadata(path).map_err(|e| ReportError::Io {
+        path: path.to_path_buf(),
+        source: e,
+    })?;
+    if metadata.len() > limit {
+        return Err(ReportError::InputTooLarge {
+            path: path.to_path_buf(),
+            size: metadata.len(),
+            limit,
+        });
+    }
     let s = fs::read_to_string(path).map_err(|e| ReportError::Io {
         path: path.to_path_buf(),
         source: e,
@@ -1616,14 +1648,18 @@ fn check_baseline_spread(signing: &[SigningBenchmarkResult]) -> BaselineSpread {
             offenders: Vec::new(),
         };
     }
-    let fastest = rows
-        .iter()
-        .min_by(|a, b| a.2.total_cmp(&b.2))
-        .expect("at least two measured sizes");
-    let slowest = rows
-        .iter()
-        .max_by(|a, b| a.2.total_cmp(&b.2))
-        .expect("at least two measured sizes");
+    let Some(fastest) = rows.iter().min_by(|a, b| a.2.total_cmp(&b.2)) else {
+        return BaselineSpread {
+            ok: None,
+            offenders: Vec::new(),
+        };
+    };
+    let Some(slowest) = rows.iter().max_by(|a, b| a.2.total_cmp(&b.2)) else {
+        return BaselineSpread {
+            ok: None,
+            offenders: Vec::new(),
+        };
+    };
     let spread = slowest.2 / fastest.2;
     if spread > BASELINE_SPREAD_LIMIT {
         return BaselineSpread {
@@ -2112,20 +2148,41 @@ fn decode_hex(s: &str) -> Option<Vec<u8>> {
     }
     b.chunks(2)
         .map(|pair| {
-            let hi = (pair[0] as char).to_digit(16)?;
-            let lo = (pair[1] as char).to_digit(16)?;
+            let hi = (*pair.first()? as char).to_digit(16)?;
+            let lo = (*pair.get(1)? as char).to_digit(16)?;
             Some(((hi << 4) | lo) as u8)
         })
         .collect()
 }
 
 /// Parse the byte anatomy of one capture query's embedded wire bytes. Returns
-/// `None` when the query carries no wire bytes or the bytes fail to parse.
-fn anatomy_record_from_query(q: &DnsCaptureQuery) -> Option<DnsAnatomyRecord> {
-    let hex = q.wire_hex.as_ref()?;
-    let bytes = decode_hex(hex)?;
-    let anatomy = climb_dns::parse_response_anatomy(&bytes, Some(q.transport.as_str())).ok()?;
-    Some(DnsAnatomyRecord {
+/// `Ok(None)` only when the query carries no wire bytes; a present-but-invalid
+/// `wire_hex` field is an error naming the capture file and the query label.
+fn anatomy_record_from_query(
+    q: &DnsCaptureQuery,
+    path: &Path,
+) -> Result<Option<DnsAnatomyRecord>, ReportError> {
+    let Some(hex) = q.wire_hex.as_ref() else {
+        return Ok(None);
+    };
+    let bytes = decode_hex(hex).ok_or_else(|| ReportError::MalformedData {
+        path: path.to_path_buf(),
+        reason: format!(
+            "dns capture query {:?} field `wire_hex` is not even-length hexadecimal",
+            q.label
+        ),
+    })?;
+    let anatomy =
+        climb_dns::parse_response_anatomy(&bytes, Some(q.transport.as_str())).map_err(|error| {
+            ReportError::MalformedData {
+                path: path.to_path_buf(),
+                reason: format!(
+                    "dns capture query {:?} field `wire_hex` is not a valid DNS response: {error}",
+                    q.label
+                ),
+            }
+        })?;
+    Ok(Some(DnsAnatomyRecord {
         label: q.label.clone(),
         wire_length: anatomy.wire_length,
         header_bytes: anatomy.header_bytes,
@@ -2139,7 +2196,7 @@ fn anatomy_record_from_query(q: &DnsCaptureQuery) -> Option<DnsAnatomyRecord> {
         full_rrsig_count: anatomy.full_rrsig_count,
         condensed_rrsig_count: anatomy.condensed_rrsig_count,
         parts_sum: anatomy.parts_sum,
-    })
+    }))
 }
 
 /// Derive the headline anatomy section from the capture's embedded wire bytes
@@ -2148,29 +2205,29 @@ fn anatomy_record_from_query(q: &DnsCaptureQuery) -> Option<DnsAnatomyRecord> {
 fn anatomy_from_capture(
     capture: &DnsCapture,
     source: DnsCaptureSource,
-) -> Option<DnsAnatomySection> {
-    let find = |label: &str| {
-        capture
-            .queries
-            .iter()
-            .find(|q| {
-                q.label.eq_ignore_ascii_case(label)
-                    && q.qname.eq_ignore_ascii_case(HEADLINE_QNAME)
-                    && q.qtype.eq_ignore_ascii_case(HEADLINE_QTYPE)
-            })
-            .and_then(anatomy_record_from_query)
+    path: &Path,
+) -> Result<Option<DnsAnatomySection>, ReportError> {
+    let find = |label: &str| -> Result<Option<DnsAnatomyRecord>, ReportError> {
+        match capture.queries.iter().find(|q| {
+            q.label.eq_ignore_ascii_case(label)
+                && q.qname.eq_ignore_ascii_case(HEADLINE_QNAME)
+                && q.qtype.eq_ignore_ascii_case(HEADLINE_QTYPE)
+        }) {
+            Some(query) => anatomy_record_from_query(query, path),
+            None => Ok(None),
+        }
     };
-    let full = find("full");
-    let condensed = find("condensed");
+    let full = find("full")?;
+    let condensed = find("condensed")?;
     if full.is_none() && condensed.is_none() {
-        return None;
+        return Ok(None);
     }
-    Some(DnsAnatomySection {
+    Ok(Some(DnsAnatomySection {
         source,
         recorded_at: capture.recorded_at.clone(),
         full,
         condensed,
-    })
+    }))
 }
 
 /// Load the DNS capture, preferring a live recording over the committed
@@ -2203,7 +2260,7 @@ fn load_dns_anatomy(live: &Path, fixture: &Path) -> Result<Option<DnsAnatomySect
         return Ok(None);
     };
     let capture: DnsCapture = read_json(path)?;
-    Ok(anatomy_from_capture(&capture, source))
+    anatomy_from_capture(&capture, source, path)
 }
 
 /// Load the recorded ladder-verification artifact, preferring a live run over
@@ -2262,10 +2319,11 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let max_age = Duration::from_secs(24 * 3600);
     let mut warnings: Vec<String> = Vec::new();
 
-    let workspace_root = std::env::current_dir()
-        .unwrap_or_else(|_| PathBuf::from("."))
-        .to_string_lossy()
-        .to_string();
+    let workspace_root = match opts.workspace_root.clone() {
+        Some(root) => root,
+        None => std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
+    };
+    let workspace_root = workspace_root.to_string_lossy().to_string();
     // The artifact stores its own root as `<repo>`; anything else below the
     // home directory is stored `~`-relative.
     let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -2501,7 +2559,10 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
 
     let results = ClimbResults {
         version: "1.0".to_string(),
-        generated_at: chrono_like_timestamp(),
+        generated_at: opts
+            .generated_at
+            .clone()
+            .unwrap_or_else(chrono_like_timestamp),
         workspace_root,
         benchmark: BenchmarkResults { signing, verifying },
         wire_size,
@@ -2836,6 +2897,56 @@ fn chrono_like_timestamp() -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn two_consolidations_on_the_same_inputs_are_byte_identical() {
+        let root = temp_root("determinism");
+        std::fs::create_dir_all(root.join("criterion")).unwrap();
+
+        let run = || {
+            consolidate_results(ConsolidateOptions {
+                force: true,
+                criterion_dir: root.join("criterion"),
+                wire_report_path: None,
+                memory_report_path: None,
+                dns_capture_path: root.join("no-capture.json"),
+                dns_fixture_path: root.join("no-fixture.json"),
+                ladder_verification_path: root.join("no-live.json"),
+                ladder_fixture_path: root.join("no-fixture.json"),
+                environment_path: root.join("no-env.json"),
+                baseline: "new".to_string(),
+                rtt_ms: None,
+                classical_signatures_path: root.join("no-classical-signatures.json"),
+                output_path: root.join("out.json"),
+                reproduction_mode: ReproductionMode::Unknown,
+                generated_at: Some("2026-01-01T00:00:00Z".to_string()),
+                workspace_root: Some(root.clone()),
+            })
+            .unwrap()
+        };
+
+        let first = serde_json::to_vec_pretty(&run()).unwrap();
+        let second = serde_json::to_vec_pretty(&run()).unwrap();
+        assert_eq!(
+            first, second,
+            "consolidation must not embed a clock or cwd when both are injected"
+        );
+    }
+
+    #[test]
+    fn read_json_rejects_an_input_over_the_explicit_limit() {
+        let file = tempfile::NamedTempFile::new().expect("temp file");
+        std::fs::write(file.path(), b"{\"a\":1}").expect("write fixture");
+        let limited: Result<serde_json::Value, super::ReportError> =
+            super::read_json_with_limit(file.path(), 4);
+        match limited {
+            Err(super::ReportError::InputTooLarge { size, limit, .. }) => {
+                assert_eq!(size, 7);
+                assert_eq!(limit, 4);
+            }
+            other => panic!("expected InputTooLarge, got {other:?}"),
+        }
+    }
+
     use super::*;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -3160,6 +3271,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
             reproduction_mode: ReproductionMode::Remeasure,
+            generated_at: None,
+            workspace_root: None,
         })
         .unwrap();
         assert_eq!(results.reproduction_mode, ReproductionMode::Remeasure);
@@ -3439,6 +3552,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
             reproduction_mode: ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         };
 
         let results = consolidate_results(opts).unwrap();
@@ -3504,6 +3619,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: output.clone(),
             reproduction_mode: ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         };
 
         let results = consolidate_results(opts).unwrap();
@@ -3593,6 +3710,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
             reproduction_mode: ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         };
         consolidate_results(opts).unwrap()
     }
@@ -3822,6 +3941,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
             reproduction_mode: ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         };
         let results = consolidate_results(opts).unwrap();
         assert!(
@@ -4131,6 +4252,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: root.join("out.json"),
             reproduction_mode: ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         })
         .unwrap();
 

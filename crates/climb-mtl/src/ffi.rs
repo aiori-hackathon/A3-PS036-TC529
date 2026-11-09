@@ -64,24 +64,32 @@ impl Buffer {
         self.0.as_ptr()
     }
 
+    /// Number of bytes currently in use in the buffer.
+    pub(crate) fn len(&self) -> usize {
+        // SAFETY: `self.0` is a live, initialised libMTL buffer.
+        unsafe { sys::mtllib_buffer_in_use(self.as_ptr()) }
+    }
+
     /// Copy the bytes currently in use out of the buffer.
-    pub(crate) fn to_vec(&self) -> Vec<u8> {
+    pub(crate) fn to_vec(&self) -> Result<Vec<u8>, Status> {
         // SAFETY: `self.0` is a live, initialised libMTL buffer.
         let len = unsafe { sys::mtllib_buffer_in_use(self.as_ptr()) };
         if len == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
         // SAFETY: `self.0` is live; for an internal buffer libMTL guarantees the
         // data pointer addresses at least `len` initialised bytes, and the guard
         // keeps the buffer alive across the copy.
         let ptr = unsafe { sys::mtllib_buffer_data_ptr(self.as_ptr()) };
-        debug_assert!(
-            !ptr.is_null(),
-            "libMTL returned a null data pointer with a non-zero length"
-        );
-        // SAFETY: non-null (libMTL internal allocation) and valid for `len`
-        // bytes; the resulting slice is immediately copied into an owned Vec.
-        unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec()
+        if ptr.is_null() {
+            // Defensive: a null pointer paired with a non-zero length would make
+            // `from_raw_parts` undefined behaviour. Treat it as a native
+            // allocation failure instead of relying on the debug assertion.
+            return Err(MEMORY_ERROR);
+        }
+        // SAFETY: non-null (checked above) and valid for `len` bytes; the
+        // resulting slice is immediately copied into an owned Vec.
+        Ok(unsafe { std::slice::from_raw_parts(ptr, len) }.to_vec())
     }
 }
 
@@ -132,11 +140,21 @@ impl Ctx {
         public_key: &Buffer,
         series_id: &[u8],
     ) -> Result<Self, Status> {
-        debug_assert!(!series_id.is_empty(), "series id must be non-empty");
+        let hash_size = usize::from(security_parameter(algorithm));
+        let expected_sid = hash_size
+            .checked_mul(2)
+            .ok_or(sys::MTLLIB_STATUS_MTLLIB_BAD_VALUE)?;
+        if hash_size == 0 || series_id.len() != expected_sid || public_key.len() == 0 {
+            // `mtllib_pubkey_from_buffer` reads exactly `2 * sec_param` series
+            // id bytes through the pointer and a non-empty public key. Reject a
+            // mismatched length here rather than letting the native code read
+            // past a short slice.
+            return Err(sys::MTLLIB_STATUS_MTLLIB_BAD_VALUE);
+        }
         let mut raw: *mut sys::MTLLIB_CTX = ptr::null_mut();
-        // SAFETY: `algorithm` is a valid C string, `public_key` is a live buffer,
-        // and `series_id` is a live slice of at least `2 * sec_param` bytes
-        // (validated by the caller). `raw` is a valid out-pointer; ownership of
+        // SAFETY: `algorithm` is a valid C string, `public_key` is a live,
+        // non-empty buffer, and `series_id` was just checked to be exactly
+        // `2 * sec_param` live bytes. `raw` is a valid out-pointer; ownership of
         // the new context transfers to this guard.
         let status = unsafe {
             sys::mtllib_pubkey_from_buffer(
@@ -162,15 +180,17 @@ impl Ctx {
     /// four-byte length field. Reading it from the context keeps the wrapper
     /// from hard-coding a per-scheme constant: a different algorithm string
     /// automatically gets its own length.
-    pub(crate) fn signature_length(&self) -> usize {
+    pub(crate) fn signature_length(&self) -> Result<usize, Status> {
         // SAFETY: `self.0` is a live context created by `mtllib_key_new` or
         // `mtllib_pubkey_from_buffer`, both of which initialise `signature` to
         // a live `OQS_SIG`. The field is read-only here and `length_signature`
         // is a plain integer.
         unsafe {
             let signature = (*self.0.as_ptr()).signature;
-            debug_assert!(!signature.is_null(), "libMTL context has no scheme");
-            (*signature).length_signature
+            if signature.is_null() {
+                return Err(sys::MTLLIB_STATUS_MTLLIB_BAD_VALUE);
+            }
+            Ok((*signature).length_signature)
         }
     }
 
@@ -187,7 +207,7 @@ impl Ctx {
         if status != OK {
             return Err(status);
         }
-        Ok(buffer.to_vec())
+        buffer.to_vec()
     }
 
     /// Serialize the full key image (algorithm, keys, series id, tree state).
@@ -203,7 +223,7 @@ impl Ctx {
         if status != OK {
             return Err(status);
         }
-        Ok(buffer.to_vec())
+        buffer.to_vec()
     }
 
     /// Append a message to the node set, returning a handle for it.
@@ -235,7 +255,7 @@ impl Ctx {
         if status != OK {
             return Err(status);
         }
-        Ok(buffer.to_vec())
+        buffer.to_vec()
     }
 
     /// Export the signed ladder for the current node set.
@@ -254,7 +274,7 @@ impl Ctx {
         if status != OK {
             return Err(status);
         }
-        Ok(buffer.to_vec())
+        buffer.to_vec()
     }
 
     /// Verify the signature embedded in a signed ladder.

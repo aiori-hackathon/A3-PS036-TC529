@@ -183,7 +183,7 @@ fn render_claims(
 
     let id_width = (width.saturating_sub(6) / 3).clamp(10, 34);
     let mut lines = vec![header_line(id_width, theme)];
-    for row in &rows[start..end] {
+    for row in rows.get(start..end).unwrap_or(&[]) {
         lines.push(claim_line(row, id_width, theme));
     }
     let table = Paragraph::new(lines).block(

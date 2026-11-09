@@ -54,6 +54,8 @@ fn consolidate_from_committed_fixture(root: &Path) -> climb_report::ClimbResults
         classical_signatures_path: root.join("no-classical-signatures.json"),
         output_path: root.join("climb-results.json"),
         reproduction_mode: climb_report::ReproductionMode::Unknown,
+        generated_at: None,
+        workspace_root: None,
     })
     .expect("consolidate from the committed ladder fixture")
 }
@@ -80,6 +82,8 @@ fn consolidate(
         classical_signatures_path: root.join("no-classical-signatures.json"),
         output_path: root.join("climb-results.json"),
         reproduction_mode: climb_report::ReproductionMode::Unknown,
+        generated_at: None,
+        workspace_root: None,
     })
 }
 

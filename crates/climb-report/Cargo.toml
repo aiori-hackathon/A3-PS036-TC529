@@ -25,3 +25,6 @@ climb-analytical = { path = "../climb-analytical" }
 climb-bench = { path = "../climb-bench", default-features = false }
 climb-dns = { path = "../climb-dns" }
 plotters = { workspace = true, optional = true }
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"

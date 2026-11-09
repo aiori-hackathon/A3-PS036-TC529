@@ -38,6 +38,9 @@ use clap::Args;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+
+use crate::proc;
 
 use crate::readme_badges;
 use crate::verify_numbers::VerifyNumbersArgs;
@@ -1604,17 +1607,9 @@ pub(crate) fn check_image_paths(
 
 /// The repository paths tracked in git, relative to the workspace root.
 pub(crate) fn tracked_files(root: &Path) -> Result<HashSet<String>> {
-    let output = Command::new("git")
-        .args(["ls-files", "-z"])
-        .current_dir(root)
-        .output()
-        .context("failed to run `git ls-files`")?;
-    if !output.status.success() {
-        bail!(
-            "`git ls-files` failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+    let mut command = Command::new("git");
+    command.args(["ls-files", "-z"]).current_dir(root);
+    let output = proc::run(&mut command, Duration::from_secs(120), "git ls-files")?;
     let text = String::from_utf8_lossy(&output.stdout);
     Ok(text
         .split('\0')
@@ -1647,7 +1642,8 @@ fn markdown_files(dir: &Path) -> Result<Vec<PathBuf>> {
 
 /// The real crate and binary names of the workspace, from `cargo metadata`.
 pub(crate) fn workspace_names(root: &Path) -> Result<HashSet<String>> {
-    let output = Command::new("cargo")
+    let mut command = Command::new("cargo");
+    command
         .args([
             "metadata",
             "--no-deps",
@@ -1655,15 +1651,8 @@ pub(crate) fn workspace_names(root: &Path) -> Result<HashSet<String>> {
             "1",
             "--manifest-path",
         ])
-        .arg(root.join("Cargo.toml"))
-        .output()
-        .context("failed to run `cargo metadata`")?;
-    if !output.status.success() {
-        bail!(
-            "`cargo metadata` failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+        .arg(root.join("Cargo.toml"));
+    let output = proc::run(&mut command, Duration::from_secs(300), "cargo metadata")?;
     let meta: serde_json::Value = serde_json::from_slice(&output.stdout)
         .context("failed to parse `cargo metadata` output")?;
     let mut names = HashSet::new();
@@ -1808,17 +1797,14 @@ pub(crate) fn check_sample_checksums(root: &Path) -> Result<Vec<Violation>> {
 /// its resolved tree, by running the committed check script.
 pub(crate) fn check_viewer_build(root: &Path) -> Result<()> {
     let script = root.join("scripts/check-viewer-build.sh");
-    let status = Command::new("bash")
-        .arg(&script)
-        .current_dir(root)
-        .status()
-        .with_context(|| format!("failed to run {}", script.display()))?;
-    if !status.success() {
-        bail!(
-            "the viewer build check failed — run `{}` for details",
-            script.display()
-        );
-    }
+    let mut command = Command::new("bash");
+    command.arg(&script).current_dir(root);
+    proc::run(
+        &mut command,
+        Duration::from_secs(1800),
+        "viewer build check",
+    )
+    .with_context(|| format!("failed to run {}", script.display()))?;
     Ok(())
 }
 

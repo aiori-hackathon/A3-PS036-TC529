@@ -25,6 +25,9 @@ use clap::Args;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+
+use crate::proc;
 
 use climb_report::charts::CHART_FILES;
 use climb_report::{check, ClimbResults};
@@ -187,10 +190,9 @@ pub(crate) fn render_provenance(prov: &Provenance) -> String {
 /// Run a command and return its trimmed stdout, or `None` when it is missing
 /// or exits non-zero.
 pub(crate) fn capture(program: &str, args: &[&str]) -> Option<String> {
-    let output = Command::new(program).args(args).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let mut command = Command::new(program);
+    command.args(args);
+    let output = proc::run(&mut command, Duration::from_secs(120), program).ok()?;
     Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -321,17 +323,14 @@ pub(crate) fn cmd_package(args: PackageArgs) -> Result<()> {
         std::fs::remove_file(&tarball)
             .with_context(|| format!("failed to replace {}", tarball.display()))?;
     }
-    let status = Command::new("tar")
+    let mut command = Command::new("tar");
+    command
         .args(["-czf"])
         .arg(&tarball)
         .arg("-C")
         .arg(&staging)
-        .arg(&bundle)
-        .status()
-        .context("failed to run tar")?;
-    if !status.success() {
-        bail!("tar exited with {status}");
-    }
+        .arg(&bundle);
+    proc::run(&mut command, Duration::from_secs(600), "tar -czf").context("failed to run tar")?;
 
     std::fs::remove_dir_all(&staging)
         .with_context(|| format!("failed to clear {}", staging.display()))?;

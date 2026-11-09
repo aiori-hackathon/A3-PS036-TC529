@@ -253,9 +253,18 @@ pub fn load_results_auto_from(
     embedded_bytes: &[u8],
 ) -> (ArtifactSource, LoadState) {
     if let Some(path) = explicit {
-        if let Some(state) = load_present(path, ArtifactOrigin::Explicit.path(path)) {
+        // An explicitly named file is authoritative: if it is absent that is a
+        // hard `Missing`, never a silent fall-through to another source.
+        let source = ArtifactOrigin::Explicit.path(path);
+        if let Some(state) = load_present(path, source.clone()) {
             return state;
         }
+        return (
+            source,
+            LoadState::Missing {
+                path: path.to_path_buf(),
+            },
+        );
     }
     for (origin, path) in [
         (ArtifactOrigin::Target, target),
@@ -273,6 +282,23 @@ pub fn load_results_auto_from(
             ArtifactOrigin::Embedded,
         ),
     )
+}
+
+/// Largest artifact the dashboard will read. Real artifacts are kilobytes;
+/// the cap stops a substituted multi-gigabyte file from being read into memory.
+pub(crate) const MAX_ARTIFACT_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Read a candidate artifact, refusing files above [`MAX_ARTIFACT_BYTES`].
+pub(crate) fn read_artifact(path: &Path) -> Result<String, String> {
+    let metadata = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if metadata.len() > MAX_ARTIFACT_BYTES {
+        return Err(format!(
+            "file is {} bytes, larger than the {} byte limit",
+            metadata.len(),
+            MAX_ARTIFACT_BYTES
+        ));
+    }
+    std::fs::read_to_string(path).map_err(|error| error.to_string())
 }
 
 /// Load one candidate, returning `None` only when the file is absent.
@@ -333,12 +359,12 @@ fn load_with_source(path: &Path) -> LoadState {
             }
         }
     };
-    let source = match std::fs::read_to_string(path) {
+    let source = match read_artifact(path) {
         Ok(source) => source,
         Err(error) => {
             return LoadState::Invalid {
                 path: path.to_path_buf(),
-                error: error.to_string(),
+                error,
             };
         }
     };
@@ -805,26 +831,22 @@ mod tests {
         let root = source_root("precedence");
         let target = root.join("target/climb-results.json");
         let sample = root.join("docs/sample-output/climb-results.json");
-        let explicit = root.join("missing/results.json");
         let bytes = valid_results_bytes();
 
         write_bytes(&target, &bytes);
         write_bytes(&sample, &bytes);
-        let (source, state) =
-            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        let (source, state) = load_results_auto_from(None, &target, &sample, embedded::RESULTS);
         assert_eq!(source.origin(), ArtifactOrigin::Target);
         assert!(state.is_loaded());
 
         std::fs::remove_file(&target).expect("remove target");
-        let (source, state) =
-            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        let (source, state) = load_results_auto_from(None, &target, &sample, embedded::RESULTS);
         assert_eq!(source.origin(), ArtifactOrigin::Sample);
         assert_eq!(source.path(), Some(sample.as_path()));
         assert!(state.is_loaded());
 
         std::fs::remove_file(&sample).expect("remove sample");
-        let (source, state) =
-            load_results_auto_from(Some(&explicit), &target, &sample, embedded::RESULTS);
+        let (source, state) = load_results_auto_from(None, &target, &sample, embedded::RESULTS);
         assert_eq!(source.origin(), ArtifactOrigin::Embedded);
         assert_eq!(source.path(), None);
         assert!(state.is_loaded());
@@ -1006,6 +1028,8 @@ mod tests {
             classical_signatures_path: root.join("no-classical-signatures.json"),
             output_path: results_path.clone(),
             reproduction_mode: climb_report::ReproductionMode::Unknown,
+            generated_at: None,
+            workspace_root: None,
         })
         .expect("consolidate from the committed ladder fixture");
 

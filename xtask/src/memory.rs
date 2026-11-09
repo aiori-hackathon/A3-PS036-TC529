@@ -5,6 +5,8 @@
 //! cargo xtask memory-report --samples 7 --out results/memory.json
 //! ```
 
+use crate::proc;
+
 use anyhow::{Context, Result};
 use clap::Args;
 use std::fs;
@@ -167,10 +169,7 @@ fn run_probe(size_str: &str, seed: u64) -> Result<ProbeLine> {
     let probe_path = probe_binary_path();
     let mut cmd = Command::new(probe_path);
     cmd.arg(size_str).arg(seed.to_string());
-    let out = cmd.output().context("failed to spawn mem_probe")?;
-    if !out.status.success() {
-        anyhow::bail!("mem_probe failed: {}", String::from_utf8_lossy(&out.stderr));
-    }
+    let out = proc::run(&mut cmd, std::time::Duration::from_secs(600), "mem_probe")?;
     let stdout = String::from_utf8(out.stdout).context("mem_probe produced non-utf8")?;
     serde_json::from_str(&stdout)
         .with_context(|| format!("failed to parse probe output for {size_str}: {stdout}"))

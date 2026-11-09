@@ -150,8 +150,9 @@ impl ResultsView {
         }
         all_log_y.sort_by(f64::total_cmp);
         let (x_bounds, x_labels) = decade_axis(n_min.log10(), n_max.log10(), fmt_count);
-        let (y_bounds, y_labels) =
-            decade_axis(all_log_y[0], all_log_y[all_log_y.len() - 1], fmt_time_ns);
+        let y_min = all_log_y.first().copied().unwrap_or(0.0);
+        let y_max = all_log_y.last().copied().unwrap_or(0.0);
+        let (y_bounds, y_labels) = decade_axis(y_min, y_max, fmt_time_ns);
 
         AmortizationView {
             has_data: true,

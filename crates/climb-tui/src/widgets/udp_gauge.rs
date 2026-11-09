@@ -176,11 +176,15 @@ impl UdpGauge<'_> {
                 continue;
             }
             let column = position(reference, self.axis_min, self.axis_max, track_width);
-            track[column as usize] = self.glyphs.rail;
+            if let Some(cell) = track.get_mut(column as usize) {
+                *cell = self.glyphs.rail;
+            }
         }
         for marker in &self.markers {
             let column = position(marker.bytes, self.axis_min, self.axis_max, track_width);
-            track[column as usize] = self.marker_glyph(marker.kind);
+            if let Some(cell) = track.get_mut(column as usize) {
+                *cell = self.marker_glyph(marker.kind);
+            }
         }
         let track_line: String = track.into_iter().collect();
 
@@ -217,7 +221,9 @@ fn ruler_line(gauge: &UdpGauge<'_>, width: u16) -> Line<'static> {
             continue;
         }
         for (i, ch) in chars.iter().enumerate() {
-            cells[column as usize + i] = *ch;
+            if let Some(cell) = cells.get_mut(column as usize + i) {
+                *cell = *ch;
+            }
         }
         last_end = end + 1;
     }

@@ -27,6 +27,8 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
+use crate::proc;
+
 use crate::package::{
     capture, full_sha, render_provenance, render_sums, sha256_hex, submodule_shas, Provenance,
 };
@@ -112,21 +114,18 @@ pub(crate) fn cmd_dist_tui(args: DistTuiArgs) -> Result<()> {
         bail!("target {target} is not installed — run `rustup target add {target}`");
     }
 
-    let status = Command::new("cargo")
-        .args([
-            "build",
-            "-p",
-            CRATE,
-            "--release",
-            "--no-default-features",
-            "--target",
-            &target,
-        ])
-        .status()
+    let mut command = Command::new("cargo");
+    command.args([
+        "build",
+        "-p",
+        CRATE,
+        "--release",
+        "--no-default-features",
+        "--target",
+        &target,
+    ]);
+    proc::run(&mut command, Duration::from_secs(3600), "cargo build")
         .context("failed to run cargo build")?;
-    if !status.success() {
-        bail!("cargo build exited with {status}");
-    }
 
     let built = Path::new("target")
         .join(&target)
@@ -152,13 +151,9 @@ pub(crate) fn cmd_dist_tui(args: DistTuiArgs) -> Result<()> {
     let staged = root.join(BINARY);
     std::fs::copy(&built, &staged)
         .with_context(|| format!("failed to copy {} to {}", built.display(), staged.display()))?;
-    let stripped = Command::new("strip")
-        .arg(&staged)
-        .status()
-        .context("failed to run strip")?;
-    if !stripped.success() {
-        bail!("strip exited with {stripped}");
-    }
+    let mut command = Command::new("strip");
+    command.arg(&staged);
+    proc::run(&mut command, Duration::from_secs(120), "strip").context("failed to run strip")?;
 
     let bytes =
         std::fs::read(&staged).with_context(|| format!("failed to read {}", staged.display()))?;
@@ -181,17 +176,14 @@ pub(crate) fn cmd_dist_tui(args: DistTuiArgs) -> Result<()> {
         std::fs::remove_file(&tarball)
             .with_context(|| format!("failed to replace {}", tarball.display()))?;
     }
-    let tar = Command::new("tar")
+    let mut command = Command::new("tar");
+    command
         .args(["-czf"])
         .arg(&tarball)
         .arg("-C")
         .arg(&staging)
-        .arg(&bundle)
-        .status()
-        .context("failed to run tar")?;
-    if !tar.success() {
-        bail!("tar exited with {tar}");
-    }
+        .arg(&bundle);
+    proc::run(&mut command, Duration::from_secs(600), "tar -czf").context("failed to run tar")?;
 
     let size = std::fs::metadata(&tarball)
         .map(|meta| meta.len())

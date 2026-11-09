@@ -12,6 +12,12 @@
 //!   [`app::Effect`] for the runtime to execute. That is what keeps the model testable
 //!   without a terminal.
 
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 pub mod app;
 pub mod cli;
 pub mod data;

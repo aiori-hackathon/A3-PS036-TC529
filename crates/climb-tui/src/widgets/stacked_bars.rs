@@ -114,7 +114,9 @@ pub fn segment_widths(values: &[u64], width: u16) -> Vec<u16> {
         let exact = u128::from(value) * w;
         let floor = exact / t;
         // Narrowing is lossless: floor <= width, and width is a u16.
-        out[i] = floor as u16;
+        if let Some(slot) = out.get_mut(i) {
+            *slot = floor as u16;
+        }
         assigned += floor;
         remainders.push((exact % t, i));
     }
@@ -124,8 +126,12 @@ pub fn segment_widths(values: &[u64], width: u16) -> Vec<u16> {
     let len = remainders.len();
     let mut left = (w - assigned) as usize;
     let mut k = 0;
-    while left > 0 {
-        out[remainders[k % len].1] += 1;
+    while left > 0 && len > 0 {
+        if let Some((_, index)) = remainders.get(k % len) {
+            if let Some(slot) = out.get_mut(*index) {
+                *slot = slot.saturating_add(1);
+            }
+        }
         left -= 1;
         k += 1;
     }

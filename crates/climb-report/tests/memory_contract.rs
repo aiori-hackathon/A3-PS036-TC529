@@ -40,6 +40,8 @@ fn consolidate_memory(
         classical_signatures_path: root.join("no-classical-signatures.json"),
         output_path: root.join("out.json"),
         reproduction_mode: climb_report::ReproductionMode::Unknown,
+        generated_at: None,
+        workspace_root: None,
     })
 }
 

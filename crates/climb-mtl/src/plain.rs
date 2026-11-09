@@ -7,23 +7,36 @@
 //! scheme's own.
 
 use std::ffi::CString;
+use std::fmt;
 use std::marker::PhantomData;
 
 use crate::error::MtlError;
 use crate::ffi_plain::Scheme;
+use crate::secret::SecretBytes;
 use crate::{DEFAULT_PLAIN_ALGORITHM, PLAIN_ALGORITHM_ENV};
 
 /// A plain (non-MTL) SLH-DSA keypair and its scheme.
 ///
 /// Owns the native `OQS_SIG` scheme and the generated keypair, and frees the
-/// scheme on drop. It is deliberately **not** `Send` or `Sync`: liboqs does not
-/// document the thread-safety of an `OQS_SIG` object, so sharing one across
-/// threads would rely on behavior the library does not guarantee.
+/// scheme on drop. The secret key is held in a zeroize-on-drop buffer that
+/// never prints its contents. It is deliberately **not** `Send` or `Sync`:
+/// liboqs does not document the thread-safety of an `OQS_SIG` object, so
+/// sharing one across threads would rely on behavior the library does not
+/// guarantee.
 pub struct PlainSlhDsa {
     scheme: Scheme,
     public_key: Vec<u8>,
-    secret_key: Vec<u8>,
+    secret_key: SecretBytes,
     _not_thread_safe: PhantomData<*const ()>,
+}
+
+impl fmt::Debug for PlainSlhDsa {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("PlainSlhDsa")
+            .field("public_key_len", &self.public_key.len())
+            .field("secret_key", &"<redacted>")
+            .finish()
+    }
 }
 
 impl PlainSlhDsa {
@@ -41,7 +54,7 @@ impl PlainSlhDsa {
         Ok(Self {
             scheme,
             public_key,
-            secret_key,
+            secret_key: SecretBytes::new(secret_key),
             _not_thread_safe: PhantomData,
         })
     }
@@ -59,7 +72,7 @@ impl PlainSlhDsa {
     /// Sign `message`, returning exactly the signature bytes.
     pub fn sign(&self, message: &[u8]) -> Result<Vec<u8>, MtlError> {
         self.scheme
-            .sign(message, &self.secret_key)
+            .sign(message, self.secret_key.as_slice())
             .map_err(|status| MtlError::PlainSignFailed { status })
     }
 
@@ -139,8 +152,7 @@ mod tests {
     #[test]
     fn unknown_algorithm_is_reported() {
         let error = PlainSlhDsa::generate_with_algorithm("NOT_A_REAL_SCHEME".to_string())
-            .err()
-            .expect("unknown scheme must fail");
+            .expect_err("unknown scheme must fail");
         assert!(matches!(error, MtlError::SchemeUnavailable { .. }));
     }
 
@@ -152,6 +164,14 @@ mod tests {
         let reported = plain_signature_len().expect("liboqs signature length");
         assert_eq!(reported, keypair.signature_len());
         assert_eq!(signature.len(), reported);
+    }
+
+    #[test]
+    fn plain_keypair_debug_redacts_secret_material() {
+        let keypair = PlainSlhDsa::generate().expect("plain SLH-DSA keypair");
+        let rendered = format!("{keypair:?}");
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("secret_key: ["));
     }
 
     #[test]

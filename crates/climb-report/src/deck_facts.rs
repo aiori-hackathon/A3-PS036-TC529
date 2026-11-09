@@ -2126,7 +2126,7 @@ fn collect_udp_fit(
                 a.get("fit_1232_percent")
                     .and_then(|v| v.as_f64())
                     .partial_cmp(&b.get("fit_1232_percent").and_then(|v| v.as_f64()))
-                    .unwrap()
+                    .unwrap_or(std::cmp::Ordering::Equal)
             }) {
                 if let Some(f) = worst.get("fit_1232_percent").and_then(|v| v.as_f64()) {
                     out.facts.push(fact(
@@ -2224,7 +2224,10 @@ fn describe_disagreement(copies: &[&Fact]) -> String {
         ),
     ];
     for (name, values) in fields {
-        if values.iter().any(|value| value != &values[0]) {
+        if values
+            .first()
+            .is_some_and(|first| values.iter().any(|value| value != first))
+        {
             let parts: Vec<String> = copies
                 .iter()
                 .zip(&values)
@@ -2254,24 +2257,37 @@ fn group_facts(facts: &[Fact]) -> (Vec<Fact>, Vec<Inconsistency>) {
     let mut rows = Vec::new();
     let mut inconsistencies = Vec::new();
     for (section, label, indices) in groups {
-        let first = &facts[indices[0]];
+        let Some(first) = indices.first().and_then(|&i| facts.get(i)) else {
+            continue;
+        };
         let agrees = indices.iter().all(|&i| {
-            let f = &facts[i];
-            f.value == first.value
-                && f.unit == first.unit
-                && f.class == first.class
-                && f.nk == first.nk
-                && f.baseline == first.baseline
+            facts.get(i).is_some_and(|f| {
+                f.value == first.value
+                    && f.unit == first.unit
+                    && f.class == first.class
+                    && f.nk == first.nk
+                    && f.baseline == first.baseline
+            })
         });
         if agrees {
             let mut merged = first.clone();
-            merged.pointer = unique_join(indices.iter().map(|&i| facts[i].pointer.as_str()));
-            merged.source = unique_join(indices.iter().map(|&i| facts[i].source.as_str()));
+            merged.pointer = unique_join(
+                indices
+                    .iter()
+                    .filter_map(|&i| facts.get(i).map(|f| f.pointer.as_str())),
+            );
+            merged.source = unique_join(
+                indices
+                    .iter()
+                    .filter_map(|&i| facts.get(i).map(|f| f.source.as_str())),
+            );
             rows.push(merged);
         } else {
-            let copies: Vec<&Fact> = indices.iter().map(|&i| &facts[i]).collect();
+            let copies: Vec<&Fact> = indices.iter().filter_map(|&i| facts.get(i)).collect();
             for &i in &indices {
-                rows.push(facts[i].clone());
+                if let Some(fact) = facts.get(i) {
+                    rows.push(fact.clone());
+                }
             }
             inconsistencies.push(Inconsistency {
                 section,

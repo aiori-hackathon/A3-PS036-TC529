@@ -221,7 +221,9 @@ pub fn scan_criterion(root: &Path, baseline: &str) -> Result<Vec<CriterionRecord
     // Breadth-first traversal — avoid unbounded recursion.
     let mut idx = 0;
     while idx < dirs.len() {
-        let dir = &dirs[idx];
+        let Some(dir) = dirs.get(idx) else {
+            break;
+        };
 
         // Is this directory the target baseline?
         let is_baseline = dir.file_name().and_then(|n| n.to_str()) == Some(baseline);

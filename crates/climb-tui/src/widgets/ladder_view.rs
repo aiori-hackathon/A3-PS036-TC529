@@ -172,13 +172,20 @@ pub fn build(leaf_count: u64, selected: u64) -> Layout {
         levels.push(leaf_level);
 
         for t in 1..=k {
-            let below = levels[(t - 1) as usize].clone();
+            let Some(below) = levels.get((t - 1) as usize).cloned() else {
+                continue;
+            };
             let mut level_nodes = Vec::with_capacity((size >> t) as usize);
             for p in 0..(size >> t) {
-                let c0 = below[(2 * p) as usize];
-                let c1 = below[(2 * p + 1) as usize];
+                let (Some(&c0), Some(&c1)) =
+                    (below.get((2 * p) as usize), below.get((2 * p + 1) as usize))
+                else {
+                    continue;
+                };
                 let index = nodes.len();
-                let x = (nodes[c0].x + nodes[c1].x) / 2.0;
+                let x0 = nodes.get(c0).map_or(0.0, |n| n.x);
+                let x1 = nodes.get(c1).map_or(0.0, |n| n.x);
+                let x = (x0 + x1) / 2.0;
                 nodes.push(Node {
                     level: t,
                     leaf: None,
@@ -206,26 +213,49 @@ pub fn build(leaf_count: u64, selected: u64) -> Layout {
             let li = selected - rung.left;
             for t in 0..=k {
                 let pos = (li >> t) as usize;
-                let index = levels[t as usize][pos];
+                let Some(&index) = levels.get(t as usize).and_then(|level| level.get(pos)) else {
+                    continue;
+                };
                 auth_path.push(index);
                 if t == 0 {
-                    node_roles[index] = NodeRole::Selected;
+                    if let Some(role) = node_roles.get_mut(index) {
+                        *role = NodeRole::Selected;
+                    }
                 } else {
-                    node_roles[index] = NodeRole::OnPath;
+                    if let Some(role) = node_roles.get_mut(index) {
+                        *role = NodeRole::OnPath;
+                    }
                     let sib_pos = ((li >> (t - 1)) ^ 1) as usize;
-                    let sib = levels[(t - 1) as usize][sib_pos];
-                    node_roles[sib] = NodeRole::Sibling;
-                    siblings.push(sib);
+                    let sib = levels
+                        .get((t - 1) as usize)
+                        .and_then(|level| level.get(sib_pos))
+                        .copied();
+                    if let Some(sib) = sib {
+                        if let Some(role) = node_roles.get_mut(sib) {
+                            *role = NodeRole::Sibling;
+                        }
+                        siblings.push(sib);
+                    }
                 }
             }
             for t in 1..=k {
-                let parent = levels[t as usize][(li >> t) as usize];
-                let child = levels[(t - 1) as usize][(li >> (t - 1)) as usize];
-                if let Some(edge_index) = edges
-                    .iter()
-                    .position(|edge| edge.parent == parent && edge.child == child)
-                {
-                    edge_roles[edge_index] = EdgeRole::Path;
+                let parent = levels
+                    .get(t as usize)
+                    .and_then(|level| level.get((li >> t) as usize))
+                    .copied();
+                let child = levels
+                    .get((t - 1) as usize)
+                    .and_then(|level| level.get((li >> (t - 1)) as usize))
+                    .copied();
+                if let (Some(parent), Some(child)) = (parent, child) {
+                    if let Some(edge_index) = edges
+                        .iter()
+                        .position(|edge| edge.parent == parent && edge.child == child)
+                    {
+                        if let Some(role) = edge_roles.get_mut(edge_index) {
+                            *role = EdgeRole::Path;
+                        }
+                    }
                 }
             }
         }
@@ -304,16 +334,14 @@ impl LadderView<'_> {
         }
 
         for (edge, role) in self.layout.edges.iter().zip(self.layout.edge_roles.iter()) {
-            let from = project(
-                self.layout.nodes[edge.child].x,
-                self.layout.nodes[edge.child].y,
-                tree,
-            );
-            let to = project(
-                self.layout.nodes[edge.parent].x,
-                self.layout.nodes[edge.parent].y,
-                tree,
-            );
+            let Some(child) = self.layout.nodes.get(edge.child) else {
+                continue;
+            };
+            let Some(parent) = self.layout.nodes.get(edge.parent) else {
+                continue;
+            };
+            let from = project(child.x, child.y, tree);
+            let to = project(parent.x, parent.y, tree);
             let style = match role {
                 EdgeRole::Path => Style::new().fg(self.theme.accent),
                 EdgeRole::Rung => Style::new().fg(self.theme.accent2),
@@ -338,8 +366,13 @@ impl LadderView<'_> {
 
         for (index, node) in self.layout.nodes.iter().enumerate() {
             let (col, row) = project(node.x, node.y, tree);
-            let (glyph, style) =
-                self.node_glyph(self.layout.node_roles[index], node.leaf.is_some());
+            let role = self
+                .layout
+                .node_roles
+                .get(index)
+                .copied()
+                .unwrap_or(NodeRole::Internal);
+            let (glyph, style) = self.node_glyph(role, node.leaf.is_some());
             set_cell(buf, col, row, glyph, style);
         }
     }

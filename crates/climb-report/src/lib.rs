@@ -4,6 +4,12 @@
 //! parses benchmark group identifiers into semantic categories, and
 //! produces a human-readable two-table summary (signing + verifying).
 
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 pub mod charts;
 pub mod deck_facts;
 pub mod error;

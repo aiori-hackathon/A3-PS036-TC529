@@ -25,6 +25,9 @@ use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
+
+use crate::proc;
 
 pub(crate) use check::check_docs;
 
@@ -572,19 +575,14 @@ fn local_day(timestamp: i64, offset_minutes: i32) -> i64 {
 
 /// Run one git command in `root`, returning stdout on success.
 fn run_git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .args(args)
-        .output()
-        .context("failed to run git")?;
-    if !output.status.success() {
-        bail!(
-            "git {} failed: {}",
-            args.join(" "),
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+    let mut command = Command::new("git");
+    command.arg("-C").arg(root).args(args);
+    let output = proc::run(
+        &mut command,
+        Duration::from_secs(120),
+        &format!("git {}", args.join(" ")),
+    )
+    .context("failed to run git")?;
     Ok(output.stdout)
 }
 
@@ -646,12 +644,17 @@ pub(crate) fn normalize_remote(raw: &str) -> String {
 /// True when this checkout's `origin` is the configured public repository, so
 /// its own history is already the public history.
 pub(crate) fn is_public_checkout(root: &Path, config: &CommitGraphConfig) -> Result<bool> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(root)
-        .args(["remote", "get-url", "origin"])
-        .output()
-        .context("failed to run git")?;
+        .args(["remote", "get-url", "origin"]);
+    let output = proc::run_raw(
+        &mut command,
+        Duration::from_secs(60),
+        "git remote get-url origin",
+    )
+    .context("failed to run git")?;
     if !output.status.success() {
         return Ok(false);
     }
@@ -665,12 +668,13 @@ pub(crate) fn commit_exists(path: &Path, sha: &str) -> Result<bool> {
         return Ok(false);
     }
     let revision = format!("{sha}^{{commit}}");
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(path)
         .args(["cat-file", "-e", &revision])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let output = proc::run_raw(&mut command, Duration::from_secs(60), "git cat-file")
         .context("failed to run git")?;
     Ok(output.status.success())
 }
@@ -680,26 +684,32 @@ pub(crate) fn is_ancestor(path: &Path, sha: &str) -> Result<bool> {
     if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(false);
     }
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(path)
         .args(["merge-base", "--is-ancestor", sha, "HEAD"])
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .output()
+        .env("GIT_TERMINAL_PROMPT", "0");
+    let output = proc::run_raw(&mut command, Duration::from_secs(60), "git merge-base")
         .context("failed to run git")?;
     Ok(output.status.success())
 }
 
 /// Run `git` in the bare cache without any credential prompt.
 fn run_git_offline(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .arg("-C")
         .arg(path)
         .args(args)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "Never")
-        .output()
-        .context("failed to run git")?;
+        .env("GCM_INTERACTIVE", "Never");
+    let output = proc::run_raw(
+        &mut command,
+        Duration::from_secs(600),
+        &format!("git {}", args.join(" ")),
+    )
+    .context("failed to run git")?;
     if !output.status.success() {
         bail!(
             "git {} failed: {}",
@@ -714,16 +724,18 @@ fn run_git_offline(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
 /// No credentials are requested and no prompt is ever shown.
 fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
     let cache = cache_path(root, config);
-    let bare = cache.exists()
-        && Command::new("git")
+    let bare = cache.exists() && {
+        let mut command = Command::new("git");
+        command
             .arg("-C")
             .arg(&cache)
-            .args(["rev-parse", "--is-bare-repository"])
-            .output()
+            .args(["rev-parse", "--is-bare-repository"]);
+        proc::run_raw(&mut command, Duration::from_secs(60), "git rev-parse")
             .map(|output| {
                 output.status.success() && String::from_utf8_lossy(&output.stdout).trim() == "true"
             })
-            .unwrap_or(false);
+            .unwrap_or(false)
+    };
     if bare {
         if let Err(error) = run_git_offline(
             &cache,
@@ -759,12 +771,13 @@ fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let output = Command::new("git")
+    let mut command = Command::new("git");
+    command
         .args(["clone", "--bare", "--quiet", &config.source_url])
         .arg(&cache)
         .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "Never")
-        .output()
+        .env("GCM_INTERACTIVE", "Never");
+    let output = proc::run_raw(&mut command, Duration::from_secs(600), "git clone")
         .context("failed to run git clone")?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();

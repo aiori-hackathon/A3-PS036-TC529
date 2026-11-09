@@ -35,6 +35,8 @@
 //! consolidated results artifact, so a run-to-run instability in a headline
 //! ratio is visible without re-deriving it by hand.
 
+use crate::proc;
+
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -221,12 +223,12 @@ pub(crate) fn cmd_stability(args: StabilityArgs) -> Result<()> {
 
     for run in 1..=args.runs {
         eprintln!("stability run {run}/{} (sizes: {})", args.runs, args.sizes);
-        let status = build_cmd(&args, &sizes)
-            .status()
-            .with_context(|| "failed to launch the pinned primitives benchmark")?;
-        if !status.success() {
-            bail!("primitives benchmark failed on run {run} ({status})");
-        }
+        let mut command = build_cmd(&args, &sizes);
+        proc::run(
+            &mut command,
+            std::time::Duration::from_secs(3600),
+            &format!("pinned primitives benchmark (run {run})"),
+        )?;
 
         let t_mtl_single = read_criterion_mean(&args.criterion_dir, "primitives_t_mtl_single")
             .with_context(|| "missing primitives_t_mtl_single estimate after the run")?;

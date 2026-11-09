@@ -4,6 +4,12 @@
 //! model as defined in `third_party/MTL/src/mtl_node_set.h` and the linear node
 //! index formula in `third_party/MTL/src/mtl_node_set.c`.
 
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 pub mod ladder;
 pub mod reuse;
 pub mod udp_fit;

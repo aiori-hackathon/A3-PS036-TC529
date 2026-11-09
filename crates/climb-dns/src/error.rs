@@ -31,6 +31,20 @@ pub enum DnsError {
     #[error("truncated DNS message at offset {offset} (need {need} bytes)")]
     Truncated { offset: usize, need: usize },
 
+    /// A section count exceeds what the input could possibly contain.
+    #[error(
+        "DNS {section} section claims {count} entries, more than the input can hold (max {max})"
+    )]
+    SectionCount {
+        section: &'static str,
+        count: usize,
+        max: usize,
+    },
+
+    /// Bytes remain after every declared section has been parsed.
+    #[error("DNS message has {trailing} trailing byte(s) after offset {offset}")]
+    TrailingBytes { offset: usize, trailing: usize },
+
     /// A dataset-digest document declared a schema this build does not know.
     #[error("dataset digest document uses unsupported schema {schema} (expected {expected})")]
     DigestSchema { schema: u32, expected: u32 },

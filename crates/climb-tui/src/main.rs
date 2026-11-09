@@ -5,7 +5,7 @@
 
 use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use ratatui::backend::CrosstermBackend;
 use ratatui::Terminal;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -18,6 +18,9 @@ use climb_tui::{theme, ui};
 
 fn main() -> Result<()> {
     let cli = Cli::parse_with_provenance();
+    if cli.check {
+        return check(&cli);
+    }
     let _log_guard = init_logging()?;
 
     let color_depth = theme::depth_from_env();
@@ -32,6 +35,84 @@ fn main() -> Result<()> {
     apply(&mut app, Effect::LoadResults(initial_path));
 
     run(&mut app)
+}
+
+/// Validate the dashboard's input artifacts without opening the terminal.
+///
+/// Each problem is reported as one line naming the file and the fix, and any
+/// problem produces a non-zero exit. This is the pipeline's non-interactive
+/// way to prove the TUI would not render stale or absent data.
+fn check(cli: &Cli) -> Result<()> {
+    use climb_tui::data::{
+        load_ladder, load_ladder_auto, load_live, load_live_auto, load_results_auto,
+        LadderLoadState, LiveLoadState, LoadState,
+    };
+
+    let mut problems: Vec<String> = Vec::new();
+
+    let explicit_results = cli.results_explicit.then_some(cli.results.as_path());
+    let (source, state) = load_results_auto(explicit_results);
+    match state {
+        LoadState::Loaded(_) => {
+            let where_from = source
+                .path()
+                .map_or_else(|| "<embedded>".to_string(), |path| path.display().to_string());
+            println!("results: ok ({where_from})");
+        }
+        LoadState::Missing { path } => problems.push(format!(
+            "results: {} does not exist; run `cargo xtask reproduce --quick --skip-dns` or pass --results PATH",
+            path.display()
+        )),
+        LoadState::Invalid { path, error } => problems.push(format!(
+            "results: {} is unreadable or invalid ({error}); regenerate it with `cargo xtask reproduce --quick --skip-dns`",
+            path.display()
+        )),
+        LoadState::NotLoaded => problems.push(
+            "results: no load was attempted; pass --results PATH or run `cargo xtask reproduce --quick --skip-dns`"
+                .to_string(),
+        ),
+    }
+
+    let ladder = match cli.ladder.as_deref() {
+        Some(path) => load_ladder(path),
+        None => load_ladder_auto(),
+    };
+    match ladder {
+        LadderLoadState::Loaded { .. } => println!("ladder: ok"),
+        LadderLoadState::Absent => println!("ladder: absent (optional)"),
+        LadderLoadState::Missing { path } => problems.push(format!(
+            "ladder: {} does not exist; run `cargo xtask ladder-verify` or remove --ladder",
+            path.display()
+        )),
+        LadderLoadState::Invalid { path, error } => problems.push(format!(
+            "ladder: {} is unreadable or invalid ({error}); regenerate it with `cargo xtask ladder-verify`",
+            path.display()
+        )),
+    }
+
+    let live = match cli.live.as_deref() {
+        Some(path) => load_live(path),
+        None => load_live_auto(),
+    };
+    let live_steps = live.step_count();
+    match live {
+        LiveLoadState::Loaded(_) => println!("live: ok ({live_steps} steps)"),
+        LiveLoadState::Missing { path } => problems.push(format!(
+            "live: {} does not exist; run `cargo xtask dns-demo --record` or remove --live",
+            path.display()
+        )),
+        LiveLoadState::Invalid { path, error } => problems.push(format!(
+            "live: {} is unreadable or invalid ({error}); re-record it with `cargo xtask dns-demo --record`",
+            path.display()
+        )),
+    }
+
+    if problems.is_empty() {
+        println!("climb-tui --check: ok");
+        Ok(())
+    } else {
+        bail!("{}", problems.join("; "))
+    }
 }
 
 fn run(app: &mut App) -> Result<()> {

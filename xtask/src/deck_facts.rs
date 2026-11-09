@@ -11,6 +11,9 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
+
+use crate::proc;
 
 use climb_report::deck_facts::{generate, parse_test_summary, DeckFactsInput, TestSummary};
 
@@ -76,10 +79,14 @@ pub(crate) fn cmd_deck_facts(args: DeckFactsArgs) -> Result<()> {
 /// Run the workspace test suite and sum its `test result:` lines. A failing run
 /// only warns: the sheet records the counts (and the failure count) either way.
 fn run_workspace_tests() -> Option<TestSummary> {
-    let output = Command::new("cargo")
-        .args(["test", "--workspace"])
-        .output()
-        .ok()?;
+    let mut command = Command::new("cargo");
+    command.args(["test", "--workspace"]);
+    let output = proc::run_raw(
+        &mut command,
+        Duration::from_secs(3600),
+        "cargo test --workspace",
+    )
+    .ok()?;
     let mut combined = String::from_utf8_lossy(&output.stdout).into_owned();
     combined.push_str(&String::from_utf8_lossy(&output.stderr));
     if !output.status.success() {
@@ -94,13 +101,9 @@ fn run_workspace_tests() -> Option<TestSummary> {
 /// The current commit SHA, or `None` when git is unavailable or the repository
 /// has no commits yet.
 fn head_commit() -> Option<String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
+    let mut command = Command::new("git");
+    command.args(["rev-parse", "HEAD"]);
+    let output = proc::run(&mut command, Duration::from_secs(60), "git rev-parse HEAD").ok()?;
     let sha = String::from_utf8(output.stdout).ok()?.trim().to_string();
     (!sha.is_empty()).then_some(sha)
 }

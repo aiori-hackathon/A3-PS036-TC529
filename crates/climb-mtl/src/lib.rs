@@ -41,15 +41,24 @@
 //! # }
 //! ```
 
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 mod error;
 mod ffi;
 mod ffi_plain;
 mod plain;
+mod secret;
 
 use std::ffi::CString;
+use std::fmt;
 
 pub use error::MtlError;
 pub use plain::{plain_signature_len, PlainSlhDsa};
+
+use secret::SecretBytes;
 
 /// The algorithm selected in the project blueprint: the small-signature ("s")
 /// SLH-DSA variant with an SHA2-128 MTL tree, chosen because DNS over UDP is a
@@ -320,11 +329,13 @@ fn parse_series_id(image: &[u8]) -> Result<Vec<u8>, MtlError> {
                 reason: "truncated length prefix",
             },
         )?;
-        let len = u32::from_be_bytes(image[start..end].try_into().map_err(|_| {
-            MtlError::MalformedKeyImage {
+        let prefix = image.get(start..end).ok_or(MtlError::MalformedKeyImage {
+            reason: "truncated length prefix",
+        })?;
+        let len =
+            u32::from_be_bytes(prefix.try_into().map_err(|_| MtlError::MalformedKeyImage {
                 reason: "truncated length prefix",
-            }
-        })?) as usize;
+            })?) as usize;
         let data_start = end;
         let data_end = data_start
             .checked_add(len)
@@ -333,7 +344,11 @@ fn parse_series_id(image: &[u8]) -> Result<Vec<u8>, MtlError> {
                 reason: "field extends past end of key image",
             })?;
         *pos = data_end;
-        Ok(&image[data_start..data_end])
+        image
+            .get(data_start..data_end)
+            .ok_or(MtlError::MalformedKeyImage {
+                reason: "field extends past end of key image",
+            })
     }
 
     let mut pos = 0usize;
@@ -368,7 +383,19 @@ pub struct MtlKeyPair {
     secret_parameter: u16,
     public_key: Vec<u8>,
     series_id: Vec<u8>,
-    key_image: Vec<u8>,
+    key_image: SecretBytes,
+}
+
+impl fmt::Debug for MtlKeyPair {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MtlKeyPair")
+            .field("algorithm", &self.algorithm)
+            .field("secret_parameter", &self.secret_parameter)
+            .field("public_key_len", &self.public_key.len())
+            .field("series_id_len", &self.series_id.len())
+            .field("key_image", &"<redacted>")
+            .finish()
+    }
 }
 
 impl MtlKeyPair {
@@ -410,7 +437,7 @@ impl MtlKeyPair {
             secret_parameter,
             public_key,
             series_id,
-            key_image,
+            key_image: SecretBytes::new(key_image),
         })
     }
 
@@ -446,7 +473,7 @@ impl MtlKeyPair {
         MtlSigner {
             algorithm: self.algorithm.clone(),
             secret_parameter: self.secret_parameter,
-            key_image: self.key_image.clone(),
+            key_image: self.key_image.duplicate(),
         }
     }
 
@@ -464,7 +491,17 @@ impl MtlKeyPair {
 pub struct MtlSigner {
     algorithm: String,
     secret_parameter: u16,
-    key_image: Vec<u8>,
+    key_image: SecretBytes,
+}
+
+impl fmt::Debug for MtlSigner {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("MtlSigner")
+            .field("algorithm", &self.algorithm)
+            .field("secret_parameter", &self.secret_parameter)
+            .field("key_image", &"<redacted>")
+            .finish()
+    }
 }
 
 impl MtlSigner {
@@ -498,7 +535,7 @@ impl MtlSigner {
             validate_message(index, message)?;
         }
 
-        let image = ffi::Buffer::from_slice(&self.key_image)
+        let image = ffi::Buffer::from_slice(self.key_image.as_slice())
             .map_err(|status| sign_error("mtllib_buffer_initialize", status))?;
         let ctx = ffi::Ctx::from_key_image(&image)
             .map_err(|status| sign_error("mtllib_key_from_buffer", status))?;
@@ -578,7 +615,9 @@ impl MtlVerifier {
             .map_err(|status| sign_error("mtllib_buffer_initialize", status))?;
         let ctx = ffi::Ctx::from_pubkey(&alg_c, &public_key_buffer, series_id)
             .map_err(|status| sign_error("mtllib_pubkey_from_buffer", status))?;
-        let signature_len = ctx.signature_length();
+        let signature_len = ctx
+            .signature_length()
+            .map_err(|status| sign_error("mtllib_context_signature_length", status))?;
 
         Ok(Self {
             ctx,
@@ -629,7 +668,7 @@ impl MtlVerifier {
                 let bytes = full.as_bytes();
                 let condensed_len = validate_condensed_prefix(bytes, hash_size, &self.series_id)?;
                 validate_signed_ladder(
-                    &bytes[condensed_len..],
+                    bytes.get(condensed_len..).unwrap_or(&[]),
                     hash_size,
                     &self.series_id,
                     self.signature_len,
@@ -929,5 +968,24 @@ impl SignOutput {
     /// The full signature at `index` as a [`Signature::Full`].
     pub fn full_signature_as(&self, index: usize) -> Result<Signature, MtlError> {
         self.full_signature(index).map(Signature::Full)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keypair_and_signer_debug_redact_secret_material() {
+        let keypair = MtlKeyPair::generate().expect("generate keypair");
+        let keypair_debug = format!("{keypair:?}");
+        assert!(keypair_debug.contains("<redacted>"));
+        assert!(!keypair_debug.contains("key_image: ["));
+        assert!(!keypair_debug.contains("key_image: Vec"));
+
+        let signer = keypair.signer();
+        let signer_debug = format!("{signer:?}");
+        assert!(signer_debug.contains("<redacted>"));
+        assert!(!signer_debug.contains("key_image: ["));
     }
 }

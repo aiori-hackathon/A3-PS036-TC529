@@ -137,7 +137,8 @@ fn render_grid(title: &str, table: &[[String; 6]]) -> String {
         .map(|col| {
             table
                 .iter()
-                .map(|row| row[col].chars().count())
+                .filter_map(|row| row.get(col))
+                .map(|cell| cell.chars().count())
                 .max()
                 .unwrap_or(0)
         })
@@ -152,8 +153,9 @@ fn render_grid(title: &str, table: &[[String; 6]]) -> String {
             .iter()
             .enumerate()
             .map(|(col, cell)| {
-                let padding = " ".repeat(widths[col].saturating_sub(cell.chars().count()));
-                if RIGHT_ALIGNED[col] {
+                let width = widths.get(col).copied().unwrap_or(0);
+                let padding = " ".repeat(width.saturating_sub(cell.chars().count()));
+                if RIGHT_ALIGNED.get(col).copied().unwrap_or(false) {
                     format!("{padding}{cell}")
                 } else {
                     format!("{cell}{padding}")

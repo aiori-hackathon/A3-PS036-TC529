@@ -13,6 +13,7 @@ description = "Safe Rust wrapper around climb-mtl-sys (Phase 3)"
 [dependencies]
 climb-mtl-sys = { path = "../climb-mtl-sys" }
 thiserror.workspace = true
+zeroize = "1"
 
 [dev-dependencies]
 proptest = "1"

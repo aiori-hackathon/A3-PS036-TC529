@@ -9,6 +9,12 @@
 //! - [`ladder_verify`] — measured MTL ladder shape (rungs, per-leaf auth paths,
 //!   wire lengths) for arbitrary leaf counts, parsed from real libMTL bytes.
 
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 pub mod ladder_verify;
 pub mod memory;
 pub mod wire_size;
@@ -99,14 +105,16 @@ pub fn median_iqr(values: &[u64]) -> (f64, u64, u64, u64) {
     v.sort_unstable();
     let n = v.len();
     let median = if n % 2 == 1 {
-        v[n / 2] as f64
+        v.get(n / 2).copied().unwrap_or(0) as f64
     } else {
-        (v[n / 2 - 1] as f64 + v[n / 2] as f64) / 2.0
+        let low = v.get(n / 2 - 1).copied().unwrap_or(0) as f64;
+        let high = v.get(n / 2).copied().unwrap_or(0) as f64;
+        (low + high) / 2.0
     };
     let q1_idx = (n as f64 / 4.0).floor() as usize;
     let q3_idx = ((3.0 * n as f64) / 4.0).floor() as usize;
-    let q1 = v[q1_idx];
-    let q3 = v[q3_idx];
+    let q1 = v.get(q1_idx).copied().unwrap_or(0);
+    let q3 = v.get(q3_idx).copied().unwrap_or(0);
     let iqr = q3.saturating_sub(q1);
     (median, q1, q3, iqr)
 }

@@ -8,7 +8,6 @@
 //! tour is running.
 
 use std::path::PathBuf;
-use std::time::Instant;
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
@@ -91,12 +90,18 @@ impl Tab {
 
     /// The next tab, wrapping at the end.
     pub fn next(self) -> Tab {
-        Tab::ALL[(self.index() + 1) % Tab::ALL.len()]
+        Tab::ALL
+            .get((self.index() + 1) % Tab::ALL.len())
+            .copied()
+            .unwrap_or(self)
     }
 
     /// The previous tab, wrapping at the start.
     pub fn prev(self) -> Tab {
-        Tab::ALL[(self.index() + Tab::ALL.len() - 1) % Tab::ALL.len()]
+        Tab::ALL
+            .get((self.index() + Tab::ALL.len() - 1) % Tab::ALL.len())
+            .copied()
+            .unwrap_or(self)
     }
 }
 
@@ -210,8 +215,6 @@ pub struct App {
     method: MethodView,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
-    /// Wall clock at startup, driving the Overview ladder animation.
-    started_at: Instant,
 }
 
 impl App {
@@ -256,7 +259,6 @@ impl App {
             method_scroll: 0,
             method: MethodView::embedded(),
             ladder: LadderLoadState::Absent,
-            started_at: Instant::now(),
         }
     }
 
@@ -567,9 +569,11 @@ impl App {
         &self.method
     }
 
-    /// Wall-clock time since startup (drives the Overview ladder animation).
+    /// Time on the dashboard's clock since startup (drives the Overview ladder
+    /// animation). Reading the injectable clock keeps the animation frozen
+    /// under a [`Clock::Fake`], so rendered frames are deterministic.
     pub fn elapsed(&self) -> std::time::Duration {
-        self.started_at.elapsed()
+        self.clock.now()
     }
 
     /// Resolve the current theme for rendering.
@@ -647,6 +651,18 @@ mod tests {
     fn test_app() -> App {
         let cli = Cli::parse_from(["climb-tui"]);
         App::from_cli(&cli, ColorDepth::TrueColor)
+    }
+
+    #[test]
+    fn elapsed_follows_the_injected_clock() {
+        // The Overview ladder is drawn from `elapsed`; under a fake clock it
+        // must not advance with wall time, or a golden frame drifts whenever
+        // the surrounding test run happens to be slow.
+        let mut app = test_app();
+        app.set_clock(Clock::fake());
+        assert_eq!(app.elapsed(), std::time::Duration::ZERO);
+        app.set_clock(Clock::Fake(std::time::Duration::from_millis(450)));
+        assert_eq!(app.elapsed(), std::time::Duration::from_millis(450));
     }
 
     fn signing_row(size: &str, mean_ns: f64) -> SigningBenchmarkResult {

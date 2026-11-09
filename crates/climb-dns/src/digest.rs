@@ -193,8 +193,10 @@ impl DatasetDigestDocument {
             skipped: Vec::new(),
         };
         for (index, entry) in self.digests.iter().enumerate() {
-            if self.digests[..index]
+            if self
+                .digests
                 .iter()
+                .take(index)
                 .any(|earlier| earlier.size == entry.size)
             {
                 return Err(DnsError::DuplicateDigestSize {

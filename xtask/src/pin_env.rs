@@ -28,6 +28,9 @@
 //! fingerprint at all.
 
 use anyhow::{Context, Result};
+use std::time::Duration;
+
+use crate::proc;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -508,26 +511,19 @@ fn read_cpus_allowed() -> Option<String> {
 
 /// Run a command and capture its stdout, trimmed.
 fn run_cmd(program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
-        .args(args)
-        .output()
+    let mut command = Command::new(program);
+    command.args(args);
+    let output = proc::run(&mut command, Duration::from_secs(120), program)
         .with_context(|| format!("failed to run {program}"))?;
-    if !output.status.success() {
-        anyhow::bail!("{program} exited with status {}", output.status);
-    }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 /// Run a command with a working directory, capturing trimmed stdout.
 fn run_cmd_in(dir: &Path, program: &str, args: &[&str]) -> Result<String> {
-    let output = Command::new(program)
-        .args(args)
-        .current_dir(dir)
-        .output()
+    let mut command = Command::new(program);
+    command.args(args).current_dir(dir);
+    let output = proc::run(&mut command, Duration::from_secs(120), program)
         .with_context(|| format!("failed to run {program} in {}", dir.display()))?;
-    if !output.status.success() {
-        anyhow::bail!("{program} exited with status {}", output.status);
-    }
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 

@@ -8,6 +8,8 @@
 //! without a terminal or a file. Every number comes from the artifact; nothing
 //! here is synthesized.
 
+use crate::data::read_artifact;
+
 use std::path::{Path, PathBuf};
 
 use climb_report::{DnsCapture, HEADLINE_QNAME, HEADLINE_QTYPE};
@@ -86,12 +88,12 @@ fn load_live_from(path: &Path, source: LiveSource) -> LiveLoadState {
             path: path.to_path_buf(),
         };
     }
-    let text = match std::fs::read_to_string(path) {
+    let text = match read_artifact(path) {
         Ok(text) => text,
         Err(error) => {
             return LiveLoadState::Invalid {
                 path: path.to_path_buf(),
-                error: error.to_string(),
+                error,
             };
         }
     };

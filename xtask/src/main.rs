@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use anyhow::{bail, Context, Result};
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::{Path, PathBuf};
@@ -24,6 +26,7 @@ mod ladder_verify;
 mod memory;
 mod package;
 mod pin_env;
+mod proc;
 mod readme_badges;
 mod reproduce;
 mod source_hygiene;
@@ -354,14 +357,13 @@ fn run_preflight_step(
 /// Run an external command for a preflight step, inheriting its output so the
 /// usual diagnostics stay visible.
 fn run_preflight_command(root: &Path, program: &str, args: &[&str]) -> Result<()> {
-    let status = Command::new(program)
-        .args(args)
-        .current_dir(root)
-        .status()
-        .with_context(|| format!("failed to execute `{program}`"))?;
-    if !status.success() {
-        bail!("`{program} {}` exited with {status}", args.join(" "));
-    }
+    let mut command = Command::new(program);
+    command.args(args).current_dir(root);
+    proc::run(
+        &mut command,
+        std::time::Duration::from_secs(600),
+        &format!("{program} {}", args.join(" ")),
+    )?;
     Ok(())
 }
 
@@ -587,12 +589,11 @@ fn run_bench_target(
 
     eprintln!("running: {}", render_cmd(&cmd));
     let mut child = cmd;
-    let status = child
-        .status()
-        .with_context(|| format!("failed to spawn cargo bench for {target}"))?;
-    if !status.success() {
-        bail!("cargo bench --bench {target} exited with {status}");
-    }
+    proc::run(
+        &mut child,
+        std::time::Duration::from_secs(3600),
+        &format!("cargo bench --bench {target}"),
+    )?;
     Ok(())
 }
 

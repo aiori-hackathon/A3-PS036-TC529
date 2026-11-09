@@ -88,6 +88,8 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         classical_signatures_path: args.classical_signatures,
         output_path: args.output.clone(),
         reproduction_mode: args.reproduction_mode,
+        generated_at: None,
+        workspace_root: None,
     };
     let _results = consolidate_results(opts).context("failed to consolidate results")?;
     println!("wrote consolidated results to {}", args.output.display());

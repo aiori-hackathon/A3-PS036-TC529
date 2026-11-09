@@ -33,7 +33,9 @@
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use climb_report::ReproductionMode;
-use std::process::{Command, Stdio};
+use std::process::Command;
+
+use crate::proc;
 use std::time::Instant;
 
 // ---------------------------------------------------------------------------
@@ -102,6 +104,65 @@ pub(crate) struct ReproduceArgs {
     /// instead of recording freshness warnings for them.
     #[arg(long)]
     force: bool,
+}
+
+/// Fail before any step when a report-only run is missing a required input.
+///
+/// Each error names the path and the command that produces it, so the fix is
+/// one line rather than a consolidation warning buried in a successful run.
+fn check_report_inputs() -> Result<()> {
+    let required = [
+        (
+            WIRE_REPORT,
+            "cargo xtask wire-report --out target/wire-report.json",
+        ),
+        (
+            MEMORY_REPORT,
+            "cargo xtask memory-report --out target/memory-report.json",
+        ),
+        ("environment.json", "cargo xtask pin-env"),
+    ];
+    for (path, fix) in required {
+        let p = std::path::Path::new(path);
+        if !p.exists() {
+            bail!("required input missing: {path} (produce it with `{fix}` or run --remeasure)");
+        }
+    }
+    let criterion = std::path::Path::new("target/criterion");
+    match std::fs::read_dir(criterion) {
+        Ok(mut entries) => {
+            if entries.next().is_none() {
+                bail!(
+                    "required input empty: target/criterion (run `cargo bench` or `cargo xtask reproduce --remeasure`)"
+                );
+            }
+        }
+        Err(error) => bail!(
+            "required input missing: target/criterion ({error}; run `cargo bench` or `cargo xtask reproduce --remeasure`)"
+        ),
+    }
+    let ladder = [
+        "target/ladder-verification.json",
+        "data/ladder-verification.recorded.json",
+    ];
+    if !ladder
+        .iter()
+        .any(|path| std::path::Path::new(path).exists())
+    {
+        bail!(
+            "required input missing: target/ladder-verification.json or data/ladder-verification.recorded.json (run `cargo xtask ladder-verify`)"
+        );
+    }
+    let capture = ["target/dns-capture.json", "data/dns-capture.recorded.json"];
+    if !capture
+        .iter()
+        .any(|path| std::path::Path::new(path).exists())
+    {
+        bail!(
+            "required input missing: target/dns-capture.json or data/dns-capture.recorded.json (run `cargo xtask dns-demo --record target/dns-capture.json` or commit the recorded fixture)"
+        );
+    }
+    Ok(())
 }
 
 /// Resolve the two explicit modes plus the hidden legacy alias. Rejecting both
@@ -386,25 +447,22 @@ fn xtask_executable() -> Result<std::path::PathBuf> {
 /// Whether the Docker daemon is reachable.  A missing CLI or a down daemon
 /// both report `false`; the caller turns that into the recorded-fixture skip.
 fn docker_available() -> bool {
-    Command::new("docker")
-        .args(["info", "--format", "{{.ServerVersion}}"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    let mut command = Command::new("docker");
+    command.args(["info", "--format", "{{.ServerVersion}}"]);
+    proc::run(
+        &mut command,
+        std::time::Duration::from_secs(15),
+        "docker info",
+    )
+    .is_ok()
 }
 
 /// Run one planned step as a child `xtask` process.
 fn run_step(exe: &std::path::Path, step: &Step) -> Result<()> {
     let label = step.id.label();
-    let status = Command::new(exe)
-        .args(&step.argv)
-        .status()
-        .with_context(|| format!("failed to spawn '{label}'"))?;
-    if !status.success() {
-        bail!("'{label}' exited with {status}");
-    }
+    let mut command = Command::new(exe);
+    command.args(&step.argv);
+    proc::run(&mut command, std::time::Duration::from_secs(3600), label)?;
     Ok(())
 }
 
@@ -447,6 +505,17 @@ pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
     let mode = resolve_mode(args.report_only, args.remeasure, args.bench)?;
     println!("{}", mode_banner(mode));
 
+    let docker_available =
+        mode == ReproductionMode::Remeasure && !args.skip_dns && docker_available();
+    if mode == ReproductionMode::Remeasure && !args.skip_dns && !docker_available {
+        bail!(
+            "docker is unavailable; start the Docker daemon, or pass --skip-dns to use the committed capture"
+        );
+    }
+    if mode == ReproductionMode::ReportOnly {
+        check_report_inputs()?;
+    }
+
     let opts = ReproduceOpts {
         quick: args.quick,
         skip_dns: args.skip_dns,
@@ -455,9 +524,7 @@ pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
         // `--skip-dns` already forces the fixture path; only probe Docker when
         // it could actually change the outcome, and only a re-measurement runs
         // the live pipeline at all.
-        docker_available: mode == ReproductionMode::Remeasure
-            && !args.skip_dns
-            && docker_available(),
+        docker_available,
     };
     let steps = plan(&opts);
     let exe = xtask_executable()?;

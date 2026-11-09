@@ -383,6 +383,7 @@ name = "climb-dns"
 version = "0.1.0"
 dependencies = [
  "hickory-proto",
+ "proptest",
  "rand 0.10.3",
  "rand_chacha 0.10.0",
  "serde",
@@ -400,6 +401,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "zeroize",
 ]
 
 [[package]]
@@ -417,8 +419,10 @@ dependencies = [
  "climb-bench",
  "climb-dns",
  "plotters",
+ "proptest",
  "serde",
  "serde_json",
+ "tempfile",
  "thiserror",
 ]
 
@@ -432,9 +436,11 @@ dependencies = [
  "climb-bench",
  "climb-report",
  "crossterm",
+ "proptest",
  "ratatui",
  "serde_json",
  "sha2",
+ "tempfile",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",

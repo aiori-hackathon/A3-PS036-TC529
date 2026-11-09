@@ -12,6 +12,11 @@
 //! - `mx<n>.zone<k>.example.` — mail exchange target.
 //! - `ns<n>.zone<k>.example.` — nameserver target.
 
+// Synthetic names are built only from ASCII digits, dots and fixed labels;
+// the ASCII printable TXT payload is a subset of UTF-8. These conversions can
+// only fail if that construction changes.
+#![allow(clippy::expect_used)]
+
 use std::net::{Ipv4Addr, Ipv6Addr};
 
 use hickory_proto::op::{Message, MessageType, OpCode, Query};
@@ -167,7 +172,10 @@ impl SyntheticRecord {
 
         // One TTL for the whole RRset (per RFC, all records in an RRset
         // MUST share the same TTL).
-        let ttl = TTL_SET[rng.random_range(0..TTL_SET.len())];
+        let ttl = TTL_SET
+            .get(rng.random_range(0..TTL_SET.len()))
+            .copied()
+            .unwrap_or(300);
 
         let n = rng.random_range(1_usize..=4);
         let rdata_values: Vec<RData> = (0..n).map(|_| generate_rdata(rng, rt, zone_idx)).collect();

@@ -112,19 +112,19 @@ fn base64_encode(data: &[u8]) -> String {
     const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
     for chunk in data.chunks(3) {
-        let b0 = u32::from(chunk[0]);
+        let b0 = u32::from(chunk.first().copied().unwrap_or(0));
         let b1 = chunk.get(1).copied().map_or(0, u32::from);
         let b2 = chunk.get(2).copied().map_or(0, u32::from);
         let n = (b0 << 16) | (b1 << 8) | b2;
-        out.push(ALPHABET[(n >> 18) as usize & 63] as char);
-        out.push(ALPHABET[(n >> 12) as usize & 63] as char);
+        out.push(*ALPHABET.get((n >> 18) as usize & 63).unwrap_or(&b'A') as char);
+        out.push(*ALPHABET.get((n >> 12) as usize & 63).unwrap_or(&b'A') as char);
         out.push(if chunk.len() > 1 {
-            ALPHABET[(n >> 6) as usize & 63] as char
+            *ALPHABET.get((n >> 6) as usize & 63).unwrap_or(&b'A') as char
         } else {
             '='
         });
         out.push(if chunk.len() > 2 {
-            ALPHABET[n as usize & 63] as char
+            *ALPHABET.get(n as usize & 63).unwrap_or(&b'A') as char
         } else {
             '='
         });
@@ -1166,6 +1166,9 @@ pub fn render_html(
 
     let mut figures = String::new();
     for (i, name) in CHART_FILES.iter().enumerate() {
+        let caption = CHART_CAPTIONS
+            .get(i)
+            .ok_or(ReportError::MissingChartCaption { file: name })?;
         let path = charts_dir.join(name);
         let svg = match std::fs::read_to_string(&path) {
             Ok(s) => s,
@@ -1182,7 +1185,7 @@ pub fn render_html(
         figures.push_str(&format!(
             "<figure><img src=\"data:image/svg+xml;base64,{}\" alt=\"\"><figcaption>{}</figcaption></figure>\n",
             base64_encode(svg.as_bytes()),
-            escape_html(CHART_CAPTIONS[i]),
+            escape_html(caption),
         ));
     }
 
@@ -1712,8 +1715,8 @@ pub fn relative_href(from_dir: &Path, to: &Path) -> String {
         return to_file.to_string_lossy().into_owned();
     }
     if !from.is_empty() && !tgt.is_empty() {
-        let from_abs = matches!(from[0], std::path::Component::RootDir);
-        let tgt_abs = matches!(tgt[0], std::path::Component::RootDir);
+        let from_abs = matches!(from.first(), Some(std::path::Component::RootDir));
+        let tgt_abs = matches!(tgt.first(), Some(std::path::Component::RootDir));
         if from_abs != tgt_abs {
             return to.display().to_string();
         }
@@ -1725,7 +1728,8 @@ pub fn relative_href(from_dir: &Path, to: &Path) -> String {
         .count();
     let mut parts: Vec<String> = vec!["..".to_string(); from.len() - common];
     parts.extend(
-        tgt[common..]
+        tgt.get(common..)
+            .unwrap_or(&[])
             .iter()
             .map(|c| c.as_os_str().to_string_lossy().into_owned()),
     );

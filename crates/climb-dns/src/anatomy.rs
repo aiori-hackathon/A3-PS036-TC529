@@ -178,18 +178,22 @@ fn read_u8(data: &[u8], offset: usize) -> Result<u8, DnsError> {
 
 fn read_u16_be(data: &[u8], offset: usize) -> Result<u16, DnsError> {
     let end = offset.saturating_add(2);
-    let bytes = data
+    let bytes: [u8; 2] = data
         .get(offset..end)
-        .ok_or(DnsError::Truncated { offset, need: 2 })?;
-    Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
+        .ok_or(DnsError::Truncated { offset, need: 2 })?
+        .try_into()
+        .map_err(|_| DnsError::Truncated { offset, need: 2 })?;
+    Ok(u16::from_be_bytes(bytes))
 }
 
 fn read_u32_be(data: &[u8], offset: usize) -> Result<u32, DnsError> {
     let end = offset.saturating_add(4);
-    let bytes = data
+    let bytes: [u8; 4] = data
         .get(offset..end)
-        .ok_or(DnsError::Truncated { offset, need: 4 })?;
-    Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
+        .ok_or(DnsError::Truncated { offset, need: 4 })?
+        .try_into()
+        .map_err(|_| DnsError::Truncated { offset, need: 4 })?;
+    Ok(u32::from_be_bytes(bytes))
 }
 
 /// Skip a DNS name field (label sequence or compression pointer).
@@ -362,6 +366,28 @@ pub fn parse_response_anatomy(
     let nscount = read_u16_be(data, 8)? as usize;
     let arcount = read_u16_be(data, 10)? as usize;
 
+    // A 12-byte header can claim up to 65,535 records in each section. Every
+    // record occupies at least 11 bytes (one-byte root owner + 10-byte fixed
+    // header) and every question at least 5 (root name + QTYPE + QCLASS), so a
+    // count larger than the input could possibly hold is rejected before any
+    // `Vec::with_capacity` runs. This keeps a tiny malformed input from
+    // triggering a multi-megabyte reservation.
+    for (section, count, minimum) in [
+        ("question", qdcount, 5usize),
+        ("answer", ancount, 11),
+        ("authority", nscount, 11),
+        ("additional", arcount, 11),
+    ] {
+        let max = data.len() / minimum + 1;
+        if count > max {
+            return Err(DnsError::SectionCount {
+                section,
+                count,
+                max,
+            });
+        }
+    }
+
     let mut offset = HEADER_LEN;
 
     // Question section — responses carry exactly one question in practice, but
@@ -441,6 +467,12 @@ pub fn parse_response_anatomy(
         + authority.iter().map(|r| r.total_len).sum::<usize>()
         + additional.iter().map(|r| r.total_len).sum::<usize>()
         + opt_total_len;
+    if offset != wire_length {
+        return Err(DnsError::TrailingBytes {
+            offset,
+            trailing: wire_length.saturating_sub(offset),
+        });
+    }
 
     Ok(ResponseAnatomy {
         wire_length,

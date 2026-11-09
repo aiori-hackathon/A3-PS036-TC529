@@ -36,6 +36,8 @@ tracing-appender.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter"] }
 
 [dev-dependencies]
+tempfile = "3"
+proptest = "1"
 # The ladder tests only use the recorded artifact types. Disabling the native
 # feature keeps `cargo test -p climb-tui --no-default-features` free of libMTL,
 # liboqs and OpenSSL, matching the viewer-only build it verifies.

@@ -395,15 +395,20 @@ fn baseline_lines(view: &MethodView, section: usize, ascii: bool) -> Vec<DocLine
     let mut out = Vec::new();
     let mut index = 0;
     while index < lines.len() {
-        let raw = lines[index];
+        let Some(raw) = lines.get(index) else {
+            break;
+        };
         let trimmed = raw.trim();
 
         if trimmed.starts_with("```") {
             index += 1;
-            while index < lines.len() && !lines[index].trim().starts_with("```") {
+            while let Some(line) = lines.get(index) {
+                if line.trim().starts_with("```") {
+                    break;
+                }
                 out.push(DocLine {
                     section,
-                    body: DocBody::DimCode(sanitize(lines[index], ascii)),
+                    body: DocBody::DimCode(sanitize(line, ascii)),
                 });
                 index += 1;
             }
@@ -414,10 +419,17 @@ fn baseline_lines(view: &MethodView, section: usize, ascii: bool) -> Vec<DocLine
 
         if trimmed.starts_with('|') {
             let start = index;
-            while index < lines.len() && lines[index].trim().starts_with('|') {
+            while lines
+                .get(index)
+                .is_some_and(|line| line.trim().starts_with('|'))
+            {
                 index += 1;
             }
-            out.extend(table_lines(&lines[start..index], section, ascii));
+            out.extend(table_lines(
+                lines.get(start..index).unwrap_or(&[]),
+                section,
+                ascii,
+            ));
             continue;
         }
 
@@ -460,7 +472,9 @@ fn table_lines(rows: &[&str], section: usize, ascii: bool) -> Vec<DocLine> {
         }
         for (column, cell) in cells.iter().enumerate() {
             let used: usize = cell.iter().map(|span| span.text.chars().count()).sum();
-            widths[column] = widths[column].max(used);
+            if let Some(width) = widths.get_mut(column) {
+                *width = (*width).max(used);
+            }
         }
     }
 
@@ -517,10 +531,10 @@ fn parse_inline(text: &str, ascii: bool) -> Vec<RichSpan> {
     };
 
     while index < chars.len() {
-        if chars[index] == '*' && chars.get(index + 1) == Some(&'*') {
+        if chars.get(index) == Some(&'*') && chars.get(index + 1) == Some(&'*') {
             if let Some(end) = find_marker(&chars, index + 2, &['*', '*']) {
                 flush(&mut plain, &mut spans);
-                let content: String = chars[index + 2..end].iter().collect();
+                let content: String = chars.get(index + 2..end).unwrap_or(&[]).iter().collect();
                 spans.push(RichSpan {
                     text: sanitize(&content, ascii),
                     kind: InlineKind::Bold,
@@ -529,11 +543,12 @@ fn parse_inline(text: &str, ascii: bool) -> Vec<RichSpan> {
                 continue;
             }
         }
-        if chars[index] == '`' {
-            if let Some(end) = chars[index + 1..].iter().position(|c| *c == '`') {
+        if chars.get(index) == Some(&'`') {
+            let after = chars.get(index + 1..).unwrap_or(&[]);
+            if let Some(end) = after.iter().position(|c| *c == '`') {
                 let end = index + 1 + end;
                 flush(&mut plain, &mut spans);
-                let content: String = chars[index + 1..end].iter().collect();
+                let content: String = chars.get(index + 1..end).unwrap_or(&[]).iter().collect();
                 spans.push(RichSpan {
                     text: sanitize(&content, ascii),
                     kind: InlineKind::Code,
@@ -542,7 +557,9 @@ fn parse_inline(text: &str, ascii: bool) -> Vec<RichSpan> {
                 continue;
             }
         }
-        plain.push(chars[index]);
+        if let Some(ch) = chars.get(index) {
+            plain.push(*ch);
+        }
         index += 1;
     }
     flush(&mut plain, &mut spans);
@@ -564,8 +581,8 @@ fn parse_inline(text: &str, ascii: bool) -> Vec<RichSpan> {
 /// Find the next occurrence of a two-character marker at or after `from`.
 fn find_marker(chars: &[char], from: usize, marker: &[char; 2]) -> Option<usize> {
     let mut index = from;
-    while index + 1 < chars.len() {
-        if chars[index] == marker[0] && chars[index + 1] == marker[1] {
+    while let (Some(first), Some(second)) = (chars.get(index), chars.get(index + 1)) {
+        if *first == marker[0] && *second == marker[1] {
             return Some(index);
         }
         index += 1;

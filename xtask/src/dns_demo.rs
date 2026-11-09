@@ -17,6 +17,8 @@
 //! RAII drop guard; `--keep` disarms the guard so the pipeline + scratch
 //! directory survive for inspection.
 
+use crate::proc;
+
 use anyhow::{bail, Context, Result};
 use clap::Args;
 use std::fs;
@@ -183,10 +185,12 @@ impl Drop for ComposeGuard {
 }
 
 fn compose_down_silent(root: &Path) {
-    let _ = compose_cmd(root, &["down", "--remove-orphans"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
+    let mut command = compose_cmd(root, &["down", "--remove-orphans"]);
+    let _ = proc::run_raw(
+        &mut command,
+        Duration::from_secs(120),
+        "docker compose down",
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -201,25 +205,24 @@ fn workspace_root() -> Result<PathBuf> {
         .context("xtask is expected to live directly inside the workspace root")
 }
 
+/// One numeric field from `id` (the user or group id), or `1000` when the
+/// command fails or prints nothing.
+fn id_field(flag: &str) -> String {
+    let mut command = Command::new("id");
+    command.arg(flag);
+    proc::run(&mut command, Duration::from_secs(30), "id")
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "1000".to_string())
+}
+
 /// `uid:gid` of the invoking user, used to run the signer container so files
 /// it writes into the mounted scratch directory are not owned by root.
 fn host_user() -> String {
-    let uid = Command::new("id")
-        .arg("-u")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "1000".to_string());
-    let gid = Command::new("id")
-        .arg("-g")
-        .output()
-        .ok()
-        .and_then(|o| String::from_utf8(o.stdout).ok())
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| "1000".to_string());
+    let uid = id_field("-u");
+    let gid = id_field("-g");
     format!("{uid}:{gid}")
 }
 
@@ -257,11 +260,11 @@ fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
 
     print_cmd(&cmd);
 
-    let output = cmd.output().context("failed to run signer container")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("signer command failed: {}", stderr.trim());
-    }
+    let output = proc::run(
+        &mut cmd,
+        Duration::from_secs(600),
+        "signer container command",
+    )?;
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
@@ -270,14 +273,10 @@ fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
 /// JSON.
 fn run_cmd_status(mut cmd: Command) -> Result<std::process::ExitStatus> {
     print_cmd(&cmd);
-    if json_mode() {
-        cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-        let output = cmd.output().context("failed to execute command")?;
-        eprint!("{}", String::from_utf8_lossy(&output.stdout));
-        eprint!("{}", String::from_utf8_lossy(&output.stderr));
-        return Ok(output.status);
-    }
-    cmd.status().context("failed to execute command")
+    let output = proc::run_raw(&mut cmd, Duration::from_secs(600), "child command")?;
+    eprint!("{}", String::from_utf8_lossy(&output.stdout));
+    eprint!("{}", String::from_utf8_lossy(&output.stderr));
+    Ok(output.status)
 }
 
 /// Run a command, inherit stdio, and check success.
@@ -292,12 +291,7 @@ fn run_cmd_inherit(cmd: Command) -> Result<()> {
 /// Run a command, capturing stdout, and check success.
 fn run_cmd_capture(mut cmd: Command) -> Result<String> {
     print_cmd(&cmd);
-    cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let output = cmd.output().context("failed to execute command")?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        bail!("command exited with {}: {}", output.status, stderr.trim());
-    }
+    let output = proc::run(&mut cmd, Duration::from_secs(600), "capture command")?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
 }
 
@@ -306,11 +300,9 @@ fn run_cmd_capture(mut cmd: Command) -> Result<String> {
 // ---------------------------------------------------------------------------
 
 fn check_docker() -> Result<()> {
-    let output = Command::new("docker")
-        .args(["--version"])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
+    let mut command = Command::new("docker");
+    command.args(["--version"]);
+    let output = proc::run(&mut command, Duration::from_secs(30), "docker --version")
         .context("docker not found on PATH — is Docker installed?")?;
     let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
     print_status("docker CLI", &version);
@@ -332,13 +324,14 @@ fn check_images() -> Result<()> {
 }
 
 fn image_exists(image: &str) -> bool {
-    Command::new("docker")
-        .args(["image", "inspect", image])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false)
+    let mut command = Command::new("docker");
+    command.args(["image", "inspect", image]);
+    proc::run(
+        &mut command,
+        Duration::from_secs(30),
+        &format!("docker image inspect {image}"),
+    )
+    .is_ok()
 }
 
 // ---------------------------------------------------------------------------
@@ -349,10 +342,12 @@ fn wait_for_nsd_ready(root: &Path) -> Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(NSD_READY_TIMEOUT_SECS);
 
     while std::time::Instant::now() < deadline {
-        let output = compose_cmd(root, &["logs", "nsd"])
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .output();
+        let mut command = compose_cmd(root, &["logs", "nsd"]);
+        let output = proc::run(
+            &mut command,
+            Duration::from_secs(30),
+            "docker compose logs nsd",
+        );
 
         if let Ok(out) = output {
             let text = String::from_utf8_lossy(&out.stdout);
@@ -706,11 +701,10 @@ fn hex_encode(bytes: Vec<u8>) -> String {
 }
 
 fn iso8601_now() -> String {
-    Command::new("date")
-        .arg("--iso-8601=seconds")
-        .output()
+    let mut command = Command::new("date");
+    command.arg("--iso-8601=seconds");
+    proc::run(&mut command, Duration::from_secs(30), "date")
         .ok()
-        .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
@@ -719,11 +713,10 @@ fn iso8601_now() -> String {
 /// The current `HEAD` commit SHA, or `None` when git is unavailable (e.g. a
 /// source tarball without the `.git` directory).
 fn git_head() -> Option<String> {
-    Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .output()
+    let mut command = Command::new("git");
+    command.args(["rev-parse", "HEAD"]);
+    proc::run(&mut command, Duration::from_secs(60), "git rev-parse HEAD")
         .ok()
-        .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
 }
@@ -737,30 +730,32 @@ fn hostname() -> String {
 }
 
 fn uname() -> String {
-    Command::new("uname")
-        .arg("-a")
-        .output()
+    let mut command = Command::new("uname");
+    command.arg("-a");
+    proc::run(&mut command, Duration::from_secs(30), "uname")
         .ok()
-        .filter(|o| o.status.success())
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "unknown".to_string())
 }
 
 fn image_digest(image: &str) -> Option<String> {
-    Command::new("docker")
-        .args([
-            "image",
-            "inspect",
-            "--format",
-            "{{index .RepoDigests 0}}",
-            image,
-        ])
-        .output()
-        .ok()
-        .filter(|o| o.status.success())
-        .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
-        .filter(|s| !s.is_empty() && !s.starts_with('<'))
+    let mut command = Command::new("docker");
+    command.args([
+        "image",
+        "inspect",
+        "--format",
+        "{{index .RepoDigests 0}}",
+        image,
+    ]);
+    proc::run(
+        &mut command,
+        Duration::from_secs(60),
+        &format!("docker image inspect {image}"),
+    )
+    .ok()
+    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    .filter(|s| !s.is_empty() && !s.starts_with('<'))
 }
 
 // ---------------------------------------------------------------------------

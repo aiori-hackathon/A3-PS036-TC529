@@ -14,6 +14,12 @@
 //! assert_eq!(dataset.len(), 100);
 //! ```
 
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
+)]
+
 pub mod anatomy;
 pub mod dataset;
 pub mod digest;
@@ -34,6 +40,9 @@ pub use error::DnsError;
 pub use synthetic::SyntheticRecord;
 
 /// Return the recorded headline anatomies for the committed fixtures (full and condensed).
+// The two hex fixtures are compiled in with `include_str!`; a parse failure is
+// a packaging error caught at first use, not input-dependent behaviour.
+#[allow(clippy::expect_used)]
 pub fn recorded_headline_anatomies() -> (ResponseAnatomy, ResponseAnatomy) {
     let full_hex = include_str!("fixtures/headline-full.hex");
     let cond_hex = include_str!("fixtures/headline-condensed.hex");
@@ -51,8 +60,12 @@ fn decode_hex_fixtures(s: &str) -> Vec<u8> {
         if pair.len() < 2 {
             continue;
         }
-        let hi = (pair[0] as char).to_digit(16).unwrap_or(0) as u8;
-        let lo = (pair[1] as char).to_digit(16).unwrap_or(0) as u8;
+        let hi = (*pair.first().unwrap_or(&b'0') as char)
+            .to_digit(16)
+            .unwrap_or(0) as u8;
+        let lo = (*pair.get(1).unwrap_or(&b'0') as char)
+            .to_digit(16)
+            .unwrap_or(0) as u8;
         out.push((hi << 4) | lo);
     }
     out

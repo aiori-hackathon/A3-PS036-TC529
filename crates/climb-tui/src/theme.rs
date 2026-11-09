@@ -22,7 +22,10 @@ impl ThemeId {
 
     /// The next theme in the cycle, wrapping at the end.
     pub fn next(self) -> ThemeId {
-        ThemeId::ALL[(self.index() + 1) % ThemeId::ALL.len()]
+        ThemeId::ALL
+            .get((self.index() + 1) % ThemeId::ALL.len())
+            .copied()
+            .unwrap_or(self)
     }
 
     /// The position of this theme in [`ThemeId::ALL`].
@@ -160,7 +163,11 @@ fn nearest_ansi256(rgb: Rgb) -> u8 {
         nearest_level(rgb.2),
     );
     let cube_index = 16 + (36 * ri + 6 * gi + bi) as u8;
-    let cube_rgb = (CUBE_LEVELS[ri], CUBE_LEVELS[gi], CUBE_LEVELS[bi]);
+    let cube_rgb = (
+        CUBE_LEVELS.get(ri).copied().unwrap_or(0),
+        CUBE_LEVELS.get(gi).copied().unwrap_or(0),
+        CUBE_LEVELS.get(bi).copied().unwrap_or(0),
+    );
 
     let average = (rgb.0 as u32 + rgb.1 as u32 + rgb.2 as u32) / 3;
     let grey_step = (((average.saturating_sub(8) + 5) / 10) as u8).min(23);

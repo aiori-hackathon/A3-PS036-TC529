@@ -7,6 +7,8 @@
 //! recorded libMTL measurement, so it is fully unit-testable without a
 //! terminal or a file.
 
+use crate::data::read_artifact;
+
 use std::path::{Path, PathBuf};
 
 use climb_analytical::{predicted_condensed_len, predicted_ladder_len};
@@ -93,12 +95,12 @@ fn load_ladder_from(path: &Path, source: LadderSource) -> LadderLoadState {
             path: path.to_path_buf(),
         };
     }
-    let source_str = match std::fs::read_to_string(path) {
+    let source_str = match read_artifact(path) {
         Ok(source_str) => source_str,
         Err(error) => {
             return LadderLoadState::Invalid {
                 path: path.to_path_buf(),
-                error: error.to_string(),
+                error,
             };
         }
     };

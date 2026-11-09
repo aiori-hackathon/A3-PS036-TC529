@@ -123,6 +123,9 @@ pub fn generate_dataset_count(count: usize, seed: u64) -> Vec<Vec<u8>> {
 /// This is the one place the generator advances its RNG; both the allocating
 /// and the streaming (digest) entry points go through it, so they cannot drift
 /// apart. `f` receives each encoded message exactly once, in order.
+// The record shapes are fixed and small, so encoding cannot fail for valid
+// construction; a failure here is a hickory-proto regression, not runtime input.
+#[allow(clippy::expect_used)]
 pub(crate) fn for_each_message(count: usize, seed: u64, mut f: impl FnMut(Vec<u8>)) {
     let mut rng = ChaCha8Rng::seed_from_u64(seed);
     for _ in 0..count {

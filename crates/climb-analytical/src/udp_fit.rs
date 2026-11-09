@@ -425,9 +425,16 @@ fn allocate_counts(counts: &[u64], total: u64) -> Vec<u64> {
     }
     let leftover = total_u - assigned;
     let mut order: Vec<usize> = (0..counts.len()).collect();
-    order.sort_by_key(|&i| (std::cmp::Reverse(remainders[i]), i));
+    order.sort_by_key(|&i| {
+        (
+            std::cmp::Reverse(remainders.get(i).copied().unwrap_or(0)),
+            i,
+        )
+    });
     for &i in order.iter().take(leftover.try_into().unwrap_or(0)) {
-        base[i] = base[i].saturating_add(1);
+        if let Some(slot) = base.get_mut(i) {
+            *slot = slot.saturating_add(1);
+        }
     }
     base
 }
@@ -554,6 +561,10 @@ pub fn infer_zone_leaf_count(
 
 /// The response profiles compiled into the model (from
 /// `data/udp-fit-profiles.json` next to this crate).
+// The profile table is compiled into the binary with `include_str!`; a parse
+// failure means the packaged data is corrupt, which is a build-time defect and
+// cannot be triggered by a caller.
+#[allow(clippy::expect_used)]
 #[must_use]
 pub fn builtin_profiles() -> Vec<ResponseProfile> {
     // The file ships with the crate and is parsed in tests; failure here is a
@@ -570,7 +581,7 @@ pub fn load_profiles_from_file(path: &str) -> Result<Vec<ResponseProfile>, std::
     let data: ProfileData = serde_json::from_str(&content).map_err(|e| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
-            format!("invalid json: {e}"),
+            format!("invalid json in {path}: {e}"),
         )
     })?;
     Ok(data.profiles)

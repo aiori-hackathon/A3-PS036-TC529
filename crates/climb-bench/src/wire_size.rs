@@ -148,9 +148,10 @@ pub struct WireSizeReport {
 fn stats(lens: &[usize]) -> CondensedStats {
     assert!(!lens.is_empty(), "lens must be non-empty");
 
-    // SAFETY: `min`/`max` on a non-empty iterator always return `Some`.
-    let min = *lens.iter().min().unwrap();
-    let max = *lens.iter().max().unwrap();
+    // `min`/`max` on a non-empty iterator always return `Some`; the fallback
+    // keeps a future caller from turning a broken invariant into a panic.
+    let min = lens.iter().copied().min().unwrap_or(0);
+    let max = lens.iter().copied().max().unwrap_or(0);
     let total: u64 = lens.iter().map(|l| *l as u64).sum();
     let mean = total as f64 / lens.len() as f64;
     let uniform = min == max;
@@ -292,7 +293,9 @@ pub fn measure_wire_sizes(size: DatasetSize, seed: u64) -> Result<WireSizeReport
         }
         let full_sig = output.full_signature(idx)?;
         // lens[idx] is valid because idx < message_count was just checked.
-        let condensed_len = lens[idx];
+        let Some(&condensed_len) = lens.get(idx) else {
+            continue;
+        };
         // This assertion encodes a structural invariant of full_signature():
         // it is exactly `condensed || ladder`.  If it ever fails, the MTL
         // wrapper's reconstruction logic is broken, which is a correctness
