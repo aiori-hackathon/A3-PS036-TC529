@@ -10,6 +10,7 @@ use climb_report::charts::generate_charts;
 use climb_report::html::{check_report, relative_href, render_html};
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize, ClimbResults};
 
+mod audit_pack;
 mod charts;
 mod check_pins;
 mod commit_graph;
@@ -36,6 +37,7 @@ mod stability;
 mod verify_consolidated;
 mod verify_numbers;
 mod wire;
+use audit_pack::{cmd_audit_pack, AuditPackArgs};
 use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
 use commit_graph::{cmd_commit_graph, CommitGraphArgs};
@@ -245,6 +247,12 @@ enum Commands {
     DatasetDigests(DatasetDigestsArgs),
     /// Run the published-artifact gate: verify-numbers, then docs-check.
     Preflight(PreflightArgs),
+    /// Write a short, deterministic batch-gate audit pack to
+    /// `target/audit-pack.md` (at most 160 lines, no raw logs). With `--reuse`
+    /// the previous pack's gate results are reused instead of re-running the
+    /// gates. The pack is written even when gates fail; the process exits
+    /// non-zero when any gate fails.
+    AuditPack(AuditPackArgs),
 }
 
 #[derive(Args)]
@@ -356,6 +364,7 @@ fn main() -> Result<()> {
         Commands::Headline(args) => cmd_headline(args),
         Commands::DatasetDigests(args) => cmd_dataset_digests(args),
         Commands::Preflight(args) => cmd_preflight(args),
+        Commands::AuditPack(args) => cmd_audit_pack(args),
     }
 }
 
