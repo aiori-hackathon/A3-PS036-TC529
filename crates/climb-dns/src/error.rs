@@ -30,4 +30,37 @@ pub enum DnsError {
     /// Truncated DNS message at offset
     #[error("truncated DNS message at offset {offset} (need {need} bytes)")]
     Truncated { offset: usize, need: usize },
+
+    /// A dataset-digest document declared a schema this build does not know.
+    #[error("dataset digest document uses unsupported schema {schema} (expected {expected})")]
+    DigestSchema { schema: u32, expected: u32 },
+
+    /// A dataset-digest document used an algorithm other than SHA-256.
+    #[error("dataset digest document uses unsupported algorithm {algorithm:?}")]
+    DigestAlgorithm { algorithm: String },
+
+    /// A dataset-digest document's encoding description did not match the one
+    /// implemented here, so its digests are not comparable.
+    #[error("dataset digest document encoding does not match the implementation")]
+    DigestEncoding,
+
+    /// The document's seed differed from the seed the caller is checking.
+    #[error("dataset digest document was generated with seed {found}, expected {expected}")]
+    DigestSeed { found: u64, expected: u64 },
+
+    /// A recomputed digest disagreed with the recorded one.
+    #[error(
+        "dataset digest mismatch for {size} ({count} messages, seed {seed}): recorded {recorded}, recomputed {recomputed}"
+    )]
+    DigestMismatch {
+        size: String,
+        count: usize,
+        seed: u64,
+        recorded: String,
+        recomputed: String,
+    },
+
+    /// Two entries claimed the same dataset size.
+    #[error("dataset digest document lists {size} more than once")]
+    DuplicateDigestSize { size: String },
 }

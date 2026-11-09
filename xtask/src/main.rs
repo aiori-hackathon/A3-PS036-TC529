@@ -12,6 +12,7 @@ mod charts;
 mod check_pins;
 mod commit_graph;
 mod consolidate;
+mod dataset_digests;
 mod deck_delta;
 mod deck_facts;
 mod dist_tui;
@@ -34,6 +35,7 @@ use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
 use commit_graph::{cmd_commit_graph, CommitGraphArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
+use dataset_digests::{cmd_dataset_digests, DatasetDigestsArgs};
 use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dist_tui::{cmd_dist_tui, DistTuiArgs};
@@ -204,6 +206,13 @@ enum Commands {
     /// `--check` compares the committed blocks with the artifact and fails on
     /// drift, which is how `docs-check` keeps them honest.
     Headline(HeadlineArgs),
+    /// Record (or check) SHA-256 digests of the deterministic datasets.
+    ///
+    /// The digest document is committed evidence that `(size, seed)` produces
+    /// byte-identical messages; `verify-numbers` recomputes every recorded
+    /// digest instead of trusting it. `--check` compares the document on disk
+    /// with a fresh generation.
+    DatasetDigests(DatasetDigestsArgs),
     /// Run the published-artifact gate: verify-numbers, then docs-check.
     Preflight(PreflightArgs),
 }
@@ -312,6 +321,7 @@ fn main() -> Result<()> {
         Commands::Stability(args) => cmd_stability(args),
         Commands::VerifyNumbers(args) => cmd_verify_numbers(args),
         Commands::Headline(args) => cmd_headline(args),
+        Commands::DatasetDigests(args) => cmd_dataset_digests(args),
         Commands::Preflight(args) => cmd_preflight(args),
     }
 }

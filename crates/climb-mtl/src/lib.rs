@@ -130,6 +130,182 @@ fn validate_message(index: usize, message: &[u8]) -> Result<(), MtlError> {
     Ok(())
 }
 
+/// Bytes in one serialized `MTL_INDEX`.
+///
+/// The vendored header sets `MTL_INDEX_LEN` to 8 (`uint64_t`), so every leaf or
+/// rung index on the wire occupies eight big-endian bytes.
+const MTL_INDEX_LEN: usize = 8;
+
+fn read_u16_be(bytes: &[u8], offset: usize) -> Option<u16> {
+    let end = offset.checked_add(2)?;
+    Some(u16::from_be_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+fn read_u32_be(bytes: &[u8], offset: usize) -> Option<u32> {
+    let end = offset.checked_add(4)?;
+    Some(u32::from_be_bytes(bytes.get(offset..end)?.try_into().ok()?))
+}
+
+/// Fixed, leaf-independent bytes in a serialized condensed signature.
+///
+/// Layout: `SID (2h) | Flags (2) | Randomizer (h) | LeafIndex (8) |
+/// RungLeft (8) | RungRight (8) | SiblingCount (2)`, i.e. `3h + 28`.
+fn condensed_fixed_len(hash_size: usize) -> usize {
+    3 * hash_size + 2 + 3 * MTL_INDEX_LEN + 2
+}
+
+/// Validate the condensed prefix of a signature and return its serialized
+/// length.
+///
+/// A full signature is `condensed || signed ladder`, so the caller passes a
+/// buffer that may carry bytes after the condensed portion. This routine only
+/// establishes that the prefix itself is well formed; the caller decides
+/// whether anything may follow it.
+fn validate_condensed_prefix(
+    bytes: &[u8],
+    hash_size: usize,
+    series_id: &[u8],
+) -> Result<usize, MtlError> {
+    let sid_len = 2 * hash_size;
+    let fixed = condensed_fixed_len(hash_size);
+    if bytes.len() < fixed {
+        return Err(MtlError::MalformedCondensedSignature {
+            reason: "shorter than the fixed prefix",
+        });
+    }
+    if bytes.get(..sid_len) != Some(series_id) {
+        return Err(MtlError::MalformedCondensedSignature {
+            reason: "series id does not match the verifier",
+        });
+    }
+    let flags = read_u16_be(bytes, sid_len).ok_or(MtlError::MalformedCondensedSignature {
+        reason: "truncated flags field",
+    })?;
+    if flags != 0 {
+        return Err(MtlError::MalformedCondensedSignature {
+            reason: "non-zero flags field",
+        });
+    }
+    let sibling_offset = sid_len + 2 + hash_size + 3 * MTL_INDEX_LEN;
+    let sibling_count =
+        read_u16_be(bytes, sibling_offset).ok_or(MtlError::MalformedCondensedSignature {
+            reason: "truncated sibling-count field",
+        })? as usize;
+    let siblings =
+        sibling_count
+            .checked_mul(hash_size)
+            .ok_or(MtlError::MalformedCondensedSignature {
+                reason: "sibling-hash length overflows",
+            })?;
+    let expected = fixed
+        .checked_add(siblings)
+        .ok_or(MtlError::MalformedCondensedSignature {
+            reason: "sibling-hash length overflows",
+        })?;
+    if bytes.len() < expected {
+        return Err(MtlError::MalformedCondensedSignature {
+            reason: "length does not match the sibling count",
+        });
+    }
+    Ok(expected)
+}
+
+/// Validate a standalone condensed signature against the pinned wire layout and
+/// return its total serialized length.
+///
+/// This does not attempt any cryptographic check. It rejects shapes the native
+/// parser would otherwise coerce or silently ignore: a foreign series id, a
+/// non-zero flags field (libMTL always emits zero and never reads it back), a
+/// sibling count that disagrees with the buffer length, or trailing bytes.
+fn validate_condensed(bytes: &[u8], hash_size: usize, series_id: &[u8]) -> Result<usize, MtlError> {
+    let expected = validate_condensed_prefix(bytes, hash_size, series_id)?;
+    if bytes.len() != expected {
+        return Err(MtlError::MalformedCondensedSignature {
+            reason: "trailing bytes after the condensed signature",
+        });
+    }
+    Ok(expected)
+}
+
+/// Validate the unsigned portion of a ladder and return
+/// `(unsigned_len, rung_count)`.
+fn validate_unsigned_ladder(
+    bytes: &[u8],
+    hash_size: usize,
+    series_id: &[u8],
+) -> Result<(usize, usize), MtlError> {
+    let sid_len = 2 * hash_size;
+    let header = 4 + sid_len;
+    if bytes.len() < header {
+        return Err(MtlError::MalformedLadder {
+            reason: "shorter than the fixed header",
+        });
+    }
+    let flags = read_u16_be(bytes, 0).ok_or(MtlError::MalformedLadder {
+        reason: "truncated flags field",
+    })?;
+    if flags != 0 {
+        return Err(MtlError::MalformedLadder {
+            reason: "non-zero flags field",
+        });
+    }
+    if bytes.get(2..2 + sid_len) != Some(series_id) {
+        return Err(MtlError::MalformedLadder {
+            reason: "series id does not match the verifier",
+        });
+    }
+    let rung_count = read_u16_be(bytes, 2 + sid_len).ok_or(MtlError::MalformedLadder {
+        reason: "truncated rung-count field",
+    })? as usize;
+    let rung_len = 2 * MTL_INDEX_LEN + hash_size;
+    let rungs = rung_count
+        .checked_mul(rung_len)
+        .ok_or(MtlError::MalformedLadder {
+            reason: "rung array overflows",
+        })?;
+    let unsigned = header.checked_add(rungs).ok_or(MtlError::MalformedLadder {
+        reason: "rung array overflows",
+    })?;
+    Ok((unsigned, rung_count))
+}
+
+/// Validate a signed ladder against the pinned wire layout and return its
+/// total serialized length.
+///
+/// `signature_len` is the underlying scheme's signature length, read from the
+/// live native context. Checking it rejects two cases the native verifier
+/// accepts: a declared length that disagrees with the real signature (the
+/// native code ignores the field and reads a fixed offset), and any bytes
+/// appended after the signature (the native bounds check is `>`, not `!=`).
+fn validate_signed_ladder(
+    bytes: &[u8],
+    hash_size: usize,
+    series_id: &[u8],
+    signature_len: usize,
+) -> Result<usize, MtlError> {
+    let (unsigned, _rung_count) = validate_unsigned_ladder(bytes, hash_size, series_id)?;
+    let declared = read_u32_be(bytes, unsigned).ok_or(MtlError::MalformedLadder {
+        reason: "truncated signature-length field",
+    })? as usize;
+    if declared != signature_len {
+        return Err(MtlError::MalformedLadder {
+            reason: "declared signature length does not match the scheme",
+        });
+    }
+    let expected = unsigned
+        .checked_add(4)
+        .and_then(|len| len.checked_add(declared))
+        .ok_or(MtlError::MalformedLadder {
+            reason: "signed-ladder length overflows",
+        })?;
+    if bytes.len() != expected {
+        return Err(MtlError::MalformedLadder {
+            reason: "length does not match the declared signature",
+        });
+    }
+    Ok(expected)
+}
+
 /// Parse the series id out of a serialized key image.
 ///
 /// The image written by libMTL is `[u32 len][algorithm][u32 len][secret key]
@@ -370,6 +546,8 @@ pub struct MtlVerifier {
     ctx: ffi::Ctx,
     algorithm: String,
     secret_parameter: u16,
+    series_id: Vec<u8>,
+    signature_len: usize,
 }
 
 impl MtlVerifier {
@@ -400,11 +578,14 @@ impl MtlVerifier {
             .map_err(|status| sign_error("mtllib_buffer_initialize", status))?;
         let ctx = ffi::Ctx::from_pubkey(&alg_c, &public_key_buffer, series_id)
             .map_err(|status| sign_error("mtllib_pubkey_from_buffer", status))?;
+        let signature_len = ctx.signature_length();
 
         Ok(Self {
             ctx,
             algorithm: algorithm.to_string(),
             secret_parameter,
+            series_id: series_id.to_vec(),
+            signature_len,
         })
     }
 
@@ -425,9 +606,14 @@ impl MtlVerifier {
     ///   proof is checked (a resolver holding a previously validated ladder).
     ///   This mirrors the native verifier's `-t` option.
     ///
-    /// Returns `Ok(true)` only when the signature verifies. Every rejection —
-    /// including malformed input the native parser refuses — is `Ok(false)`, so
-    /// a false positive is impossible.
+    /// Returns `Ok(true)` only when the signature verifies and `Ok(false)` when
+    /// the bytes are well-formed but do not authenticate (a message or
+    /// signature mismatch). Input that does not match the serialized layout —
+    /// a foreign series id, a non-zero flags field, a truncated buffer, or
+    /// trailing bytes — is rejected with a typed
+    /// [`MtlError::MalformedCondensedSignature`] or [`MtlError::MalformedLadder`]
+    /// before any native call, so a malformed shape is never mistaken for a
+    /// cryptographic mismatch.
     pub fn verify(
         &self,
         message: &[u8],
@@ -435,21 +621,36 @@ impl MtlVerifier {
         ladder: Option<&Ladder>,
         trust_cached_ladder: bool,
     ) -> Result<bool, MtlError> {
-        if message.is_empty() {
-            return Err(MtlError::EmptyMessage { index: 0 });
-        }
+        validate_message(0, message)?;
+        let hash_size = usize::from(self.secret_parameter);
 
         match signature {
             Signature::Full(full) => {
+                let bytes = full.as_bytes();
+                let condensed_len = validate_condensed_prefix(bytes, hash_size, &self.series_id)?;
+                validate_signed_ladder(
+                    &bytes[condensed_len..],
+                    hash_size,
+                    &self.series_id,
+                    self.signature_len,
+                )?;
+
                 let message_buffer = ffi::Buffer::from_slice(message)
                     .map_err(|status| sign_error("mtllib_buffer_initialize", status))?;
-                let signature_buffer = ffi::Buffer::from_slice(full.as_bytes())
+                let signature_buffer = ffi::Buffer::from_slice(bytes)
                     .map_err(|status| sign_error("mtllib_buffer_initialize", status))?;
                 let status = self.ctx.verify(&message_buffer, &signature_buffer, None);
                 classify_verify("mtllib_verify", status)
             }
             Signature::Condensed(condensed) => {
                 let ladder = ladder.ok_or(MtlError::LadderRequired)?;
+                validate_condensed(condensed.as_bytes(), hash_size, &self.series_id)?;
+                validate_signed_ladder(
+                    ladder.as_bytes(),
+                    hash_size,
+                    &self.series_id,
+                    self.signature_len,
+                )?;
 
                 if !trust_cached_ladder {
                     let ladder_buffer = ffi::Buffer::from_slice(ladder.as_bytes())

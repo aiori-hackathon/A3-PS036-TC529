@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "algorithm": "sha256",
+  "encoding": "sha256(\"CLIMB dataset v1\\0\" || u64_be(count) || each(u32_be(len) || message))",
+  "seed": 4849331494946035253,
+  "digests": [
+    {
+      "size": "Small",
+      "count": 100,
+      "digest": "6d9c4fe482e31ef6faf0c5bea92787f2218a1aa09219ec734819c4ac5d1dc72f"
+    },
+    {
+      "size": "OneK",
+      "count": 1000,
+      "digest": "09b466fbaba338e354b25f2bfe77757a6db428bc9c81f6ec946bba11c96cd03b"
+    },
+    {
+      "size": "Medium",
+      "count": 10000,
+      "digest": "013c008689ff144bbcaf4793b0b8e450d0db0f80a3e956ed47670e1c70367de2"
+    },
+    {
+      "size": "Large",
+      "count": 1000000,
+      "digest": "b18b63402e208450a3cdd84339c36a9320fec02aba15d3b883d2bd1c045bd1ee"
+    }
+  ]
+}

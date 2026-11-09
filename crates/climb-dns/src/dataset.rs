@@ -49,6 +49,31 @@ impl DatasetSize {
     pub const fn as_usize(self) -> usize {
         self as usize
     }
+
+    /// The variant name used in artifacts and tables.
+    ///
+    /// Kept explicit rather than derived from `Debug` so a rename cannot
+    /// silently change a recorded artifact's key.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            DatasetSize::Small => "Small",
+            DatasetSize::OneK => "OneK",
+            DatasetSize::Medium => "Medium",
+            DatasetSize::Large => "Large",
+        }
+    }
+
+    /// Every predefined size, smallest first.
+    #[must_use]
+    pub const fn all() -> [DatasetSize; 4] {
+        [
+            DatasetSize::Small,
+            DatasetSize::OneK,
+            DatasetSize::Medium,
+            DatasetSize::Large,
+        ]
+    }
 }
 
 /// Generate a deterministic synthetic DNS dataset.
@@ -88,8 +113,18 @@ pub fn generate_dataset(size: DatasetSize, seed: u64) -> Vec<Vec<u8>> {
 /// normal operation.
 #[must_use]
 pub fn generate_dataset_count(count: usize, seed: u64) -> Vec<Vec<u8>> {
-    let mut rng = ChaCha8Rng::seed_from_u64(seed);
     let mut messages = Vec::with_capacity(count);
+    for_each_message(count, seed, |wire| messages.push(wire));
+    messages
+}
+
+/// Visit the first `count` deterministic messages without materialising them.
+///
+/// This is the one place the generator advances its RNG; both the allocating
+/// and the streaming (digest) entry points go through it, so they cannot drift
+/// apart. `f` receives each encoded message exactly once, in order.
+pub(crate) fn for_each_message(count: usize, seed: u64, mut f: impl FnMut(Vec<u8>)) {
+    let mut rng = ChaCha8Rng::seed_from_u64(seed);
     for _ in 0..count {
         let record = SyntheticRecord::generate(&mut rng);
         // Infallible by construction: our fixed small record shapes always
@@ -99,9 +134,8 @@ pub fn generate_dataset_count(count: usize, seed: u64) -> Vec<Vec<u8>> {
         let wire = record
             .to_wire()
             .expect("SyntheticRecord with fixed small shapes always encodes; failure indicates a hickory-proto regression");
-        messages.push(wire);
+        f(wire);
     }
-    messages
 }
 
 #[cfg(test)]

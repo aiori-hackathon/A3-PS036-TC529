@@ -44,6 +44,12 @@ pub(crate) struct VerifyNumbersArgs {
     /// Rendered HTML report carrying the embedded claims registry.
     #[arg(long, default_value = "docs/sample-output/report.html")]
     report: PathBuf,
+    /// Committed record of deterministic dataset digests.
+    #[arg(long, default_value = "docs/sample-output/dataset-digests.json")]
+    dataset_digests: PathBuf,
+    /// Recompute the million-message digest too (slow; off by default).
+    #[arg(long)]
+    deep_digests: bool,
     /// Fail when a headline row that needs a spread only has `pending`.
     #[arg(long)]
     require_spread: bool,
@@ -59,9 +65,57 @@ impl VerifyNumbersArgs {
             sheet: PathBuf::from("docs/deck-facts.md"),
             readme: PathBuf::from("README.md"),
             report: PathBuf::from("docs/sample-output/report.html"),
+            dataset_digests: PathBuf::from("docs/sample-output/dataset-digests.json"),
+            deep_digests: false,
             require_spread,
         }
     }
+}
+
+/// Recompute every recorded dataset digest.
+///
+/// A missing document is a warning, because a checkout that has not produced it
+/// yet is not a corrupt artifact. A present-but-unparseable or stale document is
+/// a hard error naming the path: silently ignoring it would turn the
+/// determinism evidence into decoration.
+fn check_dataset_digests(args: &VerifyNumbersArgs) -> Result<()> {
+    let path = args.root.join(&args.dataset_digests);
+    if !path.exists() {
+        println!(
+            "verify-numbers: no dataset digest document at {} \u{2014} skipping determinism check",
+            path.display()
+        );
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let document: climb_dns::DatasetDigestDocument = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    let limit = if args.deep_digests {
+        usize::MAX
+    } else {
+        climb_dns::ROUTINE_DIGEST_MAX_COUNT
+    };
+    let outcome = document
+        .check_limited(climb_bench::DEFAULT_WIRE_SEED, limit)
+        .with_context(|| {
+            format!(
+                "dataset digests in {} disagree with a fresh generation",
+                path.display()
+            )
+        })?;
+    println!(
+        "verify-numbers: {} dataset digest(s) recomputed from {}",
+        outcome.checked,
+        path.display()
+    );
+    if !outcome.skipped.is_empty() {
+        println!(
+            "verify-numbers: not recomputed (over {limit} messages); pass --deep-digests to include: {}",
+            outcome.skipped.join(", ")
+        );
+    }
+    Ok(())
 }
 
 /// One table row in the README's generated blocks.
@@ -650,6 +704,7 @@ pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
 
     let failures: Vec<&CheckRow> = rows.iter().filter(|row| row.failed()).collect();
     if failures.is_empty() {
+        check_dataset_digests(&args)?;
         println!("verify-numbers: every published value agrees with its raw rows");
         return Ok(());
     }
@@ -879,6 +934,52 @@ mod tests {
             .find(|row| row.metric == "signing_speedup_medium_c_vs_a")
             .unwrap();
         assert!(row.spread.failed(), "{:?}", row.spread);
+    }
+
+    #[test]
+    fn the_committed_dataset_digests_match_a_fresh_generation() {
+        let text = include_str!("../../docs/sample-output/dataset-digests.json");
+        let document: climb_dns::DatasetDigestDocument =
+            serde_json::from_str(text).expect("committed digest document parses");
+        let outcome = document
+            .check_limited(
+                climb_bench::DEFAULT_WIRE_SEED,
+                climb_dns::ROUTINE_DIGEST_MAX_COUNT,
+            )
+            .expect("committed digests match a fresh generation");
+        assert!(
+            outcome.checked >= 3,
+            "the routine gate must cover Small, OneK and Medium"
+        );
+        assert_eq!(
+            outcome.skipped,
+            vec!["Large".to_string()],
+            "only the million-message entry is deferred"
+        );
+    }
+
+    #[test]
+    fn a_malformed_dataset_digest_document_names_the_path() {
+        let dir = std::env::temp_dir().join("climb-verify-numbers-digests");
+        let path = dir.join("bad.json");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&path, "{ not json").unwrap();
+        let args = VerifyNumbersArgs {
+            root: PathBuf::from("."),
+            results: PathBuf::new(),
+            sheet: PathBuf::new(),
+            readme: PathBuf::new(),
+            report: PathBuf::new(),
+            dataset_digests: path.clone(),
+            deep_digests: false,
+            require_spread: false,
+        };
+        let error = check_dataset_digests(&args).expect_err("malformed document must fail");
+        assert!(
+            format!("{error:#}").contains(&path.display().to_string()),
+            "error must name the path: {error:#}"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

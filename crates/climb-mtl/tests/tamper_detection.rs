@@ -5,9 +5,23 @@
 //! "rejected" native status to `Ok(false)`, so these tests pin the property that
 //! a tampered input can never be reported as valid.
 
-use climb_mtl::{FullSignature, MtlKeyPair, Signature};
+use climb_mtl::{FullSignature, MtlError, MtlKeyPair, Signature};
 
 const MESSAGE: &[u8] = b"climb tamper-detection message";
+
+/// Whether a verification result counts as a rejection.
+///
+/// A well-formed signature that does not authenticate is `Ok(false)`. A byte
+/// flip that lands in a structural field (series id, flags, a length) is
+/// rejected earlier with a typed layout error. Both mean "not accepted"; the
+/// distinction itself is pinned by the negative-case table.
+fn rejected(result: Result<bool, MtlError>) -> bool {
+    matches!(
+        result,
+        Ok(false)
+            | Err(MtlError::MalformedCondensedSignature { .. } | MtlError::MalformedLadder { .. })
+    )
+}
 
 fn setup() -> (
     MtlKeyPair,
@@ -75,11 +89,9 @@ fn full_signature_rejects_flips_across_the_whole_signature() {
     let mut checked = 0usize;
     for index in (0..bytes.len()).step_by(step) {
         let tampered = FullSignature::from_bytes(flip_byte(bytes, index));
-        let result = verifier
-            .verify(&message, &Signature::Full(tampered), None, false)
-            .expect("verify must not hard-error on a tampered signature");
+        let result = verifier.verify(&message, &Signature::Full(tampered), None, false);
         assert!(
-            !result,
+            rejected(result),
             "a signature tampered at byte {index} must be rejected, not accepted"
         );
         checked += 1;
@@ -94,16 +106,14 @@ fn full_signature_rejects_a_signature_from_another_keypair() {
     let other_output = other.signer().sign_batch(&[&message]).expect("sign");
 
     let verifier = _keypair.verifier().expect("verifier");
-    let result = verifier
-        .verify(
-            &message,
-            &Signature::Full(other_output.full_signature(0).unwrap()),
-            None,
-            false,
-        )
-        .expect("verify");
+    let result = verifier.verify(
+        &message,
+        &Signature::Full(other_output.full_signature(0).unwrap()),
+        None,
+        false,
+    );
     assert!(
-        !result,
+        rejected(result),
         "a signature from a different keypair must be rejected"
     );
 }
@@ -123,17 +133,13 @@ fn condensed_signature_rejects_message_and_ladder_tampering() {
 
     let tampered_message = flip_byte(&message, 0);
     assert!(
-        !verifier
-            .verify(&tampered_message, &signature, Some(&ladder), false)
-            .expect("verify"),
+        rejected(verifier.verify(&tampered_message, &signature, Some(&ladder), false)),
         "a tampered message must be rejected for a condensed signature"
     );
 
     let tampered_ladder = climb_mtl::Ladder::from_bytes(flip_byte(ladder.as_bytes(), 0));
     assert!(
-        !verifier
-            .verify(&message, &signature, Some(&tampered_ladder), false)
-            .expect("verify"),
+        rejected(verifier.verify(&message, &signature, Some(&tampered_ladder), false)),
         "a tampered ladder must be rejected when it is revalidated"
     );
 
@@ -141,9 +147,7 @@ fn condensed_signature_rejects_message_and_ladder_tampering() {
         flip_byte(condensed.as_bytes(), 0),
     ));
     assert!(
-        !verifier
-            .verify(&message, &tampered_signature, Some(&ladder), false)
-            .expect("verify"),
+        rejected(verifier.verify(&message, &tampered_signature, Some(&ladder), false)),
         "a tampered condensed signature must be rejected"
     );
 }
@@ -173,16 +177,14 @@ fn cross_batch_condensed_signatures_do_not_verify() {
     let first = signer.sign_batch(&[b"first batch message"]).expect("sign");
     let second = signer.sign_batch(&[b"first batch message"]).expect("sign");
 
-    let result = verifier
-        .verify(
-            b"first batch message",
-            &first.signature(0).unwrap(),
-            Some(second.ladder()),
-            false,
-        )
-        .expect("verify");
+    let result = verifier.verify(
+        b"first batch message",
+        &first.signature(0).unwrap(),
+        Some(second.ladder()),
+        false,
+    );
     assert!(
-        !result,
+        rejected(result),
         "a condensed signature must not verify against an unrelated batch's ladder"
     );
 }

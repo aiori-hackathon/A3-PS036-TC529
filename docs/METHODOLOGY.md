@@ -38,6 +38,13 @@ the TUI Method tab lists the seed of every artifact the results were built
 from. Determinism ends where measurement begins: timings still vary with the
 machine, which is why trials are repeated and distributions are reported.
 
+Dataset determinism is itself recorded as evidence in
+`docs/sample-output/dataset-digests.json`: one SHA-256 per dataset size over a
+domain-separated, length-prefixed encoding of the generated messages. The
+routine validation run recomputes Small, OneK and Medium; the million-message
+entry is left to an explicit deep check. A document that is present but
+unreadable is an error naming its path, not a silent skip.
+
 ## Sampling and extrapolation
 
 Signing and verifying times come from Criterion benchmark groups: warmup,
@@ -57,6 +64,61 @@ Two honest constraints shape the matrix:
 - Transmitted bytes need no extrapolation at all: they are measured exactly,
   per size, by signing the full deterministic dataset and summing the wire
   output of each configuration.
+
+## Wire sizes: three descriptions that must agree
+
+Every wire number has an exact, non-cryptographic definition. With `h = 16`
+bytes per hash and `i = 8` bytes per serialized `MTL_INDEX`:
+
+- **condensed signature** — `3h + 2 + 3i + 2 + k*h` = `3h + 28 + k*h`, where
+  `k` is the number of sibling hashes on that leaf's authentication path;
+- **unsigned ladder** — `2 + 2h + 2 + c*(2i + h)` for `c` rungs, where `c` is
+  the population count of the leaf count and each rung covers one set bit;
+- **signed ladder** — the unsigned ladder plus a 4-byte big-endian signature
+  length plus the underlying signature.
+
+The field order these lengths count is the one in
+`third_party/MTL/src/mtl_buffer.c`. Three descriptions are kept independent and
+required to agree: the literal arithmetic above, the named model functions in
+`climb-analytical`, and real libMTL output parsed field by field. The agreement
+sweep covers every leaf count from 1 to 64 and the sizes 100, 1,000, 10,000 and
+1,000,000; any disagreement fails the test rather than being rounded into a
+table.
+
+Two accounting facts matter when reading the comparison. A complete MTL
+signature (`condensed || ladder`) is larger than a plain SLH-DSA signature at
+small batches, because the ladder itself carries an SLH-DSA signature;
+amortisation only wins once that ladder is shared over enough messages. And the
+difference between the non-amortised and amortised totals is exactly
+`(N - 1) × ladder` bytes — the only bytes saved are the repeated ladders. The
+byte-accounting test sums the reconstructed buffers themselves instead of
+trusting either formula.
+
+## Structural validation of untrusted MTL bytes
+
+The native verifier's bounds checks are permissive in two places: it accepts
+bytes appended after a signed ladder, and it does not compare the declared
+signature length with the signature it actually reads. The safe wrapper
+validates the pinned layout before calling native code, so malformed input is
+reported as a typed error rather than coerced or silently truncated:
+
+| Input | Outcome |
+| --- | --- |
+| Empty message, or one longer than 65,535 bytes | `EmptyMessage` / `MessageTooLong` |
+| Condensed buffer shorter than the fixed prefix | `MalformedCondensedSignature` |
+| Foreign series id in a condensed signature or ladder | `MalformedCondensedSignature` / `MalformedLadder` |
+| Non-zero flags field | `MalformedCondensedSignature` / `MalformedLadder` |
+| Sibling count or rung count inconsistent with the buffer length | `MalformedCondensedSignature` / `MalformedLadder` |
+| Declared signature length different from the scheme's | `MalformedLadder` |
+| Bytes appended after a complete structure | `MalformedCondensedSignature` / `MalformedLadder` |
+| Bit flip inside a well-formed structure | `Ok(false)` |
+| Signature from a different keypair | `Malformed*` or `Ok(false)` |
+| Empty batch, or an empty message inside a batch | `EmptyBatch` / `EmptyMessage` |
+
+The distinction is deliberate: a layout error says the peer sent something that
+is not a serialized MTL structure, while `Ok(false)` says the structure was well
+formed but did not authenticate. A bit flip is therefore always a cryptographic
+rejection, never a parse error.
 
 ## Memory: measured and analytical, kept separate
 

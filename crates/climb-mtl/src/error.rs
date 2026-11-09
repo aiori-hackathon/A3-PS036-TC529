@@ -55,6 +55,16 @@ pub enum MtlError {
     #[error("condensed signature verification requires the associated ladder")]
     LadderRequired,
 
+    /// A condensed signature did not match the serialized layout pinned by the
+    /// vendored library, so it was rejected before reaching the native parser.
+    #[error("condensed signature is malformed: {reason}")]
+    MalformedCondensedSignature { reason: &'static str },
+
+    /// A signed ladder did not match the serialized layout pinned by the
+    /// vendored library, so it was rejected before reaching the native parser.
+    #[error("signed ladder is malformed: {reason}")]
+    MalformedLadder { reason: &'static str },
+
     /// A signature index was requested that is not present in the batch output.
     #[error("signature index {index} is out of range for a batch of {count}")]
     IndexOutOfRange { index: usize, count: usize },

@@ -156,6 +156,24 @@ impl Ctx {
         self.0.as_ptr()
     }
 
+    /// The byte length of one underlying signature for this context's scheme.
+    ///
+    /// A signed ladder stores one signature of exactly this length after a
+    /// four-byte length field. Reading it from the context keeps the wrapper
+    /// from hard-coding a per-scheme constant: a different algorithm string
+    /// automatically gets its own length.
+    pub(crate) fn signature_length(&self) -> usize {
+        // SAFETY: `self.0` is a live context created by `mtllib_key_new` or
+        // `mtllib_pubkey_from_buffer`, both of which initialise `signature` to
+        // a live `OQS_SIG`. The field is read-only here and `length_signature`
+        // is a plain integer.
+        unsafe {
+            let signature = (*self.0.as_ptr()).signature;
+            debug_assert!(!signature.is_null(), "libMTL context has no scheme");
+            (*signature).length_signature
+        }
+    }
+
     /// Serialize the public key.
     pub(crate) fn public_key(&self) -> Result<Vec<u8>, Status> {
         // SAFETY: `self.0` is a live key context.

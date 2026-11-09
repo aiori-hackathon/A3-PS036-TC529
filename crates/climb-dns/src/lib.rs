@@ -16,6 +16,7 @@
 
 pub mod anatomy;
 pub mod dataset;
+pub mod digest;
 pub mod error;
 mod synthetic;
 
@@ -24,6 +25,11 @@ pub use anatomy::{
     EDNS_MTL_SIGTAG_CODE, HEADER_LEN, MTL_TYPE_CONDENSED, MTL_TYPE_FULL,
 };
 pub use dataset::{generate_dataset, generate_dataset_count, DatasetSize, MAX_MESSAGE_LEN};
+pub use digest::{
+    dataset_digest, dataset_digest_count, digest_hex, DatasetDigestDocument, DatasetDigestEntry,
+    DigestCheckOutcome, DATASET_DIGEST_ALGORITHM, DATASET_DIGEST_ENCODING, DATASET_DIGEST_SCHEMA,
+    ROUTINE_DIGEST_MAX_COUNT,
+};
 pub use error::DnsError;
 pub use synthetic::SyntheticRecord;
 

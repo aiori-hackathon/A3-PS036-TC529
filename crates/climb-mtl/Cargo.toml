@@ -13,3 +13,8 @@ description = "Safe Rust wrapper around climb-mtl-sys (Phase 3)"
 [dependencies]
 climb-mtl-sys = { path = "../climb-mtl-sys" }
 thiserror.workspace = true
+
+[dev-dependencies]
+proptest = "1"
+serde = { workspace = true }
+serde_json.workspace = true
