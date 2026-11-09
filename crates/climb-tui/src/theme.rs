@@ -121,7 +121,7 @@ pub fn map_color(rgb: Rgb, depth: ColorDepth) -> Color {
     match depth {
         ColorDepth::TrueColor => Color::Rgb(rgb.0, rgb.1, rgb.2),
         ColorDepth::Ansi256 => Color::Indexed(nearest_ansi256(rgb)),
-        ColorDepth::Ansi16 => nearest_ansi16(rgb),
+        ColorDepth::Ansi16 => nearest_ansi16(rgb, None, 0.0),
         ColorDepth::Mono => Color::Reset,
     }
 }
@@ -138,6 +138,110 @@ fn dist2(a: Rgb, b: Rgb) -> u32 {
         (delta * delta) as u32
     };
     d(a.0, b.0) + d(a.1, b.1) + d(a.2, b.2)
+}
+
+/// Perceived chroma of a colour: the spread between its brightest and darkest
+/// channel. Zero for every grey.
+fn chroma(rgb: Rgb) -> u8 {
+    let max = rgb.0.max(rgb.1).max(rgb.2);
+    let min = rgb.0.min(rgb.1).min(rgb.2);
+    max - min
+}
+
+/// Hue angle in degrees, or `None` for a grey.
+fn hue(rgb: Rgb) -> Option<f64> {
+    let (red, green, blue) = (rgb.0 as f64, rgb.1 as f64, rgb.2 as f64);
+    let max = red.max(green).max(blue);
+    let min = red.min(green).min(blue);
+    let delta = max - min;
+    if delta == 0.0 {
+        return None;
+    }
+    let angle = if max == red {
+        60.0 * (((green - blue) / delta).rem_euclid(6.0))
+    } else if max == green {
+        60.0 * (((blue - red) / delta) + 2.0)
+    } else {
+        60.0 * (((red - green) / delta) + 4.0)
+    };
+    Some(angle)
+}
+
+/// Shortest angular distance between two hues, in degrees (0..=180).
+fn hue_distance(a: f64, b: f64) -> f64 {
+    let difference = (a - b).abs() % 360.0;
+    difference.min(360.0 - difference)
+}
+
+/// WCAG 2.x relative luminance of an sRGB colour.
+fn relative_luminance(rgb: Rgb) -> f64 {
+    fn channel(value: u8) -> f64 {
+        let value = value as f64 / 255.0;
+        if value <= 0.040_45 {
+            value / 12.92
+        } else {
+            ((value + 0.055) / 1.055).powf(2.4)
+        }
+    }
+    0.2126 * channel(rgb.0) + 0.7152 * channel(rgb.1) + 0.0722 * channel(rgb.2)
+}
+
+/// WCAG 2.x contrast ratio between two sRGB colours, from 1.0 to 21.0.
+///
+/// This is the computation the accessibility tests use against the palette the
+/// dashboard actually resolves for a terminal, not against an idealised one.
+pub fn contrast_ratio(a: Rgb, b: Rgb) -> f64 {
+    let (lighter, darker) = {
+        let (la, lb) = (relative_luminance(a), relative_luminance(b));
+        if la >= lb {
+            (la, lb)
+        } else {
+            (lb, la)
+        }
+    };
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+/// The RGB value a terminal will paint for a ratatui colour.
+fn resolved_rgb(color: Color) -> Option<Rgb> {
+    match color {
+        Color::Rgb(red, green, blue) => Some((red, green, blue)),
+        Color::Reset => None,
+        Color::Indexed(index) => Some(ansi256_rgb(index)),
+        other => ansi16_rgb(other),
+    }
+}
+
+/// The RGB value of one of the sixteen ANSI colours.
+pub fn ansi16_rgb(color: Color) -> Option<Rgb> {
+    ANSI16
+        .iter()
+        .find_map(|(rgb, candidate)| (*candidate == color).then_some(*rgb))
+}
+
+/// The RGB value of an xterm-256 index.
+fn ansi256_rgb(index: u8) -> Rgb {
+    match index {
+        0..=15 => ANSI16
+            .get(index as usize)
+            .map(|(rgb, _)| *rgb)
+            .unwrap_or((0, 0, 0)),
+        16..=231 => {
+            let n = index - 16;
+            let r = n / 36;
+            let g = (n % 36) / 6;
+            let b = n % 6;
+            (
+                CUBE_LEVELS.get(r as usize).copied().unwrap_or(0),
+                CUBE_LEVELS.get(g as usize).copied().unwrap_or(0),
+                CUBE_LEVELS.get(b as usize).copied().unwrap_or(0),
+            )
+        }
+        _ => {
+            let level = 8 + 10 * (index - 232);
+            (level, level, level)
+        }
+    }
 }
 
 const CUBE_LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
@@ -201,17 +305,57 @@ const ANSI16: [(Rgb, Color); 16] = [
     ((255, 255, 255), Color::White),
 ];
 
-fn nearest_ansi16(rgb: Rgb) -> Color {
+/// Nearest ANSI-16 colour, optionally constrained to a minimum contrast
+/// against `background`.
+///
+/// A saturated source colour is never allowed to collapse onto a grey just
+/// because the grey is numerically close: the sixteen-colour palette is small,
+/// and the semantic colours (accent, ok, warn, bad) must stay distinguishable
+/// from each other and from body text. When `background` is supplied, a
+/// candidate below `min_ratio` is skipped; if no candidate qualifies, the
+/// unconstrained nearest colour is returned rather than an arbitrary one.
+fn nearest_ansi16(rgb: Rgb, background: Option<Rgb>, min_ratio: f64) -> Color {
+    let source_chroma = chroma(rgb);
+    let source_hue = hue(rgb);
     let mut best = Color::Reset;
     let mut best_distance = u32::MAX;
+    let mut fallback = Color::Reset;
+    let mut fallback_distance = u32::MAX;
     for &(candidate, color) in ANSI16.iter() {
-        let distance = dist2(rgb, candidate);
+        let mut distance = dist2(rgb, candidate);
+        if source_chroma > 24 {
+            if chroma(candidate) == 0 {
+                // A saturated source must not collapse onto a grey just
+                // because the grey is numerically close.
+                distance = distance.saturating_mul(16);
+            } else if let (Some(source), Some(candidate_hue)) = (source_hue, hue(candidate)) {
+                // The sixteen-colour palette is coarse: pure yellow sits
+                // between red and green, so an RGB distance alone maps both a
+                // success green and a failure red onto yellow. Weighting the
+                // hue difference keeps the semantic roles distinct.
+                let penalty = (hue_distance(source, candidate_hue) / 180.0 * 120_000.0) as u32;
+                distance = distance.saturating_add(penalty);
+            }
+        }
+        if distance < fallback_distance {
+            fallback_distance = distance;
+            fallback = color;
+        }
+        if let Some(background) = background {
+            if contrast_ratio(candidate, background) < min_ratio {
+                continue;
+            }
+        }
         if distance < best_distance {
             best_distance = distance;
             best = color;
         }
     }
-    best
+    if best_distance == u32::MAX {
+        fallback
+    } else {
+        best
+    }
 }
 
 struct Palette {
@@ -294,10 +438,21 @@ impl Theme {
     /// Resolve a theme to a concrete colour depth, selecting the glyph set later.
     pub fn new(id: ThemeId, depth: ColorDepth, ascii: bool) -> Self {
         let palette = id.palette();
-        let fg = map_color(palette.fg, depth);
         let bg = map_color(palette.bg, depth);
-        let accent = map_color(palette.accent, depth);
-        let accent2 = map_color(palette.accent2, depth);
+        // Contrast-aware mapping only matters on the sixteen-colour palette;
+        // truecolour and 256-colour keep the exact palette value.
+        let bg_rgb = resolved_rgb(bg).unwrap_or(palette.bg);
+        let role = |rgb: Rgb, minimum: f64| -> Color {
+            if depth == ColorDepth::Ansi16 {
+                nearest_ansi16(rgb, Some(bg_rgb), minimum)
+            } else {
+                map_color(rgb, depth)
+            }
+        };
+        let fg = role(palette.fg, 7.0);
+        let accent = role(palette.accent, 4.5);
+        let accent2 = role(palette.accent2, 3.0);
+        let warn = role(palette.warn, 3.0);
 
         let (measured, extrapolated, analytical) = if depth == ColorDepth::Mono {
             (
@@ -308,9 +463,7 @@ impl Theme {
         } else {
             (
                 Style::new().fg(accent).add_modifier(Modifier::BOLD),
-                Style::new()
-                    .fg(map_color(palette.warn, depth))
-                    .add_modifier(Modifier::DIM),
+                Style::new().fg(warn).add_modifier(Modifier::DIM),
                 Style::new().fg(accent2).add_modifier(Modifier::ITALIC),
             )
         };
@@ -323,15 +476,50 @@ impl Theme {
             bg,
             accent,
             accent2,
-            ok: map_color(palette.ok, depth),
-            warn: map_color(palette.warn, depth),
-            bad: map_color(palette.bad, depth),
-            muted: map_color(palette.muted, depth),
-            border: map_color(palette.border, depth),
+            ok: role(palette.ok, 3.0),
+            warn,
+            bad: role(palette.bad, 3.0),
+            muted: role(palette.muted, 3.0),
+            border: role(palette.border, 2.0),
             measured,
             extrapolated,
             analytical,
         }
+    }
+
+    /// Resolve one of this theme's colours back to the RGB a terminal will
+    /// actually paint, for the active colour depth.
+    pub fn resolved_rgb(&self, color: Color) -> Option<Rgb> {
+        resolved_rgb(color)
+    }
+
+    /// Contrast ratio between two of this theme's colours, when both resolve.
+    pub fn contrast(&self, foreground: Color, background: Color) -> Option<f64> {
+        let foreground = self.resolved_rgb(foreground)?;
+        let background = self.resolved_rgb(background)?;
+        Some(contrast_ratio(foreground, background))
+    }
+
+    /// Every semantic foreground against the theme background, with the
+    /// contrast the active colour depth will really produce. `mono` has no
+    /// colour to measure and returns an empty list.
+    pub fn contrast_pairs(&self) -> Vec<(&'static str, f64)> {
+        let mut pairs = Vec::new();
+        for (role, colour) in [
+            ("fg", self.fg),
+            ("accent", self.accent),
+            ("accent2", self.accent2),
+            ("ok", self.ok),
+            ("warn", self.warn),
+            ("bad", self.bad),
+            ("muted", self.muted),
+            ("border", self.border),
+        ] {
+            if let Some(ratio) = self.contrast(colour, self.bg) {
+                pairs.push((role, ratio));
+            }
+        }
+        pairs
     }
 
     /// The active glyph set (ASCII when `ascii` is set, Unicode otherwise).
@@ -377,6 +565,14 @@ pub struct Glyphs {
     pub pointer: char,
     pub spinner: &'static [char],
     pub border: symbols::border::Set<'static>,
+    /// Positive-status marker. Never colour alone: every status carries one.
+    pub ok_marker: &'static str,
+    /// Negative-status marker.
+    pub bad_marker: &'static str,
+    /// Caution/status marker.
+    pub warn_marker: &'static str,
+    /// Informational/status marker.
+    pub info_marker: &'static str,
 }
 
 impl Glyphs {
@@ -399,6 +595,10 @@ impl Glyphs {
                 vertical_left: "│",
                 vertical_right: "│",
             },
+            ok_marker: "✔",
+            bad_marker: "✖",
+            warn_marker: "!",
+            info_marker: "•",
         }
     }
 
@@ -421,6 +621,10 @@ impl Glyphs {
                 vertical_left: "|",
                 vertical_right: "|",
             },
+            ok_marker: "[ok]",
+            bad_marker: "[x]",
+            warn_marker: "[!]",
+            info_marker: "[i]",
         }
     }
 }
@@ -570,5 +774,119 @@ mod tests {
             assert_eq!(style.fg, None, "mono carries no colour");
             assert!(style.add_modifier.contains(Modifier::BOLD));
         }
+    }
+
+    #[test]
+    fn contrast_ratio_matches_the_wcag_reference_points() {
+        // Black on white is the maximum 21:1; a colour against itself is 1:1.
+        assert!((contrast_ratio((0, 0, 0), (255, 255, 255)) - 21.0).abs() < 0.01);
+        assert!((contrast_ratio((255, 255, 255), (0, 0, 0)) - 21.0).abs() < 0.01);
+        assert!((contrast_ratio((17, 17, 17), (17, 17, 17)) - 1.0).abs() < 1e-9);
+        // The ratio is symmetric.
+        let a = contrast_ratio((14, 90, 140), (250, 250, 250));
+        let b = contrast_ratio((250, 250, 250), (14, 90, 140));
+        assert!((a - b).abs() < 1e-9);
+    }
+
+    #[test]
+    fn every_theme_semantic_colour_clears_its_contrast_floor() {
+        // The floors are the ones `Theme::new` asks the sixteen-colour mapper
+        // to respect, so a palette edit that dims a role fails here.
+        let floors = [
+            ("fg", 7.0),
+            ("accent", 4.5),
+            ("accent2", 3.0),
+            ("ok", 3.0),
+            ("warn", 3.0),
+            ("bad", 3.0),
+            ("muted", 3.0),
+            ("border", 2.0),
+        ];
+        for id in ThemeId::ALL {
+            let theme = Theme::new(id, ColorDepth::TrueColor, false);
+            let ratios = theme.contrast_pairs();
+            for (role, floor) in floors {
+                let ratio = ratios
+                    .iter()
+                    .find_map(|(name, ratio)| (*name == role).then_some(*ratio))
+                    .unwrap_or_else(|| panic!("{id:?} has no {role} contrast"));
+                assert!(
+                    ratio >= floor,
+                    "{id:?} {role} contrast {ratio:.2} is below the {floor:.1} floor"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn sixteen_colour_resolution_keeps_contrast_and_distinct_roles() {
+        // `TERM=xterm` resolves to the sixteen-colour palette. The mapper must
+        // still keep each semantic role readable against the resolved
+        // background, and must not collapse every role onto one colour.
+        for id in ThemeId::ALL {
+            let theme = Theme::new(id, ColorDepth::Ansi16, false);
+            let ratios = theme.contrast_pairs();
+            assert!(!ratios.is_empty(), "{id:?} lost every colour");
+            for (role, ratio) in &ratios {
+                assert!(
+                    *ratio >= 2.0,
+                    "{id:?} {role} contrast {ratio:.2} on the sixteen-colour palette is illegible"
+                );
+            }
+            assert!(
+                theme.fg != theme.bg,
+                "{id:?} maps text onto the background colour"
+            );
+            assert_ne!(theme.accent, theme.fg, "{id:?} collapses accent into fg");
+            assert_ne!(theme.accent, theme.bad, "{id:?} collapses accent into bad");
+            assert_ne!(theme.ok, theme.bad, "{id:?} collapses ok into bad");
+        }
+    }
+
+    #[test]
+    fn the_contrast_theme_reaches_the_wcag_aaa_text_ratio() {
+        let theme = Theme::new(ThemeId::Contrast, ColorDepth::TrueColor, false);
+        let ratio = theme
+            .contrast(theme.fg, theme.bg)
+            .expect("truecolour resolves");
+        assert!(
+            ratio >= 7.0,
+            "contrast-theme body text is {ratio:.2}:1, below the AAA floor"
+        );
+    }
+
+    #[test]
+    fn status_markers_are_never_empty_and_differ_between_glyph_sets() {
+        let unicode = Glyphs::unicode();
+        let ascii = Glyphs::ascii();
+        for marker in [
+            unicode.ok_marker,
+            unicode.bad_marker,
+            unicode.warn_marker,
+            unicode.info_marker,
+        ] {
+            assert!(!marker.is_empty(), "a status marker may not be blank");
+        }
+        for marker in [
+            ascii.ok_marker,
+            ascii.bad_marker,
+            ascii.warn_marker,
+            ascii.info_marker,
+        ] {
+            assert!(!marker.is_empty());
+            assert!(marker.is_ascii(), "{marker:?} is not ASCII");
+        }
+        assert_ne!(unicode.ok_marker, ascii.ok_marker);
+        assert_ne!(unicode.bad_marker, ascii.bad_marker);
+    }
+
+    #[test]
+    fn an_empty_no_color_variable_does_not_disable_colour() {
+        // https://no-color.org: the convention only applies when the variable
+        // is present and non-empty.
+        assert_eq!(
+            detect_color_depth(Some("truecolor"), Some("xterm-256color"), false),
+            ColorDepth::TrueColor
+        );
     }
 }

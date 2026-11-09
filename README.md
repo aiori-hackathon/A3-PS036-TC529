@@ -26,7 +26,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/8fdb106e2301a0ee5d9ff6fbb7a2d8a2715eecc6" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/2633bc5e821e9d3ba8327f98cca07cb6c8c96558" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -137,7 +137,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/8fdb106e2301a0ee5d9ff6fbb7a2d8a2715eecc6" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/2633bc5e821e9d3ba8327f98cca07cb6c8c96558" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">

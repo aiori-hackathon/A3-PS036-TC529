@@ -1576,6 +1576,33 @@ fn flag_labels_sit_directly_above_their_poles() {
 }
 
 #[test]
+fn flag_labels_prefer_the_staggered_levels_then_cover_the_band() {
+    let pole_top = 255.12;
+    let baselines = flag_label_baselines(pole_top);
+    assert_eq!(baselines[0], pole_top - 8.0, "the first staggered level");
+    assert_eq!(baselines[1], pole_top - 26.0, "the second staggered level");
+    for baseline in &baselines {
+        let gap = pole_top - baseline;
+        assert!(
+            (4.0..30.0).contains(&gap),
+            "baseline at {gap:.2} px is outside the legal band"
+        );
+    }
+    // The fallback search must not leave a hole wider than its step, or a
+    // label could fail to place even though a legal baseline existed.
+    let mut sorted = baselines.clone();
+    sorted.sort_by(|a, b| a.partial_cmp(b).expect("finite baselines"));
+    for pair in sorted.windows(2) {
+        assert!(
+            pair[1] - pair[0] <= 0.5 + 1e-9,
+            "gap between {:.2} and {:.2} is too wide",
+            pole_top - pair[0],
+            pole_top - pair[1]
+        );
+    }
+}
+
+#[test]
 fn a_missing_brand_file_falls_back_to_the_sampled_palette() {
     let palette = Palette::load(Path::new("/definitely/not/a/repo"), &style()).expect("a palette");
     assert_eq!(palette.orange, "#C55E33");

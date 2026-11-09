@@ -13,7 +13,8 @@ use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use crate::cli::Cli;
 use crate::data::{
-    ArtifactSource, LadderLoadState, LiveLoadState, LoadState, MethodView, ValueMode,
+    ArtifactSource, LadderLoadState, LiveLoadState, LoadState, LoadedArtifacts, MethodView,
+    ValueMode,
 };
 use crate::theme::{ColorDepth, Theme, ThemeId};
 use crate::tour::{Clock, Press, TourRunner};
@@ -156,6 +157,48 @@ pub enum Effect {
     LoadResults(PathBuf),
 }
 
+/// Severity of a status line.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StatusTone {
+    /// Neutral progress or confirmation.
+    Info,
+    /// Something the reader should notice but that is not fatal.
+    Warn,
+    /// A failure that needs fixing.
+    Bad,
+}
+
+/// A one-line message shown in the status bar, always carrying a text or glyph
+/// marker so colour is never the only signal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StatusLine {
+    pub tone: StatusTone,
+    pub text: String,
+}
+
+impl StatusLine {
+    pub fn info(text: impl Into<String>) -> Self {
+        Self {
+            tone: StatusTone::Info,
+            text: text.into(),
+        }
+    }
+
+    pub fn warn(text: impl Into<String>) -> Self {
+        Self {
+            tone: StatusTone::Warn,
+            text: text.into(),
+        }
+    }
+
+    pub fn bad(text: impl Into<String>) -> Self {
+        Self {
+            tone: StatusTone::Bad,
+            text: text.into(),
+        }
+    }
+}
+
 /// The dashboard model.
 pub struct App {
     pub tab: Tab,
@@ -215,6 +258,14 @@ pub struct App {
     method: MethodView,
     /// Recorded ladder verification; updated by the runtime on load/reload.
     ladder: LadderLoadState,
+    /// A reload is running on a worker thread. The status bar says so, and the
+    /// event loop keeps drawing its spinner while this is true.
+    pub reloading: bool,
+    /// The last one-line status message (reload outcome, failure, ...).
+    pub status: Option<StatusLine>,
+    /// Whether the model changed since the last frame. The event loop draws
+    /// only when this is set, so an idle dashboard costs no terminal writes.
+    dirty: bool,
 }
 
 impl App {
@@ -259,11 +310,20 @@ impl App {
             method_scroll: 0,
             method: MethodView::embedded(),
             ladder: LadderLoadState::Absent,
+            reloading: false,
+            status: None,
+            dirty: true,
         }
     }
 
     /// Apply an action. Pure with respect to I/O: side work is returned as an [`Effect`].
     pub fn update(&mut self, action: Action) -> Option<Effect> {
+        // Every action except an idle tick changes what a frame would show.
+        // `Tick` decides for itself below, because a dashboard with nothing
+        // animating must not redraw at 30 Hz.
+        if action != Action::Tick {
+            self.dirty = true;
+        }
         match action {
             Action::Quit => {
                 self.should_quit = true;
@@ -286,7 +346,11 @@ impl App {
             Action::ToggleHelp => self.show_help = !self.show_help,
             Action::CycleTheme => self.theme = self.theme.next(),
             Action::ToggleAscii => self.ascii = !self.ascii,
-            Action::Reload => return Some(Effect::LoadResults(self.results_path.clone())),
+            Action::Reload => {
+                self.reloading = true;
+                self.status = Some(StatusLine::info("reloading results..."));
+                return Some(Effect::LoadResults(self.results_path.clone()));
+            }
             Action::PrevSize => {
                 if self.tab == Tab::Ladder {
                     self.ladder_leaf = self.step_leaf(-1);
@@ -332,6 +396,9 @@ impl App {
                         tour.on_tick(now);
                     }
                     self.apply_tour_step();
+                }
+                if self.animating() {
+                    self.dirty = true;
                 }
             }
             Action::LadderUp => {
@@ -584,6 +651,63 @@ impl App {
     /// The most recently observed terminal size.
     pub fn last_size(&self) -> (u16, u16) {
         self.last_size
+    }
+
+    /// Whether the model changed since the last drawn frame.
+    pub fn needs_redraw(&self) -> bool {
+        self.dirty
+    }
+
+    /// Record that the current model has just been drawn.
+    pub fn mark_clean(&mut self) {
+        self.dirty = false;
+    }
+
+    /// Whether anything on screen is animating. Idle ticks are then cheap: the
+    /// model advances but the terminal is not rewritten.
+    pub fn animating(&self) -> bool {
+        self.reloading
+            || self.tour.is_some()
+            || (self.tab == Tab::Ladder && self.ladder_autoplay)
+            || (self.tab == Tab::Live && self.live_autoplay)
+    }
+
+    /// Set the one-line status message and mark the frame dirty.
+    pub fn set_status(&mut self, status: Option<StatusLine>) {
+        self.status = status;
+        self.dirty = true;
+    }
+
+    /// Record that a background reload started or finished.
+    pub fn set_reloading(&mut self, reloading: bool) {
+        self.reloading = reloading;
+        self.dirty = true;
+    }
+
+    /// Install a completed background reload and report its outcome in the
+    /// status line. A failed load keeps the recovery screen and names the file
+    /// and the command that fixes it.
+    pub fn apply_reload(&mut self, loaded: LoadedArtifacts) {
+        let (source, state) = loaded.results;
+        let status = match &state {
+            LoadState::Loaded(_) => StatusLine::info(format!("reloaded {}", source.label())),
+            LoadState::Missing { path } => StatusLine::bad(format!(
+                "results missing: {}; run `cargo xtask consolidate`",
+                crate::paths::display(path)
+            )),
+            LoadState::Invalid { path, error } => StatusLine::bad(format!(
+                "results unreadable: {} ({error}); run `cargo xtask consolidate`",
+                crate::paths::display(path)
+            )),
+            LoadState::NotLoaded => StatusLine::warn("results not loaded; press r to reload"),
+        };
+        self.set_data(state);
+        self.set_source(source);
+        self.set_ladder(loaded.ladder);
+        self.set_live(loaded.live);
+        self.reloading = false;
+        self.status = Some(status);
+        self.dirty = true;
     }
 }
 
@@ -853,6 +977,98 @@ mod tests {
             effect,
             Some(Effect::LoadResults(PathBuf::from("/tmp/fake-results.json")))
         );
+    }
+
+    #[test]
+    fn an_idle_tick_does_not_request_a_redraw() {
+        let mut app = test_app();
+        app.mark_clean();
+        assert!(!app.needs_redraw());
+        app.update(Action::Tick);
+        assert!(
+            !app.needs_redraw(),
+            "an idle tick must not rewrite the terminal"
+        );
+        app.update(Action::NextTab);
+        assert!(app.needs_redraw(), "a key action must request a redraw");
+        app.mark_clean();
+        assert!(!app.needs_redraw());
+    }
+
+    #[test]
+    fn a_tick_redraws_while_something_is_animating() {
+        let mut app = test_app();
+        app.set_reloading(true);
+        app.mark_clean();
+        app.update(Action::Tick);
+        assert!(
+            app.needs_redraw(),
+            "the reloading spinner must keep drawing while a reload runs"
+        );
+    }
+
+    #[test]
+    fn reload_sets_a_visible_reloading_state() {
+        let mut app = test_app();
+        let effect = app.update(Action::Reload);
+        assert!(matches!(effect, Some(Effect::LoadResults(_))));
+        assert!(app.reloading, "the worker has not reported back yet");
+        assert!(app.animating());
+        let status = app.status.as_ref().expect("a reloading status line");
+        assert_eq!(status.tone, StatusTone::Info);
+        assert!(status.text.contains("reloading"), "{:?}", status.text);
+    }
+
+    #[test]
+    fn apply_reload_clears_the_spinner_and_reports_the_outcome() {
+        let mut app = test_app();
+        app.set_reloading(true);
+        app.apply_reload(LoadedArtifacts {
+            results: (
+                crate::data::ArtifactSource::from_path(
+                    crate::data::ArtifactOrigin::Explicit,
+                    PathBuf::from("target/climb-results.json"),
+                ),
+                LoadState::Missing {
+                    path: PathBuf::from("target/climb-results.json"),
+                },
+            ),
+            ladder: crate::data::LadderLoadState::Absent,
+            live: crate::data::LiveLoadState::Missing {
+                path: PathBuf::from("docs/sample-output/dns-capture.recorded.json"),
+            },
+        });
+        assert!(!app.reloading, "the spinner stops when the worker reports");
+        let status = app.status.as_ref().expect("a status line");
+        assert_eq!(status.tone, StatusTone::Bad);
+        assert!(status.text.contains("climb-results.json"));
+        assert!(
+            status.text.contains("cargo xtask consolidate"),
+            "a failed reload names the fixing command: {:?}",
+            status.text
+        );
+    }
+
+    #[test]
+    fn unknown_and_exotic_keys_are_ignored() {
+        use KeyCode::*;
+        let none = KeyModifiers::NONE;
+        for key in [
+            KeyEvent::new(Char('z'), none),
+            KeyEvent::new(Char('0'), none),
+            KeyEvent::new(F(1), none),
+            KeyEvent::new(F(12), none),
+            KeyEvent::new(Insert, none),
+            KeyEvent::new(Delete, none),
+            KeyEvent::new(Home, none),
+            KeyEvent::new(End, none),
+            KeyEvent::new(PageUp, none),
+            KeyEvent::new(PageDown, none),
+            KeyEvent::new(Null, none),
+            KeyEvent::new(Media(crossterm::event::MediaKeyCode::Play), none),
+        ] {
+            assert_eq!(map_key(key), None, "{key:?} must be ignored");
+        }
     }
 
     #[test]

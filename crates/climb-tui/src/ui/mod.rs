@@ -38,6 +38,9 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     if area.width < REQUIRED_WIDTH || area.height < REQUIRED_HEIGHT {
         render_too_small(frame, area, &theme);
+        if app.ascii {
+            sanitize_ascii(frame);
+        }
         return;
     }
 
@@ -62,6 +65,70 @@ pub fn render(frame: &mut Frame, app: &App) {
 
     if app.show_help {
         render_help(frame, area, &theme, &glyphs);
+    }
+
+    // A single final pass guarantees the promise `--ascii` makes: no frame,
+    // on any tab, contains a glyph outside ASCII. Doing it here means a view
+    // model that introduces a new symbol cannot silently break ASCII mode.
+    if app.ascii {
+        sanitize_ascii(frame);
+    }
+}
+
+/// Replace every non-ASCII cell symbol with a close ASCII equivalent.
+fn sanitize_ascii(frame: &mut Frame) {
+    let area = frame.area();
+    let buffer = frame.buffer_mut();
+    for y in 0..area.height {
+        for x in 0..area.width {
+            let Some(cell) = buffer.cell_mut((x, y)) else {
+                continue;
+            };
+            let replacement = {
+                let symbol = cell.symbol();
+                (!symbol.is_ascii()).then(|| ascii_symbol(symbol))
+            };
+            if let Some(replacement) = replacement {
+                cell.set_symbol(replacement);
+            }
+        }
+    }
+}
+
+/// The ASCII stand-in for one rendered symbol. Unknown symbols become `?`
+/// rather than disappearing, so a missing mapping is visible in a test frame.
+fn ascii_symbol(symbol: &str) -> &'static str {
+    match symbol.chars().next() {
+        Some('─' | '━') => "-",
+        Some('│' | '┃') => "|",
+        Some('┌' | '┐' | '└' | '┘' | '├' | '┤' | '┬' | '┴' | '┼' | '╭' | '╮' | '╯' | '╰') => {
+            "+"
+        }
+        Some('█' | '▓' | '▒' | '░') => "#",
+        Some('╫') => "=",
+        Some('▶' | '▸' | '►' | '→') => ">",
+        Some('◀' | '◂' | '←') => "<",
+        Some('▲' | '↑') => "^",
+        Some('▼' | '↓') => "v",
+        Some('…') => ".",
+        Some('·' | '•' | '∙') => ".",
+        Some('≈') => "~",
+        Some('—' | '–') => "-",
+        Some('✔') => "+",
+        Some('✖' | '×' | '✗') => "x",
+        Some('µ') => "u",
+        Some('°') => "o",
+        Some('±') => "+",
+        Some('≥') => ">",
+        Some('≤') => "<",
+        Some('●' | '◆' | '◇' | '○') => "*",
+        Some('⇄' | '⇆') => "<",
+        Some('’' | '‘') => "'",
+        Some('“' | '”') => "\"",
+        Some('§') => "S",
+        Some('⏎') => "\\",
+        Some(_) => "?",
+        None => "?",
     }
 }
 
@@ -222,20 +289,41 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
     let mode = if app.replay { "replay" } else { "live" };
     let tour = if app.tour_active() { "on" } else { "off" };
     let ascii = if app.ascii { "on" } else { "off" };
-    // The source path is the only field of unbounded width; every other span is
-    // fixed, so the path is shortened with a marker until the trailing help key
-    // hint stays visible even at the minimum supported width.
+    // Everything except the tail is fixed width, so the tail (the source path,
+    // or a status message when one exists) is shortened with a marker until
+    // the trailing help key hint stays visible even at the minimum width.
     let fixed: usize = format!(" {spinner} ").chars().count()
         + format!("theme: {} ", app.theme.label()).chars().count()
         + format!("({}) ", app.color_depth.label()).chars().count()
         + format!("ascii: {ascii} ").chars().count()
         + format!("mode: {mode} ").chars().count()
         + format!("tour: {tour} ").chars().count()
-        + "source: ".len()
         + " ".len()
         + "· ? help".len();
-    let path_budget = (area.width as usize).saturating_sub(fixed);
-    let path = crate::widgets::ellipsize(&app.source.label(), path_budget, theme.ascii);
+    let tail_budget = (area.width as usize).saturating_sub(fixed);
+    let (tail, tail_style) = match &app.status {
+        Some(status) => {
+            let (marker, colour) = match status.tone {
+                crate::app::StatusTone::Info => (glyphs.info_marker, theme.accent),
+                crate::app::StatusTone::Warn => (glyphs.warn_marker, theme.warn),
+                crate::app::StatusTone::Bad => (glyphs.bad_marker, theme.bad),
+            };
+            let text = crate::widgets::ellipsize(
+                &format!("{marker} {}", status.text),
+                tail_budget,
+                theme.ascii,
+            );
+            (text, colour)
+        }
+        None => {
+            let text = crate::widgets::ellipsize(
+                &format!("source: {}", app.source.label()),
+                tail_budget,
+                theme.ascii,
+            );
+            (text, theme.muted)
+        }
+    };
     let line = Line::from(vec![
         Span::styled(format!(" {spinner} "), Style::new().fg(theme.accent)),
         Span::styled(
@@ -249,7 +337,7 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
         Span::styled(format!("ascii: {ascii} "), Style::new().fg(theme.fg)),
         Span::styled(format!("mode: {mode} "), Style::new().fg(theme.fg)),
         Span::styled(format!("tour: {tour} "), Style::new().fg(theme.fg)),
-        Span::styled(format!("source: {path} "), Style::new().fg(theme.muted)),
+        Span::styled(format!("{tail} "), Style::new().fg(tail_style)),
         Span::styled("· ? help", Style::new().fg(theme.accent)),
     ]);
     frame.render_widget(
@@ -506,14 +594,7 @@ mod tests {
         )
     }
 
-    fn render_to_string(app: &App, width: u16, height: u16) -> String {
-        let backend = TestBackend::new(width, height);
-        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
-        terminal
-            .draw(|frame| render(frame, app))
-            .expect("rendering never fails on TestBackend");
-
-        let buffer = terminal.backend().buffer();
+    fn buffer_to_string(buffer: &ratatui::buffer::Buffer) -> String {
         let mut out = String::new();
         for y in 0..buffer.area.height {
             for x in 0..buffer.area.width {
@@ -526,15 +607,60 @@ mod tests {
         out
     }
 
-    /// The committed sample results, loaded through the TUI's own loader, so a
-    /// snapshot exercises the same path a user does. The file age is pinned so
-    /// the golden frame does not drift as the checkout gets older.
-    fn sample_app() -> App {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../docs/sample-output/climb-results.json");
-        let mut app = app_with(false, ThemeId::Dark, false);
+    fn render_to_string(app: &App, width: u16, height: u16) -> String {
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| render(frame, app))
+            .expect("rendering never fails on TestBackend");
+        buffer_to_string(terminal.backend().buffer())
+    }
+
+    /// A stable digest of every cell's symbol and style. Text snapshots alone
+    /// cannot see a theme change; this catches a palette or modifier drift.
+    fn style_digest(buffer: &ratatui::buffer::Buffer) -> u64 {
+        // FNV-1a over the symbol bytes and the resolved style fields.
+        let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+        let mut mix = |bytes: &[u8]| {
+            for &byte in bytes {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        };
+        for y in 0..buffer.area.height {
+            for x in 0..buffer.area.width {
+                let Some(cell) = buffer.cell((x, y)) else {
+                    continue;
+                };
+                mix(cell.symbol().as_bytes());
+                mix(format!(
+                    "{:?}|{:?}|{:?}|{:?}",
+                    cell.fg,
+                    cell.bg,
+                    cell.underline_color,
+                    cell.modifier.bits()
+                )
+                .as_bytes());
+            }
+        }
+        hash
+    }
+
+    fn sample_output_path(name: &str) -> PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output")
+            .join(name)
+    }
+
+    /// The committed sample artifacts, loaded through the TUI's own loaders,
+    /// so a snapshot exercises the same path a user does. The results-file age
+    /// is pinned and the clock is fake, so the golden frame does not drift as
+    /// the checkout gets older or the test run gets slower.
+    fn sample_app_with(theme: ThemeId) -> App {
+        let results_path = sample_output_path("climb-results.json");
+        let mut app = app_with(false, theme, false);
         app.set_clock(crate::tour::Clock::fake());
-        let state = match crate::data::load(&path) {
+        let state = match crate::data::load(&results_path) {
             LoadState::Loaded(view) => LoadState::Loaded(Box::new(ResultsView::new(
                 view.results().clone(),
                 Some(std::time::Duration::from_secs(60)),
@@ -543,22 +669,109 @@ mod tests {
             other => other,
         };
         app.set_data(state);
+        app.set_live(crate::data::load_live(&sample_output_path(
+            "dns-capture.recorded.json",
+        )));
+        app.set_ladder(crate::data::load_ladder(&sample_output_path(
+            "ladder-verification.recorded.json",
+        )));
         app
     }
 
-    /// Golden-frame snapshots at the minimum and the reference terminal size.
-    /// The 120x40 frame includes the Overview's signature-context table. Set
-    /// `CLIMB_UPDATE_SNAPSHOTS=1` to rewrite the committed copies.
+    fn sample_app() -> App {
+        sample_app_with(ThemeId::Dark)
+    }
+
+    /// The four sizes the dashboard is checked at, from the minimum to a large
+    /// terminal.
+    const SNAPSHOT_SIZES: [(u16, u16); 4] = [(80, 24), (100, 30), (120, 40), (200, 60)];
+
+    fn snapshot_path(width: u16, height: u16) -> PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/ui/snapshots")
+            .join(format!("frames-{width}x{height}.txt"))
+    }
+
+    /// Render one tab and return its text frame and style digest.
+    fn tab_frame(theme: ThemeId, tab: Tab, width: u16, height: u16) -> (String, u64) {
+        let mut app = sample_app_with(theme);
+        app.tab = tab;
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| render(frame, &app))
+            .expect("rendering never fails on TestBackend");
+        let buffer = terminal.backend().buffer();
+        (buffer_to_string(buffer), style_digest(buffer))
+    }
+
+    /// The status bar names the active theme, so that one label is the only
+    /// text that legitimately differs between themes. Normalising it lets the
+    /// committed text frame be shared while a separate test still checks that
+    /// the label tracks the theme.
+    fn normalize_theme_label(text: &str) -> String {
+        let mut out = text.to_string();
+        for theme in ThemeId::ALL {
+            out = out.replace(&format!("theme: {} ", theme.label()), "theme: <theme> ");
+        }
+        out
+    }
+
+    /// Build one size's snapshot: the text frame once per tab (it is the same
+    /// for every theme, which the test also asserts) plus a style digest per
+    /// theme. Set `CLIMB_UPDATE_SNAPSHOTS=1` to rewrite the committed copies.
+    fn frame_snapshot(width: u16, height: u16) -> String {
+        let mut out = format!("size: {width}x{height}\n");
+        for tab in Tab::ALL {
+            let (text, _) = tab_frame(ThemeId::Dark, tab, width, height);
+            out.push_str(&format!("\n### {}\n", tab.title()));
+            // Trailing spaces carry no information in a text snapshot; the
+            // style digest still covers the full cell grid.
+            for line in normalize_theme_label(&text).lines() {
+                out.push_str(line.trim_end());
+                out.push('\n');
+            }
+            for theme in ThemeId::ALL {
+                let (_, digest) = tab_frame(theme, tab, width, height);
+                out.push_str(&format!("style-digest {}: {digest:016x}\n", theme.label()));
+            }
+        }
+        out
+    }
+
+    /// Every tab, every theme, at every supported size. The text frame catches
+    /// layout drift and the style digest catches a theme or colour-depth drift.
     #[test]
-    fn overview_frames_match_committed_snapshots() {
-        let mut app = sample_app();
-        app.tab = Tab::Overview;
-        for (width, height) in [(80u16, 24u16), (120, 40)] {
-            let out = render_to_string(&app, width, height);
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("src/ui/snapshots")
-                .join(format!("overview-{width}x{height}.txt"));
-            if std::env::var_os("CLIMB_UPDATE_SNAPSHOTS").is_some() {
+    fn every_tab_and_theme_matches_committed_snapshots() {
+        let update = std::env::var_os("CLIMB_UPDATE_SNAPSHOTS").is_some();
+        for (width, height) in SNAPSHOT_SIZES {
+            // The text is a property of the layout, not the palette: every
+            // theme must produce exactly the same frame. A theme that changed
+            // the text (for example by choosing different glyphs) would make
+            // the single committed text copy a lie.
+            for tab in Tab::ALL {
+                let (baseline, _) = tab_frame(ThemeId::Dark, tab, width, height);
+                // The status bar is the last row and legitimately differs:
+                // the theme label changes width, which changes how much of the
+                // source path fits. Compare the body only.
+                let body = |text: &str| {
+                    let lines: Vec<&str> = text.lines().collect();
+                    lines[..lines.len().saturating_sub(1)].join("\n")
+                };
+                let baseline_body = body(&baseline);
+                for theme in ThemeId::ALL {
+                    let (text, _) = tab_frame(theme, tab, width, height);
+                    assert_eq!(
+                        body(&text),
+                        baseline_body,
+                        "{} at {width}x{height} changes its text under {theme:?}",
+                        tab.title()
+                    );
+                }
+            }
+            let out = frame_snapshot(width, height);
+            let path = snapshot_path(width, height);
+            if update {
                 std::fs::create_dir_all(path.parent().expect("snapshot dir"))
                     .expect("create snapshot dir");
                 std::fs::write(&path, &out).expect("write snapshot");
@@ -573,8 +786,82 @@ mod tests {
             assert_eq!(
                 out,
                 expected,
-                "rendered frame drifted from {}",
+                "rendered frames drifted from {}",
                 path.display()
+            );
+        }
+    }
+
+    #[test]
+    fn no_tab_renders_a_non_ascii_glyph_in_ascii_mode() {
+        let mut app = sample_app();
+        app.ascii = true;
+        for tab in Tab::ALL {
+            app.tab = tab;
+            for (width, height) in SNAPSHOT_SIZES {
+                let out = render_to_string(&app, width, height);
+                assert!(
+                    out.is_ascii(),
+                    "{} at {width}x{height} contains a non-ASCII glyph in ASCII mode:\n{out}",
+                    tab.title()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_resize_storm_ends_on_the_final_size_frame() {
+        let mut app = sample_app();
+        app.tab = Tab::Overview;
+        let mut terminal = Terminal::new(TestBackend::new(120, 40)).expect("in-memory terminal");
+        let storm = [
+            (100u16, 30u16),
+            (200, 60),
+            (60, 20),
+            (80, 24),
+            (120, 40),
+            (90, 25),
+            (100, 30),
+        ];
+        for (width, height) in storm {
+            terminal.backend_mut().resize(width, height);
+            terminal
+                .draw(|frame| render(frame, &app))
+                .expect("a resize frame renders");
+        }
+        let (width, height) = *storm.last().expect("the storm has a final size");
+        assert_eq!(
+            buffer_to_string(terminal.backend().buffer()),
+            render_to_string(&app, width, height),
+            "the last frame must match a fresh {width}x{height} frame"
+        );
+    }
+
+    #[test]
+    fn a_status_message_always_carries_a_non_colour_marker() {
+        let mut app = sample_app();
+        for (tone, marker) in [
+            (crate::app::StatusTone::Info, "reloading"),
+            (crate::app::StatusTone::Warn, "careful"),
+            (crate::app::StatusTone::Bad, "failed"),
+        ] {
+            let status = match tone {
+                crate::app::StatusTone::Info => crate::app::StatusLine::info(marker),
+                crate::app::StatusTone::Warn => crate::app::StatusLine::warn(marker),
+                crate::app::StatusTone::Bad => crate::app::StatusLine::bad(marker),
+            };
+            app.set_status(Some(status));
+            let out = render_to_string(&app, 120, 40);
+            let line = out.lines().last().expect("the status bar is the last row");
+            assert!(line.contains(marker), "status text missing:\n{line}");
+            assert!(
+                line.contains('\u{2022}')
+                    || line.contains('\u{2716}')
+                    || line.contains('!')
+                    || line.contains("[i]")
+                    || line.contains("[x]")
+                    || line.contains("[!]"),
+                "status line has no non-colour marker:\n{line}"
             );
         }
     }
@@ -608,6 +895,18 @@ mod tests {
                 out.contains(tab.title()),
                 "tab title {:?} missing at 80x24:\n{out}",
                 tab.title()
+            );
+        }
+    }
+
+    #[test]
+    fn the_status_bar_names_the_active_theme() {
+        for theme in ThemeId::ALL {
+            let app = app_with(false, theme, false);
+            let out = render_to_string(&app, 120, 40);
+            assert!(
+                out.contains(&format!("theme: {} ", theme.label())),
+                "the status bar must name {theme:?}:\n{out}"
             );
         }
     }

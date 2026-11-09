@@ -440,6 +440,7 @@ dependencies = [
  "ratatui",
  "serde_json",
  "sha2",
+ "signal-hook",
  "tempfile",
  "tracing",
  "tracing-appender",

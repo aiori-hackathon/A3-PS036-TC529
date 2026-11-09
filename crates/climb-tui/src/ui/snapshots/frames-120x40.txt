@@ -1,0 +1,406 @@
+size: 120x40
+
+### Overview
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+██████ █      ██████ █    █ █████    │ │
+█      █        ██   ██  ██ █    █   │ │
+█      █        ██   █ ██ █ █████    │ │
+█      █        ██   █    █ █    █   │ │
+██████ ██████ ██████ █    █ █████    │╫│
+Cryptographic Ladder Impact Measurement Benchmark
+post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036
+┌ DNS ─────────────────┐┌ Wire ────────────────┐┌ Signing ─────────────┐┌ Verify ──────────────┐┌ C vs A ──────────────┐
+│97.3%                 ││95.7%                 ││9,433x                ││215.3x                ││9,405x                │
+│Live C vs A           ││Large C vs B          ││Medium C vs B         ││Medium C vs A         ││Medium C vs A         │
+└──────────────────────┘└──────────────────────┘└──────────────────────┘└──────────────────────┘└──────────────────────┘
+
+┌ Signature context ───────────────────────────────────────────────────────────────────────────────────────────────────┐
+│cfg  configuration                sig B   sign µs  verify µs fits 1,232                                               │
+│E    Ed25519, context              64 B     43.76      90.28       100%                                               │
+│P    ECDSA P-256, context          64 B    417.87     704.76       100%                                               │
+│R    RSA-2048, context            256 B   4157.52     499.72       100%                                               │
+│A    plain SLH-DSA              7,856 B 517519.29    1424.13         0%                                               │
+│B    MTL non-amortised        8329.53 B 519053.54    1450.71         0%                                               │
+│C    MTL amortised             274.34 B     55.02    1493.11       100%                                               │
+│classical rows are not quantum-resistant · context only                                                               │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Environment ───────────────────────────────────────────────────────┐┌ Artifacts ─────────────────────────────────────┐
+│cpu         11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz          ││results     ✔ fresh · 1 m old                   │
+│governor    powersave                                               ││report      — no report yet                     │
+│pinned      cpu 2                                                   ││dns         live capture                        │
+│rustc       rustc 1.98.1 (48a229cea 2026-09-01)                     ││                                                │
+│mtl sha     53ce25d                                                 ││                                                │
+│liboqs sha  5a1a854                                                 ││                                                │
+│algo        SLH-DSA-SHA2-128s-MTL-SHA2-128                          ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+│                                                                    ││                                                │
+└────────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 0d519f999b802e13
+style-digest light: 498d90ab1ed0250f
+style-digest contrast: eea86adfe6d7c960
+
+### Signing
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Signing ·  total time ───────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Small                                                                                                                │
+│ MTL amortised  █                                                                              587 ms ±4%             │
+│ No amortisation██████████████████████████                                                     52 s ±1%               │
+│ OneK                                                                                                                 │
+│ MTL amortised  █                                                                              520 ms ±0%             │
+│ No amortisation███████████████████████████████████████                                        8.61 min ±0%           │
+│ Medium                                                                                                               │
+│ MTL amortised  █                                                                              550 ms ±1%             │
+│ No amortisation████████████████████████████████████████████████████                           1.44 h ±1%             │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ MTL amortised   587 ms ±4%  measured, 100 messages
+ No amortisation 520 ms ±1%  measured, 1 messages
+┌ Amortization ────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│1 s   │ per-message time           •                          •                                                      •│
+│      │                                                                                                               │
+│100 ms│                                                                                                               │
+│10 ms │••••••••••••••••••••                                                                                           │
+│1 ms  │                    ••••••••••••••••••••••••                                                                   │
+│100 µs│                                            •••••••••••••••••••••••••••                                        │
+│10 µs │                                                                       ••••••••••••••••••••••••••••••••••••••••│
+│1 µs  │                                                                                                       messages│
+│      └───────────────────────────────────────────────────────────────────────────────────────────────────────────────│
+│    100                               1,000                10,000                100,000                     1,000,000│
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tables ·  total time─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Size           MTL amortised (ns…s) No amortisation (ns…s) Speed-up (×)                                               │
+│Small                        587 ms                   52 s        88.7x                                               │
+│OneK                         520 ms               8.61 min       992.8x                                               │
+│Medium                       550 ms                 1.44 h       9,433x                                               │
+│Large                        4.33 s                 6.06 d     120,899x                                               │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 38b6607a823ace6c
+style-digest light: 0dd3a290d5b3a212
+style-digest contrast: a66bf2f09c9b7453
+
+### Verifying
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Verifying ·  total time ─────────────────────────────────────────────────────────────────────────────────────────────┐
+│ Small                                                                                                                │
+│ Full ladder  ██████████████████████████████                                               150 ms ±3%                 │
+│ Without MTL  ██████████████████████████████                                               149 ms ±4%                 │
+│ Trust-cached █                                                                            345 µs ±1%                 │
+│ OneK                                                                                                                 │
+│ Full ladder  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                   1.5 s (extrapolated)       │
+│ Without MTL  ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░                                   1.47 s (extrapolated)      │
+│ Medium                                                                                                               │
+│ Full ladder  █████████████████████████████████████████████████████                        14.9 s ±2%                 │
+│ Without MTL  █████████████████████████████████████████████████████                        14.5 s ±2%                 │
+│ Trust-cached ██████████████████████████                                                   66.1 ms ±1%                │
+│ Large                                                                                                                │
+│ Trust-cached ██████████████████████████████████████████████████████                       16.9 s ±10%                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Tables ·  total time─────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Size          Trust-cached (ns…s)   Full ladder (ns…s)   Without MTL (ns…s)                                           │
+│Small                      345 µs               150 ms               149 ms                                           │
+│OneK                            —               ≈1.5 s              ≈1.47 s                                           │
+│Medium                    66.1 ms               14.9 s               14.5 s                                           │
+│Large                      16.9 s            ≈24.9 min            ≈24.5 min                                           │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Reuse · cold vs warm ────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Size           Time r* (reuses)  Bytes r* (reuses) Class                                                              │
+│Small                       r=2                r=2 DERIVED                                                            │
+│Medium                      r=2                r=2 DERIVED                                                            │
+│Large                       r=2                r=2 EXTRAPOLATED                                                       │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: b231bf56fa9b56f5
+style-digest light: 8c00d7e3550d8840
+style-digest contrast: 306f2fbfbb9fbad7
+
+### Wire
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Wire · by size ─────────────────────────────────────────────────┐┌ Single-answer UDP fit ────────────────────────────┐
+│ Small                                                           ││  ░│     │                                        █│
+│ Plain SLH-DSA  ████████████████████████  785,600 B              ││  512 B  4.1 kB                                    │
+│ MTL amortised  ▒                         24,424 B · 97.0%       ││ from live capture                                 │
+│ No amortisation█████████████████████████ 815,632 B              ││ █ full signature  24.4 kB · exceeds 4.1 kB (TCP)  │
+│   condensed signature: min 108 B / mean 164 B / max 172 B       ││ ░ condensed proof  658 B · fits within 1.23 kB    │
+│ Medium                                                          ││                                                   │
+│ Plain SLH-DSA  ███████████████████████   78,560,000 B           ││                                                   │
+│ MTL amortised  ▒                         2,743,352 B · 96.7%    ││                                                   │
+│ No amortisation█████████████████████████ 83,295,296 B           ││                                                   │
+│   condensed signature: min 140 B / mean 274 B / max 284 B       ││                                                   │
+│ Large                                                           ││                                                   │
+│ Plain SLH-DSA  ███████████████████████   7,856,000,000 B        ││                                                   │
+│ MTL amortised  ▒                         367,067,832 B · 95.7%  ││                                                   │
+│ No amortisation█████████████████████████ 8,487,059,712 B        ││                                                   │
+│   condensed signature: min 172 B / mean 367 B / max 380 B       ││                                                   │
+│ linear scale, normalised per size                               ││                                                   │
+│ ░ ladder  ▒ condensed  █ full signatures                        ││                                                   │
+│                                                                 ││                                                   │
+│                                                                 ││                                                   │
+│                                                                 ││                                                   │
+└─────────────────────────────────────────────────────────────────┘└───────────────────────────────────────────────────┘
+┌ Modelled UDP fit ────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Profile                Cfg 100                    1,000                  10,000                 1,000,000             │
+│Positive A (www)       A   0.0%                   0.0%                   0.0%                   0.0%                  │
+│Positive A (www)       B   0.0%                   0.0%                   0.0%                   0.0%                  │
+│Positive A (www)       C   100.0%                 100.0%                 100.0%                 100.0%                │
+│Positive A (www)       E   100.0%                 100.0%                 100.0%                 100.0%                │
+│Positive A (www)       P   100.0%                 100.0%                 100.0%                 100.0%                │
+│Positive A (www)       R   100.0%                 100.0%                 100.0%                 100.0%                │
+│Positive A with NS     A   0.0%                   0.0%                   0.0%                   0.0%                  │
+│Positive A with NS     B   0.0%                   0.0%                   0.0%                   0.0%                  │
+│Positive A with NS     C   100.0%                 100.0%                 100.0%                 0.4%                  │
+│Positive A with NS     E   100.0%                 100.0%                 100.0%                 100.0%                │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+share fitting 1232 B · analytical · cross-check exact at 0 B
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: e778871125b1f7f3
+style-digest light: c2cea22ab40ca968
+style-digest contrast: 7ea6cb34e6f0c3de
+
+### Memory
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Memory · measured vs modelled ─────────────────────────────────────────┐┌ Reading these numbers ─────────────────────┐
+│ Small                                                                  ││                                            │
+│ Analytical   ░░░░░░░░░░░░░░░░░░▒                    2.18 MB            ││  analytical itemised model total           │
+│ Measured     ██████████████████████████████████████ 4.15 MB            ││  measured   resident median (n runs)       │
+│   peak 4.15 MB · ratio 1.90× · resid 1.97 MB (+90.3%) · n=7, IQR 94.2 …││                                            │
+│ Medium                                                                 ││  peak     = high-water − baseline          │
+│ Analytical   ░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒            10.5 MB            ││  residual = resident median − model        │
+│ Measured     ████████████████████████████████████   14 MB              ││  ratio    = measured ÷ analytical          │
+│   peak 14.4 MB · ratio 1.33× · resid 3.51 MB (+33.4%) · n=7, IQR 94.2 …││  model = libMTL + harness + dataset        │
+│ Large                                                                  ││          + keypair image                   │
+│ Analytical   ░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒       984 MB             ││                                            │
+│ Measured     ████████████████████████████████████   1.09 GB            ││                                            │
+│   peak 1.14 GB · ratio 1.10× · resid 103 MB (+10.4%) · n=7, IQR 81.9 kB││                                            │
+│ linear scale, normalised per size                                      ││                                            │
+│ ░ libMTL pages  ▒ harness buffers  ▒ dataset buffers  ▒ keypair image  ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+└────────────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 1a0af3fda64486ec
+style-digest light: e838da2676b15626
+style-digest contrast: 1820a5eef15d97ca
+
+### Ladder
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+┌ Ladder geometry ───────────────────────────────────────────────────────┐┌ Ladder facts ──────────────────────────────┐
+│                                   ·*·                                  ││ N = 8 leaves (messages)                    │
+│                                 ··   ··                                ││ rungs: [0..7]                              │
+│                              ···       ···                             ││ selected leaf 0 · auth path 3 siblings     │
+│                           ···             ··                           ││ condensed signature: 124 B                 │
+│                         ··                  ··                         ││ ladder buffer: 68 B                        │
+│                      ···                      ···                      ││ ✔ matches libMTL: condensed 124 B, ladder  │
+│                    ··                            ··                    ││ 68 B (live run 2026-10-14)                 │
+│                  *·                                ·#                  ││                                            │
+│                 · ·                                · ·                 ││ The big signature is paid once; each       │
+│                ·   ·                              ·   ·                ││ message carries only its own short path.   │
+│               ·     ·                            ·     ·               ││                                            │
+│             ··       ··                        ··       ··             ││                                            │
+│            ·           ·                      ·           ·            ││                                            │
+│           ·             ·                    ·             ·           ││                                            │
+│          ·               ·                  ·               ·          ││                                            │
+│         *                 #                ○                 ○         ││                                            │
+│        · ·               · ·              · ·               · ·        ││                                            │
+│        · ·               · ·              · ·               · ·        ││                                            │
+│       ·   ·             ·   ·            ·   ·             ·   ·       ││                                            │
+│      ·    ·            ·    ·            ·    ·            ·    ·      ││                                            │
+│     ·      ·          ·      ·          ·      ·          ·      ·     ││                                            │
+│     ·      ·          ·      ·          ·      ·          ·      ·     ││                                            │
+│    ●        #        •        •        •        •        •        •    ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│    ================================================================    ││                                            │
+└────────────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 006e8e178d07e822
+style-digest light: 7e4e3d74e25af882
+style-digest contrast: dddc7f375806be54
+
+### Live
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+RECORDED CAPTURE 2026-10-12 · commit — [live run]
+www.climb.example. A · without MTL 24,438 B → with MTL 658 B · 97.3% smaller
+▶ 1/18 · → query · climb.example. SOA · tcp · — · Σ 0 B
+┌ without MTL · full pass ─────────────────────────────────┐┌ with MTL · condensed pass ───────────────────────────────┐
+│  step               flags                bytes          Σ││  step               flags                bytes          Σ│
+│→ query              —                        …          …││→ query              —                        …          …│
+│← answer (full)      —                        …          …││← answer (condensed) —                        …          …│
+│total 24,438 B · linear scale (t toggles)                 ││total 658 B · linear scale (t toggles)                    │
+└──────────────────────────────────────────────────────────┘└──────────────────────────────────────────────────────────┘
+┌ Recorded packets · 18 steps ─────────────────────────────────────────────────────────────────────────────────────────┐
+│   # pass      question                                           leg                proto     bytes flags          Σ │
+│▶   1 full      climb.example. SOA                                 query              tcp           — —            0 B│
+│    2 full      climb.example. SOA                                 answer (full)      tcp    24,465 B —       24,465 B│
+│    3 full      www.climb.example. A                               query              tcp           — —       24,465 B│
+│    4 full      www.climb.example. A                               answer (full)      tcp    24,438 B —       48,903 B│
+│    5 full      mail.climb.example. MX                             query              tcp           — —       48,903 B│
+│    6 full      mail.climb.example. MX                             answer (full)      tcp    32,572 B —       81,475 B│
+│    7 condensed climb.example. SOA                                 query              tcp           — —       81,475 B│
+│    8 condensed climb.example. SOA                                 answer (condensed) tcp       685 B —       82,160 B│
+│    9 condensed www.climb.example. A                               query              tcp           — —       82,160 B│
+│   10 condensed www.climb.example. A                               answer (condensed) tcp       658 B —       82,818 B│
+│   11 condensed mail.climb.example. MX                             query              tcp           — —       82,818 B│
+│   12 condensed mail.climb.example. MX                             answer (condensed) tcp       864 B —       83,682 B│
+│   13 unbound   climb.example. SOA                                 query              tcp           — —       83,682 B│
+│   14 unbound   climb.example. SOA                                 answer (resolver)  tcp     8,207 B —       91,889 B│
+│   15 unbound   www.climb.example. A                               query              tcp           — —       91,889 B│
+│   16 unbound   www.climb.example. A                               answer (resolver)  tcp     8,176 B —      100,065 B│
+│   17 unbound   mail.climb.example. MX                             query              tcp           — —      100,065 B│
+│   18 unbound   mail.climb.example. MX                             answer (resolver)  tcp     8,180 B —      108,245 B│
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+run live: cargo xtask dns-demo  space/backspace step · enter autoplay · t scale
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 5dc60fb06eca269e
+style-digest light: b6b92faa585afe29
+style-digest contrast: 060cb543d160826d
+
+### Integrity
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ CHECK NOT RUN
+┌ Claims · 0 agree · 0 drift · 0 missing ────────────────────────────────┐┌ Provenance ────────────────────────────────┐
+│st claim                  results                report                 ││  commit     —                              │
+│                                                                        ││  rustc      —                              │
+│                                                                        ││  host hash  —                              │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        ││                                            │
+│                                                                        │└────────────────────────────────────────────┘
+│                                                                        │┌ Evidence classes ──────────────────────────┐
+│                                                                        ││  MEASURED read from measurement            │
+│                                                                        ││  EXTRAPOLATED N x per-message identity     │
+│                                                                        ││  ANALYTICAL closed-form model              │
+│                                                                        ││  DERIVED ratio or summary                  │
+└────────────────────────────────────────────────────────────────────────┘└────────────────────────────────────────────┘
+┌ Artifacts · outputs stale vs results · reference older than 24 hours ────────────────────────────────────────────────┐
+│  refresh: cargo xtask reproduce --report-only --quick --skip-dns                                                     │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+│                                                                                                                      │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: f83998e9a2046faa
+style-digest light: 8c8881f6657d2430
+style-digest contrast: 170e87e90cc32c5e
+
+### Method
+┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+│Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                   │
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
+ Method · baselines: embedded copy  (Up/Down scroll)
+┌ Contents ────────────────────┐┌ Scope · 116 rows · Up/Down scroll ───────────────────────────────────────────────────┐
+│▸ Scope                       ││Scope                                                                                 │
+│  Baselines A/B/C             ││  This suite measures Merkle Tree Ladder amortisation for post-quantum DNSSEC signing.│
+│  Evidence classes            ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                            │
+│  Environment and pinning     ││  dataset sizes             Small, OneK, Medium, Large                                │
+│  Sampling and extrapolation  ││  results generated         2026-10-22T15:30:06+05:30                                 │
+│  Known limits                ││  Reproduce every artifact from a clean checkout:                                     │
+│  Accessibility               ││    cargo xtask reproduce --report-only                                               │
+│                              ││    cargo xtask reproduce --remeasure                                                 │
+│                              ││    cargo xtask report --check                                                        │
+│                              ││    cargo run -p climb-tui                                                            │
+│                              ││  Empirical measurements only — no formal security guarantee or proof is claimed.     │
+│                              ││Baselines A/B/C                                                                       │
+│                              ││Signing baselines                                                                     │
+│                              ││                                                                                      │
+│                              ││  This suite measures Merkle Tree Ladder (MTL) amortisation for post-quantum          │
+│                              ││  DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the         │
+│                              ││  labels below are the ones the report, charts, TUI and README use.                   │
+│                              ││                                                                                      │
+│                              ││What each setting signs                                                               │
+│                              ││                                                                                      │
+│                              ││  Setting          What is signed                                                     │
+│                              ││  ───────────────  ───────────────────────────────────────────────────────────────────│
+│                              ││  MTL amortised    One Merkle tree ladder is signed once for the whole batch; each mes│
+│                              ││  No amortisation  Every message carries a complete MTL signature: its condensed path │
+│                              ││                                                                                      │
+│                              ││  Both settings sign the same deterministic message set. The only difference is       │
+│                              ││  how many times the shared ladder is counted: once for the batch (amortised) or      │
+│                              ││  once per message (non-amortised). Hence                                             │
+│                              ││                                                                                      │
+│                              ││    without − with = (N − 1) × ladder                                                 │
+│                              ││                                                                                      │
+│                              ││Where "no amortisation" sits among possible baselines                                 │
+│                              ││                                                                                      │
+└──────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────┘
+ ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
+style-digest dark: 04527a3716fba760
+style-digest light: 9b372499957562e1
+style-digest contrast: 807e6f666c141e90

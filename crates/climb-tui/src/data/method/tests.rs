@@ -448,6 +448,43 @@ fn seed_text_formats_every_read_outcome() {
 }
 
 #[test]
+fn accessibility_section_documents_every_non_colour_cue() {
+    let root = temp_root("accessibility");
+    let state = loaded(&root, &sample_results());
+    let view = MethodView::build(&root.join("target/climb-results.json"), &state);
+    let section = view
+        .sections()
+        .iter()
+        .find(|section| section.title == "Accessibility")
+        .expect("the accessibility section is present");
+    let rendered = section
+        .lines
+        .iter()
+        .map(|line| match line {
+            MethodLine::Text(text) | MethodLine::Note(text) | MethodLine::Code(text) => {
+                text.clone()
+            }
+            MethodLine::Field { label, value } => format!("{label} {value}"),
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    for needle in [
+        "marker",
+        "ASCII",
+        "NO_COLOR",
+        "contrast",
+        "bold, dim and reverse",
+        "minimum size",
+    ] {
+        assert!(
+            rendered.contains(needle),
+            "accessibility section misses {needle:?}:\n{rendered}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn distinct_seed_rejects_disagreeing_rows() {
     assert_eq!(distinct_seed(&[5, 5, 5]), Some(5));
     assert_eq!(

@@ -7,6 +7,7 @@
 
 use std::io::stdout;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use anyhow::{Context, Result};
 use crossterm::cursor::Show;
@@ -16,16 +17,31 @@ use crossterm::terminal::{
 };
 
 static PANIC_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
+static SIGNAL_HANDLERS_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// Whether [`install_panic_hook`] has run in this process.
 pub fn panic_hook_installed() -> bool {
     PANIC_HOOK_INSTALLED.load(Ordering::SeqCst)
 }
 
+/// What a panic hook should do after restoring the terminal.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PanicExit {
+    /// Let unwinding continue. Used by tests, which need to observe the panic.
+    Unwind,
+    /// Terminate the process with the conventional panic status, 101.
+    ///
+    /// A dashboard cannot reliably join its input thread after the panic hook has
+    /// changed the terminal mode: the pending `poll` can block on a blocking file
+    /// descriptor that the mode change has just made readable-but-empty. Exiting
+    /// here guarantees the process dies instead of hanging in a join.
+    Exit,
+}
+
 /// Install a panic hook that restores the terminal before delegating to the previous hook.
 ///
 /// Idempotent: repeated calls are no-ops, so it is safe to call from any entry point.
-pub fn install_panic_hook() {
+pub fn install_panic_hook(exit: PanicExit) {
     if PANIC_HOOK_INSTALLED.swap(true, Ordering::SeqCst) {
         return;
     }
@@ -33,7 +49,43 @@ pub fn install_panic_hook() {
     std::panic::set_hook(Box::new(move |info| {
         restore_terminal();
         previous(info);
+        if exit == PanicExit::Exit {
+            std::process::exit(101);
+        }
     }));
+}
+
+/// Install handlers for SIGINT, SIGTERM and SIGHUP that restore the terminal
+/// before the process dies.
+///
+/// Raw mode disables the terminal's own signal generation for Ctrl-C, but an
+/// external `kill`, a service manager or a closed terminal still delivers these
+/// signals. Without a handler the process would die with the alternate screen
+/// active and the cursor hidden, leaving the shell unusable until `reset`.
+/// Idempotent: repeated calls are no-ops.
+pub fn install_signal_handlers() -> Result<()> {
+    if SIGNAL_HANDLERS_INSTALLED.swap(true, Ordering::SeqCst) {
+        return Ok(());
+    }
+    let mut signals = signal_hook::iterator::Signals::new([
+        signal_hook::consts::SIGINT,
+        signal_hook::consts::SIGTERM,
+        signal_hook::consts::SIGHUP,
+    ])
+    .context("installing signal handlers")?;
+    thread::Builder::new()
+        .name("climb-tui-signals".to_string())
+        .spawn(move || {
+            // The first delivered signal terminates the process, so there is
+            // no second iteration to wait for.
+            if let Some(signal) = signals.forever().next() {
+                restore_terminal();
+                // The conventional shell exit status for death by signal.
+                std::process::exit(128 + signal);
+            }
+        })
+        .context("spawning the signal thread")?;
+    Ok(())
 }
 
 fn restore_terminal() {
@@ -92,9 +144,9 @@ mod tests {
 
     #[test]
     fn panic_hook_install_is_idempotent() {
-        install_panic_hook();
+        install_panic_hook(PanicExit::Unwind);
         assert!(panic_hook_installed());
-        install_panic_hook();
+        install_panic_hook(PanicExit::Exit);
         assert!(panic_hook_installed());
     }
 

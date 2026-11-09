@@ -1496,11 +1496,11 @@ struct FlagGeom {
 
 /// Draw the flags and place their labels.
 ///
-/// A wide-card label is centred directly above its pole and may use one of two
-/// levels. Every candidate is measured from the glyph outlines and rejected
-/// when it comes within eight pixels of a box already placed or touches any
-/// data mark. If neither level fits, generation fails instead of drawing an
-/// overlap.
+/// A wide-card label is centred directly above its pole and prefers the two
+/// staggered levels. Every candidate is measured from the glyph outlines and
+/// rejected when it comes within eight pixels of a box already placed or
+/// touches any data mark. If neither staggered level fits, the remaining legal
+/// band is searched before generation fails instead of drawing an overlap.
 fn draw_flags(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -1594,51 +1594,27 @@ fn draw_flags(
 
     for flag in &flags {
         let size = 13.0;
-        let x = (flag.base_x - flag.width / 2.0).clamp(
-            canvas_margin(chart, geom) + 2.0,
-            geom.right - flag.width - 2.0,
-        );
-        let mut placed: Option<(f64, f64, TextBox)> = None;
-        for baseline in [flag.pole_top - 8.0, flag.pole_top - 26.0] {
-            let box_ = canvas
-                .font
-                .line_box(Typeface::Mono, &flag.text, x, baseline, size, 0.0)?;
-            if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
-                continue;
-            }
-            if occupied
-                .iter()
-                .any(|other| box_.intersects(other) || box_.gap(other) < 8.0)
-            {
-                continue;
-            }
-            if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
-                continue;
-            }
-            placed = Some((x, baseline, box_));
-            break;
-        }
+        let baselines = flag_label_baselines(flag.pole_top);
+        let preferred = &baselines[..2];
+        let mut placed = try_place_flag_label(
+            canvas,
+            chart,
+            geom,
+            flag,
+            occupied.as_slice(),
+            preferred,
+            8.0,
+        )?;
         if placed.is_none() {
-            for baseline in [flag.pole_top - 8.0, flag.pole_top - 26.0] {
-                let box_ =
-                    canvas
-                        .font
-                        .line_box(Typeface::Mono, &flag.text, x, baseline, size, 0.0)?;
-                if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
-                    continue;
-                }
-                if occupied
-                    .iter()
-                    .any(|other| box_.intersects(other) || box_.gap(other) < 4.0)
-                {
-                    continue;
-                }
-                if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
-                    continue;
-                }
-                placed = Some((x, baseline, box_));
-                break;
-            }
+            placed = try_place_flag_label(
+                canvas,
+                chart,
+                geom,
+                flag,
+                occupied.as_slice(),
+                &baselines,
+                4.0,
+            )?;
         }
         let Some((x, baseline, box_)) = placed else {
             bail!(
@@ -1674,6 +1650,67 @@ fn draw_flags(
         occupied.extend(narrow_boxes);
     }
     Ok(())
+}
+
+/// Baselines to try for a milestone label, in preference order.
+///
+/// The first two are the staggered levels the card was designed around. The
+/// rest fill the legal band from four to just under thirty pixels above the
+/// pole. As the plotted date range grows the staircase slides under a label
+/// whose width is fixed, so a pair of fixed levels can stop fitting even
+/// though the card still has room; searching the band keeps generation
+/// deterministic and inside the documented gap rule.
+fn flag_label_baselines(pole_top: f64) -> Vec<f64> {
+    let mut baselines = vec![pole_top - 8.0, pole_top - 26.0];
+    let mut gap = 4.0;
+    while gap < 30.0 {
+        let baseline = pole_top - gap;
+        if !baselines
+            .iter()
+            .any(|existing| (existing - baseline).abs() < 0.25)
+        {
+            baselines.push(baseline);
+        }
+        gap += 0.5;
+    }
+    baselines
+}
+
+/// Try each baseline in order, returning the first label box that clears the
+/// card margins, the already-placed labels and every data mark.
+fn try_place_flag_label(
+    canvas: &Canvas,
+    chart: &ChartLayout,
+    geom: &ChartGeom,
+    flag: &FlagGeom,
+    occupied: &[TextBox],
+    baselines: &[f64],
+    minimum_gap: f64,
+) -> Result<Option<(f64, f64, TextBox)>> {
+    let size = 13.0;
+    let x = (flag.base_x - flag.width / 2.0).clamp(
+        canvas_margin(chart, geom) + 2.0,
+        geom.right - flag.width - 2.0,
+    );
+    for &baseline in baselines {
+        let box_ = canvas
+            .font
+            .line_box(Typeface::Mono, &flag.text, x, baseline, size, 0.0)?;
+        if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
+            continue;
+        }
+        if occupied
+            .iter()
+            .any(|other| box_.intersects(other) || box_.gap(other) < minimum_gap)
+        {
+            continue;
+        }
+        if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+            continue;
+        }
+        return Ok(Some((x, baseline, box_)));
+    }
+    Ok(None)
 }
 
 fn draw_flag_shapes(canvas: &mut Canvas, graph: &CommitGraph, palette: &Palette, flag: &FlagGeom) {
@@ -1874,6 +1911,7 @@ fn draw_kpi(
     palette: &Palette,
     kpi: &KpiLayout,
     display: Typeface,
+    occupied: &mut Vec<TextBox>,
 ) -> Result<()> {
     let captions = ["COMMITS", "ACTIVE DAYS", "LONGEST STREAK", "LINES CHANGED"];
     let values = [
@@ -1906,31 +1944,31 @@ fn draw_kpi(
             ));
         }
     }
-    canvas.text_group(
+    occupied.push(canvas.text_group(
         "kpi-captions",
         Typeface::Mono,
         kpi.caption_size,
         &palette.muted,
         &caption_runs,
         0.08,
-    )?;
-    canvas.text_group(
+    )?);
+    occupied.push(canvas.text_group(
         "kpi-values",
         display,
         kpi.value_size,
         &palette.ink,
         &value_runs,
         0.0,
-    )?;
+    )?);
     if !detail_runs.is_empty() {
-        canvas.text_group(
+        occupied.push(canvas.text_group(
             "kpi-detail",
             display,
             kpi.detail_size,
             &palette.ink,
             &detail_runs,
             0.0,
-        )?;
+        )?);
     }
     if kpi.rules {
         for column in 1..kpi.columns {
@@ -2324,7 +2362,7 @@ fn render(
     )?);
 
     if let Some(kpi) = &layout.kpi {
-        draw_kpi(&mut canvas, graph, palette, kpi, display)?;
+        draw_kpi(&mut canvas, graph, palette, kpi, display, &mut occupied)?;
     }
 
     if let (Some(chart), Some(bars)) = (&layout.chart, &layout.bars) {

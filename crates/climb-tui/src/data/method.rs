@@ -112,13 +112,14 @@ impl MethodView {
     /// The sections' titles in display order, always the same regardless of
     /// whether results loaded — a section with no results-dependent body
     /// explains why, rather than disappearing from the contents list.
-    pub const SECTION_TITLES: [&'static str; 6] = [
+    pub const SECTION_TITLES: [&'static str; 7] = [
         "Scope",
         "Baselines A/B/C",
         "Evidence classes",
         "Environment and pinning",
         "Sampling and extrapolation",
         "Known limits",
+        "Accessibility",
     ];
 
     /// A view with no results-dependent content: the sections that describe
@@ -198,6 +199,7 @@ fn sections_for(view: &ResultsView, seeds: &[SeedRow]) -> Vec<MethodSection> {
         environment_section(view),
         sampling_section(view, seeds),
         limits_section(view),
+        accessibility_section(),
     ]
 }
 
@@ -486,6 +488,37 @@ fn limits_section(view: &ResultsView) -> MethodSection {
         ),
     ];
     MethodSection::new("Known limits", lines)
+}
+
+/// How to read the dashboard without relying on colour alone.
+fn accessibility_section() -> MethodSection {
+    let lines = vec![
+        MethodLine::text(
+            "Colour is never the only signal. Every status message carries a leading text or \
+             glyph marker in addition to its colour, and the measured / extrapolated / \
+             analytical legend is spelled out in words in the help overlay (press ?).",
+        ),
+        MethodLine::field("themes", "T cycles dark -> light -> contrast"),
+        MethodLine::field("glyphs", "a toggles ASCII-only output"),
+        MethodLine::field("colour", "NO_COLOR=1 forces monochrome"),
+        MethodLine::note(
+            "In monochrome mode the three evidence classes are distinguished by bold, dim and \
+             reverse video rather than by hue, so the tables stay readable on a terminal with \
+             no colour support.",
+        ),
+        MethodLine::note(
+            "The contrast theme is tuned so every semantic colour keeps enough contrast against \
+             its background to remain legible on a projector. The accessibility tests compute \
+             the ratios from the palette the terminal actually resolves, not from the palette \
+             definition, so a mapping that collapses two colours is caught.",
+        ),
+        MethodLine::note(
+            "The frame is reflowed from the terminal size each draw. Below the minimum size the \
+             dashboard states the size it needs and the size it was given, instead of clipping \
+             a partial table.",
+        ),
+    ];
+    MethodSection::new("Accessibility", lines)
 }
 
 #[cfg(test)]

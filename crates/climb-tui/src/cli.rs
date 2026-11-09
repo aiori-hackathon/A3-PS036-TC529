@@ -63,6 +63,22 @@ pub struct Cli {
     )]
     pub tour_speed: f64,
 
+    /// Print one rendered text frame and exit, without needing a terminal.
+    /// `TAB` is a tab title (e.g. `overview`) and `SIZE` is `WIDTHxHEIGHT`
+    /// (e.g. `120x40`).
+    #[arg(long, num_args = 2, value_names = ["TAB", "SIZE"])]
+    pub dump_frame: Option<Vec<String>>,
+
+    /// Test hook: panic immediately after entering raw mode, so a PTY test can
+    /// prove the panic hook restores the terminal. Debug builds only.
+    #[arg(long, hide = true)]
+    pub debug_panic: bool,
+
+    /// Test hook: stay in raw mode for this many milliseconds, so a PTY test
+    /// can deliver SIGINT/SIGTERM/SIGHUP. Debug builds only.
+    #[arg(long, hide = true, value_name = "MS", default_value_t = 0)]
+    pub debug_hold_ms: u64,
+
     /// Whether `--results` was present on the command line. Filled in by
     /// [`Cli::parse_with_provenance`], not by clap.
     #[arg(skip)]
@@ -116,6 +132,9 @@ mod tests {
         assert!(cli.live.is_none());
         assert!(!cli.tour);
         assert_eq!(cli.tour_speed, 1.0);
+        assert!(cli.dump_frame.is_none());
+        assert!(!cli.debug_panic);
+        assert_eq!(cli.debug_hold_ms, 0);
     }
 
     #[test]
@@ -136,6 +155,12 @@ mod tests {
             "--tour",
             "--tour-speed",
             "1.5",
+            "--dump-frame",
+            "overview",
+            "80x24",
+            "--debug-panic",
+            "--debug-hold-ms",
+            "2500",
         ]);
         assert_eq!(cli.results, PathBuf::from("/tmp/r.json"));
         assert_eq!(cli.theme, ThemeId::Contrast);
@@ -146,6 +171,12 @@ mod tests {
         assert_eq!(cli.live, Some(PathBuf::from("/tmp/c.json")));
         assert!(cli.tour);
         assert_eq!(cli.tour_speed, 1.5);
+        assert_eq!(
+            cli.dump_frame,
+            Some(vec!["overview".to_string(), "80x24".to_string()])
+        );
+        assert!(cli.debug_panic);
+        assert_eq!(cli.debug_hold_ms, 2500);
     }
 
     #[test]

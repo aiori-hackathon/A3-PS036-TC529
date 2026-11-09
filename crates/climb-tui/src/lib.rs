@@ -23,13 +23,14 @@ pub mod cli;
 pub mod data;
 pub mod event;
 pub mod paths;
+pub mod runtime;
 pub mod terminal;
 pub mod theme;
 pub mod tour;
 pub mod ui;
 pub mod widgets;
 
-pub use app::{map_key, map_key_tour, Action, App, Effect, Tab};
+pub use app::{map_key, map_key_tour, Action, App, Effect, StatusLine, StatusTone, Tab};
 pub use cli::Cli;
 pub use event::{Event, EventHandler, WorkerMsg};
 pub use terminal::{install_panic_hook, TerminalGuard};

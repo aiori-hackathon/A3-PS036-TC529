@@ -84,6 +84,18 @@ impl LoadState {
     }
 }
 
+/// Every artifact one reload reads, delivered together so a background worker
+/// can hand the model one consistent snapshot.
+#[derive(Debug)]
+pub struct LoadedArtifacts {
+    /// The consolidated results and the source they came from.
+    pub results: (ArtifactSource, LoadState),
+    /// The recorded ladder verification.
+    pub ladder: LadderLoadState,
+    /// The recorded DNS capture.
+    pub live: LiveLoadState,
+}
+
 /// Whether the embedded report claims match the results file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReportHealth {
