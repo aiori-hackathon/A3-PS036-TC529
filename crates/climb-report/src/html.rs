@@ -1818,6 +1818,8 @@ mod tests {
             }),
             dns_anatomy: None,
             ladder: Some(synthetic_ladder_section()),
+            replication: None,
+            dns_rtt: None,
             plain: Vec::new(),
             classical: Vec::new(),
             comparisons: vec![ConfigComparison {

@@ -4,10 +4,12 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+use crate::dns_rtt::DnsRttSection;
 use crate::error::ReportError;
 use crate::ladder::{LadderSection, LadderSource, LadderVerification};
 use crate::memory::{parse_memory_artifact, MemoryArtifact};
 use crate::record::{scan_criterion, CriterionRecord};
+use crate::replication::ReplicationSection;
 use crate::summary::{summarize, SummaryRow};
 
 /// One measured signing row.
@@ -830,6 +832,17 @@ pub struct ClimbResults {
     /// written before this section existed parseable.
     #[serde(default)]
     pub ladder: Option<LadderSection>,
+    /// Cross-host replication summary: the headline-ratio comparison between
+    /// this document's host and a second host, or a pending placeholder until
+    /// the second artifact is committed. `#[serde(default)]` keeps results
+    /// written before this section existed parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replication: Option<ReplicationSection>,
+    /// Measured emulated-RTT DNS latency section from the local Docker
+    /// bridge, or `None` when no measurement artifact was consolidated.
+    /// `#[serde(default)]` keeps older artifacts parseable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dns_rtt: Option<DnsRttSection>,
     /// Configuration A (plain SLH-DSA) per-message timings, one row per dataset
     /// size. Empty for results written before configuration A was routed here.
     #[serde(default)]
@@ -900,6 +913,17 @@ pub struct ConsolidateOptions {
     /// Committed recorded ladder-verification fixture used when no live run
     /// artifact exists.
     pub ladder_fixture_path: PathBuf,
+    /// Live replication summary produced by `cargo xtask replicate-summary`
+    /// (preferred when present).
+    pub replication_summary_path: PathBuf,
+    /// Committed replication summary fixture (pending or compared) used when
+    /// no live summary exists.
+    pub replication_fixture_path: PathBuf,
+    /// Live emulated-RTT artifact produced by `cargo xtask dns-rtt`.
+    pub dns_rtt_path: PathBuf,
+    /// Committed recorded emulated-RTT fixture, used when no live artifact
+    /// exists.
+    pub dns_rtt_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
     /// Assumed round-trip time in milliseconds for the modelled TCP fallback
@@ -2278,6 +2302,37 @@ fn load_ladder_section(live: &Path, fixture: &Path) -> Result<Option<LadderSecti
     Ok(Some(LadderSection::from_document(&document, source)))
 }
 
+/// Load the replication summary, preferring a freshly generated live summary
+/// over the committed fixture. `None` when neither exists; a
+/// present-but-unparseable summary is a hard error naming the path.
+fn load_replication_section(
+    live: &Path,
+    fixture: &Path,
+) -> Result<Option<ReplicationSection>, ReportError> {
+    let path = if live.exists() {
+        live
+    } else if fixture.exists() {
+        fixture
+    } else {
+        return Ok(None);
+    };
+    read_json(path)
+}
+
+/// Load the emulated-RTT artifact, preferring a live measurement over the
+/// committed fixture. `None` when neither exists; a present-but-unparseable
+/// artifact is a hard error naming the path.
+fn load_dns_rtt_section(live: &Path, fixture: &Path) -> Result<Option<DnsRttSection>, ReportError> {
+    let path = if live.exists() {
+        live
+    } else if fixture.exists() {
+        fixture
+    } else {
+        return Ok(None);
+    };
+    read_json(path)
+}
+
 /// Normalise an absolute path for storage in a published artifact.
 ///
 /// The checkout root becomes `<repo>` and a path below the user's home
@@ -2463,6 +2518,11 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let dns_pipeline = load_dns_capture(&opts.dns_capture_path, &opts.dns_fixture_path)?;
     let dns_anatomy = load_dns_anatomy(&opts.dns_capture_path, &opts.dns_fixture_path)?;
     let ladder = load_ladder_section(&opts.ladder_verification_path, &opts.ladder_fixture_path)?;
+    let replication = load_replication_section(
+        &opts.replication_summary_path,
+        &opts.replication_fixture_path,
+    )?;
+    let dns_rtt = load_dns_rtt_section(&opts.dns_rtt_path, &opts.dns_rtt_fixture_path)?;
 
     let plain = plain_timings(&plain_records);
     let classical_lengths = load_classical_signature_lengths(
@@ -2571,6 +2631,8 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         dns_pipeline,
         dns_anatomy,
         ladder,
+        replication,
+        dns_rtt,
         plain,
         classical,
         comparisons,
@@ -2912,6 +2974,10 @@ mod tests {
                 dns_fixture_path: root.join("no-fixture.json"),
                 ladder_verification_path: root.join("no-live.json"),
                 ladder_fixture_path: root.join("no-fixture.json"),
+                replication_summary_path: root.join("no-replication-summary.json"),
+                replication_fixture_path: root.join("no-replication-fixture.json"),
+                dns_rtt_path: root.join("no-dns-rtt.json"),
+                dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
                 environment_path: root.join("no-env.json"),
                 baseline: "new".to_string(),
                 rtt_ms: None,
@@ -3200,6 +3266,8 @@ mod tests {
             dns_pipeline: Some(dns),
             dns_anatomy: None,
             ladder: Some(sample_ladder_section()),
+            replication: None,
+            dns_rtt: None,
             plain,
             classical: Vec::new(),
             comparisons,
@@ -3265,6 +3333,10 @@ mod tests {
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-live.json"),
             ladder_fixture_path: root.join("no-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3297,6 +3369,8 @@ mod tests {
             dns_pipeline: None,
             dns_anatomy: None,
             ladder: None,
+            replication: None,
+            dns_rtt: None,
             plain: Vec::new(),
             classical: Vec::new(),
             comparisons: Vec::new(),
@@ -3546,6 +3620,10 @@ mod tests {
             dns_fixture_path: root.join("nonexistent-dns-fixture.json"),
             ladder_verification_path: root.join("nonexistent-ladder-live.json"),
             ladder_fixture_path: root.join("nonexistent-ladder-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3613,6 +3691,10 @@ mod tests {
             dns_fixture_path: root.join("dns-fixture.json"),
             ladder_verification_path: root.join("ladder-live.json"),
             ladder_fixture_path: root.join("ladder-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             environment_path: root.join("environment.json"),
             rtt_ms: None,
             baseline: "new".to_string(),
@@ -3704,6 +3786,10 @@ mod tests {
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-ladder-live.json"),
             ladder_fixture_path: root.join("no-ladder-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -3935,6 +4021,10 @@ mod tests {
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-ladder-live.json"),
             ladder_fixture_path: root.join("no-ladder-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -4247,6 +4337,10 @@ mod tests {
             ladder_verification_path: root.join("no-live.json"),
             rtt_ms: None,
             ladder_fixture_path: fixture,
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
@@ -4610,6 +4704,8 @@ mod tests {
                 dns_pipeline: None,
                 dns_anatomy: None,
                 ladder: None,
+                replication: None,
+                dns_rtt: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
                 comparisons,

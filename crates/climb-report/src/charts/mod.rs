@@ -1832,6 +1832,8 @@ mod tests {
             dns_pipeline: None,
             dns_anatomy: None,
             ladder: None,
+            replication: None,
+            dns_rtt: None,
             plain: Vec::new(),
             classical: Vec::new(),
             comparisons: Vec::new(),

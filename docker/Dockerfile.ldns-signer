@@ -107,13 +107,16 @@ WORKDIR /
 # 4. mtl-mode-ldns — the MTL-capable zone signer (IETF-126-Interim)
 # ─────────────────────────────────────────────────────────────────────────
 ARG LDNS_MTL_REPO=https://github.com/verisign/mtl-mode-ldns.git
-ARG LDNS_MTL_BRANCH=IETF-126-Interim
 ARG LDNS_MTL_SHA=1de55d90709ef37e5c5ba81e450761cea31c6fc7
 
-RUN git clone --branch "${LDNS_MTL_BRANCH}" --depth 1 "${LDNS_MTL_REPO}" ldns-mtl \
-    && cd ldns-mtl/src \
+# Fetch the pinned commit directly. The upstream repository no longer carries
+# the `IETF-126-Interim` branch the fixture was originally described with; the
+# commit itself is still reachable, so the pin is unchanged.
+RUN git init ldns-mtl \
+    && cd ldns-mtl \
+    && git remote add origin "${LDNS_MTL_REPO}" \
     && git fetch --depth 1 origin "${LDNS_MTL_SHA}" \
-    && git checkout "${LDNS_MTL_SHA}"
+    && git checkout FETCH_HEAD
 
 WORKDIR /ldns-mtl/src
 

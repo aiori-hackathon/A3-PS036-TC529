@@ -31,3 +31,5 @@ climb-mtl-sys = { path = "../crates/climb-mtl-sys" }  # direct dep so DEP_MTLSLI
 climb-report = { path = "../crates/climb-report" }
 climb-tui = { path = "../crates/climb-tui", default-features = false }
 regex-lite = "0.1"
+[dev-dependencies]
+tempfile = "3"

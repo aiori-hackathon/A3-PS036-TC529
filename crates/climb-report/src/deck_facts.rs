@@ -45,6 +45,10 @@ pub enum Section {
     UdpFit,
     /// Classical DNSSEC signature baselines, context only.
     Classical,
+    /// Cross-host replication of the headline ratios.
+    Replication,
+    /// Measured emulated-RTT DNS latency from the local bridge.
+    DnsRtt,
     /// Toolchain, kernel, CPU, pinning, submodule pins and commit SHA.
     Environment,
     /// Workspace test counts from the recorded test run.
@@ -53,7 +57,7 @@ pub enum Section {
 
 impl Section {
     /// Section render order.
-    pub const ORDER: [Section; 11] = [
+    pub const ORDER: [Section; 13] = [
         Section::WireBytes,
         Section::SigningTime,
         Section::VerifyingTime,
@@ -63,6 +67,8 @@ impl Section {
         Section::Reuse,
         Section::UdpFit,
         Section::Classical,
+        Section::Replication,
+        Section::DnsRtt,
         Section::Environment,
         Section::Quality,
     ];
@@ -80,6 +86,8 @@ impl Section {
             Section::Reuse => "Reuse",
             Section::UdpFit => "UDP fit",
             Section::Classical => "Classical baselines",
+            Section::Replication => "Replication",
+            Section::DnsRtt => "DNS latency (emulated RTT)",
             Section::Environment => "Environment",
             Section::Quality => "Quality",
         }
@@ -262,6 +270,14 @@ pub struct DeckFactsInput {
     pub dns_capture_path: PathBuf,
     /// Committed DNS capture fixture, used when no live capture exists.
     pub dns_fixture_path: PathBuf,
+    /// Live replication summary, preferred when present.
+    pub replication_summary_path: PathBuf,
+    /// Committed replication summary, used when no live summary exists.
+    pub replication_fixture_path: PathBuf,
+    /// Live emulated-RTT artifact, preferred when present.
+    pub dns_rtt_path: PathBuf,
+    /// Committed emulated-RTT fixture, used when no live artifact exists.
+    pub dns_rtt_fixture_path: PathBuf,
     /// Environment fingerprint (`cargo xtask pin-env`).
     pub environment_path: PathBuf,
     /// Commit SHA from `git rev-parse HEAD` at generation time, or `None`
@@ -1099,6 +1115,248 @@ fn collect_classical(
                 &format!("{base}/{field}"),
                 &source,
             ));
+        }
+    }
+    Ok(())
+}
+
+/// Collect the cross-host replication rows: one comparison per headline
+/// ratio plus the computed maximum relative difference and the declared
+/// tolerance. A pending summary contributes only host facts.
+fn collect_replication(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    if root.pointer("/replication").is_none()
+        || root.pointer("/replication").is_some_and(Value::is_null)
+    {
+        out.notes.push(Note::custom(
+            Section::Replication,
+            "no replication summary in the results document — run `cargo xtask replicate-summary` \
+             after committing a second host's artifact under data/replication/<host-hash>/",
+        ));
+        return Ok(());
+    }
+    for (i, host) in array_at(root, path, "/replication/hosts")?
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+        .iter()
+        .enumerate()
+    {
+        let base = format!("/replication/hosts/{i}");
+        let Some(hash) = opt_str(host, "/host_hash", path)? else {
+            continue;
+        };
+        for (field, label) in [
+            ("cpu_model", "CPU"),
+            ("cpu_governor", "governor"),
+            ("kernel_release", "kernel"),
+            ("rustc_version", "rustc"),
+        ] {
+            if let Some(v) = opt_str(host, &format!("/{field}"), path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Replication,
+                        label: format!("Host {hash} — {label}"),
+                        unit: "—".to_string(),
+                        class: Some(EvidenceClass::Derived),
+                        nk: None,
+                        baseline: Baseline::Na,
+                    },
+                    v,
+                    &format!("{base}/{field}"),
+                    &source,
+                ));
+            }
+        }
+        if let Some(ratios) = host.get("ratios").and_then(Value::as_u64) {
+            out.facts.push(fact(
+                Row {
+                    section: Section::Replication,
+                    label: format!("Host {hash} — headline ratios"),
+                    unit: "n".to_string(),
+                    class: Some(EvidenceClass::Derived),
+                    nk: None,
+                    baseline: Baseline::Na,
+                },
+                ratios.to_string(),
+                &format!("{base}/ratios"),
+                &source,
+            ));
+        }
+    }
+
+    let ratios = array_at(root, path, "/replication/ratios")?
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for (i, ratio) in ratios.iter().enumerate() {
+        let base = format!("/replication/ratios/{i}");
+        let Some(label) = opt_str(ratio, "/label", path)? else {
+            continue;
+        };
+        let unit = if ratio
+            .get("id")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.starts_with("wire_reduction"))
+        {
+            "%"
+        } else {
+            "×"
+        };
+        for (field, suffix) in [("a", "host A"), ("b", "host B")] {
+            if let Some(v) = opt_f64(ratio, &format!("/{field}"), path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Replication,
+                        label: format!("{label} — {suffix}"),
+                        unit: unit.to_string(),
+                        class: Some(EvidenceClass::Derived),
+                        nk: Some("n = 1 host".to_string()),
+                        baseline: Baseline::Na,
+                    },
+                    format!("{v:.3}"),
+                    &format!("{base}/{field}"),
+                    &source,
+                ));
+            }
+        }
+        if let Some(v) = opt_f64(ratio, "/relative_difference_percent", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::Replication,
+                    label: format!("{label} — relative difference"),
+                    unit: "%".to_string(),
+                    class: opt_class(ratio, "/class", path)?,
+                    nk: Some("n = 2 hosts".to_string()),
+                    baseline: Baseline::Na,
+                },
+                format!("{v:.3}"),
+                &format!("{base}/relative_difference_percent"),
+                &source,
+            ));
+        }
+    }
+    if let Some(v) = opt_f64(root, "/replication/max_relative_difference_percent", path)? {
+        out.facts.push(fact(
+            Row {
+                section: Section::Replication,
+                label: "Replication — largest relative difference".to_string(),
+                unit: "%".to_string(),
+                class: Some(EvidenceClass::Derived),
+                nk: Some("n = 2 hosts".to_string()),
+                baseline: Baseline::Na,
+            },
+            format!("{v:.3}"),
+            "/replication/max_relative_difference_percent",
+            &source,
+        ));
+    }
+    if let Some(v) = opt_f64(root, "/replication/tolerance_percent", path)? {
+        out.facts.push(fact(
+            Row {
+                section: Section::Replication,
+                label: "Replication — declared tolerance".to_string(),
+                unit: "%".to_string(),
+                class: Some(EvidenceClass::Derived),
+                nk: None,
+                baseline: Baseline::Na,
+            },
+            format!("{v:.0}"),
+            "/replication/tolerance_percent",
+            &source,
+        ));
+    }
+    if let Some(note) = opt_str(root, "/replication/note", path)? {
+        out.notes.push(Note::custom(Section::Replication, note));
+    }
+    Ok(())
+}
+
+/// Collect the measured emulated-RTT cells. The fixed evidence label is a
+/// note, so no reader can mistake these numbers for Internet latency.
+fn collect_dns_rtt(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    if root.pointer("/dns_rtt").is_none() || root.pointer("/dns_rtt").is_some_and(Value::is_null) {
+        out.notes.push(Note::custom(
+            Section::DnsRtt,
+            "no emulated-RTT measurement in the results document — run `cargo xtask dns-rtt` and \
+             consolidate its output",
+        ));
+        return Ok(());
+    }
+    if let Some(label) = opt_str(root, "/dns_rtt/label", path)? {
+        out.notes.push(Note::custom(Section::DnsRtt, label));
+    }
+    if let Some(netem) = opt_str(root, "/dns_rtt/netem", path)? {
+        out.notes.push(Note::custom(Section::DnsRtt, netem));
+    }
+    let cells = array_at(root, path, "/dns_rtt/cells")?
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for (i, cell) in cells.iter().enumerate() {
+        let base = format!("/dns_rtt/cells/{i}");
+        let Some(server) = opt_str(cell, "/server", path)? else {
+            continue;
+        };
+        let Some(mode) = opt_str(cell, "/mode", path)? else {
+            continue;
+        };
+        let delay = opt_f64(cell, "/delay_ms", path)?.unwrap_or(0.0);
+        let samples = cell.get("samples").and_then(Value::as_u64).unwrap_or(0);
+        let nk = Some(format!("n = {samples}"));
+        let label = format!("{server} / {mode} / {delay:.0} ms");
+        for (field, suffix) in [("median_ms", "median"), ("p95_ms", "p95")] {
+            if let Some(v) = opt_f64(cell, &format!("/{field}"), path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::DnsRtt,
+                        label: format!("{label} — {suffix}"),
+                        unit: "ms".to_string(),
+                        class: opt_class(cell, "/class", path)?.or(Some(EvidenceClass::Measured)),
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    format!("{v:.3}"),
+                    &format!("{base}/{field}"),
+                    &source,
+                ));
+            }
+        }
+        for (field, suffix) in [("samples", "samples"), ("truncated", "truncated")] {
+            if let Some(v) = cell.get(field).and_then(Value::as_u64) {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::DnsRtt,
+                        label: format!("{label} — {suffix}"),
+                        unit: "n".to_string(),
+                        class: Some(EvidenceClass::Measured),
+                        nk: None,
+                        baseline: Baseline::Na,
+                    },
+                    v.to_string(),
+                    &format!("{base}/{field}"),
+                    &source,
+                ));
+            }
+        }
+    }
+    for warning in array_at(root, path, "/dns_rtt/warnings")?
+        .map(Vec::as_slice)
+        .unwrap_or_default()
+    {
+        if let Some(text) = warning.as_str() {
+            out.notes
+                .push(Note::custom(Section::DnsRtt, format!("warning: {text}")));
         }
     }
     Ok(())
@@ -2479,6 +2737,8 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
             Section::Reuse,
             Section::UdpFit,
             Section::Classical,
+            Section::Replication,
+            Section::DnsRtt,
             Section::Environment,
         ] {
             collected
@@ -2535,6 +2795,8 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     collect_reuse(&mut collected, results_ref)?;
     collect_udp_fit(&mut collected, results_ref)?;
     collect_classical(&mut collected, results_ref)?;
+    collect_replication(&mut collected, results_ref)?;
+    collect_dns_rtt(&mut collected, results_ref)?;
     collect_memory(
         &mut collected,
         memory_raw
@@ -2694,6 +2956,10 @@ mod tests {
             memory_report_path: missing.clone(),
             ladder_verification_path: missing.clone(),
             ladder_fixture_path: missing.clone(),
+            replication_summary_path: missing.clone(),
+            replication_fixture_path: missing.clone(),
+            dns_rtt_path: missing.clone(),
+            dns_rtt_fixture_path: missing.clone(),
             dns_capture_path: missing.clone(),
             dns_fixture_path: missing.clone(),
             environment_path: missing,
@@ -2770,6 +3036,10 @@ mod tests {
             memory_report_path: missing.clone(),
             ladder_verification_path: missing.clone(),
             ladder_fixture_path: missing.clone(),
+            replication_summary_path: missing.clone(),
+            replication_fixture_path: missing.clone(),
+            dns_rtt_path: missing.clone(),
+            dns_rtt_fixture_path: missing.clone(),
             dns_capture_path: missing.clone(),
             dns_fixture_path: missing.clone(),
             environment_path: missing,
@@ -2917,6 +3187,10 @@ mod tests {
             memory_report_path: missing.clone(),
             ladder_verification_path: missing.clone(),
             ladder_fixture_path: missing.clone(),
+            replication_summary_path: missing.clone(),
+            replication_fixture_path: missing.clone(),
+            dns_rtt_path: missing.clone(),
+            dns_rtt_fixture_path: missing.clone(),
             dns_capture_path: missing.clone(),
             dns_fixture_path: missing.clone(),
             environment_path: missing.clone(),
@@ -2991,6 +3265,10 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
             memory_report_path: missing.clone(),
             ladder_verification_path: missing.clone(),
             ladder_fixture_path: missing.clone(),
+            replication_summary_path: missing.clone(),
+            replication_fixture_path: missing.clone(),
+            dns_rtt_path: missing.clone(),
+            dns_rtt_fixture_path: missing.clone(),
             dns_capture_path: missing.clone(),
             dns_fixture_path: missing.clone(),
             environment_path: missing,
@@ -3115,6 +3393,10 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
             memory_report_path: missing.clone(),
             ladder_verification_path: missing.clone(),
             ladder_fixture_path: missing.clone(),
+            replication_summary_path: missing.clone(),
+            replication_fixture_path: missing.clone(),
+            dns_rtt_path: missing.clone(),
+            dns_rtt_fixture_path: missing.clone(),
             dns_capture_path: missing.clone(),
             dns_fixture_path: missing.clone(),
             environment_path: missing,

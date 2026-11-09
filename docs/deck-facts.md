@@ -445,6 +445,14 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Medium — RSA-2048 signing per message | 4157.52 | µs | MEASURED | — | n/a | /classical/5/signing_mean_ns | target/climb-results.json |
 | Medium — RSA-2048 verify per message | 499.72 | µs | MEASURED | — | n/a | /classical/5/verifying_mean_ns | target/climb-results.json |
 
+## Replication
+
+> no replication summary in the results document — run `cargo xtask replicate-summary` after committing a second host's artifact under data/replication/<host-hash>/
+
+## DNS latency (emulated RTT)
+
+> no emulated-RTT measurement in the results document — run `cargo xtask dns-rtt` and consolidate its output
+
 ## Environment
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
@@ -461,16 +469,16 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 2a2b093534b5d1c0855d4cfcf5abb216f21b0154 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | d5dc0cf85aab4f90ecf902ab958f5588157dcd05 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1077 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 0 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 1 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 36 | — | MEASURED | n = 36 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1254 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 0 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 3 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 48 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
 
 ---
 

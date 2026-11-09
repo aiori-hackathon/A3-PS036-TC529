@@ -535,6 +535,8 @@ mod tests {
                 },
                 wire_size: vec![wire_row(97.0)],
                 dns_anatomy: None,
+                replication: None,
+                dns_rtt: None,
                 memory: MemoryResults {
                     measured: Vec::new(),
                     analytical_model: AnalyticalMemoryModel {
@@ -1218,6 +1220,8 @@ mod tests {
                     verifying: Vec::new(),
                 },
                 wire_size: Vec::new(),
+                dns_rtt: None,
+                replication: None,
                 memory: MemoryResults {
                     measured: Vec::new(),
                     analytical_model: AnalyticalMemoryModel {

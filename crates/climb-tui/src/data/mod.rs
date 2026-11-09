@@ -503,6 +503,8 @@ pub(crate) mod test_support {
                 workspace_root: "/tmp/climb".to_string(),
                 benchmark: BenchmarkResults { signing, verifying },
                 wire_size: wire,
+                replication: None,
+                dns_rtt: None,
                 memory: MemoryResults {
                     measured: Vec::new(),
                     analytical_model: AnalyticalMemoryModel {
@@ -1034,6 +1036,10 @@ mod tests {
             dns_fixture_path: root.join("no-fixture.json"),
             ladder_verification_path: root.join("no-live.json"),
             ladder_fixture_path: fixture,
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: root.join("no-dns-rtt.json"),
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,

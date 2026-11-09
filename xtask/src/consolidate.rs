@@ -44,6 +44,24 @@ pub(crate) struct ConsolidateArgs {
     #[arg(long, default_value = "data/ladder-verification.recorded.json")]
     ladder_fixture: PathBuf,
 
+    /// Live replication summary (from `cargo xtask replicate-summary`);
+    /// preferred when present
+    #[arg(long, default_value = "target/replication-summary.json")]
+    replication_summary: PathBuf,
+
+    /// Committed replication summary (pending or compared), used when no live
+    /// summary exists
+    #[arg(long, default_value = "data/replication.json")]
+    replication_fixture: PathBuf,
+
+    /// Live emulated-RTT DNS latency artifact (from `cargo xtask dns-rtt`)
+    #[arg(long, default_value = "target/dns-rtt.json")]
+    dns_rtt: PathBuf,
+
+    /// Committed emulated-RTT fixture, used when no live artifact exists
+    #[arg(long, default_value = "data/dns-rtt.recorded.json")]
+    dns_rtt_fixture: PathBuf,
+
     /// Path to environment JSON (from `cargo xtask pin-env`)
     #[arg(long, default_value = "environment.json")]
     environment: PathBuf,
@@ -82,6 +100,10 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         dns_fixture_path: args.dns_fixture,
         ladder_verification_path: args.ladder_verification,
         ladder_fixture_path: args.ladder_fixture,
+        replication_summary_path: args.replication_summary,
+        replication_fixture_path: args.replication_fixture,
+        dns_rtt_path: args.dns_rtt,
+        dns_rtt_fixture_path: args.dns_rtt_fixture,
         environment_path: args.environment,
         baseline: args.baseline,
         rtt_ms: args.rtt_ms,

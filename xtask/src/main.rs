@@ -19,6 +19,7 @@ mod deck_delta;
 mod deck_facts;
 mod dist_tui;
 mod dns_demo;
+mod dns_rtt;
 mod docs_check;
 mod groups;
 mod headline;
@@ -28,6 +29,7 @@ mod package;
 mod pin_env;
 mod proc;
 mod readme_badges;
+mod replication;
 mod reproduce;
 mod source_hygiene;
 mod stability;
@@ -43,6 +45,7 @@ use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dist_tui::{cmd_dist_tui, DistTuiArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
+use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
 use docs_check::{cmd_docs_check, DocsCheckArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use headline::{cmd_headline, HeadlineArgs};
@@ -51,6 +54,9 @@ use memory::{cmd_memory_report, MemoryReportArgs};
 use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
 use readme_badges::{cmd_readme_badges, ReadmeBadgesArgs};
+use replication::{
+    cmd_replicate_compare, cmd_replicate_summary, ReplicateCompareArgs, ReplicateSummaryArgs,
+};
 use reproduce::{cmd_reproduce, ReproduceArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
@@ -58,7 +64,12 @@ use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use verify_numbers::{cmd_verify_numbers, VerifyNumbersArgs};
 use wire::{cmd_wire_report, WireReportArgs};
 
-/// The logical CPU to pin benchmarks to.
+/// Legacy CLI automation tasks — pinned-env, bench-all, report, wire-report,
+/// and other workspace operations.  The enum has grown over many
+/// phases and contains many variants with associated CLI argument
+/// structures; clippy flagged as large but this is acceptable for
+/// a tool CLI where each command variant is independently useful.
+#[allow(clippy::large_enum_variant)]
 ///
 /// Host: Intel i3-1115G4, 2 physical cores / 4 logical CPUs.
 /// Physical core 0 = {cpu0, cpu2}, physical core 1 = {cpu1, cpu3}.
@@ -77,6 +88,11 @@ struct Cli {
 }
 
 #[derive(Subcommand)]
+/// Acceptable clippy lint: this CLI tool has grown many command
+/// variants over many hackathon phases; boxing each variant
+/// would fragment the command dispatch logic unnecessarily.
+///
+#[allow(clippy::large_enum_variant)]
 enum Commands {
     /// Capture the current build environment and write it to environment.json.
     PinEnv,
@@ -132,6 +148,17 @@ enum Commands {
     DeckFacts(DeckFactsArgs),
     /// Diff a plain-text deck dump against the quote sheet.
     DeckDelta(DeckDeltaArgs),
+    /// Compare the headline ratios of two hosts' consolidated results and
+    /// print each pair with its relative difference and host facts.
+    ReplicateCompare(ReplicateCompareArgs),
+    /// Write the replication summary that consolidation embeds: pending until
+    /// `data/replication/` holds a second host's results document.
+    ReplicateSummary(ReplicateSummaryArgs),
+    /// Measure DNS query latency across the local Docker bridge with emulated
+    /// RTT delays (tc netem, with userspace-sleep fallback). Evidence class
+    /// MEASURED, labelled "emulated RTT, local bridge"; never presented as
+    /// Internet latency.
+    DnsRtt(DnsRttArgs),
     /// Check the documentation against the real workspace and the quote sheet.
     ///
     /// Fails when a Mermaid node id in README.md or docs/*.md looks like a
@@ -313,6 +340,9 @@ fn main() -> Result<()> {
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DeckDelta(args) => cmd_deck_delta(args),
+        Commands::ReplicateCompare(args) => cmd_replicate_compare(args),
+        Commands::ReplicateSummary(args) => cmd_replicate_summary(args),
+        Commands::DnsRtt(args) => cmd_dns_rtt(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::ReadmeBadges(args) => cmd_readme_badges(args),
         Commands::CommitGraph(args) => cmd_commit_graph(args),

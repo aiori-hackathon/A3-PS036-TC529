@@ -76,7 +76,9 @@ def encode_name(name: str) -> bytes:
     return bytes(out)
 
 
-def build_query(name: str, qtype: int, sigtag: bytes | None) -> bytes:
+def build_query(
+    name: str, qtype: int, sigtag: bytes | None, udp_size: int = 65535
+) -> bytes:
     """Build a query with the DO bit set and an optional MTL SigTag option."""
     question = encode_name(name) + struct.pack(">HH", qtype, QCLASS_IN)
     opts = b""
@@ -84,7 +86,7 @@ def build_query(name: str, qtype: int, sigtag: bytes | None) -> bytes:
         opts = struct.pack(">HH", EDNS_MTL_SIGTAG, len(sigtag)) + sigtag
     opt_rr = (
         b"\x00"  # root owner name
-        + struct.pack(">HH", 41, 65535)  # OPT, advertised UDP payload
+        + struct.pack(">HH", 41, udp_size)  # OPT, advertised UDP payload
         + struct.pack(">I", DO_BIT)  # extended flags: DO
         + struct.pack(">H", len(opts))
         + opts

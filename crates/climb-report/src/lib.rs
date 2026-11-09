@@ -12,6 +12,7 @@
 
 pub mod charts;
 pub mod deck_facts;
+pub mod dns_rtt;
 pub mod error;
 pub mod html;
 pub mod ladder;
@@ -19,9 +20,14 @@ pub mod memory;
 pub mod numbers;
 pub mod record;
 pub mod render;
+pub mod replication;
 pub mod results;
 pub mod summary;
 
+pub use dns_rtt::{
+    DnsRttCell, DnsRttSection, DnsRttStatus, DNS_RTT_DELAYS_MS, DNS_RTT_FULL_SAMPLES,
+    DNS_RTT_LABEL, DNS_RTT_SCHEMA_VERSION,
+};
 pub use error::ReportError;
 pub use html::{check, check_report, claims, CheckReport, CheckStatus, ClaimCheck};
 pub use ladder::{
@@ -34,6 +40,11 @@ pub use memory::{
 };
 pub use record::{read_leaf, scan_criterion, CriterionRecord};
 pub use render::{format_duration, render_text_summary};
+pub use replication::{
+    compare_results, compared_section, pending_section, relative_difference_percent,
+    ReplicationHost, ReplicationRatio, ReplicationSection, ReplicationStatus,
+    REPLICATION_SCHEMA_VERSION, REPLICATION_TOLERANCE_PERCENT,
+};
 pub use results::{
     consolidate_results, ClimbResults, ConsolidateOptions, DnsAnatomyRecord, DnsAnatomySection,
     DnsCapture, DnsCaptureFlags, DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery,

@@ -817,6 +817,8 @@ mod tests {
                     verifying: Vec::new(),
                 },
                 wire_size: Vec::new(),
+                replication: None,
+                dns_rtt: None,
                 dns_anatomy: None,
                 memory: MemoryResults {
                     measured: Vec::new(),

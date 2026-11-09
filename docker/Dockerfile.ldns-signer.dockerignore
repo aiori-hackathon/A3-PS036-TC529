@@ -1,0 +1,15 @@
+# Build-context ignore file for the ldns-MTL signer image.
+#
+# The repository-wide .dockerignore keeps the viewer image context small and
+# excludes third_party/ entirely. This builder needs the pinned liboqs and
+# libMTL submodules, so it carries its own ignore file (BuildKit honours
+# <Dockerfile>.dockerignore next to the Dockerfile) with the same exclusions
+# minus third_party/.
+target
+dist
+.git
+data
+.mtl-install
+environment.json
+**/*.log
+*.pdf

@@ -21,6 +21,7 @@ native = ["dep:plotters", "climb-bench/native"]
 thiserror.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
 climb-analytical = { path = "../climb-analytical" }
 climb-bench = { path = "../climb-bench", default-features = false }
 climb-dns = { path = "../climb-dns" }

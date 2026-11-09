@@ -59,6 +59,9 @@ const CHARTS_DIR: &str = "target/climb-report/charts";
 const DNS_LIVE: &str = "target/dns-capture.json";
 /// Ladder verification artifact written by `ladder-verify`; consumed by `consolidate`.
 const LADDER_VERIFICATION: &str = "target/ladder-verification.json";
+/// Replication summary written by `replicate-summary`; `consolidate` prefers it
+/// and falls back to the committed summary when it is absent.
+const REPLICATION_SUMMARY: &str = "target/replication-summary.json";
 
 /// Blueprint experiment sizes, in canonical order.
 const SIZES_FULL: &str = "small,medium,large";
@@ -211,6 +214,7 @@ pub(crate) enum StepId {
     BenchAll,
     LadderVerify,
     DnsDemo,
+    ReplicateSummary,
     Consolidate,
     VerifyConsolidated,
     Charts,
@@ -229,6 +233,7 @@ impl StepId {
             StepId::BenchAll => "bench-all",
             StepId::LadderVerify => "ladder-verify",
             StepId::DnsDemo => "dns-demo",
+            StepId::ReplicateSummary => "replicate-summary",
             StepId::Consolidate => "consolidate",
             StepId::VerifyConsolidated => "verify-consolidated",
             StepId::Charts => "charts",
@@ -301,7 +306,7 @@ pub(crate) struct ReproduceOpts {
 
 /// Build the ordered step list for `opts`.  Pure: no I/O, no subprocesses.
 pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
-    let mut steps = Vec::with_capacity(11);
+    let mut steps = Vec::with_capacity(12);
     let remeasure = opts.mode == ReproductionMode::Remeasure;
 
     // Measurements belong only to a re-measurement. A report-only run reuses
@@ -354,6 +359,14 @@ pub(crate) fn plan(opts: &ReproduceOpts) -> Vec<Step> {
             dns
         });
     }
+
+    // The replication summary is derived from artifacts already on disk: the
+    // primary results document and any committed second-host documents. It
+    // writes a pending section when no second host exists.
+    steps.push(Step::run(
+        StepId::ReplicateSummary,
+        &["replicate-summary", "--out", REPLICATION_SUMMARY],
+    ));
 
     let mut consolidate = vec![
         "consolidate".to_string(),
@@ -630,6 +643,7 @@ mod tests {
             StepId::BenchAll,
             StepId::LadderVerify,
             StepId::DnsDemo,
+            StepId::ReplicateSummary,
             StepId::Consolidate,
             StepId::VerifyConsolidated,
             StepId::Charts,
@@ -640,6 +654,7 @@ mod tests {
 
     fn report_order() -> Vec<StepId> {
         vec![
+            StepId::ReplicateSummary,
             StepId::Consolidate,
             StepId::VerifyConsolidated,
             StepId::Charts,
@@ -818,6 +833,27 @@ mod tests {
             .expect("consolidate present");
         assert_eq!(dns, ladder + 1, "ladder-verify precedes dns-demo");
         assert!(ladder < consolidate, "ladder-verify precedes consolidate");
+    }
+
+    #[test]
+    fn replication_summary_runs_before_consolidate_in_both_modes() {
+        for opts in [remeasure(), report_only()] {
+            let steps = plan(&opts);
+            let order = kinds(&steps);
+            let summary = order
+                .iter()
+                .position(|&id| id == StepId::ReplicateSummary)
+                .expect("replicate-summary present");
+            let consolidate = order
+                .iter()
+                .position(|&id| id == StepId::Consolidate)
+                .expect("consolidate present");
+            assert_eq!(summary + 1, consolidate);
+            assert_eq!(
+                value_of(find(&steps, StepId::ReplicateSummary), "--out"),
+                REPLICATION_SUMMARY
+            );
+        }
     }
 
     #[test]

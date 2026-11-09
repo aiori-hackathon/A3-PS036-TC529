@@ -68,23 +68,23 @@ macro_rules! humanprint {
 // Constants
 // ---------------------------------------------------------------------------
 
-const COMPOSE_FILE: &str = "docker/compose.dns-pipeline.yml";
-const UNSIGNED_ZONE: &str = "docker/zones/climb.example.zone";
-const NSD_IP: &str = "192.168.13.2";
-const UNBOUND_IP: &str = "192.168.13.3";
-const NSD_READY_MARKER: &str = "zone climb.example. read with success";
+pub(crate) const COMPOSE_FILE: &str = "docker/compose.dns-pipeline.yml";
+pub(crate) const UNSIGNED_ZONE: &str = "docker/zones/climb.example.zone";
+pub(crate) const NSD_IP: &str = "192.168.13.2";
+pub(crate) const UNBOUND_IP: &str = "192.168.13.3";
+pub(crate) const NSD_READY_MARKER: &str = "zone climb.example. read with success";
 const NSD_READY_TIMEOUT_SECS: u64 = 30;
 const NSD_POLL_SECS: u64 = 2;
-const SIGTAG_SCRIPT: &str = "scripts/mtl_sigtag.py";
+pub(crate) const SIGTAG_SCRIPT: &str = "scripts/mtl_sigtag.py";
 const CAPTURE_SCRIPT: &str = "scripts/mtl_dns_capture.py";
 const CAPTURE_SCHEMA_VERSION: u32 = 1;
-const ALGORITHM: &str = "SLH-DSA-SHA2-128s-MTL-SHA2-128";
-const ZONE_NAME: &str = "climb.example.";
-const CAPTURE_TRANSPORT: &str = "tcp";
+pub(crate) const ALGORITHM: &str = "SLH-DSA-SHA2-128s-MTL-SHA2-128";
+pub(crate) const ZONE_NAME: &str = "climb.example.";
+pub(crate) const CAPTURE_TRANSPORT: &str = "tcp";
 
 /// Docker images the demo requires, with a human description for the
 /// preflight report.  Shared by `check_images` and the capture recorder.
-const REQUIRED_IMAGES: &[(&str, &str)] = &[
+pub(crate) const REQUIRED_IMAGES: &[(&str, &str)] = &[
     ("climb-nsd:phase12", "Authoritative NSD-MTL"),
     ("climb-unbound:phase13", "Recursive Unbound-MTL"),
     ("climb-dig:phase14", "Query tool (dig)"),
@@ -160,17 +160,17 @@ fn print_cmd(cmd: &Command) {
 // Teardown guard — runs `docker compose down` on drop
 // ---------------------------------------------------------------------------
 
-struct ComposeGuard {
+pub(crate) struct ComposeGuard {
     root: PathBuf,
     active: bool,
 }
 
 impl ComposeGuard {
-    fn new(root: PathBuf) -> Self {
+    pub(crate) fn new(root: PathBuf) -> Self {
         ComposeGuard { root, active: true }
     }
 
-    fn disarm(&mut self) {
+    pub(crate) fn disarm(&mut self) {
         self.active = false;
     }
 }
@@ -198,7 +198,7 @@ fn compose_down_silent(root: &Path) {
 // ---------------------------------------------------------------------------
 
 /// Returns the workspace root (parent of the `xtask` crate directory).
-fn workspace_root() -> Result<PathBuf> {
+pub(crate) fn workspace_root() -> Result<PathBuf> {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     dir.parent()
         .map(Path::to_path_buf)
@@ -220,7 +220,7 @@ fn id_field(flag: &str) -> String {
 
 /// `uid:gid` of the invoking user, used to run the signer container so files
 /// it writes into the mounted scratch directory are not owned by root.
-fn host_user() -> String {
+pub(crate) fn host_user() -> String {
     let uid = id_field("-u");
     let gid = id_field("-g");
     format!("{uid}:{gid}")
@@ -231,12 +231,49 @@ fn host_user() -> String {
 // ---------------------------------------------------------------------------
 
 /// Build a `docker compose` command rooted at the workspace.
-fn compose_cmd(root: &Path, args: &[&str]) -> Command {
-    let mut c = Command::new("docker");
-    c.args(["compose", "-f"])
-        .arg(root.join(COMPOSE_FILE))
-        .args(args)
-        .current_dir(root);
+/// Resolve the `docker compose` command: prefer the `docker compose` plugin,
+/// then the standalone `docker-compose` binary, then the vendored copy under
+/// `target/tools/docker-compose`.
+fn compose_binary() -> String {
+    // Check if `docker compose` works as a plugin.
+    let plugin_check = std::process::Command::new("docker")
+        .args(["compose", "version"])
+        .output();
+    if plugin_check.map(|o| o.status.success()).unwrap_or(false) {
+        return "docker".to_string();
+    }
+    // Check for standalone docker-compose.
+    let standalone = std::process::Command::new("docker-compose").output();
+    if standalone.map(|o| o.status.success()).unwrap_or(false) {
+        return "docker-compose".to_string();
+    }
+    // Fall back to vendored copy.
+    let vendored = std::env::current_dir()
+        .unwrap_or_default()
+        .join("target/tools/docker-compose");
+    if vendored.is_file() {
+        return vendored.to_string_lossy().to_string();
+    }
+    "docker".to_string()
+}
+
+pub(crate) fn compose_cmd(root: &Path, args: &[&str]) -> Command {
+    let binary = compose_binary();
+    let c = if binary == "docker" {
+        let mut cmd = Command::new("docker");
+        cmd.args(["compose", "-f"])
+            .arg(root.join(COMPOSE_FILE))
+            .args(args)
+            .current_dir(root);
+        cmd
+    } else {
+        let mut cmd = Command::new(&binary);
+        cmd.args(["-f"])
+            .arg(root.join(COMPOSE_FILE))
+            .args(args)
+            .current_dir(root);
+        cmd
+    };
     c
 }
 
@@ -244,7 +281,7 @@ fn compose_cmd(root: &Path, args: &[&str]) -> Command {
 /// trimmed stdout.  The command output is printed before execution.
 /// Runs as the invoking host user so the generated keys and signed zone are
 /// owned by the developer rather than root.
-fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
+pub(crate) fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
     let mut cmd = Command::new("docker");
     cmd.args(["run", "--rm"])
         .arg("--user")
@@ -271,7 +308,7 @@ fn run_in_signer(scratch: &Path, args: &[&str]) -> Result<String> {
 /// Run a command and return its exit status.  In JSON mode the child's
 /// stdout/stderr are forwarded to stderr so stdout carries only the capture
 /// JSON.
-fn run_cmd_status(mut cmd: Command) -> Result<std::process::ExitStatus> {
+pub(crate) fn run_cmd_status(mut cmd: Command) -> Result<std::process::ExitStatus> {
     print_cmd(&cmd);
     let output = proc::run_raw(&mut cmd, Duration::from_secs(600), "child command")?;
     eprint!("{}", String::from_utf8_lossy(&output.stdout));
@@ -280,7 +317,7 @@ fn run_cmd_status(mut cmd: Command) -> Result<std::process::ExitStatus> {
 }
 
 /// Run a command, inherit stdio, and check success.
-fn run_cmd_inherit(cmd: Command) -> Result<()> {
+pub(crate) fn run_cmd_inherit(cmd: Command) -> Result<()> {
     let status = run_cmd_status(cmd)?;
     if !status.success() {
         bail!("command exited with {status}");
@@ -289,7 +326,7 @@ fn run_cmd_inherit(cmd: Command) -> Result<()> {
 }
 
 /// Run a command, capturing stdout, and check success.
-fn run_cmd_capture(mut cmd: Command) -> Result<String> {
+pub(crate) fn run_cmd_capture(mut cmd: Command) -> Result<String> {
     print_cmd(&cmd);
     let output = proc::run(&mut cmd, Duration::from_secs(600), "capture command")?;
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -299,7 +336,7 @@ fn run_cmd_capture(mut cmd: Command) -> Result<String> {
 // Stage 1 — Preflight
 // ---------------------------------------------------------------------------
 
-fn check_docker() -> Result<()> {
+pub(crate) fn check_docker() -> Result<()> {
     let mut command = Command::new("docker");
     command.args(["--version"]);
     let output = proc::run(&mut command, Duration::from_secs(30), "docker --version")
@@ -310,7 +347,7 @@ fn check_docker() -> Result<()> {
 }
 
 /// List the four required images and report which exist.
-fn check_images() -> Result<()> {
+pub(crate) fn check_images() -> Result<()> {
     for (image, desc) in REQUIRED_IMAGES {
         let exists = image_exists(image);
         let status = if exists {
@@ -338,7 +375,7 @@ fn image_exists(image: &str) -> bool {
 // Stage 4 helper — wait for NSD to be ready
 // ---------------------------------------------------------------------------
 
-fn wait_for_nsd_ready(root: &Path) -> Result<()> {
+pub(crate) fn wait_for_nsd_ready(root: &Path) -> Result<()> {
     let deadline = std::time::Instant::now() + Duration::from_secs(NSD_READY_TIMEOUT_SECS);
 
     while std::time::Instant::now() < deadline {
@@ -700,7 +737,7 @@ fn hex_encode(bytes: Vec<u8>) -> String {
     out
 }
 
-fn iso8601_now() -> String {
+pub(crate) fn iso8601_now() -> String {
     let mut command = Command::new("date");
     command.arg("--iso-8601=seconds");
     proc::run(&mut command, Duration::from_secs(30), "date")
@@ -712,7 +749,7 @@ fn iso8601_now() -> String {
 
 /// The current `HEAD` commit SHA, or `None` when git is unavailable (e.g. a
 /// source tarball without the `.git` directory).
-fn git_head() -> Option<String> {
+pub(crate) fn git_head() -> Option<String> {
     let mut command = Command::new("git");
     command.args(["rev-parse", "HEAD"]);
     proc::run(&mut command, Duration::from_secs(60), "git rev-parse HEAD")
@@ -721,7 +758,7 @@ fn git_head() -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
-fn hostname() -> String {
+pub(crate) fn hostname() -> String {
     fs::read_to_string("/etc/hostname")
         .ok()
         .map(|s| s.trim().to_string())
@@ -729,7 +766,7 @@ fn hostname() -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn uname() -> String {
+pub(crate) fn uname() -> String {
     let mut command = Command::new("uname");
     command.arg("-a");
     proc::run(&mut command, Duration::from_secs(30), "uname")

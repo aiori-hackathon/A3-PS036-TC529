@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "status": "pending",
+  "generated_at": "2026-11-09T14:29:27+05:30",
+  "hosts": [
+    {
+      "host_hash": "0f98627f768f",
+      "results_path": "docs/sample-output/climb-results.json",
+      "cpu_model": "11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz",
+      "cpu_governor": "powersave",
+      "kernel_release": "7.2.5-3-omarchy",
+      "rustc_version": "rustc 1.98.1 (48a229cea 2026-09-01)",
+      "logical_cpus": 4,
+      "generated_at": "2026-10-22T15:30:06+05:30",
+      "sizes": [
+        "small",
+        "medium",
+        "large"
+      ],
+      "ratios": 13
+    }
+  ],
+  "ratios": [],
+  "max_relative_difference_percent": null,
+  "tolerance_percent": 10.0,
+  "agrees": null,
+  "missing_ratios": 0,
+  "note": "one host recorded; awaiting a second host's climb-results.json and environment.json under data/replication/<host-hash>/",
+  "class": "derived"
+}
