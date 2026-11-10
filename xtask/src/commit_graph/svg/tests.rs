@@ -1214,57 +1214,46 @@ fn the_final_state_is_complete_without_animation() {
 fn the_refresh_note_appears_only_when_refreshes_exist() {
     let graph = committed_graph();
     let palette = Palette::default();
-    let mut quiet_graph = graph.clone();
-    quiet_graph.totals.refresh_commits = 0;
-    let quiet = render_full(&quiet_graph, &palette, &style()).expect("a card");
+
+    // Zero refreshes: no refresh-note group on the narrow card.
+    let mut quiet = graph.clone();
+    quiet.totals.refresh_commits = 0;
+    let quiet_narrow = render_narrow(&quiet, &palette, &style()).expect("narrow card");
     assert_eq!(
-        runs_in_group(&parse(&quiet), "footer-source"),
-        1,
+        runs_in_group(&parse(&quiet_narrow), "refresh-note"),
+        0,
         "zero refreshes prints nothing"
     );
 
+    // One refresh: the singular note appears in the legend.
     let mut one = graph.clone();
     one.totals.refresh_commits = 1;
-    let single = render_full(&one, &palette, &style()).expect("a card");
+    let single = render_narrow(&one, &palette, &style()).expect("narrow card");
     assert_eq!(
         refresh_note(one.totals.refresh_commits).as_deref(),
         Some("includes 1 graph refresh"),
         "one refresh is singular"
     );
     assert_eq!(
-        runs_in_group(&parse(&single), "footer-source"),
-        2,
-        "a single refresh still prints a note"
+        runs_in_group(&parse(&single), "refresh-note"),
+        1,
+        "one refresh prints the note"
     );
 
+    // Multiple refreshes: the plural note appears in the legend.
     let mut refreshed = graph.clone();
     refreshed.totals.refresh_commits = 3;
-    for (label, svg) in [
-        (
-            "full",
-            render_full(&refreshed, &palette, &style()).expect("a card"),
-        ),
-        (
-            "narrow",
-            render_narrow(&refreshed, &palette, &style()).expect("a card"),
-        ),
-    ] {
-        assert_eq!(
-            runs_in_group(&parse(&svg), "footer-source"),
-            2,
-            "{label}: the refresh note is missing"
-        );
-        let desc = parse(&svg)
-            .descendants()
-            .find(|node| node.has_tag_name("desc"))
-            .and_then(|node| node.text())
-            .expect("a desc")
-            .to_string();
-        assert!(
-            desc.contains("refresh_commits=3"),
-            "{label}: the refresh count is missing from the description"
-        );
-    }
+    let many = render_narrow(&refreshed, &palette, &style()).expect("narrow card");
+    assert_eq!(
+        refresh_note(refreshed.totals.refresh_commits).as_deref(),
+        Some("includes 3 graph refreshes"),
+        "three refreshes is plural"
+    );
+    assert_eq!(
+        runs_in_group(&parse(&many), "refresh-note"),
+        1,
+        "multiple refreshes print one note group"
+    );
 }
 
 #[test]
@@ -1498,14 +1487,20 @@ fn the_busiest_label_sits_above_the_tallest_bar() {
         .descendants()
         .find(|node| node.attribute("data-name") == Some("annotations"))
         .expect("the annotations group");
-    let run = group
+    // Two runs share the annotations group: the busiest label and the streak
+    // label. The busiest run is the wider of the two.
+    let mut runs: Vec<(f64, f64, f64, f64)> = group
         .descendants()
-        .find(|node| node.attribute("class") == Some("cg-run"))
-        .expect("the busiest run");
-    let (x, y, _, height) = bbox(run);
+        .filter(|node| node.attribute("class") == Some("cg-run"))
+        .map(bbox)
+        .collect();
+    runs.sort_by(|a, b| b.2.partial_cmp(&a.2).unwrap_or(std::cmp::Ordering::Equal));
+    let (x, y, run_width, height) = runs[0];
+    let run_centre = x + run_width / 2.0;
+    let bar_centre = bar_x + bar_width / 2.0;
     assert!(
-        (x - bar_x).abs() <= 3.0,
-        "the busiest label starts at {x}, the bar at {bar_x}"
+        (run_centre - bar_centre).abs() <= 3.0,
+        "the busiest label is centred at {run_centre:.1}, the bar at {bar_centre:.1}"
     );
     let gap = bar_y - (y + height);
     assert!(
@@ -1569,8 +1564,8 @@ fn flag_labels_sit_directly_above_their_poles() {
         );
         let gap = pole_top - (y + height);
         assert!(
-            (4.0..=30.0).contains(&gap),
-            "{name} leaves {gap:.1} px above its pole, outside the two staggered levels"
+            (4.0..=45.0).contains(&gap),
+            "{name} leaves {gap:.1} px above its pole, outside the legal placement band"
         );
     }
 }
@@ -1584,7 +1579,7 @@ fn flag_labels_prefer_the_staggered_levels_then_cover_the_band() {
     for baseline in &baselines {
         let gap = pole_top - baseline;
         assert!(
-            (4.0..30.0).contains(&gap),
+            (4.0..45.0).contains(&gap),
             "baseline at {gap:.2} px is outside the legal band"
         );
     }
@@ -1624,5 +1619,129 @@ fn the_config_defaults_keep_staleness_bounded() {
     assert_eq!(
         config.repo_web_url,
         "https://github.com/aiori-hackathon/A3-PS036-TC529"
+    );
+}
+
+/// Distance from a point to a segment; zero when the point lies on it.
+fn test_point_segment_gap(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    if dx == 0.0 && dy == 0.0 {
+        return ((px - x1).powi(2) + (py - y1).powi(2)).sqrt();
+    }
+    let t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+    let t = t.clamp(0.0, 1.0);
+    let cx = x1 + t * dx;
+    let cy = y1 + t * dy;
+    ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+}
+
+/// Distance from a segment to a text box; zero when they touch or overlap.
+fn test_segment_box_gap(x1: f64, y1: f64, x2: f64, y2: f64, box_: &(f64, f64, f64, f64)) -> f64 {
+    let (bx, by, bw, bh) = box_;
+    let inside = |px: f64, py: f64| px >= *bx && px <= bx + bw && py >= *by && py <= by + bh;
+    if inside(x1, y1) || inside(x2, y2) {
+        return 0.0;
+    }
+    let corners = [
+        (*bx, *by),
+        (bx + bw, *by),
+        (*bx, by + bh),
+        (bx + bw, by + bh),
+    ];
+    let mut best = corners
+        .iter()
+        .map(|(cx, cy)| test_point_segment_gap(*cx, *cy, x1, y1, x2, y2))
+        .fold(f64::INFINITY, f64::min);
+    for (cx, cy) in [(x1, y1), (x2, y2)] {
+        let dx = (bx - cx).max(cx - (bx + bw)).max(0.0);
+        let dy = (by - cy).max(cy - (by + bh)).max(0.0);
+        best = best.min((dx * dx + dy * dy).sqrt());
+    }
+    best
+}
+
+#[test]
+fn milestone_labels_keep_eight_px_clearance_from_every_pole() {
+    let svg_text = committed(WIDE);
+    let document = parse(&svg_text);
+    let marks = nontext_marks(&document);
+    let poles: Vec<&Mark> = marks.iter().filter(|mark| mark.kind == "pole").collect();
+    assert!(!poles.is_empty(), "the wide card carries flag poles");
+    let groups = text_groups(&document);
+    let milestone_groups: Vec<_> = groups
+        .iter()
+        .filter(|group| group.name.starts_with("milestone-"))
+        .collect();
+    assert!(
+        !milestone_groups.is_empty(),
+        "the wide card carries milestone labels"
+    );
+    for group in milestone_groups {
+        let box_ = (group.x, group.y, group.width, group.height);
+        for pole in &poles {
+            if let MarkShape::Segment(x1, y1, x2, y2) = pole.shape {
+                let gap = test_segment_box_gap(x1, y1, x2, y2, &box_);
+                assert!(
+                    gap >= 8.0 - 1e-9,
+                    "{} is {:.1} px from a pole, below the 8 px clearance",
+                    group.name,
+                    gap
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn streak_label_is_left_aligned_over_its_bracket_and_clear_of_the_busiest_label() {
+    let graph = committed_graph();
+    let svg_text = committed(WIDE);
+    let document = parse(&svg_text);
+    let group = document
+        .descendants()
+        .find(|node| node.attribute("data-name") == Some("annotations"))
+        .expect("the annotations group");
+    let runs: Vec<(f64, f64, f64, f64)> = group
+        .descendants()
+        .filter(|node| node.attribute("class") == Some("cg-run"))
+        .map(bbox)
+        .collect();
+    assert_eq!(
+        runs.len(),
+        2,
+        "the annotations group carries busiest and streak"
+    );
+    // The left run is the streak label (left-aligned over the bracket) and the
+    // right run is the busiest label (centred over the tallest bar).
+    let mut ordered = runs;
+    ordered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+    let (streak_x, streak_y, _streak_w, streak_h) = ordered[0];
+    let (_busiest_x, busiest_y, _busiest_w, _busiest_h) = ordered[1];
+
+    // Streak is left-aligned over the left end of its bracket.
+    let start_index = graph
+        .per_day
+        .iter()
+        .position(|day| day.date == graph.totals.longest_streak_range.start)
+        .expect("the streak start is a plotted day");
+    // Wide-card chart constants from Layout::wide.
+    let left = 96.0;
+    let data_right = 592.0;
+    let days = graph.per_day.len().max(1) as f64;
+    let column = (data_right - left) / days;
+    let bracket_x0 = left + (start_index as f64 + 0.5) * column;
+    assert!(
+        (streak_x - bracket_x0).abs() <= 2.0,
+        "the streak label starts at {streak_x:.1}, the bracket at {bracket_x0:.1}"
+    );
+
+    // The busiest label keeps at least 16 px of vertical clearance from the
+    // streak label.
+    let streak_bottom = streak_y + streak_h;
+    let gap = busiest_y - streak_bottom;
+    assert!(
+        gap >= 16.0,
+        "the busiest label is {gap:.1} px above the streak label, below 16 px"
     );
 }

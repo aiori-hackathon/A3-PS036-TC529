@@ -26,7 +26,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/bb956efa9fc5c9d1d6caded6efd359a53f7662d2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/dbc5e1274e672ef6218a2c333e1c97feb2bf871c" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -57,7 +57,7 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 | Name | Role | Link |
 | :--- | :--- | :--- |
 | [Pratyay Mukherjee](https://github.com/profm0r14rty) | Team Lead and Developer | [GitHub](https://github.com/profm0r14rty) |
-| [Mohit Kumar Yadav](https://github.com/Mohh12glitch) | Lead Researcher | [GitHub](https://github.com/Mohh12glitch) |
+| [Mohit Kumar Yadav](https://github.com/Mohh12glitch) | Lead Researcher, UI and Logo Designer | [GitHub](https://github.com/Mohh12glitch) |
 | [Dr. Maibam Devi](https://www.nfsu.ac.in/Faculty/profile/664) | Faculty Mentor | [NFSU profile](https://www.nfsu.ac.in/Faculty/profile/664) |
 
 **Team Name:** CLIMB  
@@ -137,7 +137,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/bb956efa9fc5c9d1d6caded6efd359a53f7662d2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/dbc5e1274e672ef6218a2c333e1c97feb2bf871c" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">

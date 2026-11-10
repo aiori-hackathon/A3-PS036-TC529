@@ -185,9 +185,9 @@ label = "Level 2 qualified"
 short = "Level 2"
 
 [[commit_graph.milestones]]
-date = "2026-11-24"
-label = "Regional hackathon"
-short = "Regionals"
+date = "2026-11-19"
+label = "Regional, IIEST Shibpur"
+short = "Regional"
 
 [[commit_graph.milestones]]
 date = "2026-12-17"

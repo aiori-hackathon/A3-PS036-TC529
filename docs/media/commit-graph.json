@@ -1,6 +1,6 @@
 {
   "schema_version": 4,
-  "as_of_sha": "bb956efa9fc5c9d1d6caded6efd359a53f7662d2",
+  "as_of_sha": "dbc5e1274e672ef6218a2c333e1c97feb2bf871c",
   "as_of_date": "2026-11-10",
   "pending_refresh": true,
   "pending_date": "2026-11-10",
@@ -10,7 +10,7 @@
     "end": "2026-11-10"
   },
   "totals": {
-    "commits": 106,
+    "commits": 107,
     "first_commit_date": "2026-09-26",
     "last_commit_date": "2026-11-10",
     "busiest_day": {
@@ -25,9 +25,9 @@
     "active_days": 26,
     "longest_streak": 14,
     "current_streak": 5,
-    "lines_added": 116418,
-    "lines_removed": 14577,
-    "files_touched": 1211
+    "lines_added": 142644,
+    "lines_removed": 14649,
+    "files_touched": 1235
   },
   "per_day": [
     {
@@ -397,9 +397,9 @@
     },
     {
       "date": "2026-11-10",
-      "commits": 3,
-      "added": 2684,
-      "removed": 575,
+      "commits": 4,
+      "added": 28910,
+      "removed": 647,
       "authors": [
         "Pratyay Mukherjee"
       ]
@@ -408,7 +408,7 @@
   "per_author": [
     {
       "display": "Pratyay Mukherjee",
-      "commits": 105
+      "commits": 106
     }
   ],
   "milestones": [
@@ -427,9 +427,9 @@
       "status": "done"
     },
     {
-      "date": "2026-11-24",
-      "label": "Regional hackathon",
-      "short": "Regionals",
+      "date": "2026-11-19",
+      "label": "Regional, IIEST Shibpur",
+      "short": "Regional",
       "future": true,
       "status": "upcoming"
     },
@@ -441,5 +441,5 @@
       "status": "upcoming"
     }
   ],
-  "config_hash": "efd3014bca1eeed4e2fc68cdf941a508be68ff07159dc27201550009224c04e5"
+  "config_hash": "f8d432f7f8c9986bfd25f9e13afcc1671b2774e2533173b9a60c994af95244d3"
 }

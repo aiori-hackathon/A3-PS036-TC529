@@ -238,6 +238,28 @@ impl Mark {
             MarkShape::Segment { x1, y1, x2, y2 } => segment_intersects_box(x1, y1, x2, y2, box_),
         }
     }
+
+    /// Minimum distance from the mark to a text box: zero when they touch or
+    /// overlap. Used to enforce an 8 px clearance from flag poles.
+    pub(crate) fn gap_to(&self, box_: &TextBox) -> f64 {
+        match self.shape {
+            MarkShape::Box {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let other = TextBox {
+                    x,
+                    y,
+                    width,
+                    height,
+                };
+                box_.gap(&other)
+            }
+            MarkShape::Segment { x1, y1, x2, y2 } => segment_box_gap(x1, y1, x2, y2, box_),
+        }
+    }
 }
 
 /// True when a segment crosses or touches an axis-aligned ink box.
@@ -270,6 +292,45 @@ fn segments_cross(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64, dx: f64,
     let o3 = orient(cx, cy, dx, dy, ax, ay);
     let o4 = orient(cx, cy, dx, dy, bx, by);
     (o1 * o2 < 0.0) && (o3 * o4 < 0.0)
+}
+
+/// Distance from a point to an axis-aligned box: zero inside or on the edge.
+fn point_box_gap(px: f64, py: f64, box_: &TextBox) -> f64 {
+    let dx = (box_.x - px).max(px - box_.right()).max(0.0);
+    let dy = (box_.y - py).max(py - box_.bottom()).max(0.0);
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Distance from a point to a segment: zero when the point lies on it.
+fn point_segment_gap(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64) -> f64 {
+    let dx = x2 - x1;
+    let dy = y2 - y1;
+    if dx == 0.0 && dy == 0.0 {
+        return ((px - x1).powi(2) + (py - y1).powi(2)).sqrt();
+    }
+    let t = ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy);
+    let t = t.clamp(0.0, 1.0);
+    let cx = x1 + t * dx;
+    let cy = y1 + t * dy;
+    ((px - cx).powi(2) + (py - cy).powi(2)).sqrt()
+}
+
+/// Minimum distance from a segment to an axis-aligned box: zero when they
+/// touch or overlap.
+fn segment_box_gap(x1: f64, y1: f64, x2: f64, y2: f64, box_: &TextBox) -> f64 {
+    if segment_intersects_box(x1, y1, x2, y2, box_) {
+        return 0.0;
+    }
+    let mut best = point_box_gap(x1, y1, box_).min(point_box_gap(x2, y2, box_));
+    for (cx, cy) in [
+        (box_.x, box_.y),
+        (box_.right(), box_.y),
+        (box_.right(), box_.bottom()),
+        (box_.x, box_.bottom()),
+    ] {
+        best = best.min(point_segment_gap(cx, cy, x1, y1, x2, y2));
+    }
+    best
 }
 
 struct Canvas<'a> {
@@ -538,7 +599,19 @@ impl<'a> Canvas<'a> {
                 if mark.kind == "leader" && mark.owner.as_deref() == Some(group.as_str()) {
                     continue;
                 }
-                if mark.intersects(text) {
+                if mark.kind == "pole" {
+                    // Milestone labels need an 8 px clearance from every pole.
+                    if mark.gap_to(text) < 8.0 {
+                        bail!(
+                            "commit-graph layout: `{group}` text box ({}, {}, {}, {}) is within 8 \
+                             px of the pole mark",
+                            num(text.x),
+                            num(text.y),
+                            num(text.width),
+                            num(text.height)
+                        );
+                    }
+                } else if mark.intersects(text) {
                     bail!(
                         "commit-graph layout: `{group}` text box ({}, {}, {}, {}) crosses the \
                          {} mark",
@@ -735,7 +808,6 @@ struct BarsLayout {
 /// Geometry of the footer strip.
 struct FooterLayout {
     baseline: f64,
-    size: f64,
     source_size: f64,
     /// Put the source on its own line under the contributors, for the narrow
     /// card where both cannot share a row.
@@ -822,7 +894,6 @@ impl Layout {
             }),
             footer: Some(FooterLayout {
                 baseline: 512.0,
-                size: 13.0,
                 source_size: 12.0,
                 stacked: false,
             }),
@@ -878,7 +949,6 @@ impl Layout {
             }),
             footer: Some(FooterLayout {
                 baseline: 568.0,
-                size: 13.0,
                 source_size: 12.0,
                 stacked: true,
             }),
@@ -1367,28 +1437,45 @@ fn draw_annotations(
         short_date(&graph.totals.busiest_day.date)?
     );
     let size = 13.0;
-    // The label sits directly above the tallest bar, left-aligned to it. The
-    // sixteen-pixel gap is measured to the ink, not to the baseline, so a
-    // descender still leaves the full clearance.
-    let baseline = busiest_bar.top - 18.0;
+    // Bracket geometry for the longest streak: the streak label is placed
+    // left-aligned over it.
+    let streak_start = parse_iso_date(&graph.totals.longest_streak_range.start)?;
+    let streak_end = parse_iso_date(&graph.totals.longest_streak_range.end)?;
+    let start_index = (streak_start - start).max(0) as usize;
+    let end_index = (streak_end - start).max(0) as usize;
+    let bracket_y = bars.baseline - bars.max_height - 6.0;
+    let (bracket_x0, _bracket_x1) = if start_index < geom.days {
+        (
+            geom.centre(start_index),
+            geom.centre(end_index.min(geom.days - 1))
+                .min(geom.data_right),
+        )
+    } else {
+        (geom.left, geom.left)
+    };
+
+    // The busiest label sits centred directly above its bar, with a short
+    // vertical leader down to the bar.
+    let busiest_width = canvas.width(Typeface::Mono, &busiest, size, 0.0)?;
+    let margin = canvas_margin(chart, geom);
+    let busiest_x = (busiest_bar.centre - busiest_width / 2.0)
+        .clamp(margin + 2.0, geom.right - busiest_width - 2.0);
+    let busiest_baseline = busiest_bar.top - 18.0;
     let busiest_box = canvas.font.line_box(
         Typeface::Mono,
         &busiest,
-        busiest_bar.left,
-        baseline,
+        busiest_x,
+        busiest_baseline,
         size,
         0.0,
     )?;
-
+    // The streak label is left-aligned over its bracket and must keep at least
+    // sixteen pixels from the busiest label.
     let streak = format!("{}-day streak", graph.totals.longest_streak);
-    let streak_width = canvas.width(Typeface::Mono, &streak, size, 0.0)?;
-    let streak_candidates = [
-        (baseline, busiest_bar.left - 16.0 - streak_width),
-        (baseline, geom.data_right - streak_width),
-        (baseline + size + 5.0, geom.data_right - streak_width),
-    ];
+    let streak_x = bracket_x0;
     let mut placed_streak: Option<(f64, f64, TextBox)> = None;
-    for (streak_baseline, streak_x) in streak_candidates {
+    for offset in [8.0, 16.0, 24.0, 32.0, 40.0, 41.0, 48.0, 56.0] {
+        let streak_baseline = bracket_y - offset;
         let box_ = canvas.font.line_box(
             Typeface::Mono,
             &streak,
@@ -1397,10 +1484,10 @@ fn draw_annotations(
             size,
             0.0,
         )?;
-        if box_.x < canvas_margin(chart, geom) - 0.01 || box_.right() > geom.right + 0.01 {
+        if box_.x < margin - 0.01 || box_.right() > geom.right + 0.01 {
             continue;
         }
-        if box_.intersects(&busiest_box) {
+        if box_.gap(&busiest_box) < 16.0 {
             continue;
         }
         if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
@@ -1416,11 +1503,11 @@ fn draw_annotations(
         break;
     }
     let Some((streak_x, streak_baseline, _)) = placed_streak else {
-        bail!("commit-graph streak label `{streak}` has no collision-free place above the bars");
+        bail!("commit-graph streak label `{streak}` has no collision-free place over its bracket");
     };
 
     let runs = vec![
-        run(busiest, busiest_bar.left, baseline),
+        run(busiest, busiest_x, busiest_baseline),
         tinted(streak, streak_x, streak_baseline, &palette.teal_text),
     ];
     occupied.push(canvas.text_group(
@@ -1446,16 +1533,12 @@ fn draw_annotations(
     }
 
     // Teal bracket over the longest streak, with small end ticks.
-    let streak_start = parse_iso_date(&graph.totals.longest_streak_range.start)?;
-    let streak_end = parse_iso_date(&graph.totals.longest_streak_range.end)?;
-    let start_index = (streak_start - start).max(0) as usize;
-    let end_index = (streak_end - start).max(0) as usize;
     if start_index < geom.days {
-        let x0 = geom.centre(start_index);
+        let x0 = bracket_x0;
         let x1 = geom
             .centre(end_index.min(geom.days - 1))
             .min(geom.data_right);
-        let y = bars.baseline - bars.max_height - 6.0;
+        let y = bracket_y;
         let d = format!(
             "M{} {}L{} {}L{} {}M{} {}L{} {}",
             num(x0),
@@ -1663,7 +1746,7 @@ fn draw_flags(
 fn flag_label_baselines(pole_top: f64) -> Vec<f64> {
     let mut baselines = vec![pole_top - 8.0, pole_top - 26.0];
     let mut gap = 4.0;
-    while gap < 30.0 {
+    while gap < 45.0 {
         let baseline = pole_top - gap;
         if !baselines
             .iter()
@@ -1705,7 +1788,14 @@ fn try_place_flag_label(
         {
             continue;
         }
-        if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+        if canvas.marks.iter().any(|mark| {
+            if mark.kind == "pole" {
+                // Milestone labels need an 8 px clearance from every pole.
+                mark.gap_to(&box_) < 8.0
+            } else {
+                mark.intersects(&box_)
+            }
+        }) {
             continue;
         }
         return Ok(Some((x, baseline, box_)));
@@ -1989,14 +2079,6 @@ fn draw_kpi(
 }
 
 /// Footer wording for the refresh count. Absent when the history has none.
-fn refresh_note(count: u64) -> Option<String> {
-    match count {
-        0 => None,
-        1 => Some("includes 1 graph refresh".to_string()),
-        count => Some(format!("includes {count} graph refreshes")),
-    }
-}
-
 fn draw_footer(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -2006,142 +2088,59 @@ fn draw_footer(
 ) -> Result<()> {
     let width = layout.width;
     let margin = layout.margin;
+    // Left: the public-history source. Right: the as-of stamp. One line when
+    // there is room, two at most.
     let full_source = format!("from the public history of {}", repository_slug(graph));
     let short_source = format!("public history of {}", repository_name(graph));
+    // The narrow card cannot fit the full source string on one line, so it uses
+    // the short form there; the wide card shows the full source.
     let source_text = if footer.stacked {
         short_source.as_str()
     } else {
         full_source.as_str()
     };
-    let source_x = if footer.stacked {
-        margin
-    } else {
-        canvas.right_x(
-            Typeface::Mono,
-            source_text,
-            width - margin,
-            footer.source_size,
-            0.0,
-        )?
-    };
+    let sha = &graph.as_of_sha[..7.min(graph.as_of_sha.len())];
+    let date = long_date(&graph.as_of_date)?;
+    let as_of_text = format!("as of {sha} - {date}");
+    let source_size = footer.source_size;
+    let baseline = footer.baseline;
 
-    // Contributors on the left. The label is muted, the names are ink; the
-    // group keeps one box so the spacing rules see the whole row.
-    let label = "Contributors";
-    let label_width = canvas.width(Typeface::Mono, label, footer.size, 0.0)?;
-    let names_x = margin + label_width + 16.0;
-    let authors: Vec<&super::AuthorEntry> = graph
-        .per_author
-        .iter()
-        .filter(|author| author.commits > 0)
-        .collect();
-    let row_right = if footer.stacked {
-        width - margin
-    } else {
-        source_x - 16.0
-    };
-    let mut shown = authors.len().min(4);
-    let mut runs = vec![tinted(label, margin, footer.baseline, &palette.muted)];
-    loop {
-        let mut parts: Vec<String> = authors
-            .iter()
-            .take(shown)
-            .map(|author| format!("{} - {}", author.display, thousands(author.commits)))
-            .collect();
-        if authors.len() > shown {
-            parts.push(format!("+{} more", authors.len() - shown));
-        }
-        let mut x = names_x;
-        let mut candidate = Vec::new();
-        let mut widest = names_x;
-        for part in parts {
-            let part_width = canvas.width(Typeface::Mono, &part, footer.size, 0.0)?;
-            candidate.push(run(part, x, footer.baseline));
-            x += part_width + 18.0;
-            widest = widest.max(x - 18.0);
-        }
-        if widest <= row_right || shown == 0 {
-            runs.extend(candidate);
-            break;
-        }
-        shown -= 1;
-    }
-    canvas.text_group(
-        "contributors",
+    let source_x = margin;
+    let as_of_x = canvas.right_x(
         Typeface::Mono,
-        footer.size,
-        &palette.ink,
-        &runs,
+        &as_of_text,
+        width - margin,
+        source_size,
         0.0,
     )?;
 
-    // The stacked bar is only meaningful with more than one contributor, and
-    // only the wide card has room for it beside the source line.
-    if authors.len() > 1 && !footer.stacked {
-        let total: u64 = authors.iter().map(|author| author.commits).sum();
-        let mut cursor = margin;
-        let bar_width = width - 2.0 * margin;
-        for (index, author) in authors.iter().enumerate() {
-            let segment = bar_width * author.commits as f64 / total.max(1) as f64;
-            let colour = if index % 2 == 0 {
-                &palette.orange
-            } else {
-                &palette.teal
-            };
-            canvas.mark_rect(
-                cursor,
-                492.0,
-                segment.max(2.0),
-                4.0,
-                colour,
-                "dm dm-bar",
-                "",
-            );
-            cursor += segment;
-        }
-    }
-
-    let mut source_runs = Vec::new();
-    let refresh_note = refresh_note(graph.totals.refresh_commits);
+    let mut runs = vec![run(source_text, source_x, baseline)];
     if footer.stacked {
-        source_runs.push(run(
-            source_text,
-            margin,
-            footer.baseline + footer.source_size + 5.0,
-        ));
-        if let Some(note) = &refresh_note {
-            source_runs.push(run(
-                note,
-                margin,
-                footer.baseline + 2.0 * (footer.source_size + 5.0),
-            ));
-        }
-    } else if let Some(note) = &refresh_note {
-        source_runs.push(run(
-            source_text,
-            source_x,
-            footer.baseline - footer.source_size - 4.0,
-        ));
-        let x = canvas.right_x(
-            Typeface::Mono,
-            note,
-            width - margin,
-            footer.source_size,
-            0.0,
-        )?;
-        source_runs.push(run(note, x, footer.baseline));
+        // Narrow card: the as-of stamp drops to a second line so the source
+        // line is not squeezed off the card.
+        runs.push(run(as_of_text, as_of_x, baseline + source_size + 5.0));
     } else {
-        source_runs.push(run(source_text, source_x, footer.baseline));
+        runs.push(run(as_of_text, as_of_x, baseline));
     }
     canvas.text_group(
         "footer-source",
         Typeface::Mono,
-        footer.source_size,
+        source_size,
         &palette.muted,
-        &source_runs,
+        &runs,
         0.0,
     )?;
     Ok(())
+}
+
+/// The graph-refresh note. It lives in the legend only, and only when the
+/// history carries at least one graph refresh.
+fn refresh_note(count: u64) -> Option<String> {
+    match count {
+        0 => None,
+        1 => Some("includes 1 graph refresh".to_string()),
+        count => Some(format!("includes {count} graph refreshes")),
+    }
 }
 
 /// The repository the artwork describes. The data document does not carry the
@@ -2471,6 +2470,19 @@ fn draw_narrow_legend(canvas: &mut Canvas, graph: &CommitGraph, palette: &Palett
         runs.push(run(label, 52.0, baseline));
     }
     canvas.text_group("milestones", Typeface::Mono, 13.0, &palette.ink, &runs, 0.0)?;
+    // The graph-refresh note lives in the legend only, and only when the
+    // history carries at least one graph refresh.
+    if let Some(note) = refresh_note(graph.totals.refresh_commits) {
+        let note_baseline = 360.0 + graph.milestones.len() as f64 * 24.0 + 8.0;
+        canvas.text_group(
+            "refresh-note",
+            Typeface::Mono,
+            12.0,
+            &palette.muted,
+            &[run(note, 52.0, note_baseline)],
+            0.0,
+        )?;
+    }
     for (index, milestone) in graph.milestones.iter().enumerate() {
         let baseline = 360.0 + index as f64 * 24.0;
         let done = milestone.status == MilestoneStatus::Done;
