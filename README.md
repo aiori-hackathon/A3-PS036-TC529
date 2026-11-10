@@ -26,7 +26,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1152634316aafff9ca62fb3492bab306bd4860b2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/bb956efa9fc5c9d1d6caded6efd359a53f7662d2" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -137,7 +137,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1152634316aafff9ca62fb3492bab306bd4860b2" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/bb956efa9fc5c9d1d6caded6efd359a53f7662d2" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
@@ -485,10 +485,18 @@ or certification is claimed for MTL mode, SLH-DSA or any component here.
 - **The live DNS pipeline runs locally only** — a Docker bridge network bound
   to localhost, with patched reference NSD and Unbound builds; there is no
   Internet deployment and no resolver was written from scratch.
-- **RTT: pending.** The earlier emulated-RTT TCP-fallback harness added its
-  delay once per client query, so a TCP retry's extra round trips were
-  invisible. That artifact is marked superseded and no latency number is
-  published while the kernel `tc netem` probe is rebuilt.
+- **RTT: measured — emulated RTT, local bridge, not Internet latency.** With
+  kernel `tc netem` delay on the local Docker bridge (ping-validated at each
+  level), a plain answer at the authoritative NSD costs one UDP query plus a
+  TCP fallback — about four round trips — while an MTL condensed answer fits
+  one UDP exchange — about one round trip. Through the patched Unbound
+  resolver both modes return the full RRSIG over TCP — about three round
+  trips: this Unbound reference build does not serve condensed proofs to stub
+  clients, so no condensed-vs-plain latency contrast can be claimed through
+  Unbound. Every cell is recorded in the results document
+  (`target/climb-results.json`, `/dns_rtt`); per-cell medians, p95s,
+  truncations and TCP-retry counts are in the deck sheet's "DNS latency
+  (emulated RTT)" section.
 
 <!-- footer:begin -->
 

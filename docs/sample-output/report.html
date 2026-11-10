@@ -44,7 +44,7 @@ footer { color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }
 <div class="wrap">
 <header>
 <h1>CLIMB — Cryptographic Ladder Impact Measurement Benchmark</h1>
-<p class="subtitle">Merkle Tree Ladder mode vs full-signature DNSSEC signing (PS-036) &middot; schema 1.0 &middot; generated 2026-10-22T15:30:06+05:30</p>
+<p class="subtitle">Merkle Tree Ladder mode vs full-signature DNSSEC signing (PS-036) &middot; schema 1.0 &middot; generated 2026-10-22T15:30:06+05:30 &middot; reproduction unknown</p>
 <p class="links"><a href="../climb-results.json">results.json</a> — machine-readable source for every number on this page.</p>
 <p class="lede">MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)</p>
 </header>
@@ -257,8 +257,34 @@ footer { color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }
 </tbody>
 </table>
 </section>
+<section aria-labelledby="dns-rtt-h">
+<h2 id="dns-rtt-h">DNS latency (emulated RTT)</h2>
+<p class="note">emulated RTT, local bridge. Every value is read from the results artifact; the delay is a kernel `tc netem` delay on a local bridge, never Internet latency.</p>
+<table class="memtable">
+<thead><tr><th>Server</th><th>Mode</th><th>Target RTT (ms)</th><th>Samples</th><th>Median (ms)</th><th>p95 (ms)</th><th>UDP attempts</th><th>TCP attempts</th></tr></thead>
+<tbody>
+<tr><td>nsd</td><td>plain</td><td>0</td><td>200</td><td>0.103</td><td>0.385</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>mtl-condensed</td><td>0</td><td>200</td><td>0.079</td><td>0.359</td><td>1</td><td>0</td></tr>
+<tr><td>unbound</td><td>plain</td><td>0</td><td>200</td><td>0.091</td><td>0.278</td><td>1</td><td>1</td></tr>
+<tr><td>unbound</td><td>mtl-condensed</td><td>0</td><td>200</td><td>0.135</td><td>0.894</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>plain</td><td>20</td><td>200</td><td>82.369</td><td>84.426</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>mtl-condensed</td><td>20</td><td>200</td><td>21.068</td><td>22.695</td><td>1</td><td>0</td></tr>
+<tr><td>unbound</td><td>plain</td><td>20</td><td>200</td><td>61.994</td><td>64.354</td><td>1</td><td>1</td></tr>
+<tr><td>unbound</td><td>mtl-condensed</td><td>20</td><td>200</td><td>62.067</td><td>63.826</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>plain</td><td>50</td><td>200</td><td>202.539</td><td>204.472</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>mtl-condensed</td><td>50</td><td>200</td><td>50.862</td><td>52.267</td><td>1</td><td>0</td></tr>
+<tr><td>unbound</td><td>plain</td><td>50</td><td>200</td><td>151.973</td><td>153.842</td><td>1</td><td>1</td></tr>
+<tr><td>unbound</td><td>mtl-condensed</td><td>50</td><td>200</td><td>152.087</td><td>154.188</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>plain</td><td>100</td><td>200</td><td>402.344</td><td>404.167</td><td>1</td><td>1</td></tr>
+<tr><td>nsd</td><td>mtl-condensed</td><td>100</td><td>200</td><td>100.923</td><td>102.152</td><td>1</td><td>0</td></tr>
+<tr><td>unbound</td><td>plain</td><td>100</td><td>200</td><td>301.938</td><td>303.684</td><td>1</td><td>1</td></tr>
+<tr><td>unbound</td><td>mtl-condensed</td><td>100</td><td>200</td><td>301.912</td><td>303.870</td><td>1</td><td>1</td></tr>
+</tbody>
+</table>
+</section>
 <section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
+<p class="note"><strong>Reproduction mode: unknown.</strong> This artifact does not record whether the measurements were re-run.</p>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
 <p class="note">This report presents empirical benchmark measurements only. No formal security guarantees or proofs are claimed.</p>
 <details>

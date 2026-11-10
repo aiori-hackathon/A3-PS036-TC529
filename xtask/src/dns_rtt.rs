@@ -63,6 +63,14 @@ pub const RTT_PING_SAMPLES: u32 = 20;
 /// Relative tolerance between the configured and measured RTT.
 pub const RTT_TOLERANCE: f64 = 0.10;
 
+/// Compose service name of the recursive resolver whose in-memory message
+/// cache is flushed before every cell it is measured in.
+pub const RTT_UNBOUND_SERVICE: &str = "unbound";
+
+/// How long to wait for Unbound to answer on port 53 after a cache-flushing
+/// restart, in tenths of a second (50 * 0.2 s = 10 s max).
+pub const RTT_UNBOUND_READY_POLLS: u32 = 50;
+
 /// Script inside the client container that performs one measurement cell.
 const RTT_PROBE_SCRIPT: &str = "/scripts/mtl_rtt_probe.py";
 
@@ -377,6 +385,18 @@ pub(crate) fn cmd_dns_rtt(args: DnsRttArgs) -> Result<()> {
 
         for server in &servers {
             for mode in ["plain", "mtl-condensed"] {
+                // Unbound caches answers in memory: a plain cell's full
+                // response would otherwise be served to the next cell's
+                // condensed query. Flush before every Unbound cell so no cell
+                // can be served another cell's cached reply. `docker compose
+                // restart` keeps the container (and its network namespace, so
+                // the netem qdisc on its egress survives); NSD is
+                // authoritative and keeps no answer cache, so nothing to flush
+                // there.
+                if server_needs_cache_flush(server) {
+                    flush_unbound_cache(&root, &unbound_id, delay_ms)?;
+                    eprintln!("  flushed Unbound cache before {server}/{mode} cell");
+                }
                 let cell = measure_cell(&_client.name, server, mode, delay_ms, samples, &sigtag)?;
                 cells.push(cell);
             }
@@ -676,6 +696,59 @@ fn within_tolerance(target_ms: f64, corrected_ms: f64) -> bool {
     } else {
         (corrected_ms - target_ms).abs() <= target_ms * RTT_TOLERANCE
     }
+}
+
+/// Whether a server's in-memory answer cache must be flushed before each of
+/// its cells. Unbound caches answers; NSD is authoritative and keeps none.
+fn server_needs_cache_flush(server: &str) -> bool {
+    server == UNBOUND_IP
+}
+
+/// Restart the Unbound service so its in-memory answer cache is empty before
+/// the next cell is measured, then re-apply the server-side netem delay: a
+/// restart drops the server's qdisc, so without this the measured RTT would
+/// collapse to the one-way client delay.
+fn flush_unbound_cache(root: &Path, container: &str, delay_ms: f64) -> Result<()> {
+    run_cmd_inherit(compose_cmd(root, &["restart", RTT_UNBOUND_SERVICE]))?;
+    wait_for_unbound_ready()?;
+    apply_server_delay(container, delay_ms)
+}
+
+/// Wait until Unbound answers on port 53 after its restart, polling a TCP
+/// connect through a throwaway container on the pipeline network. A failed
+/// wait aborts the run rather than measuring against a cold port.
+fn wait_for_unbound_ready() -> Result<()> {
+    let script = format!(
+        r#"import socket, time
+s = socket.socket()
+s.settimeout(2.0)
+for _ in range({polls}):
+    if s.connect_ex(("{ip}", 53)) == 0:
+        raise SystemExit(0)
+    time.sleep(0.2)
+raise SystemExit(1)
+"#,
+        polls = RTT_UNBOUND_READY_POLLS,
+        ip = UNBOUND_IP,
+    );
+    let output = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--net",
+            "climb-net",
+            "--entrypoint",
+            "python3",
+            DIG_IMAGE,
+            "-c",
+            &script,
+        ])
+        .output()
+        .context("failed to poll Unbound readiness after cache flush")?;
+    if !output.status.success() {
+        bail!("Unbound did not answer on port 53 after cache-flush restart");
+    }
+    Ok(())
 }
 
 /// Apply half the target delay to the client's egress.
@@ -1025,5 +1098,11 @@ mod tests {
             vec![NSD_IP, UNBOUND_IP]
         );
         assert!(selected_servers("resolver").is_err());
+    }
+
+    #[test]
+    fn only_unbound_needs_its_cache_flushed_before_each_cell() {
+        assert!(server_needs_cache_flush(UNBOUND_IP));
+        assert!(!server_needs_cache_flush(NSD_IP));
     }
 }

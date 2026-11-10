@@ -249,8 +249,8 @@ dataset size (messages)
 <text x="900" y="35" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
 ≈5.99 d
 </text>
-<rect x="103" y="34" width="333" height="56" opacity="0.85" fill="#FFFFFF" stroke="none"/>
-<rect x="103" y="34" width="333" height="56" opacity="1" fill="none" stroke="#000000"/>
+<rect x="103" y="34" width="348" height="56" opacity="0.85" fill="#FFFFFF" stroke="none"/>
+<rect x="103" y="34" width="348" height="56" opacity="1" fill="none" stroke="#000000"/>
 <text x="143" y="44" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
 MTL amortised (condensed signature + one signed ladder) — measured
 </text>

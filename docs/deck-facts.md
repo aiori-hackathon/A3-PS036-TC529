@@ -451,7 +451,76 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## DNS latency (emulated RTT)
 
-> RTT: pending (no emulated-RTT measurement recorded — run `cargo xtask dns-rtt` and consolidate its output)
+> emulated RTT, local bridge
+
+> kernel netem: half the target RTT on client egress and half on the queried server's egress, filtered to the client address
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| nsd / plain / 0 ms — median | 0.103 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/0/median_ms | target/climb-results.json |
+| nsd / plain / 0 ms — p95 | 0.385 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/0/p95_ms | target/climb-results.json |
+| nsd / plain / 0 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/0/samples | target/climb-results.json |
+| nsd / plain / 0 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/0/truncated | target/climb-results.json |
+| nsd / mtl-condensed / 0 ms — median | 0.079 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/1/median_ms | target/climb-results.json |
+| nsd / mtl-condensed / 0 ms — p95 | 0.359 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/1/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 0 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/1/samples | target/climb-results.json |
+| nsd / mtl-condensed / 0 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/1/truncated | target/climb-results.json |
+| unbound / plain / 0 ms — median | 0.091 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/2/median_ms | target/climb-results.json |
+| unbound / plain / 0 ms — p95 | 0.278 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/2/p95_ms | target/climb-results.json |
+| unbound / plain / 0 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/2/samples | target/climb-results.json |
+| unbound / plain / 0 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/2/truncated | target/climb-results.json |
+| unbound / mtl-condensed / 0 ms — median | 0.135 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/3/median_ms | target/climb-results.json |
+| unbound / mtl-condensed / 0 ms — p95 | 0.894 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/3/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 0 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/3/samples | target/climb-results.json |
+| unbound / mtl-condensed / 0 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/3/truncated | target/climb-results.json |
+| nsd / plain / 20 ms — median | 82.369 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/4/median_ms | target/climb-results.json |
+| nsd / plain / 20 ms — p95 | 84.426 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/4/p95_ms | target/climb-results.json |
+| nsd / plain / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/4/samples | target/climb-results.json |
+| nsd / plain / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/4/truncated | target/climb-results.json |
+| nsd / mtl-condensed / 20 ms — median | 21.068 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/5/median_ms | target/climb-results.json |
+| nsd / mtl-condensed / 20 ms — p95 | 22.695 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/5/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/5/samples | target/climb-results.json |
+| nsd / mtl-condensed / 20 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/5/truncated | target/climb-results.json |
+| unbound / plain / 20 ms — median | 61.994 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/6/median_ms | target/climb-results.json |
+| unbound / plain / 20 ms — p95 | 64.354 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/6/p95_ms | target/climb-results.json |
+| unbound / plain / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/6/samples | target/climb-results.json |
+| unbound / plain / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/6/truncated | target/climb-results.json |
+| unbound / mtl-condensed / 20 ms — median | 62.067 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/7/median_ms | target/climb-results.json |
+| unbound / mtl-condensed / 20 ms — p95 | 63.826 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/7/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/7/samples | target/climb-results.json |
+| unbound / mtl-condensed / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/7/truncated | target/climb-results.json |
+| nsd / plain / 50 ms — median | 202.539 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/8/median_ms | target/climb-results.json |
+| nsd / plain / 50 ms — p95 | 204.472 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/8/p95_ms | target/climb-results.json |
+| nsd / plain / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/8/samples | target/climb-results.json |
+| nsd / plain / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/8/truncated | target/climb-results.json |
+| nsd / mtl-condensed / 50 ms — median | 50.862 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/9/median_ms | target/climb-results.json |
+| nsd / mtl-condensed / 50 ms — p95 | 52.267 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/9/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/9/samples | target/climb-results.json |
+| nsd / mtl-condensed / 50 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/9/truncated | target/climb-results.json |
+| unbound / plain / 50 ms — median | 151.973 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/10/median_ms | target/climb-results.json |
+| unbound / plain / 50 ms — p95 | 153.842 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/10/p95_ms | target/climb-results.json |
+| unbound / plain / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/10/samples | target/climb-results.json |
+| unbound / plain / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/10/truncated | target/climb-results.json |
+| unbound / mtl-condensed / 50 ms — median | 152.087 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/11/median_ms | target/climb-results.json |
+| unbound / mtl-condensed / 50 ms — p95 | 154.188 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/11/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/11/samples | target/climb-results.json |
+| unbound / mtl-condensed / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/11/truncated | target/climb-results.json |
+| nsd / plain / 100 ms — median | 402.344 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/12/median_ms | target/climb-results.json |
+| nsd / plain / 100 ms — p95 | 404.167 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/12/p95_ms | target/climb-results.json |
+| nsd / plain / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/12/samples | target/climb-results.json |
+| nsd / plain / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/12/truncated | target/climb-results.json |
+| nsd / mtl-condensed / 100 ms — median | 100.923 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/13/median_ms | target/climb-results.json |
+| nsd / mtl-condensed / 100 ms — p95 | 102.152 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/13/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/13/samples | target/climb-results.json |
+| nsd / mtl-condensed / 100 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/13/truncated | target/climb-results.json |
+| unbound / plain / 100 ms — median | 301.938 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/14/median_ms | target/climb-results.json |
+| unbound / plain / 100 ms — p95 | 303.684 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/14/p95_ms | target/climb-results.json |
+| unbound / plain / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/14/samples | target/climb-results.json |
+| unbound / plain / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/14/truncated | target/climb-results.json |
+| unbound / mtl-condensed / 100 ms — median | 301.912 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/15/median_ms | target/climb-results.json |
+| unbound / mtl-condensed / 100 ms — p95 | 303.870 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/15/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/samples | target/climb-results.json |
+| unbound / mtl-condensed / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/truncated | target/climb-results.json |
 
 ## Environment
 
@@ -469,22 +538,22 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | ff7679b98cc87e96a83a9c7e2e0741065026ed6c | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | aa63ac9a37bda91fe324457981ee84219378ff4a | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1289 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 0 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 3 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 48 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 853 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 1 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 3 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 32 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
 
 ---
 
 ## Footer
 
-- Rows rendered: 391 (from 537 collected facts; 146 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 220, ANALYTICAL: 71, EXTRAPOLATED: 24, DERIVED: 75; UNCLASSIFIED: 1.
+- Rows rendered: 455 (from 601 collected facts; 146 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 284, ANALYTICAL: 71, EXTRAPOLATED: 24, DERIVED: 75; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

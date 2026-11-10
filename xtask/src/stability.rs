@@ -447,6 +447,7 @@ mod tests {
                 "dns_pipeline",
                 "dns_anatomy",
                 "ladder",
+                "dns_rtt",
                 "plain",
                 "classical",
                 "comparisons",

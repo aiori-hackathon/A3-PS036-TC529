@@ -258,8 +258,8 @@ dataset size (messages)
 <polyline fill="none" opacity="1" stroke="#5A5A5F" stroke-width="2" points="922,451 928,452 "/>
 <polyline fill="none" opacity="1" stroke="#5A5A5F" stroke-width="2" points="934,452 935,452 940,452 "/>
 <polyline fill="none" opacity="1" stroke="#5A5A5F" stroke-width="2" points="946,452 952,452 "/>
-<rect x="103" y="34" width="387" height="56" opacity="0.85" fill="#FFFFFF" stroke="none"/>
-<rect x="103" y="34" width="387" height="56" opacity="1" fill="none" stroke="#000000"/>
+<rect x="103" y="34" width="404" height="56" opacity="0.85" fill="#FFFFFF" stroke="none"/>
+<rect x="103" y="34" width="404" height="56" opacity="1" fill="none" stroke="#000000"/>
 <text x="143" y="44" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.870967741935484" opacity="1" fill="#000000">
 MTL amortised (condensed signature + one signed ladder) — measured per-message
 </text>
