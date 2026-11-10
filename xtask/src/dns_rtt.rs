@@ -1,11 +1,15 @@
 //! Emulated-RTT DNS latency measurement harness.
 //!
 //! Measures client-observed DNS query latency across the local Docker bridge
-//! with `tc netem` delays applied (d/2 on client egress + d/2 on server
-//! egress, matched to client IP via `prio` + `u32` filter), so the observed
-//! round-trip time approximates the configured delay without delaying
-//! Unbound→NSD forwarding. Falls back to userspace sleeps when `tc` is not
-//! available or not permitted.
+//! with a kernel `tc netem` delay applied to both ends of the client exchange:
+//! half the target RTT on the client's egress and half on the queried server's
+//! egress, filtered to the client address. Every packet in both directions is
+//! therefore delayed, so a TCP fallback pays for its extra round trips.
+//!
+//! Before measuring, the harness validates the configured delay with `ping`
+//! at 0, 20, 50 and 100 ms. A delay that misses the 10 percent tolerance stops
+//! the run; there is no userspace-sleep fallback and no path that writes an
+//! artifact without a validated kernel delay.
 //!
 //! Evidence class: MEASURED. Label: "emulated RTT, local bridge". No number
 //! from this harness may be presented as Internet latency.
@@ -14,7 +18,9 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::process::Command;
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::dns_demo::{
     check_docker, check_images, compose_cmd, git_head, hostname, run_cmd_inherit, run_in_signer,
@@ -45,27 +51,65 @@ pub const RTT_QUERY_NAME: &str = "www.climb.example.";
 /// Query type used for measurements.
 pub const RTT_QUERY_TYPE: &str = "A";
 
-/// Script inside the dig container that performs one measurement cell.
+/// Fixed address of the dedicated measurement client on the internal bridge.
+pub const RTT_CLIENT_IP: &str = "192.168.13.4";
+
+/// Container name of the dedicated measurement client.
+pub const RTT_CLIENT_NAME: &str = "climb-rtt-client";
+
+/// ICMP echo requests used to validate each configured delay.
+pub const RTT_PING_SAMPLES: u32 = 20;
+
+/// Relative tolerance between the configured and measured RTT.
+pub const RTT_TOLERANCE: f64 = 0.10;
+
+/// Script inside the client container that performs one measurement cell.
 const RTT_PROBE_SCRIPT: &str = "/scripts/mtl_rtt_probe.py";
 
-/// Docker image used to run the RTT probe.
+/// Docker image used to run the RTT probe and the netem sidecars.
 const DIG_IMAGE: &str = "climb-dig:phase14";
 
-/// Whether the delay was applied via `tc netem` or userspace sleep.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum DelayMechanism {
-    TcNetem,
-    UserspaceSleep,
+/// One per-query record: what the client actually sent and waited for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RttQuery {
+    /// UDP messages sent for this query (normally 1).
+    #[serde(default)]
+    pub udp_attempts: u32,
+    /// TCP messages sent for this query (0, or 1 after a TC=1 reply).
+    #[serde(default)]
+    pub tcp_attempts: u32,
+    /// Bytes in the UDP response.
+    #[serde(default)]
+    pub udp_response_bytes: u64,
+    /// Bytes in the TCP response, or 0 when no TCP retry happened.
+    #[serde(default)]
+    pub tcp_response_bytes: u64,
+    /// Wall time for the whole exchange in milliseconds.
+    #[serde(default)]
+    pub total_ms: f64,
+    /// `total_ms / target RTT`, or `None` at a 0 ms target.
+    #[serde(default)]
+    pub rtt_multiple: Option<f64>,
 }
 
-impl DelayMechanism {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            DelayMechanism::TcNetem => "tc-netem",
-            DelayMechanism::UserspaceSleep => "userspace-sleep",
-        }
-    }
+/// One row of the `ping` validation of the kernel delay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct NetemCheck {
+    /// Requested client-observed round-trip time in milliseconds.
+    #[serde(default)]
+    pub target_ms: f64,
+    /// Mean `ping` round-trip time in milliseconds.
+    #[serde(default)]
+    pub ping_avg_ms: f64,
+    /// `ping_avg_ms` minus the 0 ms baseline, in milliseconds.
+    #[serde(default)]
+    pub corrected_ms: f64,
+    /// Whether the corrected value is within [`RTT_TOLERANCE`] of the target.
+    #[serde(default)]
+    pub within_tolerance: bool,
+    /// ICMP echo requests sent.
+    #[serde(default)]
+    pub samples: u32,
 }
 
 /// One measurement cell: (server, mode, delay).
@@ -89,9 +133,31 @@ pub struct RttCell {
     pub median_ms: f64,
     /// 95th-percentile client latency in milliseconds.
     pub p95_ms: f64,
-    /// How the delay was applied: `tc-netem` or `userspace-sleep`.
+    /// How the delay was applied; always `tc-netem`.
     pub mechanism: String,
+    /// Median UDP messages sent per query.
+    #[serde(default)]
+    pub udp_attempts: u32,
+    /// Median TCP messages sent per query.
+    #[serde(default)]
+    pub tcp_attempts: u32,
+    /// Median bytes in the UDP response.
+    #[serde(default)]
+    pub udp_response_bytes: u64,
+    /// Median bytes in the TCP response.
+    #[serde(default)]
+    pub tcp_response_bytes: u64,
+    /// Median wall time for the whole exchange in milliseconds.
+    #[serde(default)]
+    pub median_total_ms: f64,
+    /// Median `total_ms / target RTT`; `None` at a 0 ms target.
+    #[serde(default)]
+    pub median_rtt_multiple: Option<f64>,
+    /// Per-query records.
+    #[serde(default)]
+    pub queries: Vec<RttQuery>,
     /// Non-fatal warnings for this cell.
+    #[serde(default)]
     pub warnings: Vec<String>,
 }
 
@@ -112,7 +178,10 @@ pub struct RttArtifact {
     pub uname: String,
     /// Fixed evidence label.
     pub label: String,
-    /// How delay was applied globally.
+    /// Set when the recorded cells may not be shown; the value states why.
+    #[serde(default)]
+    pub superseded: Option<String>,
+    /// How delay was applied globally; always `tc-netem`.
     pub mechanism: String,
     /// Netem description (human-readable).
     pub netem: String,
@@ -128,14 +197,19 @@ pub struct RttArtifact {
     pub class: String,
     /// Non-fatal measurement warnings.
     pub warnings: Vec<String>,
+    /// `ping` validation of every configured delay.
+    #[serde(default)]
+    pub netem_validation: Vec<NetemCheck>,
 }
 
 impl RttArtifact {
     /// Whether this is a full measurement with at least the required samples
-    /// in every cell. A quick smoke test never qualifies.
+    /// in every cell. A quick smoke test or a superseded artifact never
+    /// qualifies.
     #[allow(dead_code)]
     pub fn is_full_evidence(&self) -> bool {
-        self.mode == "full"
+        self.superseded.is_none()
+            && self.mode == "full"
             && !self.cells.is_empty()
             && self
                 .cells
@@ -163,12 +237,17 @@ pub(crate) struct DnsRttArgs {
     /// Reuse an existing signed zone file instead of signing fresh.
     #[arg(long, value_name = "PATH")]
     pub(crate) reuse_zone: Option<PathBuf>,
+
+    /// Measure against `nsd`, `unbound` or `both`.
+    #[arg(long, default_value = "both")]
+    pub(crate) server: String,
 }
 
 pub(crate) fn cmd_dns_rtt(args: DnsRttArgs) -> Result<()> {
     let root = workspace_root()?;
     check_docker()?;
     check_images()?;
+    let servers = selected_servers(&args.server)?;
 
     if !args.no_build {
         print_stage("Building Docker images");
@@ -245,8 +324,27 @@ pub(crate) fn cmd_dns_rtt(args: DnsRttArgs) -> Result<()> {
     eprintln!("  NSD ready — zone loaded");
 
     let _guard = PipelineGuard::new(root.clone());
+    let nsd_id = container_id(&root, "nsd")?;
+    let unbound_id = container_id(&root, "unbound")?;
+    let server_ids: Vec<&str> = servers
+        .iter()
+        .map(|server| {
+            if *server == NSD_IP {
+                nsd_id.as_str()
+            } else {
+                unbound_id.as_str()
+            }
+        })
+        .collect();
+    for id in &server_ids {
+        if id.is_empty() {
+            bail!("could not resolve a pipeline server container id");
+        }
+    }
 
-    // Determine samples per cell.
+    print_stage("Starting measurement client");
+    let _client = ClientGuard::start(&root)?;
+
     let samples = if args.quick {
         DNS_RTT_QUICK_SAMPLES
     } else {
@@ -256,31 +354,30 @@ pub(crate) fn cmd_dns_rtt(args: DnsRttArgs) -> Result<()> {
     // Compute SigTag for MTL condensed mode.
     let sigtag = compute_sigtag(&root, &signed_zone)?;
 
-    // Run measurement cells using userspace-sleep delay. The tc-netem path
-    // requires a long-running dig container to share network namespaces with;
-    // that is documented future work. Userspace sleep satisfies the fallback
-    // requirement and records mechanism: "userspace-sleep".
+    let mut validation = Vec::new();
     let mut cells = Vec::new();
-    let mut warnings = Vec::new();
-    warnings.push(
-        "tc netem sidecar requires a long-running dig container; using userspace-sleep fallback          (d/2 before send, d/2 after receive)".to_string(),
-    );
-    let mechanism = DelayMechanism::UserspaceSleep;
+    let warnings = Vec::new();
+    let mut baseline_ms = 0.0;
 
     for &delay_ms in &DNS_RTT_DELAYS_MS {
-        for server in [NSD_IP, UNBOUND_IP] {
+        let check = apply_delay_and_validate(&_client.name, &server_ids, delay_ms, baseline_ms)?;
+        if delay_ms == 0.0 {
+            baseline_ms = check.ping_avg_ms;
+        }
+        if !check.within_tolerance {
+            bail!(
+                "netem validation failed at {delay_ms} ms: ping average {:.3} ms, corrected {:.3} ms \
+                 (tolerance {:.0} %)",
+                check.ping_avg_ms,
+                check.corrected_ms,
+                RTT_TOLERANCE * 100.0
+            );
+        }
+        validation.push(check);
+
+        for server in &servers {
             for mode in ["plain", "mtl-condensed"] {
-                let cell = measure_cell(
-                    &root,
-                    &scratch,
-                    server,
-                    mode,
-                    delay_ms,
-                    samples,
-                    &mechanism,
-                    &sigtag,
-                    &mut warnings,
-                )?;
+                let cell = measure_cell(&_client.name, server, mode, delay_ms, samples, &sigtag)?;
                 cells.push(cell);
             }
         }
@@ -308,15 +405,19 @@ pub(crate) fn cmd_dns_rtt(args: DnsRttArgs) -> Result<()> {
         hostname: hostname(),
         uname: uname(),
         label: DNS_RTT_LABEL.to_string(),
-        mechanism: mechanism.as_str().to_string(),
-        netem: "userspace sleep (d/2 before send, d/2 after receive)".to_string(),
+        superseded: None,
+        mechanism: "tc-netem".to_string(),
+        netem: "kernel netem: half the target RTT on client egress and half on the queried server's egress, filtered to the client address".to_string(),
         zone: RTT_ZONE.to_string(),
         query: format!("{} {}", RTT_QUERY_NAME, RTT_QUERY_TYPE),
         cells,
         min_samples_per_cell: DNS_RTT_FULL_SAMPLES,
         class: "measured".to_string(),
         warnings,
+        netem_validation: validation,
     };
+
+    print_probe_table(&artifact);
 
     // Write artifact.
     if let Some(parent) = args.out.parent() {
@@ -344,6 +445,60 @@ fn print_stage(title: &str) {
     eprintln!("{:=<72}", "");
 }
 
+/// Print the smoke/full table. Quick mode is labelled as a smoke test.
+fn print_probe_table(artifact: &RttArtifact) {
+    let kind = if artifact.mode == "quick" {
+        "smoke, quick mode"
+    } else {
+        "full measurement"
+    };
+    println!(
+        "\nRTT probe ({kind}): {} cell(s), {} samples/cell",
+        artifact.cells.len(),
+        artifact.cells.first().map_or(0, |cell| cell.samples)
+    );
+    println!(
+        "{:<7} {:<14} {:>7} {:>10} {:>10} {:>4} {:>4} {:>9} {:>9} {:>8}",
+        "server", "mode", "target", "median ms", "p95 ms", "udp", "tcp", "udp B", "tcp B", "x RTT"
+    );
+    for cell in &artifact.cells {
+        let multiple = cell
+            .median_rtt_multiple
+            .map(|value| format!("{value:.2}"))
+            .unwrap_or_else(|| "-".to_string());
+        println!(
+            "{:<7} {:<14} {:>7.0} {:>10.3} {:>10.3} {:>4} {:>4} {:>9} {:>9} {:>8}",
+            cell.server,
+            cell.mode,
+            cell.delay_ms,
+            cell.median_ms,
+            cell.p95_ms,
+            cell.udp_attempts,
+            cell.tcp_attempts,
+            cell.udp_response_bytes,
+            cell.tcp_response_bytes,
+            multiple,
+        );
+    }
+    println!(
+        "\nping validation (tolerance {:.0} %):",
+        RTT_TOLERANCE * 100.0
+    );
+    println!(
+        "{:>7} {:>10} {:>10} {:>8}",
+        "target", "ping avg", "corrected", "within"
+    );
+    for check in &artifact.netem_validation {
+        println!(
+            "{:>7.0} {:>10.3} {:>10.3} {:>8}",
+            check.target_ms,
+            check.ping_avg_ms,
+            check.corrected_ms,
+            if check.within_tolerance { "yes" } else { "NO" }
+        );
+    }
+}
+
 /// Copy a file into scratch, returning the staged path.
 fn fs_copy_to_scratch(_scratch: &Path, src: &Path, name: &str) -> Result<PathBuf> {
     let dest = _scratch.join(name);
@@ -354,7 +509,7 @@ fn fs_copy_to_scratch(_scratch: &Path, src: &Path, name: &str) -> Result<PathBuf
 
 /// Compute the MTL SigTag for the signed zone.
 fn compute_sigtag(root: &Path, signed_zone: &Path) -> Result<Option<String>> {
-    let mut cmd = std::process::Command::new("python3");
+    let mut cmd = Command::new("python3");
     cmd.arg("scripts/mtl_sigtag.py")
         .arg(signed_zone)
         .current_dir(root);
@@ -371,27 +526,18 @@ fn compute_sigtag(root: &Path, signed_zone: &Path) -> Result<Option<String>> {
 }
 
 /// Measure one configuration cell.
-#[allow(clippy::too_many_arguments)]
 fn measure_cell(
-    root: &Path,
-    _scratch: &Path,
+    client: &str,
     server: &str,
     mode: &str,
     delay_ms: f64,
     samples: u64,
-    mechanism: &DelayMechanism,
     sigtag: &Option<String>,
-    _warnings: &mut [String],
 ) -> Result<RttCell> {
     let server_label = if server == NSD_IP { "nsd" } else { "unbound" };
-
-    // Apply netem delay if using tc.
-    if matches!(mechanism, DelayMechanism::TcNetem) {
-        apply_netem_delay(root, server, delay_ms)?;
-    }
-
-    // Build probe arguments.
     let samples_str = samples.to_string();
+    let delay_str = delay_ms.to_string();
+
     let mut probe_args: Vec<&str> = vec![
         RTT_PROBE_SCRIPT,
         "--server",
@@ -402,11 +548,13 @@ fn measure_cell(
         RTT_QUERY_NAME,
         "--qtype",
         RTT_QUERY_TYPE,
+        "--samples",
+        &samples_str,
+        "--timeout",
+        "5",
+        "--target-rtt-ms",
+        &delay_str,
     ];
-    probe_args.push("--samples");
-    probe_args.push(&samples_str);
-    probe_args.push("--timeout");
-    probe_args.push("5");
 
     if let Some(tag) = sigtag.as_deref() {
         if mode == "mtl-condensed" {
@@ -415,39 +563,11 @@ fn measure_cell(
         }
     }
 
-    // For userspace fallback, the probe script itself handles the sleep.
-    let delay_str_opt = if matches!(mechanism, DelayMechanism::UserspaceSleep) {
-        Some((delay_ms * 2.0).to_string())
-    } else {
-        None
-    };
-    if let Some(ref delay_str) = delay_str_opt {
-        probe_args.push("--userspace-delay-ms");
-        probe_args.push(delay_str);
-    }
-
-    let output = std::process::Command::new("docker")
-        .args([
-            "run",
-            "--rm",
-            "--net",
-            "climb-net",
-            "--entrypoint",
-            "python3",
-            "-v",
-            &format!(
-                "{}/scripts/mtl_rtt_probe.py:/scripts/mtl_rtt_probe.py:ro",
-                root.display()
-            ),
-            "-v",
-            &format!(
-                "{}/scripts/mtl_dns_capture.py:/scripts/mtl_dns_capture.py:ro",
-                root.display()
-            ),
-            DIG_IMAGE,
-        ])
+    let output = Command::new("docker")
+        .arg("exec")
+        .arg(client)
+        .arg("python3")
         .args(&probe_args)
-        .current_dir(root)
         .output()
         .context("failed to run RTT probe")?;
 
@@ -459,143 +579,297 @@ fn measure_cell(
     let result: serde_json::Value =
         serde_json::from_slice(&output.stdout).context("failed to parse probe output")?;
 
-    let truncated = result
-        .get("truncated")
-        .and_then(|v| v.as_u64())
-        .unwrap_or(0);
-    let median_ms = result
-        .get("median_ms")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(0.0);
-    let p95_ms = result.get("p95_ms").and_then(|v| v.as_f64()).unwrap_or(0.0);
-    let transport = result
-        .get("transport")
-        .and_then(|v| v.as_str())
-        .unwrap_or("udp")
-        .to_string();
-    let rrsig_kind = result
-        .get("rrsig_kind")
-        .and_then(|v| v.as_str())
-        .unwrap_or("none")
-        .to_string();
+    let queries = result
+        .get("queries")
+        .and_then(serde_json::Value::as_array)
+        .map(|rows| {
+            rows.iter()
+                .map(|row| RttQuery {
+                    udp_attempts: u32_at(row, "udp_attempts"),
+                    tcp_attempts: u32_at(row, "tcp_attempts"),
+                    udp_response_bytes: u64_at(row, "udp_response_bytes"),
+                    tcp_response_bytes: u64_at(row, "tcp_response_bytes"),
+                    total_ms: f64_at(row, "total_ms"),
+                    rtt_multiple: row.get("rtt_multiple").and_then(serde_json::Value::as_f64),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
 
     Ok(RttCell {
         server: server_label.to_string(),
         mode: mode.to_string(),
         delay_ms,
         samples,
-        truncated,
-        transport,
-        rrsig_kind,
-        median_ms,
-        p95_ms,
-        mechanism: mechanism.as_str().to_string(),
+        truncated: u64_at(&result, "truncated"),
+        transport: str_at(&result, "transport").unwrap_or("udp").to_string(),
+        rrsig_kind: str_at(&result, "rrsig_kind").unwrap_or("none").to_string(),
+        median_ms: f64_at(&result, "median_ms"),
+        p95_ms: f64_at(&result, "p95_ms"),
+        mechanism: "tc-netem".to_string(),
+        udp_attempts: u32_at(&result, "median_udp_attempts"),
+        tcp_attempts: u32_at(&result, "median_tcp_attempts"),
+        udp_response_bytes: u64_at(&result, "udp_response_bytes"),
+        tcp_response_bytes: u64_at(&result, "tcp_response_bytes"),
+        median_total_ms: f64_at(&result, "median_total_ms"),
+        median_rtt_multiple: result
+            .get("median_rtt_multiple")
+            .and_then(serde_json::Value::as_f64),
+        queries,
         warnings: Vec::new(),
     })
 }
 
-/// Apply netem delay to client egress (d/2) and server egress (d/2).
-fn apply_netem_delay(root: &Path, server: &str, delay_ms: f64) -> Result<()> {
-    let half_delay = delay_ms / 2.0;
+fn f64_at(value: &serde_json::Value, key: &str) -> f64 {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_f64)
+        .unwrap_or(0.0)
+}
 
-    // Client egress: delay packets to the server IP.
-    let _client_filter = format!(
-        "tc filter add dev eth0 parent 1: protocol ip prio 1 u32 match ip dst {server} flowid 1:1"
-    );
-    let _client_qdisc = format!("tc qdisc add dev eth0 root handle 1: netem delay {half_delay}ms");
+fn u64_at(value: &serde_json::Value, key: &str) -> u64 {
+    value
+        .get(key)
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0)
+}
 
-    // Server egress: delay packets from server IP (applied via sidecar in server's netns).
-    // We apply via a sidecar container sharing the server's network namespace.
+fn u32_at(value: &serde_json::Value, key: &str) -> u32 {
+    u64_at(value, key).try_into().unwrap_or(u32::MAX)
+}
 
-    // For simplicity in this implementation, we apply client-side netem
-    // via a sidecar container that shares the dig container's network namespace.
-    // Server-side egress delay is applied similarly via a sidecar sharing the
-    // server container's network namespace.
+fn str_at<'a>(value: &'a serde_json::Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(serde_json::Value::as_str)
+}
 
-    // Note: Docker compose creates containers with predictable names based on
-    // the project name. We look up the actual container IDs at runtime.
-    let nsd_container = container_id(root, "nsd")?;
-    let unbound_container = container_id(root, "unbound")?;
-    let dig_container = container_id(root, "dig")?;
-
-    // Apply client egress delay (d/2) via tc inside the dig container's netns.
-    if !dig_container.is_empty() {
-        let _ = std::process::Command::new("docker")
-            .args([
-                "run",
-                "--rm",
-                "--net",
-                &format!("container:{dig_container}"),
-                "--cap-add",
-                "NET_ADMIN",
-                DIG_IMAGE,
-                "tc",
-                "qdisc",
-                "add",
-                "dev",
-                "eth0",
-                "root",
-                "handle",
-                "1:",
-                "netem",
-                "delay",
-                &format!("{half_delay}ms"),
-            ])
-            .output();
+/// Apply the delay to both ends of the client exchange, then validate it with
+/// `ping`. Returns the validation row; a failed tolerance is the caller's to
+/// reject before any artifact is written.
+fn apply_delay_and_validate(
+    client: &str,
+    server_ids: &[&str],
+    delay_ms: f64,
+    baseline_ms: f64,
+) -> Result<NetemCheck> {
+    apply_client_delay(client, delay_ms)?;
+    for id in server_ids {
+        apply_server_delay(id, delay_ms)?;
     }
+    let ping_avg_ms = ping_average(client, NSD_IP)?;
+    let corrected_ms = (ping_avg_ms - baseline_ms).max(0.0);
+    let within_tolerance = within_tolerance(delay_ms, corrected_ms);
+    Ok(NetemCheck {
+        target_ms: delay_ms,
+        ping_avg_ms,
+        corrected_ms,
+        within_tolerance,
+        samples: RTT_PING_SAMPLES,
+    })
+}
 
-    // Apply server egress delay (d/2) via tc sidecar sharing the server's netns.
-    let server_container = if server == NSD_IP {
-        &nsd_container
+/// Whether a corrected measurement is inside the 10 percent tolerance. A 0 ms
+/// target is satisfied by at most 1 ms, because a percentage of zero cannot
+/// describe the bridge's own sub-millisecond overhead.
+fn within_tolerance(target_ms: f64, corrected_ms: f64) -> bool {
+    if target_ms <= f64::EPSILON {
+        corrected_ms <= 1.0
     } else {
-        &unbound_container
+        (corrected_ms - target_ms).abs() <= target_ms * RTT_TOLERANCE
+    }
+}
+
+/// Apply half the target delay to the client's egress.
+fn apply_client_delay(client: &str, delay_ms: f64) -> Result<()> {
+    let half = delay_ms / 2.0;
+    let script = if half > 0.0 {
+        format!(
+            "tc qdisc del dev eth0 root 2>/dev/null || true; \
+             tc qdisc add dev eth0 root netem delay {half}ms"
+        )
+    } else {
+        "tc qdisc del dev eth0 root 2>/dev/null || true".to_string()
     };
-    if !server_container.is_empty() {
-        let _ = std::process::Command::new("docker")
+    run_checked(
+        Command::new("docker")
+            .args(["exec", client, "sh", "-c"])
+            .arg(script),
+        "apply client netem delay",
+    )
+}
+
+/// Apply half the target delay to a server's egress, filtered to the client
+/// address so server-to-server forwarding is not delayed.
+fn apply_server_delay(container: &str, delay_ms: f64) -> Result<()> {
+    let half = delay_ms / 2.0;
+    let script = if half > 0.0 {
+        format!(
+            "set -e; tc qdisc del dev eth0 root 2>/dev/null || true; \
+             tc qdisc add dev eth0 root handle 1: prio; \
+             tc qdisc add dev eth0 parent 1:1 handle 10: netem delay {half}ms; \
+             tc filter add dev eth0 parent 1: protocol ip prio 1 u32 match ip dst {RTT_CLIENT_IP}/32 flowid 1:1"
+        )
+    } else {
+        "tc qdisc del dev eth0 root 2>/dev/null || true".to_string()
+    };
+    run_checked(
+        Command::new("docker")
             .args([
                 "run",
                 "--rm",
                 "--net",
-                &format!("container:{server_container}"),
+                &format!("container:{container}"),
                 "--cap-add",
                 "NET_ADMIN",
+                "--entrypoint",
+                "sh",
                 DIG_IMAGE,
-                "tc",
-                "qdisc",
-                "add",
-                "dev",
-                "eth0",
-                "root",
-                "handle",
-                "1:",
-                "netem",
-                "delay",
-                &format!("{half_delay}ms"),
+                "-c",
             ])
-            .output();
-    }
+            .arg(script),
+        "apply server netem delay",
+    )
+}
 
+fn run_checked(cmd: &mut Command, what: &str) -> Result<()> {
+    let output = cmd.output().with_context(|| format!("failed to {what}"))?;
+    if !output.status.success() {
+        bail!(
+            "failed to {what}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
     Ok(())
+}
+
+/// Mean ICMP round-trip time in milliseconds.
+fn ping_average(client: &str, target: &str) -> Result<f64> {
+    let count = RTT_PING_SAMPLES.to_string();
+    let output = Command::new("docker")
+        .args([
+            "exec", client, "ping", "-c", &count, "-i", "0.1", "-W", "2", target,
+        ])
+        .output()
+        .context("failed to run ping validation")?;
+    if !output.status.success() {
+        bail!(
+            "ping validation failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    ping_average_from_output(&text).with_context(|| format!("could not parse ping output: {text}"))
+}
+
+/// Parse the mean out of BusyBox or iputils `ping` output.
+fn ping_average_from_output(text: &str) -> Option<f64> {
+    for line in text.lines() {
+        if !line.contains("min/avg/max") {
+            continue;
+        }
+        let values = line.split('=').nth(1)?;
+        let average = values.trim().split('/').nth(1)?;
+        return average.trim().parse().ok();
+    }
+    None
 }
 
 /// Look up the container ID for a compose service.
 fn container_id(root: &Path, service: &str) -> Result<String> {
-    let output = std::process::Command::new("docker")
-        .args([
-            "compose",
-            "-f",
-            &root
-                .join("docker/compose.dns-pipeline.yml")
-                .to_string_lossy(),
-            "ps",
-            "-q",
-            service,
-        ])
-        .current_dir(root)
+    let output = compose_cmd(root, &["ps", "-q", service])
         .output()
         .context("failed to look up container ID")?;
-    let id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    Ok(id)
+    if !output.status.success() {
+        bail!(
+            "failed to look up container ID for {service}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+/// The servers selected on the command line.
+fn selected_servers(selector: &str) -> Result<Vec<&'static str>> {
+    match selector {
+        "nsd" => Ok(vec![NSD_IP]),
+        "unbound" => Ok(vec![UNBOUND_IP]),
+        "both" => Ok(vec![NSD_IP, UNBOUND_IP]),
+        other => bail!("--server must be nsd, unbound or both, got {other:?}"),
+    }
+}
+
+/// A long-running measurement client on the internal bridge.
+struct ClientGuard {
+    name: String,
+}
+
+impl ClientGuard {
+    fn start(root: &Path) -> Result<Self> {
+        let _ = Command::new("docker")
+            .args(["rm", "-f", RTT_CLIENT_NAME])
+            .output();
+        let output = Command::new("docker")
+            .args([
+                "run",
+                "-d",
+                "--rm",
+                "--name",
+                RTT_CLIENT_NAME,
+                "--net",
+                "climb-net",
+                "--ip",
+                RTT_CLIENT_IP,
+                "--cap-add",
+                "NET_ADMIN",
+                "-v",
+                &format!(
+                    "{}/scripts/mtl_rtt_probe.py:/scripts/mtl_rtt_probe.py:ro",
+                    root.display()
+                ),
+                "-v",
+                &format!(
+                    "{}/scripts/mtl_dns_capture.py:/scripts/mtl_dns_capture.py:ro",
+                    root.display()
+                ),
+                "--entrypoint",
+                "sleep",
+                DIG_IMAGE,
+                "infinity",
+            ])
+            .output()
+            .context("failed to start the measurement client")?;
+        if !output.status.success() {
+            bail!(
+                "failed to start the measurement client: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        let guard = Self {
+            name: RTT_CLIENT_NAME.to_string(),
+        };
+        for _ in 0..50 {
+            if guard.is_running() {
+                return Ok(guard);
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        bail!("measurement client did not start within 5 s")
+    }
+
+    fn is_running(&self) -> bool {
+        Command::new("docker")
+            .args(["inspect", "-f", "{{.State.Running}}", self.name.as_str()])
+            .output()
+            .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "true")
+            .unwrap_or(false)
+    }
+}
+
+impl Drop for ClientGuard {
+    fn drop(&mut self) {
+        let _ = Command::new("docker")
+            .args(["rm", "-f", self.name.as_str()])
+            .output();
+    }
 }
 
 /// RAII guard: tears down the DNS pipeline on drop.
@@ -611,19 +885,7 @@ impl PipelineGuard {
 
 impl Drop for PipelineGuard {
     fn drop(&mut self) {
-        let _ = std::process::Command::new("docker")
-            .args([
-                "compose",
-                "-f",
-                &self
-                    .root
-                    .join("docker/compose.dns-pipeline.yml")
-                    .to_string_lossy(),
-                "down",
-                "--remove-orphans",
-            ])
-            .current_dir(&self.root)
-            .status();
+        let _ = compose_cmd(&self.root, &["down", "--remove-orphans"]).status();
     }
 }
 
@@ -631,37 +893,54 @@ impl Drop for PipelineGuard {
 mod tests {
     use super::*;
 
-    #[test]
-    fn a_quick_artifact_never_qualifies_as_full_evidence() {
-        let artifact = RttArtifact {
+    fn cell(samples: u64) -> RttCell {
+        RttCell {
+            server: "nsd".to_string(),
+            mode: "plain".to_string(),
+            delay_ms: 0.0,
+            samples,
+            truncated: 0,
+            transport: "udp".to_string(),
+            rrsig_kind: "full".to_string(),
+            median_ms: 1.0,
+            p95_ms: 2.0,
+            mechanism: "tc-netem".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 0,
+            udp_response_bytes: 300,
+            tcp_response_bytes: 0,
+            median_total_ms: 1.0,
+            median_rtt_multiple: None,
+            queries: Vec::new(),
+            warnings: Vec::new(),
+        }
+    }
+
+    fn artifact(mode: &str, cells: Vec<RttCell>) -> RttArtifact {
+        RttArtifact {
             schema_version: DNS_RTT_SCHEMA_VERSION,
-            mode: "quick".to_string(),
+            mode: mode.to_string(),
             recorded_at: "fixed".to_string(),
             git_commit: None,
             hostname: "host".to_string(),
             uname: "linux".to_string(),
             label: DNS_RTT_LABEL.to_string(),
+            superseded: None,
             mechanism: "tc-netem".to_string(),
             netem: "test".to_string(),
             zone: RTT_ZONE.to_string(),
             query: format!("{} {}", RTT_QUERY_NAME, RTT_QUERY_TYPE),
-            cells: vec![RttCell {
-                server: "nsd".to_string(),
-                mode: "plain".to_string(),
-                delay_ms: 0.0,
-                samples: DNS_RTT_FULL_SAMPLES,
-                truncated: 0,
-                transport: "udp".to_string(),
-                rrsig_kind: "full".to_string(),
-                median_ms: 1.0,
-                p95_ms: 2.0,
-                mechanism: "tc-netem".to_string(),
-                warnings: Vec::new(),
-            }],
+            cells,
             min_samples_per_cell: DNS_RTT_FULL_SAMPLES,
             class: "measured".to_string(),
             warnings: Vec::new(),
-        };
+            netem_validation: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn a_quick_artifact_never_qualifies_as_full_evidence() {
+        let artifact = artifact("quick", vec![cell(DNS_RTT_FULL_SAMPLES)]);
         assert!(
             !artifact.is_full_evidence(),
             "quick mode is not full evidence"
@@ -670,52 +949,19 @@ mod tests {
 
     #[test]
     fn a_full_artifact_with_all_cells_at_min_samples_qualifies() {
-        let delays = DNS_RTT_DELAYS_MS.len();
-        let servers = 2;
-        let modes = 2;
-        let total_cells = delays * servers * modes;
         let mut cells = Vec::new();
         for &d in &DNS_RTT_DELAYS_MS {
             for s in ["nsd", "unbound"] {
                 for m in ["plain", "mtl-condensed"] {
-                    cells.push(RttCell {
-                        server: s.to_string(),
-                        mode: m.to_string(),
-                        delay_ms: d,
-                        samples: DNS_RTT_FULL_SAMPLES,
-                        truncated: 0,
-                        transport: "udp".to_string(),
-                        rrsig_kind: "full".to_string(),
-                        median_ms: d + 1.0,
-                        p95_ms: d + 2.0,
-                        mechanism: "tc-netem".to_string(),
-                        warnings: Vec::new(),
-                    });
+                    let mut row = cell(DNS_RTT_FULL_SAMPLES);
+                    row.server = s.to_string();
+                    row.mode = m.to_string();
+                    row.delay_ms = d;
+                    cells.push(row);
                 }
             }
         }
-        assert_eq!(
-            cells.len(),
-            total_cells,
-            "expected one cell per (delay, server, mode)"
-        );
-        let artifact = RttArtifact {
-            schema_version: DNS_RTT_SCHEMA_VERSION,
-            mode: "full".to_string(),
-            recorded_at: "fixed".to_string(),
-            git_commit: None,
-            hostname: "host".to_string(),
-            uname: "linux".to_string(),
-            label: DNS_RTT_LABEL.to_string(),
-            mechanism: "tc-netem".to_string(),
-            netem: "test".to_string(),
-            zone: RTT_ZONE.to_string(),
-            query: format!("{} {}", RTT_QUERY_NAME, RTT_QUERY_TYPE),
-            cells,
-            min_samples_per_cell: DNS_RTT_FULL_SAMPLES,
-            class: "measured".to_string(),
-            warnings: Vec::new(),
-        };
+        let artifact = artifact("full", cells);
         assert!(
             artifact.is_full_evidence(),
             "full mode with n≥200 in every cell qualifies"
@@ -724,47 +970,18 @@ mod tests {
 
     #[test]
     fn a_full_artifact_with_short_cells_does_not_qualify() {
-        let mut cells = Vec::new();
-        for &d in &DNS_RTT_DELAYS_MS {
-            for s in ["nsd", "unbound"] {
-                for m in ["plain", "mtl-condensed"] {
-                    cells.push(RttCell {
-                        server: s.to_string(),
-                        mode: m.to_string(),
-                        delay_ms: d,
-                        samples: DNS_RTT_FULL_SAMPLES - 1,
-                        truncated: 0,
-                        transport: "udp".to_string(),
-                        rrsig_kind: "full".to_string(),
-                        median_ms: d + 1.0,
-                        p95_ms: d + 2.0,
-                        mechanism: "tc-netem".to_string(),
-                        warnings: Vec::new(),
-                    });
-                }
-            }
-        }
-        let artifact = RttArtifact {
-            schema_version: DNS_RTT_SCHEMA_VERSION,
-            mode: "full".to_string(),
-            recorded_at: "fixed".to_string(),
-            git_commit: None,
-            hostname: "host".to_string(),
-            uname: "linux".to_string(),
-            label: DNS_RTT_LABEL.to_string(),
-            mechanism: "tc-netem".to_string(),
-            netem: "test".to_string(),
-            zone: RTT_ZONE.to_string(),
-            query: format!("{} {}", RTT_QUERY_NAME, RTT_QUERY_TYPE),
-            cells,
-            min_samples_per_cell: DNS_RTT_FULL_SAMPLES,
-            class: "measured".to_string(),
-            warnings: Vec::new(),
-        };
+        let artifact = artifact("full", vec![cell(DNS_RTT_FULL_SAMPLES - 1)]);
         assert!(
             !artifact.is_full_evidence(),
             "short cells disqualify full evidence"
         );
+    }
+
+    #[test]
+    fn a_superseded_artifact_is_never_full_evidence() {
+        let mut artifact = artifact("full", vec![cell(DNS_RTT_FULL_SAMPLES)]);
+        artifact.superseded = Some("harness invalid".to_string());
+        assert!(!artifact.is_full_evidence());
     }
 
     #[test]
@@ -777,5 +994,36 @@ mod tests {
         const {
             assert!(DNS_RTT_FULL_SAMPLES >= 200);
         }
+    }
+
+    #[test]
+    fn tolerance_is_ten_percent_above_zero() {
+        assert!(within_tolerance(20.0, 20.5));
+        assert!(within_tolerance(20.0, 18.0));
+        assert!(!within_tolerance(20.0, 22.1));
+        assert!(!within_tolerance(100.0, 89.9));
+        assert!(within_tolerance(0.0, 0.4));
+        assert!(!within_tolerance(0.0, 1.1));
+    }
+
+    #[test]
+    fn ping_average_parses_busybox_and_iputils_output() {
+        let busybox = "--- 192.168.13.2 ping statistics ---\n\
+                       20 packets transmitted, 20 packets received, 0% packet loss\n\
+                       round-trip min/avg/max = 0.079/0.120/0.186 ms";
+        assert_eq!(ping_average_from_output(busybox), Some(0.120));
+        let iputils = "rtt min/avg/max/mdev = 20.298/20.943/22.142/0.5 ms";
+        assert_eq!(ping_average_from_output(iputils), Some(20.943));
+        assert_eq!(ping_average_from_output("no statistics here"), None);
+    }
+
+    #[test]
+    fn the_server_selector_rejects_an_unknown_name() {
+        assert_eq!(selected_servers("nsd").expect("nsd"), vec![NSD_IP]);
+        assert_eq!(
+            selected_servers("both").expect("both"),
+            vec![NSD_IP, UNBOUND_IP]
+        );
+        assert!(selected_servers("resolver").is_err());
     }
 }

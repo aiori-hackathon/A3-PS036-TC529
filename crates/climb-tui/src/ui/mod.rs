@@ -1041,6 +1041,7 @@ mod tests {
             "No amortisation",
             "Single-answer UDP fit",
             "normalised per size",
+            "RTT: pending",
         ] {
             assert!(
                 out.contains(needle),

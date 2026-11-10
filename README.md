@@ -485,6 +485,10 @@ or certification is claimed for MTL mode, SLH-DSA or any component here.
 - **The live DNS pipeline runs locally only** — a Docker bridge network bound
   to localhost, with patched reference NSD and Unbound builds; there is no
   Internet deployment and no resolver was written from scratch.
+- **RTT: pending.** The earlier emulated-RTT TCP-fallback harness added its
+  delay once per client query, so a TCP retry's extra round trips were
+  invisible. That artifact is marked superseded and no latency number is
+  published while the kernel `tc netem` probe is rebuilt.
 
 <!-- footer:begin -->
 

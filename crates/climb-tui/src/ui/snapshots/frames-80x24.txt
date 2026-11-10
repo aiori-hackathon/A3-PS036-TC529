@@ -106,15 +106,15 @@ style-digest contrast: 811f43ebdf1972a6
 │   ░ │        │                                                             █ │
 │   512 B      4.1 kB                                                          │
 │ from live capture                                                            │
+│ RTT: pending (no emulated-RTT measurement)                                   │
 │ █ full signature  24.4 kB · exceeds 4.1 kB (TCP)                             │
 │ ░ condensed proof  658 B · fits within 1.23 kB                               │
 │                                                                              │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: f22a80bd1130fc9b
-style-digest light: 195ea73814b02059
-style-digest contrast: 426a32fb26d0d132
+style-digest dark: eb24d15056be19c8
+style-digest light: d9b420e4a34410e1
+style-digest contrast: c94695abaa935cac
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐

@@ -158,6 +158,28 @@ impl ResultsView {
     pub fn integrity(&self) -> &IntegrityView {
         &self.integrity
     }
+
+    /// The one-line DNS latency status shown beside the Wire tab's UDP gauge.
+    ///
+    /// A quarantined artifact is reported as pending: its cells were recorded
+    /// by a delay mechanism that could not delay every packet, so the TUI must
+    /// never present them as latency.
+    pub fn rtt_status_line(&self) -> String {
+        match self.results.dns_rtt.as_ref() {
+            None => "RTT: pending (no emulated-RTT measurement)".to_string(),
+            Some(section) if section.is_quarantined() => {
+                "RTT: pending (artifact superseded - harness invalid)".to_string()
+            }
+            Some(section) if section.display_state() != "measured" => {
+                "RTT: pending (no measured cells)".to_string()
+            }
+            Some(section) => format!(
+                "RTT: {} measured cells ({})",
+                section.cells.len(),
+                section.label
+            ),
+        }
+    }
 }
 
 /// Where a loaded artifact came from, in resolution order.
@@ -1259,5 +1281,68 @@ mod tests {
         let json = serde_json::to_string(&results).expect("serialize");
         let parsed: ClimbResults = serde_json::from_str(&json).expect("parse without ladder");
         assert_eq!(parsed.ladder, None);
+    }
+
+    #[test]
+    fn the_rtt_status_line_is_pending_for_an_absent_or_superseded_section() {
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        assert!(view.results.dns_rtt.is_none());
+        assert_eq!(
+            view.rtt_status_line(),
+            "RTT: pending (no emulated-RTT measurement)"
+        );
+
+        let mut section = climb_report::DnsRttSection::pending("fixed".to_string());
+        section.status = climb_report::DnsRttStatus::Measured;
+        section.superseded = Some(climb_report::dns_rtt::DNS_RTT_SUPERSEDED_REASON.to_string());
+        view.results.dns_rtt = Some(section);
+        assert_eq!(
+            view.rtt_status_line(),
+            "RTT: pending (artifact superseded - harness invalid)"
+        );
+    }
+
+    #[test]
+    fn the_committed_rtt_fixture_reads_as_pending_in_the_view() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/dns-rtt.recorded.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let section: climb_report::DnsRttSection =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        view.results.dns_rtt = Some(section);
+        assert!(view.rtt_status_line().starts_with("RTT: pending"));
+    }
+
+    #[test]
+    fn the_rtt_status_line_reports_measured_cells_only_when_not_quarantined() {
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        let mut section = climb_report::DnsRttSection::pending("fixed".to_string());
+        section.status = climb_report::DnsRttStatus::Measured;
+        section.cells = vec![climb_report::DnsRttCell {
+            server: "nsd".to_string(),
+            mode: "plain".to_string(),
+            delay_ms: 20.0,
+            samples: 200,
+            truncated: 0,
+            transport: "udp".to_string(),
+            rrsig_kind: "full".to_string(),
+            median_ms: 20.1,
+            p95_ms: 21.0,
+            mechanism: "tc-netem".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 0,
+            udp_response_bytes: 300,
+            tcp_response_bytes: 0,
+            median_total_ms: 20.1,
+            median_rtt_multiple: Some(1.005),
+            queries: Vec::new(),
+        }];
+        view.results.dns_rtt = Some(section);
+        assert_eq!(
+            view.rtt_status_line(),
+            "RTT: 1 measured cells (emulated RTT, local bridge)"
+        );
     }
 }

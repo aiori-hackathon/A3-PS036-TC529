@@ -22,6 +22,8 @@ pub struct UdpGaugeData {
     pub markers: Vec<GaugeMarker>,
     /// Where the numbers came from: the DNS capture or the wire fallback.
     pub source_note: String,
+    /// Whether emulated-RTT evidence is usable, shown on its own line.
+    pub status_note: Option<String>,
 }
 
 /// One row of the modelled UDP-fit table: a (response profile,
@@ -187,6 +189,7 @@ impl ResultsView {
             axis_max: 0,
             markers: Vec::new(),
             source_note: "no wire or capture data recorded".to_string(),
+            status_note: None,
         }
     }
 
@@ -224,6 +227,7 @@ impl ResultsView {
             axis_max: nice_axis_max(peak),
             markers,
             source_note,
+            status_note: None,
         }
     }
 

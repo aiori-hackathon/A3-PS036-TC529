@@ -24,7 +24,16 @@ pub const DNS_RTT_FULL_SAMPLES: u64 = 200;
 /// client-observed round-trip time.
 pub const DNS_RTT_DELAYS_MS: [f64; 4] = [0.0, 20.0, 50.0, 100.0];
 
+/// Reason recorded on an artifact whose delay mechanism could not delay every
+/// packet. An artifact carrying this reason is displayed as pending, not as a
+/// measurement, on every surface.
+pub const DNS_RTT_SUPERSEDED_REASON: &str = "harness invalid: userspace-sleep delay was added once per client query, so TCP-fallback round trips were not delayed; superseded until the netem probe lands";
+
 /// Whether the artifact is a placeholder or carries measured cells.
+///
+/// A measured section can still be quarantined by [`DnsRttSection::superseded`];
+/// the status records what the harness wrote, the quarantine records whether
+/// those cells may be shown.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DnsRttStatus {
@@ -32,6 +41,15 @@ pub enum DnsRttStatus {
     Pending,
     /// The artifact carries measured cells.
     Measured,
+}
+
+impl Default for DnsRttStatus {
+    /// An artifact written by the measurement harness omits `status`; absence
+    /// means it carries cells, so the default is `measured`. A placeholder
+    /// always writes `pending` explicitly.
+    fn default() -> Self {
+        Self::Measured
+    }
 }
 
 impl DnsRttStatus {
@@ -42,6 +60,53 @@ impl DnsRttStatus {
             DnsRttStatus::Measured => "measured",
         }
     }
+}
+
+/// One per-query record: what the client actually sent and waited for.
+///
+/// Written additively after the first harness was invalidated. Older artifacts
+/// omit it and deserialize to an empty vector.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DnsRttQuerySample {
+    /// UDP messages sent for this query (normally 1).
+    #[serde(default)]
+    pub udp_attempts: u32,
+    /// TCP messages sent for this query (0, or 1 after a TC=1 reply).
+    #[serde(default)]
+    pub tcp_attempts: u32,
+    /// Bytes in the UDP response, or 0 when the query never used UDP.
+    #[serde(default)]
+    pub udp_response_bytes: u64,
+    /// Bytes in the TCP response, or 0 when no TCP retry happened.
+    #[serde(default)]
+    pub tcp_response_bytes: u64,
+    /// Wall time for the whole exchange in milliseconds.
+    #[serde(default)]
+    pub total_ms: f64,
+    /// `total_ms / target RTT`, or `None` at a 0 ms target.
+    #[serde(default)]
+    pub rtt_multiple: Option<f64>,
+}
+
+/// One row of the `ping` validation of the kernel delay.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DnsRttNetemCheck {
+    /// Requested client-observed round-trip time in milliseconds.
+    #[serde(default)]
+    pub target_ms: f64,
+    /// Mean `ping` round-trip time in milliseconds.
+    #[serde(default)]
+    pub ping_avg_ms: f64,
+    /// `ping_avg_ms` minus the 0 ms baseline, in milliseconds.
+    #[serde(default)]
+    pub corrected_ms: f64,
+    /// Whether the corrected value is within 10 percent of the target
+    /// (or at most 1 ms at a 0 ms target).
+    #[serde(default)]
+    pub within_10_percent: bool,
+    /// ICMP echo requests sent.
+    #[serde(default)]
+    pub samples: u32,
 }
 
 /// One (server, response mode, delay) measurement cell.
@@ -68,6 +133,28 @@ pub struct DnsRttCell {
     pub p95_ms: f64,
     /// How the delay was applied: `tc-netem` or `userspace-sleep`.
     pub mechanism: String,
+    /// Median UDP messages sent per query.
+    #[serde(default)]
+    pub udp_attempts: u32,
+    /// Median TCP messages sent per query.
+    #[serde(default)]
+    pub tcp_attempts: u32,
+    /// Median bytes in the UDP response.
+    #[serde(default)]
+    pub udp_response_bytes: u64,
+    /// Median bytes in the TCP response.
+    #[serde(default)]
+    pub tcp_response_bytes: u64,
+    /// Median wall time for the whole exchange in milliseconds.
+    #[serde(default)]
+    pub median_total_ms: f64,
+    /// Median `total_ms / target RTT`; `None` at a 0 ms target.
+    #[serde(default)]
+    pub median_rtt_multiple: Option<f64>,
+    /// Per-query records, empty on artifacts written before the probe
+    /// instrumented packet counts.
+    #[serde(default)]
+    pub queries: Vec<DnsRttQuerySample>,
 }
 
 /// Measured RTT section embedded in the consolidated results artifact.
@@ -75,8 +162,13 @@ pub struct DnsRttCell {
 pub struct DnsRttSection {
     /// Artifact schema version.
     pub schema_version: u32,
-    /// Pending or measured.
+    /// Pending or measured. Absent in artifacts written by the measurement
+    /// harness (`xtask dns-rtt`), which only ever writes measured cells.
+    #[serde(default)]
     pub status: DnsRttStatus,
+    /// Set when the recorded cells may not be shown. The value states why.
+    #[serde(default)]
+    pub superseded: Option<String>,
     /// `quick` (smoke test) or `full` (the n-per-cell measurement).
     pub mode: String,
     /// When the measurement was recorded.
@@ -103,6 +195,9 @@ pub struct DnsRttSection {
     pub class: EvidenceClass,
     /// Non-fatal measurement warnings (timeouts, fallback mechanism).
     pub warnings: Vec<String>,
+    /// `ping` validation of the kernel delay, empty on older artifacts.
+    #[serde(default)]
+    pub netem_validation: Vec<DnsRttNetemCheck>,
 }
 
 impl DnsRttSection {
@@ -111,6 +206,7 @@ impl DnsRttSection {
         Self {
             schema_version: DNS_RTT_SCHEMA_VERSION,
             status: DnsRttStatus::Pending,
+            superseded: None,
             mode: "full".to_string(),
             recorded_at,
             git_commit: None,
@@ -124,13 +220,32 @@ impl DnsRttSection {
             min_samples_per_cell: DNS_RTT_FULL_SAMPLES,
             class: EvidenceClass::Measured,
             warnings: Vec::new(),
+            netem_validation: Vec::new(),
+        }
+    }
+
+    /// True when the artifact is marked as recorded by an invalid harness.
+    /// A quarantined section is never evidence, whatever its cells say.
+    pub fn is_quarantined(&self) -> bool {
+        self.superseded.is_some()
+    }
+
+    /// The label every surface shows: an invalid artifact is `pending`, never
+    /// `measured`, and a placeholder is pending too.
+    pub fn display_state(&self) -> &'static str {
+        if self.is_quarantined() || self.status != DnsRttStatus::Measured || self.cells.is_empty() {
+            "pending"
+        } else {
+            "measured"
         }
     }
 
     /// True only when this section is a full measurement with at least the
-    /// required samples in every cell. A quick smoke test never qualifies.
+    /// required samples in every cell. A quick smoke test or a quarantined
+    /// artifact never qualifies.
     pub fn is_full_evidence(&self) -> bool {
-        self.status == DnsRttStatus::Measured
+        !self.is_quarantined()
+            && self.status == DnsRttStatus::Measured
             && self.mode == "full"
             && !self.cells.is_empty()
             && self
@@ -165,6 +280,13 @@ mod tests {
             median_ms: 40.0,
             p95_ms: 55.0,
             mechanism: "tc-netem".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 1,
+            udp_response_bytes: 512,
+            tcp_response_bytes: 1400,
+            median_total_ms: 60.0,
+            median_rtt_multiple: Some(3.0),
+            queries: Vec::new(),
         }
     }
 
@@ -204,5 +326,85 @@ mod tests {
         assert!(section.cell("unbound", "plain", 20.0).is_none());
         assert!(section.cell("nsd", "mtl-condensed", 20.0).is_none());
         assert!(section.cell("nsd", "plain", 50.0).is_none());
+    }
+
+    #[test]
+    fn a_superseded_section_is_pending_and_never_evidence() {
+        let mut section = DnsRttSection::pending("fixed".to_string());
+        section.status = DnsRttStatus::Measured;
+        section.mode = "full".to_string();
+        section.cells = vec![cell(200), cell(200)];
+        assert!(section.is_full_evidence());
+        assert_eq!(section.display_state(), "measured");
+
+        section.superseded = Some(DNS_RTT_SUPERSEDED_REASON.to_string());
+        assert!(section.is_quarantined());
+        assert!(!section.is_full_evidence());
+        assert_eq!(section.display_state(), "pending");
+    }
+
+    #[test]
+    fn the_committed_rtt_artifact_is_quarantined_and_parses() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../data/dns-rtt.recorded.json");
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let section: DnsRttSection =
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+        assert!(
+            section.is_quarantined(),
+            "the committed artifact must carry the superseded marker"
+        );
+        assert_eq!(section.display_state(), "pending");
+        assert!(!section.is_full_evidence());
+        assert_eq!(
+            section.superseded.as_deref(),
+            Some(DNS_RTT_SUPERSEDED_REASON)
+        );
+        assert!(
+            !section.cells.is_empty(),
+            "the invalid cells stay in the record as evidence of what was run"
+        );
+    }
+
+    #[test]
+    fn an_artifact_without_the_additive_fields_parses_with_defaults() {
+        let json = r#"{
+            "schema_version": 1,
+            "status": "measured",
+            "mode": "quick",
+            "recorded_at": "fixed",
+            "git_commit": null,
+            "hostname": "host",
+            "uname": "linux",
+            "label": "emulated RTT, local bridge",
+            "netem": "old harness",
+            "zone": "climb.example.",
+            "query": "www.climb.example. A",
+            "cells": [{
+                "server": "nsd",
+                "mode": "plain",
+                "delay_ms": 100.0,
+                "samples": 20,
+                "truncated": 20,
+                "transport": "udp-then-tcp",
+                "rrsig_kind": "full",
+                "median_ms": 200.99,
+                "p95_ms": 203.0,
+                "mechanism": "userspace-sleep"
+            }],
+            "min_samples_per_cell": 200,
+            "class": "measured",
+            "warnings": []
+        }"#;
+        let section: DnsRttSection = serde_json::from_str(json).expect("old artifact parses");
+        assert!(section.superseded.is_none());
+        assert!(section.netem_validation.is_empty());
+        let cell = &section.cells[0];
+        assert_eq!(cell.udp_attempts, 0);
+        assert_eq!(cell.tcp_attempts, 0);
+        assert_eq!(cell.median_total_ms, 0.0);
+        assert!(cell.median_rtt_multiple.is_none());
+        assert!(cell.queries.is_empty());
     }
 }

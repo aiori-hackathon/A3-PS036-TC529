@@ -1289,8 +1289,24 @@ fn collect_dns_rtt(
     if root.pointer("/dns_rtt").is_none() || root.pointer("/dns_rtt").is_some_and(Value::is_null) {
         out.notes.push(Note::custom(
             Section::DnsRtt,
-            "no emulated-RTT measurement in the results document — run `cargo xtask dns-rtt` and \
-             consolidate its output",
+            "RTT: pending (no emulated-RTT measurement recorded — run `cargo xtask dns-rtt` and \
+             consolidate its output)",
+        ));
+        return Ok(());
+    }
+    if let Some(reason) = opt_str(root, "/dns_rtt/superseded", path)? {
+        out.notes.push(Note::custom(
+            Section::DnsRtt,
+            format!("RTT: pending (artifact superseded — {reason})"),
+        ));
+        return Ok(());
+    }
+    let status = opt_str(root, "/dns_rtt/status", path)?.unwrap_or_default();
+    let has_cells = array_at(root, path, "/dns_rtt/cells")?.is_some_and(|cells| !cells.is_empty());
+    if status != "measured" || !has_cells {
+        out.notes.push(Note::custom(
+            Section::DnsRtt,
+            "RTT: pending (no measured emulated-RTT cells in the results document)",
         ));
         return Ok(());
     }
@@ -3462,5 +3478,85 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
             Some(("B (MTL, no amortisation)", Baseline::B))
         );
         assert_eq!(condition_gloss(BenchKind::Signing, "No MTL at all"), None);
+    }
+
+    #[test]
+    fn a_superseded_rtt_section_renders_pending_and_no_facts() {
+        let value = serde_json::json!({
+            "dns_rtt": {
+                "status": "measured",
+                "superseded": crate::dns_rtt::DNS_RTT_SUPERSEDED_REASON,
+                "cells": [{
+                    "server": "nsd",
+                    "mode": "plain",
+                    "delay_ms": 100.0,
+                    "samples": 20,
+                    "median_ms": 200.99,
+                    "p95_ms": 203.0
+                }]
+            }
+        });
+        let mut collected = Collected::default();
+        collect_dns_rtt(&mut collected, Some((Path::new("rtt.json"), &value))).expect("collect");
+        assert!(
+            collected.facts.is_empty(),
+            "a quarantined artifact must not publish a latency fact"
+        );
+        assert!(
+            collected
+                .notes
+                .iter()
+                .any(|note| note.text.starts_with("RTT: pending")),
+            "{:?}",
+            collected.notes
+        );
+        assert!(
+            collected
+                .notes
+                .iter()
+                .all(|note| !note.text.contains("200.99")),
+            "the invalid number must not leak into a note"
+        );
+    }
+
+    #[test]
+    fn an_absent_rtt_section_renders_pending() {
+        let value = serde_json::json!({});
+        let mut collected = Collected::default();
+        collect_dns_rtt(&mut collected, Some((Path::new("results.json"), &value)))
+            .expect("collect");
+        assert!(collected.facts.is_empty());
+        assert!(collected
+            .notes
+            .iter()
+            .any(|note| note.text.starts_with("RTT: pending")));
+    }
+
+    #[test]
+    fn a_measured_rtt_section_still_collects_cells() {
+        let value = serde_json::json!({
+            "dns_rtt": {
+                "status": "measured",
+                "label": "emulated RTT, local bridge",
+                "cells": [{
+                    "server": "nsd",
+                    "mode": "plain",
+                    "delay_ms": 20.0,
+                    "samples": 200,
+                    "median_ms": 60.1,
+                    "p95_ms": 62.0
+                }]
+            }
+        });
+        let mut collected = Collected::default();
+        collect_dns_rtt(&mut collected, Some((Path::new("rtt.json"), &value))).expect("collect");
+        assert!(
+            collected
+                .facts
+                .iter()
+                .any(|fact| fact.label.contains("median") && fact.value == "60.100"),
+            "{:?}",
+            collected.facts
+        );
     }
 }

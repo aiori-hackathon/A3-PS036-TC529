@@ -615,6 +615,54 @@ pub(crate) fn parse_classical_rows(text: &str) -> Vec<ReadmeRow> {
     rows
 }
 
+/// What every surface must say about the emulated-RTT section.
+///
+/// Returns an empty string when the artifact carries a usable measurement.
+/// Otherwise the line names the pending state: an absent section, a
+/// placeholder, or a quarantined artifact (invalid harness) are all pending.
+fn rtt_pending_status(results_json: &Value) -> String {
+    let Some(section) = results_json.pointer("/dns_rtt") else {
+        return "RTT: pending (no emulated-RTT measurement recorded)".to_string();
+    };
+    if section.is_null() {
+        return "RTT: pending (no emulated-RTT measurement recorded)".to_string();
+    }
+    if let Some(reason) = section.get("superseded").and_then(Value::as_str) {
+        return format!("RTT: pending (artifact superseded - {reason})");
+    }
+    let measured = section.get("status").and_then(Value::as_str) == Some("measured");
+    let has_cells = section
+        .get("cells")
+        .and_then(Value::as_array)
+        .is_some_and(|cells| !cells.is_empty());
+    if !measured || !has_cells {
+        return "RTT: pending (no measured cells)".to_string();
+    }
+    String::new()
+}
+
+/// Fail when the artifact is pending but the quote sheet still publishes RTT
+/// numbers, and print the pending line so the gate itself shows the state.
+fn check_rtt_pending(results_json: &Value, sheet: &str) -> Result<()> {
+    let pending = rtt_pending_status(results_json);
+    if pending.is_empty() {
+        let cells = results_json
+            .pointer("/dns_rtt/cells")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        println!("verify-numbers: RTT: measured ({cells} cells)");
+        return Ok(());
+    }
+    if !sheet.contains("RTT: pending") {
+        bail!(
+            "the results document reports {pending}, but the quote sheet carries no `RTT: pending` \
+             marker — regenerate it with `cargo xtask deck-facts`"
+        );
+    }
+    println!("verify-numbers: {pending}");
+    Ok(())
+}
+
 fn read_inputs(args: &VerifyNumbersArgs) -> Result<(ClimbResults, Value, String, String)> {
     let results_path = args.root.join(&args.results);
     let results_text = std::fs::read_to_string(&results_path)
@@ -640,6 +688,7 @@ fn read_report(args: &VerifyNumbersArgs) -> Result<String> {
 /// Recompute, compare and report. Non-zero exit when any surface disagrees.
 pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
     let (results, results_json, sheet, readme) = read_inputs(&args)?;
+    check_rtt_pending(&results_json, &sheet)?;
     let report = read_report(&args)?;
     let facts = parse_quote_sheet(&sheet);
     if facts.is_empty() {
@@ -988,5 +1037,38 @@ mod tests {
         assert_eq!(resolve(&value, "/a/0/b").unwrap().as_u64(), Some(1));
         assert_eq!(resolve(&value, "/x~1y").unwrap().as_u64(), Some(2));
         assert!(resolve(&value, "/missing").is_none());
+    }
+
+    #[test]
+    fn an_absent_or_superseded_rtt_section_is_reported_as_pending() {
+        let absent = serde_json::json!({});
+        assert!(rtt_pending_status(&absent).starts_with("RTT: pending"));
+
+        let superseded = serde_json::json!({
+            "dns_rtt": {
+                "status": "measured",
+                "superseded": "harness invalid",
+                "cells": [{"median_ms": 200.99}]
+            }
+        });
+        let line = rtt_pending_status(&superseded);
+        assert_eq!(line, "RTT: pending (artifact superseded - harness invalid)");
+        assert!(!line.contains("200.99"));
+    }
+
+    #[test]
+    fn a_measured_rtt_section_is_not_pending() {
+        let measured = serde_json::json!({
+            "dns_rtt": { "status": "measured", "cells": [{"median_ms": 20.1}] }
+        });
+        assert!(rtt_pending_status(&measured).is_empty());
+    }
+
+    #[test]
+    fn a_pending_artifact_without_the_sheet_marker_fails_the_gate() {
+        let absent = serde_json::json!({});
+        let error = check_rtt_pending(&absent, "no marker here").expect_err("must fail");
+        assert!(format!("{error:#}").contains("RTT: pending"), "{error:#}");
+        check_rtt_pending(&absent, "> RTT: pending (no measurement)").expect("marker present");
     }
 }

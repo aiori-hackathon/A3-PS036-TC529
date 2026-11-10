@@ -1017,6 +1017,46 @@ fn render_udp_fit_section(results: &ClimbResults, claims: &[Claim]) -> String {
     )
 }
 
+/// Render the measured emulated-RTT section.
+///
+/// A quarantined artifact, a placeholder, or an absent section all render as
+/// `RTT: pending`: the numbers behind an invalid harness never reach the
+/// report. The measured branch is kept for the replacement harness; it is not
+/// reached by the committed artifact.
+fn render_dns_rtt_section(results: &ClimbResults) -> String {
+    let Some(section) = results.dns_rtt.as_ref() else {
+        return "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\"><strong>RTT: pending.</strong> No emulated-RTT measurement is recorded in this artifact.</p>\n</section>\n".to_string();
+    };
+    if section.is_quarantined() {
+        let reason = section.superseded.as_deref().unwrap_or("harness invalid");
+        return format!(
+            "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\"><strong>RTT: pending.</strong> The recorded artifact is superseded: {}. Its cells are retained in the artifact as a record of what was run, not as a published latency.</p>\n</section>\n",
+            escape_html(reason)
+        );
+    }
+    if section.display_state() != "measured" {
+        return "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\"><strong>RTT: pending.</strong> No measured emulated-RTT cells are recorded in this artifact.</p>\n</section>\n".to_string();
+    }
+    let mut rows = String::new();
+    for cell in &section.cells {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{:.0}</td><td>{}</td><td>{:.3}</td><td>{:.3}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&cell.server),
+            escape_html(&cell.mode),
+            cell.delay_ms,
+            cell.samples,
+            cell.median_ms,
+            cell.p95_ms,
+            cell.udp_attempts,
+            cell.tcp_attempts,
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\">{}. Every value is read from the results artifact; the delay is a kernel `tc netem` delay on a local bridge, never Internet latency.</p>\n<table class=\"memtable\">\n<thead><tr><th>Server</th><th>Mode</th><th>Target RTT (ms)</th><th>Samples</th><th>Median (ms)</th><th>p95 (ms)</th><th>UDP attempts</th><th>TCP attempts</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
+        escape_html(&section.label)
+    )
+}
+
 /// Render the three-way wire-size comparison table (A/B/C).
 fn render_wire_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
     if results.comparisons.is_empty() {
@@ -1231,6 +1271,7 @@ pub fn render_html(
     let ladder_html = render_ladder_section(results, &claims);
     let reuse_html = render_reuse_section(results, &claims);
     let udp_fit_html = render_udp_fit_section(results, &claims);
+    let dns_rtt_html = render_dns_rtt_section(results);
     let reproduction_mode = results.reproduction_mode.label();
     let reproduction_note = match results.reproduction_mode {
         crate::results::ReproductionMode::Remeasure => {
@@ -1314,7 +1355,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}{dns_rtt_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note"><strong>Reproduction mode: {reproduction_mode}.</strong> {reproduction_note}</p>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
@@ -2714,6 +2755,57 @@ mod tests {
         assert!(!context_claims.iter().any(|c| c.id == "context-2-verify"));
         assert_eq!(check_claims(&html, &results), Vec::<String>::new());
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_superseded_rtt_section_renders_pending_without_the_numbers() {
+        use crate::dns_rtt::{DnsRttCell, DnsRttSection, DnsRttStatus};
+        let mut results = synthetic_results();
+        let mut section = DnsRttSection::pending("fixed".to_string());
+        section.status = DnsRttStatus::Measured;
+        section.superseded = Some(crate::dns_rtt::DNS_RTT_SUPERSEDED_REASON.to_string());
+        section.cells = vec![DnsRttCell {
+            server: "nsd".to_string(),
+            mode: "plain".to_string(),
+            delay_ms: 100.0,
+            samples: 20,
+            truncated: 20,
+            transport: "udp-then-tcp".to_string(),
+            rrsig_kind: "full".to_string(),
+            median_ms: 200.99,
+            p95_ms: 203.0,
+            mechanism: "userspace-sleep".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 1,
+            udp_response_bytes: 1232,
+            tcp_response_bytes: 24_465,
+            median_total_ms: 200.99,
+            median_rtt_multiple: None,
+            queries: Vec::new(),
+        }];
+        results.dns_rtt = Some(section);
+        let dir = unique_temp_dir("html-rtt-superseded");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(html.contains("RTT: pending"), "pending marker missing");
+        assert!(html.contains("superseded"), "quarantine reason missing");
+        assert!(!html.contains("200.99"), "invalid latency leaked");
+    }
+
+    #[test]
+    fn a_report_without_an_rtt_section_renders_pending() {
+        let results = synthetic_results();
+        assert!(results.dns_rtt.is_none());
+        let dir = unique_temp_dir("html-rtt-absent");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(html.contains("RTT: pending"));
     }
 
     #[test]

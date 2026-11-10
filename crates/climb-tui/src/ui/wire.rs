@@ -38,7 +38,8 @@ pub fn render_wire(
     glyphs: &Glyphs,
 ) {
     let stacks = view.wire_stacks(app.baseline());
-    let gauge = view.udp_gauge_data();
+    let mut gauge = view.udp_gauge_data();
+    gauge.status_note = Some(view.rtt_status_line());
     let fit = view.udp_fit_table();
     render_panels(frame, area, &stacks, &gauge, &fit, theme, glyphs);
 }
@@ -104,6 +105,7 @@ fn render_panels(
         axis_max: gauge.axis_max,
         markers: gauge.markers.clone(),
         source_note: gauge.source_note.clone(),
+        status_note: gauge.status_note.clone(),
         empty_note: "no capture or wire data recorded".to_string(),
     };
     frame.render_widget(gauge_widget, gauge_area);
@@ -248,6 +250,7 @@ mod tests {
                 },
             ],
             source_note: "from recorded DNS capture".to_string(),
+            status_note: Some("RTT: pending".to_string()),
         }
     }
 
@@ -429,6 +432,7 @@ mod tests {
             axis_max: 0,
             markers: Vec::new(),
             source_note: String::new(),
+            status_note: Some("RTT: pending".to_string()),
         };
         let out = render_to_string(&[], &empty, &fit_data(), 80, 24);
         assert!(out.contains("no rows recorded"), "bars placeholder:\n{out}");

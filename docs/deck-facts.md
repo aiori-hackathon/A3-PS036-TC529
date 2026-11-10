@@ -451,7 +451,7 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## DNS latency (emulated RTT)
 
-> no emulated-RTT measurement in the results document — run `cargo xtask dns-rtt` and consolidate its output
+> RTT: pending (no emulated-RTT measurement recorded — run `cargo xtask dns-rtt` and consolidate its output)
 
 ## Environment
 
@@ -469,13 +469,13 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | d5dc0cf85aab4f90ecf902ab958f5588157dcd05 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | ff7679b98cc87e96a83a9c7e2e0741065026ed6c | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1254 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1289 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
 | Workspace tests — failed | 0 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
 | Workspace tests — ignored | 3 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |
 | Workspace test targets (summary lines) | 48 | — | MEASURED | n = 48 | n/a | n/a | cargo test --workspace |

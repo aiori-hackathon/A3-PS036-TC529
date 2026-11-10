@@ -112,6 +112,10 @@ pub struct UdpGauge<'a> {
     pub markers: Vec<GaugeMarker>,
     /// Where the numbers came from, e.g. the live capture or a wire fallback.
     pub source_note: String,
+    /// A second status line, e.g. whether emulated-RTT evidence is usable.
+    /// Kept separate from [`Self::source_note`] so a long provenance note
+    /// cannot clip the quarantine state out of a narrow panel.
+    pub status_note: Option<String>,
     /// Shown instead of the verdict lines when there are no markers.
     pub empty_note: String,
 }
@@ -163,10 +167,17 @@ impl UdpGauge<'_> {
     /// ruler, the source note, then the verdict lines.
     fn lines(&self, width: u16) -> Vec<Line<'static>> {
         if self.markers.is_empty() {
-            return vec![Line::from(Span::styled(
+            let mut lines = vec![Line::from(Span::styled(
                 format!(" {}", self.empty_note),
                 Style::new().fg(self.theme.muted),
             ))];
+            if let Some(status) = self.status_note.as_ref() {
+                lines.push(Line::from(Span::styled(
+                    format!(" {status}"),
+                    Style::new().fg(self.theme.muted),
+                )));
+            }
+            return lines;
         }
         let track_width = width.max(1);
 
@@ -199,6 +210,12 @@ impl UdpGauge<'_> {
                 Style::new().fg(self.theme.muted),
             )),
         ];
+        if let Some(status) = self.status_note.as_ref() {
+            lines.push(Line::from(Span::styled(
+                format!(" {status}"),
+                Style::new().fg(self.theme.muted),
+            )));
+        }
         lines.extend(self.verdict_lines());
         lines
     }
@@ -296,6 +313,7 @@ mod tests {
                 },
             ],
             source_note: "from recorded DNS capture".to_string(),
+            status_note: Some("RTT: pending".to_string()),
             empty_note: "no capture recorded".to_string(),
         }
     }
@@ -371,6 +389,33 @@ mod tests {
             out.contains(&format!("fits within {}", fmt_bytes(1232.0))),
             "condensed fits the EDNS limit:\n{out}"
         );
+        assert!(
+            out.contains("RTT: pending"),
+            "status note on its own line:\n{out}"
+        );
+    }
+
+    #[test]
+    fn renders_the_status_note_even_when_there_are_no_markers() {
+        let theme = theme();
+        let glyphs = theme.glyphs();
+        let gauge = UdpGauge {
+            theme: &theme,
+            glyphs: &glyphs,
+            title: "UDP fit".to_string(),
+            axis_min: 0,
+            axis_max: 5000,
+            markers: Vec::new(),
+            source_note: String::new(),
+            status_note: Some("RTT: pending".to_string()),
+            empty_note: "no capture recorded".to_string(),
+        };
+        let out = render_text(gauge, 70, 5);
+        assert!(out.contains("no capture recorded"), "empty:\n{out}");
+        assert!(
+            out.contains("RTT: pending"),
+            "quarantine stays visible without markers:\n{out}"
+        );
     }
 
     #[test]
@@ -385,6 +430,7 @@ mod tests {
             axis_max: 5000,
             markers: Vec::new(),
             source_note: String::new(),
+            status_note: None,
             empty_note: "no capture recorded".to_string(),
         };
         let out = render_text(gauge, 70, 5);
