@@ -1603,9 +1603,9 @@ fn flag_labels_prefer_the_staggered_levels_then_cover_the_band() {
 }
 
 #[test]
-fn a_missing_brand_file_falls_back_to_the_sampled_palette() {
+fn a_missing_brand_file_falls_back_to_the_designed_palette() {
     let palette = Palette::load(Path::new("/definitely/not/a/repo"), &style()).expect("a palette");
-    assert_eq!(palette.orange, "#C55E33");
+    assert_eq!(palette.orange, "#FF5400");
     assert_eq!(palette.teal, "#5C8E8D");
 }
 

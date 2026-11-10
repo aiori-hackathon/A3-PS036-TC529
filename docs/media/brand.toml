@@ -1,58 +1,90 @@
-# CLIMB brand colours, sampled from the original artwork.
+# CLIMB brand palette — the designed set behind the team's wordmark.
 #
-# The values below are measured from docs/media/source/climb-logo-original.png
-# by scripts/logo/make_assets.py: for each ink family the most common colour
-# inside the dense core of that family is taken, so anti-aliased edge pixels
-# cannot drag the sample towards the white paper.
+# Every ratio below is a measured WCAG 2.x contrast ratio, rounded to two
+# decimals, computed by the same formula the logo build script prints. The
+# palette is designed, not sampled: the orange is the wordmark's rung orange,
+# the ink and the off-white are the two letterform inks, and the rest follow
+# the artwork.
 
-[brand]
-paper = "#FFFFFF"
-panel_margin = "#F5F9FA"
-
-[brand.slate]
-hex = "#38454E"
-rgb = [56, 69, 78]
-family_median = "#39444E"
-family_pixels = 37228
-light_theme_contrast = 9.86
-dark_theme_contrast = 1.92
+# The surfaces the palette is published against.
+[surfaces]
+ink = "#07080A"    # the wordmark's black; the dark surface of the cards
+panel = "#0D1117"  # the slightly lighter dark surface of the report and TUI
+paper = "#FFFFFF"  # the light surface of the README and the reports
 
 [brand.orange]
-hex = "#C55E33"
-rgb = [197, 94, 51]
-family_median = "#C25D34"
-family_pixels = 17958
-light_theme_contrast = 4.18
-dark_theme_contrast = 4.53
+hex = "#FF5400"
+# The data ink and the accent. It never paints small text: on paper it is
+# 3.22:1, which clears the 3:1 non-text floor but not the 4.5:1 text floor,
+# so on a light surface it rides beside the ink, never in place of it. On
+# the dark surfaces it is a strong accent.
+on_paper = 3.22
+on_ink = 6.22
+on_panel = 5.88
+
+[brand.ink]
+hex = "#07080A"
+# The text ink on light surfaces and the ground of the social cards.
+on_paper = 20.04
+
+[brand.off_white]
+hex = "#F2EDE4"
+# The text ink on the dark surfaces and the letterform ink of the dark
+# wordmark.
+on_ink = 17.18
+on_panel = 16.23
+
+[brand.red]
+hex = "#FF1A1A"
+# Reserved for authentication paths in charts and reports. It never paints
+# general text or decoration: on paper it is 3.88:1, below the 4.5:1 text
+# floor, so it only ever marks a path a reader is meant to trace.
+on_paper = 3.88
+on_ink = 5.17
+on_panel = 4.88
 
 [brand.teal]
-hex = "#5C8E8D"
-rgb = [92, 142, 141]
-family_median = "#5D8A89"
-family_pixels = 12083
-light_theme_contrast = 3.68
-dark_theme_contrast = 5.14
+hex = "#5CC8C2"
+# The secondary data ink, dark surfaces only. Against paper it is 2.00:1,
+# below even the 3:1 non-text floor, so a light surface takes slate instead;
+# for the same reason it is never a badge background, whose text is white.
+on_paper = 2.00
+on_ink = 10.01
+on_panel = 9.46
 
-[dark_theme]
-background = "#0D1117"
-preview_background = "#0B0D10"
-ink = "#E6EDF3"
-minimum_contrast = 3.0
+[brand.slate]
+hex = "#3A4A66"
+# The muted text ink on light surfaces and the quiet badge label. It never
+# paints text on the dark surfaces: 2.24:1 against the ink.
+on_paper = 8.93
+on_ink = 2.24
 
-[dark_theme.slate]
-source = "#38454E"
-replacement = "#E6EDF3"
-contrast_against_background = 1.92
-reason = "recoloured to the light slate"
+# The letterform inks of the wordmark, with the measured ratios the build
+# script prints. Every letter body clears 4.5:1 on both dark surfaces. The
+# layered fades (the C edge, the L foot, the M wash) sit on another letter
+# or trail from one; they are printed by the build and recorded there, not
+# floored here, because their contrast is not read against the surface
+# alone.
+[[letterforms]]
+part = "C, I and B bodies; the L rungs; the tree's ink strokes and root dot"
+hex = "#F2EDE4"
+on_ink = 17.18
+on_panel = 16.23
 
-[dark_theme.orange]
-source = "#C55E33"
-replacement = "#C55E33"
-contrast_against_background = 4.53
-reason = "kept: 4.53:1 already reaches 3:1"
+[[letterforms]]
+part = "the L's top rung"
+hex = "#FF5400"
+on_ink = 6.22
+on_panel = 5.88
 
-[dark_theme.teal]
-source = "#5C8E8D"
-replacement = "#5C8E8D"
-contrast_against_background = 5.14
-reason = "kept: 5.14:1 already reaches 3:1"
+[[letterforms]]
+part = "the M's peak, the strongest stop of the body gradient"
+hex = "#FD5500"
+on_ink = 6.18
+on_panel = 5.84
+
+[[letterforms]]
+part = "the tree's red strokes"
+hex = "#FF0000"
+on_ink = 5.01
+on_panel = 4.73

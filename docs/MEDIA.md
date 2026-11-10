@@ -8,10 +8,15 @@ The badge row in `README.md` is generated from a single source of truth and kept
 
 `docs/readme-config.toml` defines every badge slot (labels, messages, links, alt text, colours, logo slugs and style). The configuration uses `#[serde(deny_unknown_fields)]`; unknown keys are rejected.
 
-Brand colours come from `docs/media/brand.toml` (measured palette):
-- `orange` — `#C55E33`
-- `slate` — `#38454E`
-- `teal` — `#5C8E8D`
+Brand colours come from `docs/media/brand.toml` (the designed palette):
+- `orange` — `#FF5400`
+- `slate` — `#3A4A66`
+- `ink` — `#07080A`
+
+The brand teal `#5CC8C2` is not a badge colour: the badge style paints its
+text white, and white on the teal measures 2.00:1, below even the 3:1 floor
+the row holds every other ink to. Orange is 3.22:1 with white text — above
+the 3:1 floor, and it never paints small text on a light surface.
 
 ### Generation
 
@@ -23,7 +28,7 @@ By default the command:
 1. Reads `docs/readme-config.toml` and `docs/sample-output/climb-results.json` (committed, provenance-stamped).
 2. Builds six badges in two centred rows inside the markers `<!-- badges:begin -->` and `<!-- badges:end -->` in `README.md`:
    - **Identity row:** AIORI 3 Hackathon, Problem statement PS-036, Track 2 Cyber Security (portal links, slate label/orange message)
-   - **Proof row:** Built with Rust (rust-lang.org, slate label/teal message, `logo=rust`), Intro video YouTube (video URL, slate label/teal message, `logo=youtube`), Claims verified (links to `docs/deck-facts.md`, teal label/orange message)
+   - **Proof row:** Built with Rust (rust-lang.org, ink label/slate message, `logo=rust`), Intro video YouTube (video URL, ink label/slate message, `logo=youtube`), Claims verified (links to `docs/deck-facts.md`, ink label/orange message)
 3. Renders each badge as an `<a>` wrapping an `<img>`, using the shields.io static endpoint `https://img.shields.io/static/v1` with query parameters `label`, `message`, `color`, `labelColor`, `style`, `logo`, `logoColor`. Every value is percent-encoded in code. `&` in attribute values is escaped as `&amp;`.
 4. Prints the six badge URLs to stdout.
 
@@ -44,7 +49,12 @@ In strict mode the generator does not write; a drifted block fails with a non-ze
 
 ### Asset tracking
 
-Generated PNG/SVG/brand assets live in `docs/media/`. `docs/media/README.md` documents how they were produced and the palette.
+Generated PNG/SVG/brand assets live in `docs/media/`. `docs/media/README.md`
+documents the logo set, how every asset was produced, and the palette. The
+logo vectors follow the publication rules that `cargo xtask docs-check`
+enforces (strict XML, a size budget, an intrinsic size, no filters or blend
+modes, no reference that leaves the file), and the raster derivatives are
+rebuilt and verified by `python3 scripts/logo/build_logo_assets.py --check`.
 
 ## Commit graph artwork
 
@@ -95,8 +105,9 @@ are embedded as outlines: no font is requested at view time, so the picture
 cannot change with the viewer's font set. The palette is `#0E1217` for the
 card, `#E6EDF3` for primary ink, `#8B98A5` for secondary ink and
 `#5C8E8D`/`#7FB5B3` for the present day, the streak and completed milestones.
-Orange (`#C55E33`, sampled in `docs/media/brand.toml`) is reserved for data:
-the staircase, the bars and the area under the line. It never paints a glyph.
+Orange (`#FF5400`, the brand orange recorded in `docs/media/brand.toml`,
+5.83:1 against the card) is reserved for data: the staircase, the bars and
+the area under the line. It never paints a glyph.
 
 Motion is CSS-only: the staircase draws in, the bars rise in a short stagger,
 the flags fade in after the line, and only the ring around the present day

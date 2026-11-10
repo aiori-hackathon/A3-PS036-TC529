@@ -1716,7 +1716,7 @@ mod tests {
             .collect();
         inputs
             .open_questions
-            .push("/home/alice/secret.key must not appear literally".to_string());
+            .push("/home/alice/secret.key must not appear literally".to_string()); // path-hygiene:allow
         let content = build_pack(&inputs);
         let lines = content.lines().count();
         assert!(
@@ -1763,8 +1763,8 @@ mod tests {
 
     #[test]
     fn redact_hides_home_paths() {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/nobody".to_string());
-        let text = format!("build log: {home}/src/climb/target/out and /Users/bob/Library/x");
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/home/nobody".to_string()); // path-hygiene:allow
+        let text = format!("build log: {home}/src/climb/target/out and /Users/bob/Library/x"); // path-hygiene:allow
         let redacted = redact(&text);
         assert!(
             !redacted.contains("/home/"),

@@ -741,6 +741,11 @@ fn parse_footer_block(text: &str) -> Option<(usize, String)> {
     Some((begin + 1, lines[begin + 1..end].join("\n")))
 }
 
+/// The icon the README footer carries: a single vector that follows the
+/// viewer's colour scheme on its own, so no `<picture>` source pair is
+/// needed around it.
+const FOOTER_ICON_PATH: &str = "docs/media/logo/favicon.svg";
+
 /// Check the README footer block.
 fn check_footer_block(file: &str, text: &str) -> Vec<Violation> {
     let mut violations = Vec::new();
@@ -768,19 +773,11 @@ fn check_footer_block(file: &str, text: &str) -> Vec<Violation> {
             line,
             message: "footer block missing icon image".to_string(),
         });
-    } else if !images.iter().any(|(_ln, p)| p.contains("climb-icon")) {
+    } else if !images.iter().any(|(_ln, p)| p.contains(FOOTER_ICON_PATH)) {
         violations.push(Violation {
             file: file.to_string(),
             line,
-            message: "footer block must use docs/media/climb-icon.png".to_string(),
-        });
-    }
-
-    if !body.contains("<picture") {
-        violations.push(Violation {
-            file: file.to_string(),
-            line,
-            message: "footer block must use a <picture> element for the icon".to_string(),
+            message: format!("footer block must use {FOOTER_ICON_PATH}"),
         });
     }
 
@@ -994,6 +991,227 @@ pub(crate) fn check_logo_block(file: &str, text: &str) -> Vec<Violation> {
             line,
             message: "the logo block names no image".to_string(),
         });
+    }
+    violations
+}
+
+/// Markers bracketing the logo table of the media README.
+const LOGO_MEDIA_BEGIN: &str = "<!-- logo-media:begin -->";
+const LOGO_MEDIA_END: &str = "<!-- logo-media:end -->";
+
+/// Elements a published logo vector must not carry. Filters are dropped or
+/// mis-rendered by whole renderers, blend modes resolve differently across
+/// renderers, and embedded or external content turns a vector into a
+/// network fetch.
+const LOGO_BANNED_ELEMENTS: &[&str] = &[
+    "filter",
+    "feImage",
+    "script",
+    "foreignObject",
+    "image",
+    "use",
+];
+
+/// The byte budget of a published logo vector: twelve KiB, generous for
+/// hand-authored geometry and still small enough to inline.
+const LOGO_VECTOR_BUDGET_BYTES: usize = 12_288;
+
+/// The publication rules of one logo vector, checked from the committed
+/// bytes: strict XML, inside the byte budget, an intrinsic size on the root
+/// element (so a renderer knows what the drawing measures without a
+/// wrapper), no renderer-hostile construct and no reference that leaves the
+/// file.
+fn check_logo_vector(file: &str, path: &Path) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let raw = match std::fs::read(path) {
+        Ok(raw) => raw,
+        Err(error) => {
+            return vec![Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("failed to read {}: {error}", path.display()),
+            }];
+        }
+    };
+    if raw.len() > LOGO_VECTOR_BUDGET_BYTES {
+        violations.push(Violation {
+            file: file.to_string(),
+            line: 1,
+            message: format!(
+                "{} is {} B, over the {} B budget",
+                path.display(),
+                raw.len(),
+                LOGO_VECTOR_BUDGET_BYTES
+            ),
+        });
+    }
+    let text = match String::from_utf8(raw) {
+        Ok(text) => text,
+        Err(error) => {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("{} is not UTF-8: {error}", path.display()),
+            });
+            return violations;
+        }
+    };
+    let document = match roxmltree::Document::parse(&text) {
+        Ok(document) => document,
+        Err(error) => {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("{} is not strict XML: {error}", path.display()),
+            });
+            return violations;
+        }
+    };
+    for node in document.descendants() {
+        if LOGO_BANNED_ELEMENTS.contains(&node.tag_name().name()) {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!(
+                    "{} carries a <{}> element",
+                    path.display(),
+                    node.tag_name().name()
+                ),
+            });
+        }
+        for attribute in node.attributes() {
+            if attribute.value().contains("mix-blend-mode") {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line: 1,
+                    message: format!(
+                        "{} carries the blend mode {}={}",
+                        path.display(),
+                        attribute.name(),
+                        attribute.value()
+                    ),
+                });
+            }
+            if attribute.name().ends_with("href") && !attribute.value().starts_with('#') {
+                violations.push(Violation {
+                    file: file.to_string(),
+                    line: 1,
+                    message: format!(
+                        "{} carries the leaving reference {}={}",
+                        path.display(),
+                        attribute.name(),
+                        attribute.value()
+                    ),
+                });
+            }
+        }
+    }
+    let root = document.root_element();
+    for attribute in ["width", "height"] {
+        if root.attribute(attribute).is_none() {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!(
+                    "{} declares no intrinsic {attribute} on its root element",
+                    path.display()
+                ),
+            });
+        }
+    }
+    violations
+}
+
+/// The logo set under `docs/media/logo`: every committed vector follows the
+/// publication rules, the media README carries its logo table between the
+/// logo-media markers, and the table names every vector, so the documented
+/// set and the published set cannot drift apart.
+fn check_logo_assets(root: &Path) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let logo_dir = root.join("docs/media/logo");
+
+    let media_readme_path = root.join("docs/media/README.md");
+    let media_readme = match std::fs::read_to_string(&media_readme_path) {
+        Ok(text) => text,
+        Err(error) => {
+            return vec![Violation {
+                file: "docs/media/README.md".to_string(),
+                line: 1,
+                message: format!("failed to read it: {error}"),
+            }];
+        }
+    };
+    let table_body = (media_readme.contains(LOGO_MEDIA_BEGIN)
+        && media_readme.contains(LOGO_MEDIA_END))
+    .then(|| {
+        let begin = media_readme
+            .find(LOGO_MEDIA_BEGIN)
+            .expect("the marker was just checked");
+        let end = media_readme
+            .find(LOGO_MEDIA_END)
+            .expect("the marker was just checked");
+        &media_readme[begin + LOGO_MEDIA_BEGIN.len()..end]
+    });
+    if table_body.is_none() {
+        violations.push(Violation {
+            file: "docs/media/README.md".to_string(),
+            line: 1,
+            message: format!(
+                "missing the `{LOGO_MEDIA_BEGIN}` / `{LOGO_MEDIA_END}` logo table markers"
+            ),
+        });
+    }
+
+    let entries = match std::fs::read_dir(&logo_dir) {
+        Ok(entries) => entries,
+        Err(error) => {
+            violations.push(Violation {
+                file: "docs/media/logo".to_string(),
+                line: 1,
+                message: format!("failed to read {}: {error}", logo_dir.display()),
+            });
+            return violations;
+        }
+    };
+    let mut paths: Vec<PathBuf> = Vec::new();
+    for entry in entries {
+        match entry {
+            Ok(entry) => paths.push(entry.path()),
+            Err(error) => violations.push(Violation {
+                file: "docs/media/logo".to_string(),
+                line: 1,
+                message: format!("failed to read an entry: {error}"),
+            }),
+        }
+    }
+    paths.sort();
+    for path in paths {
+        if path.extension().is_some_and(|ext| ext == "svg") {
+            let label = path
+                .strip_prefix(root)
+                .unwrap_or(&path)
+                .display()
+                .to_string();
+            violations.extend(check_logo_vector(&label, &path));
+            if let Some(body) = &table_body {
+                let name = path.file_name().map(|n| n.to_string_lossy().into_owned());
+                match name {
+                    Some(name) if body.contains(&format!("`{name}`")) => {}
+                    Some(name) => violations.push(Violation {
+                        file: "docs/media/README.md".to_string(),
+                        line: 1,
+                        message: format!(
+                            "the logo table omits `{name}`, which is published in docs/media/logo"
+                        ),
+                    }),
+                    None => violations.push(Violation {
+                        file: label,
+                        line: 1,
+                        message: "the vector has no file name".to_string(),
+                    }),
+                }
+            }
+        }
     }
     violations
 }
@@ -1996,6 +2214,11 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
 
+    // The logo vectors under docs/media/logo follow the publication rules,
+    // and the media README's logo table names every one of them, so the
+    // documented set and the published set cannot drift apart.
+    violations.extend(check_logo_assets(&args.root));
+
     // The README's quickstart is marker-bracketed and its commands are pinned
     // to the two clean-clone scripts, so the documented path and the verified
     // path cannot drift apart.
@@ -2610,13 +2833,13 @@ mod tests {
 
     #[test]
     fn a_headline_row_matching_the_sheet_passes() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | C |\n| Speed-up | \u{2248}9,869 \u{d7} | EXTRAPOLATED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><img src=\"docs/media/logo/favicon.svg\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         assert!(check_file("README.md", text, &facts(), &known()).is_empty());
     }
 
     #[test]
     fn a_headline_row_with_the_wrong_class_or_baseline_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | 2,743,352 B | MEASURED | B |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><img src=\"docs/media/logo/favicon.svg\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0]
@@ -2626,7 +2849,7 @@ mod tests {
 
     #[test]
     fn a_headline_row_without_a_number_is_a_violation() {
-        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
+        let text = "<!-- headline:begin -->\n| Metric | Value | Evidence class | Baseline |\n| --- | --- | --- | --- |\n| Wire, Medium C | smaller | MEASURED | C |\n<!-- headline:end -->\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><img src=\"docs/media/logo/favicon.svg\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->";
         let violations = check_file("README.md", text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("no number+unit pair"));
@@ -2897,7 +3120,7 @@ mod tests {
     #[test]
     fn a_logo_block_naming_an_image_passes() {
         let text = format!(
-            "{LOGO_BEGIN}\n<picture><img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\"></picture>\n{LOGO_END}\n"
+            "{LOGO_BEGIN}\n<picture><img src=\"docs/media/logo/climb-logo-light.svg\" alt=\"CLIMB\"></picture>\n{LOGO_END}\n"
         );
         assert!(check_logo_block("README.md", &text).is_empty());
     }
@@ -3157,10 +3380,10 @@ mod tests {
     #[test]
     fn markdown_and_html_image_paths_are_extracted() {
         let text = concat!(
-            "![the mark](docs/media/climb-mark-light.png)\n",
+            "![the mark](docs/media/logo/climb-logo-light.svg)\n",
             "<picture>\n",
-            "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"docs/media/climb-mark-dark.png\">\n",
-            "  <img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\" width=\"380\">\n",
+            "  <source media=\"(prefers-color-scheme: dark)\" srcset=\"docs/media/logo/climb-logo-dark.svg\">\n",
+            "  <img src=\"docs/media/logo/climb-logo-light.svg\" alt=\"CLIMB\" width=\"428\">\n",
             "</picture>\n",
         );
         let found = extract_image_paths(text);
@@ -3168,9 +3391,9 @@ mod tests {
         assert_eq!(
             paths,
             vec![
-                "docs/media/climb-mark-light.png",
-                "docs/media/climb-mark-dark.png",
-                "docs/media/climb-mark-light.png",
+                "docs/media/logo/climb-logo-light.svg",
+                "docs/media/logo/climb-logo-dark.svg",
+                "docs/media/logo/climb-logo-light.svg",
             ]
         );
         assert_eq!(found[0].0, 1);
@@ -3179,36 +3402,36 @@ mod tests {
 
     #[test]
     fn a_srcset_density_descriptor_is_not_read_as_a_path() {
-        let text = "<img srcset=\"docs/media/climb-mark-light.png 1x, docs/media/climb-mark-dark.png 2x\">\n";
+        let text = "<img srcset=\"docs/media/logo/climb-logo-light.svg 1x, docs/media/logo/climb-logo-dark.svg 2x\">\n";
         let found = extract_image_paths(text);
         let paths: Vec<&str> = found.iter().map(|(_, path)| path.as_str()).collect();
         assert_eq!(
             paths,
             vec![
-                "docs/media/climb-mark-light.png",
-                "docs/media/climb-mark-dark.png"
+                "docs/media/logo/climb-logo-light.svg",
+                "docs/media/logo/climb-logo-dark.svg"
             ]
         );
     }
 
     #[test]
     fn a_relative_image_path_that_is_tracked_passes() {
-        let text = "<img src=\"docs/media/climb-mark-light.png\" alt=\"CLIMB\">\n";
-        let files = tracked(&["docs/media/climb-mark-light.png"]);
+        let text = "<img src=\"docs/media/logo/climb-logo-light.svg\" alt=\"CLIMB\">\n";
+        let files = tracked(&["docs/media/logo/climb-logo-light.svg"]);
         assert!(check_image_paths("README.md", "", text, &files).is_empty());
     }
 
     #[test]
     fn a_relative_image_path_that_is_not_tracked_is_a_violation() {
-        let text = "<img src=\"docs/media/climb-mark-missing.png\" alt=\"CLIMB\">\n";
-        let files = tracked(&["docs/media/climb-mark-light.png"]);
+        let text = "<img src=\"docs/media/logo/climb-logo-missing.svg\" alt=\"CLIMB\">\n";
+        let files = tracked(&["docs/media/logo/climb-logo-light.svg"]);
         let violations = check_image_paths("README.md", "", text, &files);
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert_eq!(violations[0].line, 1);
         assert!(
             violations[0]
                 .message
-                .contains("docs/media/climb-mark-missing.png"),
+                .contains("docs/media/logo/climb-logo-missing.svg"),
             "{violations:?}"
         );
         assert!(violations[0].message.contains("not a tracked file"));
@@ -3227,8 +3450,8 @@ mod tests {
 
     #[test]
     fn image_paths_resolve_against_the_document_directory() {
-        let text = "<img src=\"media/climb-icon.png\" alt=\"the icon\">\n";
-        let files = tracked(&["docs/media/climb-icon.png"]);
+        let text = "<img src=\"media/logo/favicon.svg\" alt=\"the icon\">\n";
+        let files = tracked(&["docs/media/logo/favicon.svg"]);
         // A document in `docs/` resolves the path against its own directory.
         assert!(check_image_paths("docs/README.md", "docs", text, &files).is_empty());
         // The same document in `docs/media/` would look one level deeper.
@@ -3237,7 +3460,7 @@ mod tests {
             1
         );
         // A sibling path in the document's own directory resolves the same way.
-        let sibling = "<img src=\"climb-icon.png\" alt=\"the icon\">\n";
+        let sibling = "<img src=\"logo/favicon.svg\" alt=\"the icon\">\n";
         assert!(
             check_image_paths("docs/media/README.md", "docs/media", sibling, &files).is_empty()
         );
@@ -3276,7 +3499,7 @@ mod tests {
 
     #[test]
     fn the_badge_block_lines_are_exempt_from_the_numeric_rule() {
-        let text = format!("# Title\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
+        let text = format!("# Title\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><img src=\"docs/media/logo/favicon.svg\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert!(violations.is_empty(), "{violations:?}");
     }
@@ -3285,7 +3508,7 @@ mod tests {
     fn the_numeric_rule_still_applies_outside_the_badge_block() {
         // The same digits, one line above the block, are still a violation:
         // the exemption covers the managed block and nothing else.
-        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
+        let text = format!("the block reads 771 % here\n\n{BADGE_BLOCK}\n<!-- live:begin -->\nLive demo: coming with the web release\n<!-- live:end -->\n<!-- footer:begin -->\n---\n<div align=\"center\"><img src=\"docs/media/logo/favicon.svg\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>[Report](docs/sample-output/report.html) · [Deck](A3-PS036-TC529.pdf) · [Intro video](x) · [Methodology](docs/METHODOLOGY.md) · [Honest limits](#honest-limits) · [Licence](LICENSE)</sub>\n<sub>Built on Verisign Labs libMTL reference implementation, liboqs from Open Quantum Safe, NSD and Unbound from NLnet Labs</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n<!-- footer:end -->\n");
         let violations = check_file("README.md", &text, &facts(), &known());
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(violations[0].message.contains("771 %"), "{violations:?}");
@@ -3400,6 +3623,195 @@ fn footer_block_link_resolution() {
     assert!(body.contains("[Methodology](docs/METHODOLOGY.md)"));
     assert!(body.contains("[Honest limits](#honest-limits)"));
     assert!(body.contains("[Licence](LICENSE)"));
+}
+
+#[test]
+fn the_footer_icon_must_be_the_scheme_following_favicon() {
+    // The footer icon is the vector that follows the viewer's colour scheme
+    // on its own; the retired icon, with or without its <picture> wrapper,
+    // must be refused.
+    let retired = format!(
+        "{FOOTER_BEGIN}\n---\n<div align=\"center\"><picture><img src=\"docs/media/climb-icon.png\" width=\"36\"></picture></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>links and nothing numeric</sub>\n<sub>built on the libraries</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n{FOOTER_END}\n"
+    );
+    let violations = check_footer_block("README.md", &retired);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains(FOOTER_ICON_PATH)),
+        "{violations:?}"
+    );
+
+    let current = format!(
+        "{FOOTER_BEGIN}\n---\n<div align=\"center\"><img src=\"{FOOTER_ICON_PATH}\" width=\"36\"></div>\n<sub>CLIMB</sub>\n<sub>Team</sub>\n<sub>links and nothing numeric</sub>\n<sub>built on the libraries</sub>\n<div align=\"center\"><sub><em>Measured, not claimed.</em></sub></div>\n{FOOTER_END}\n"
+    );
+    assert!(
+        check_footer_block("README.md", &current).is_empty(),
+        "{violations:?}"
+    );
+}
+
+/// A logo vector that satisfies every publication rule.
+#[cfg(test)]
+const CLEAN_LOGO_VECTOR: &str = concat!(
+    "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"287\" height=\"287\" viewBox=\"0 0 287 287\">\n",
+    "  <path d=\"M10 10h20v20h-20z\" fill=\"#07080A\"/>\n",
+    "</svg>\n",
+);
+
+#[test]
+fn a_conforming_logo_vector_passes_the_publication_rules() {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("clean.svg");
+    std::fs::write(&path, CLEAN_LOGO_VECTOR).expect("the vector is written");
+    let violations = check_logo_vector("clean.svg", &path);
+    assert!(violations.is_empty(), "{violations:?}");
+}
+
+#[test]
+fn a_logo_vector_with_a_filter_fails_the_publication_rules() {
+    let with_filter = CLEAN_LOGO_VECTOR.replace(
+        "</svg>",
+        "  <filter id=\"shadow\"><feGaussianBlur stdDeviation=\"2\"/></filter>\n</svg>",
+    );
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("filtered.svg");
+    std::fs::write(&path, with_filter).expect("the vector is written");
+    let violations = check_logo_vector("filtered.svg", &path);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("<filter>")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn a_logo_vector_with_a_blend_mode_fails_the_publication_rules() {
+    let blended = CLEAN_LOGO_VECTOR.replace(
+        "fill=\"#07080A\"",
+        "fill=\"#07080A\" style=\"mix-blend-mode: multiply\"",
+    );
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("blended.svg");
+    std::fs::write(&path, blended).expect("the vector is written");
+    let violations = check_logo_vector("blended.svg", &path);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("blend mode")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn a_logo_vector_with_an_external_href_fails_the_publication_rules() {
+    let leaving = CLEAN_LOGO_VECTOR.replace(
+        "</svg>",
+        "  <a href=\"https://example.invalid/picture.svg\"><path d=\"M1 1\"/></a>\n</svg>",
+    );
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("leaving.svg");
+    std::fs::write(&path, leaving).expect("the vector is written");
+    let violations = check_logo_vector("leaving.svg", &path);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("leaving reference")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn a_logo_vector_without_an_intrinsic_size_fails_the_publication_rules() {
+    let without_size = CLEAN_LOGO_VECTOR
+        .replace(" width=\"287\"", "")
+        .replace(" height=\"287\"", "");
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("unsized.svg");
+    std::fs::write(&path, without_size).expect("the vector is written");
+    let violations = check_logo_vector("unsized.svg", &path);
+    assert_eq!(violations.len(), 2, "{violations:?}");
+    assert!(
+        violations
+            .iter()
+            .all(|violation| violation.message.contains("intrinsic")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn an_oversized_logo_vector_fails_the_publication_rules() {
+    let padding = "x".repeat(13_000);
+    let oversized = format!("{CLEAN_LOGO_VECTOR}<!-- {padding} -->");
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("oversized.svg");
+    std::fs::write(&path, oversized).expect("the vector is written");
+    let violations = check_logo_vector("oversized.svg", &path);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("over the")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn a_logo_vector_that_is_not_strict_xml_fails_the_publication_rules() {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let path = dir.path().join("broken.svg");
+    std::fs::write(&path, "<svg xmlns=\"http://www.w3.org/2000/svg\">")
+        .expect("the vector is written");
+    let violations = check_logo_vector("broken.svg", &path);
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("not strict XML")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn an_undocumented_logo_vector_fails_the_table_sync() {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let logo = dir.path().join("docs/media/logo");
+    std::fs::create_dir_all(&logo).expect("the logo directory is created");
+    std::fs::write(logo.join("mark.svg"), CLEAN_LOGO_VECTOR).expect("the vector is written");
+    std::fs::write(
+        dir.path().join("docs/media/README.md"),
+        format!("the table\n{LOGO_MEDIA_BEGIN}\n| File |\n{LOGO_MEDIA_END}\n"),
+    )
+    .expect("the media README is written");
+    let violations = check_logo_assets(dir.path());
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains("the logo table omits")),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn a_media_readme_without_the_logo_table_markers_is_a_violation() {
+    let dir = tempfile::tempdir().expect("a scratch directory");
+    let logo = dir.path().join("docs/media/logo");
+    std::fs::create_dir_all(&logo).expect("the logo directory is created");
+    std::fs::write(logo.join("mark.svg"), CLEAN_LOGO_VECTOR).expect("the vector is written");
+    std::fs::write(dir.path().join("docs/media/README.md"), "no table at all\n")
+        .expect("the media README is written");
+    let violations = check_logo_assets(dir.path());
+    assert!(
+        violations
+            .iter()
+            .any(|violation| violation.message.contains(LOGO_MEDIA_BEGIN)),
+        "{violations:?}"
+    );
+}
+
+#[test]
+fn the_committed_logo_set_follows_the_publication_rules() {
+    let root = crate::pin_env::workspace_root().expect("root");
+    let violations = check_logo_assets(&root);
+    assert!(violations.is_empty(), "{violations:?}");
 }
 
 #[test]

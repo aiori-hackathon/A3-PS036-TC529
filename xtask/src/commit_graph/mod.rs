@@ -419,7 +419,7 @@ fn validate_config(config: &CommitGraphConfig) -> Result<()> {
             || !accent.starts_with('#')
             || !accent[1..].bytes().all(|byte| byte.is_ascii_hexdigit())
         {
-            bail!("commit_graph.style.accent must be a six-digit hex colour, such as #C55E33");
+            bail!("commit_graph.style.accent must be a six-digit hex colour, such as #FF5400");
         }
     }
     if config.style.title.trim().is_empty() {

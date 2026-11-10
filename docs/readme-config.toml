@@ -22,13 +22,17 @@ video = "https://www.youtube.com/watch?v=gDHYamjWmtE"
 rust = "https://www.rust-lang.org/"
 claims = "docs/deck-facts.md"
 
-# The brand palette, sampled from the artwork and recorded in
-# docs/media/brand.toml. A badge names one of these keys in its colour fields.
-# Every ink clears 3:1 against white text.
+# The brand palette, designed for the team wordmark and recorded in
+# docs/media/brand.toml. A badge names one of these keys in its colour
+# fields. shields.io paints the badge text white, so only inks that carry
+# white text may sit here: slate (8.93:1), ink (20.04:1) and orange
+# (3.22:1, which clears the 3:1 floor but never paints small text on a
+# light surface). The brand teal is 2.00:1 against white and is therefore
+# not a badge colour.
 [badges.colours]
-orange = "#C55E33"
-slate = "#38454E"
-teal = "#5C8E8D"
+orange = "#FF5400"
+slate = "#3A4A66"
+ink = "#07080A"
 
 # The identity row: who the submission is.
 
@@ -63,8 +67,8 @@ label = "built with"
 message = "Rust"
 alt = "Built with Rust"
 link = "rust"
-label_color = "slate"
-message_color = "teal"
+label_color = "ink"
+message_color = "slate"
 logo = "rust"
 
 [badges.video]
@@ -72,8 +76,8 @@ label = "intro video"
 message = "YouTube"
 alt = "YouTube introduction video — watch the team introduction"
 link = "video"
-label_color = "slate"
-message_color = "teal"
+label_color = "ink"
+message_color = "slate"
 logo = "youtube"
 
 # The claims badge: `{claims}` is replaced by the number of claims that
@@ -84,7 +88,7 @@ label = "claims verified"
 message = "{claims}"
 alt = "Claims verified: {claims}"
 link = "claims"
-label_color = "teal"
+label_color = "ink"
 message_color = "orange"
 
 # ── Commit graph ─────────────────────────────────────────────────────────────
@@ -150,9 +154,10 @@ staleness_days = 7
 # Presentation knobs. Every value has a default, so an older configuration
 # file keeps working.
 [commit_graph.style]
-# Colour of the staircase and the day bars. This is the brand orange sampled
-# from docs/media/brand.toml; orange never sets text.
-accent = "#C55E33"
+# Colour of the staircase and the day bars. This is the brand orange
+# recorded in docs/media/brand.toml; orange never sets text. Against the
+# card background it measures 5.83:1, clearing the 3:1 data-ink floor.
+accent = "#FF5400"
 # Serif title set at the top of both cards.
 title = "The Climb"
 # Draw the milestone flags on the timeline.

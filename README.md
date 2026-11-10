@@ -1,8 +1,8 @@
 <!-- logo:begin -->
 <div align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/media/climb-mark-dark.png">
-    <img src="docs/media/climb-mark-light.png" alt="CLIMB — Cryptographic Ladder Impact Measurement Benchmark" width="300">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo/climb-logo-dark.svg">
+    <img src="docs/media/logo/climb-logo-light.svg" alt="CLIMB — Cryptographic Ladder Impact Measurement Benchmark" width="428">
   </picture>
 </div>
 <!-- logo:end -->
@@ -13,20 +13,20 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- badges:begin -->
 <div align="center">
-  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="AIORI 3 Hackathon — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
-  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Problem statement PS-036 — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=problem%20statement&amp;message=PS-036&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
-  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Track 2 Cyber Security — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=track%202&amp;message=Cyber%20Security&amp;color=C55E33&amp;labelColor=38454E&amp;style=for-the-badge"></a>
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="AIORI 3 Hackathon — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Problem statement PS-036 — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=problem%20statement&amp;message=PS-036&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
+  <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Track 2 Cyber Security — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=track%202&amp;message=Cyber%20Security&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
   <br>
-  <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
-  <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=5C8E8D&amp;labelColor=38454E&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
-  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 789/789" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=789%2F789&amp;color=C55E33&amp;labelColor=5C8E8D&amp;style=for-the-badge"></a>
+  <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
+  <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
+  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 789/789" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=789%2F789&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
 </div>
 <!-- badges:end -->
 
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/0274bdb1624ef13ed15a0acef43d3a8dd3c54b67" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1152634316aafff9ca62fb3492bab306bd4860b2" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -137,7 +137,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/0274bdb1624ef13ed15a0acef43d3a8dd3c54b67" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1152634316aafff9ca62fb3492bab306bd4860b2" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
@@ -491,10 +491,7 @@ or certification is claimed for MTL mode, SLH-DSA or any component here.
 ---
 
 <div align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/media/climb-icon.png">
-    <img src="docs/media/climb-icon.png" alt="CLIMB icon" width="36">
-  </picture>
+  <img src="docs/media/logo/favicon.svg" alt="CLIMB icon" width="36">
 </div>
 
 <sub>CLIMB - Cryptographic Ladder Impact Measurement Benchmark</sub>  

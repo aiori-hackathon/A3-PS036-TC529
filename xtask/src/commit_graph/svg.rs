@@ -55,7 +55,7 @@ impl Default for Palette {
             border: "#FFFFFF".to_string(),
             ink: "#E6EDF3".to_string(),
             muted: "#8B98A5".to_string(),
-            orange: "#C55E33".to_string(),
+            orange: "#FF5400".to_string(),
             teal: "#5C8E8D".to_string(),
             teal_text: "#7FB5B3".to_string(),
         }

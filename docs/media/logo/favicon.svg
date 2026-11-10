@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="287" height="287" viewBox="0 0 287 287" fill="none">
+ <style>@media (prefers-color-scheme: dark) { .ink { fill: #F2EDE4; stroke: #F2EDE4; } }</style>
+ <path transform="matrix(1 0 0 1 0 15.5)" d="M0 0L57 0L142 73L228 0L287 0L287 256L227 256L227 102L142 176L58 102L58 256L0 256L0 0Z" fill="url(#m-orange)"/>
+ <path transform="matrix(1 0 0 1 0 15.5)" d="M0 0L57 0L142 73L228 0L287 0L287 256L227 256L227 102L142 176L58 102L58 256L0 256L0 0Z" fill="url(#m-rose)"/>
+ <path transform="matrix(1 0 0 1 0 15.5)" d="M0 0L57 0L142 73L228 0L287 0L287 256L227 256L227 102L142 176L58 102L58 256L0 256L0 0Z" fill="url(#m-base)"/>
+ <path transform="matrix(1 0 0 1 83 161.5)" d="M59 0L59 38L0 38L0 63L27 63L27 110" class="ink" fill="none" stroke="#000000" stroke-width="11" stroke-linecap="square"/>
+ <path transform="matrix(1 0 0 1 142 199.5)" d="M0 0L59 0L59 25L32 25L32 72" fill="none" stroke="#FF0000" stroke-width="11" stroke-linecap="square"/>
+ <path transform="matrix(1 0 0 1 58 224.5)" d="M25 0L0 0L0 47" fill="none" stroke="#FF0000" stroke-width="11" stroke-linecap="square"/>
+ <path transform="matrix(1 0 0 1 201 224.5)" d="M0 0L25 0L25 47" class="ink" fill="none" stroke="#050505" stroke-width="11" stroke-linecap="square"/>
+ <path transform="matrix(1 0 0 1 117 120.5)" d="M50 25C50 38.807 38.807 50 25 50C11.193 50 0 38.807 0 25C0 11.193 11.193 0 25 0C38.807 0 50 11.193 50 25" class="ink" fill="#000000"/>
+ <defs>
+  <linearGradient id="m-orange" x1="-1.552" y1="-6.471" x2="289.4" y2="254.416" gradientUnits="userSpaceOnUse"><stop offset="0.181" stop-color="#FD5500"/><stop offset="0.499" stop-color="#FD5700" stop-opacity="0.567"/><stop offset="0.82" stop-color="#FE5900" stop-opacity="0"/></linearGradient>
+  <linearGradient id="m-rose" x1="290.182" y1="251.915" x2="0.853" y2="-15.01" gradientUnits="userSpaceOnUse"><stop offset="0.127" stop-color="#D9D9D9"/><stop offset="0.284" stop-color="#F10000" stop-opacity="0"/></linearGradient>
+  <linearGradient id="m-base" x1="238.524" y1="226.15" x2="314.319" y2="279.061" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#4D1111" stop-opacity="0"/><stop offset="1" stop-color="#4D1111"/></linearGradient>
+ </defs>
+</svg>
