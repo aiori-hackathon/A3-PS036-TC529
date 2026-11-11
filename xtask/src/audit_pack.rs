@@ -24,6 +24,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::check_pins;
 use crate::docs_check;
+use crate::link_check::{self, LinkCheck};
 use crate::proc;
 use crate::source_hygiene;
 
@@ -145,15 +146,6 @@ pub(crate) struct SiteInfo {
     pub(crate) build: Option<String>,
     pub(crate) lighthouse: Option<String>,
     pub(crate) wasm_size: Option<String>,
-}
-
-/// The link-check summary.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct LinkCheck {
-    pub(crate) total: u64,
-    pub(crate) broken: u64,
-    pub(crate) broken_list: Vec<String>,
-    pub(crate) external: u64,
 }
 
 /// All inputs to [`build_pack`], gathered from the workspace or fabricated in
@@ -454,29 +446,7 @@ where
 /// Run the mermaid lint gate in-process over `README.md` and `docs/*.md`.
 fn run_mermaid_lint_gate(root: &Path) -> Result<GateResult> {
     let started = Instant::now();
-    let mut paths = Vec::new();
-    let readme = root.join("README.md");
-    if readme.is_file() {
-        paths.push(readme);
-    }
-    let docs_dir = root.join("docs");
-    if docs_dir.is_dir() {
-        collect_md(&docs_dir, &mut paths);
-    }
-    let mut violations = 0usize;
-    for path in paths {
-        let text = fs::read_to_string(&path)
-            .with_context(|| format!("failed to read {}", path.display()))?;
-        violations += docs_check::lint_mermaid_blocks(
-            &path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .display()
-                .to_string(),
-            &text,
-        )
-        .len();
-    }
+    let violations = docs_check::mermaid_violations(root)?.len();
     let duration = started.elapsed();
     let exit = if violations > 0 {
         eprintln!(
@@ -649,7 +619,7 @@ fn gather_inputs(root: &Path, tests: &TestCounts, gates: Vec<GateResult>) -> Res
     let repo_size = human_size(dir_size(root, &[".git", "target"]));
     let media_size = human_size(dir_size(&root.join("docs/media"), &[]));
     let site = site_info(root);
-    let link_check = link_check(root);
+    let link_check = link_check::scan(root).unwrap_or_default();
     let date = current_date_utc();
     let host_fingerprint = host_fingerprint(root);
     Ok(PackInputs {
@@ -904,21 +874,6 @@ fn collect_rs(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// Recursively collect `.md` files under `dir`.
-fn collect_md(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            collect_md(&path, out);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("md") {
-            out.push(path);
-        }
-    }
-}
-
 /// Sum the bytes of every file under `dir`, skipping directories named in
 /// `skip`.
 fn dir_size(dir: &Path, skip: &[&str]) -> u64 {
@@ -1160,97 +1115,6 @@ fn readme_markers(root: &Path) -> Vec<(String, bool)> {
             (name.to_string(), has)
         })
         .collect()
-}
-
-/// Link-check over `README.md` and `docs/*.md`: relative links must resolve to
-/// an existing file; external links are reported but not fetched (offline).
-fn link_check(root: &Path) -> LinkCheck {
-    let mut total = 0u64;
-    let mut broken = 0u64;
-    let mut external = 0u64;
-    let mut broken_list = Vec::new();
-    let mut docs = Vec::new();
-    docs.push(root.join("README.md"));
-    collect_md(&root.join("docs"), &mut docs);
-    docs.sort();
-    docs.dedup();
-    for path in docs {
-        let Ok(text) = fs::read_to_string(&path) else {
-            continue;
-        };
-        let base = path.parent().unwrap_or(root);
-        for url in extract_urls(&text) {
-            total += 1;
-            // A fragment-only reference is a same-page anchor, always valid.
-            if url.is_empty() || url.starts_with('#') {
-                continue;
-            }
-            if url.starts_with("http://") || url.starts_with("https://") {
-                external += 1;
-                continue;
-            }
-            let resolved = base.join(&url);
-            let exists = resolved.is_file();
-            if !exists {
-                broken += 1;
-                let relative = path.strip_prefix(root).unwrap_or(&path);
-                broken_list.push(format!("{}: {}", relative.display(), url));
-            }
-        }
-    }
-    broken_list.sort();
-    broken_list.truncate(8);
-    LinkCheck {
-        total,
-        broken,
-        broken_list,
-        external,
-    }
-}
-
-/// Extract link/attachment URLs from markdown and HTML attributes.
-fn extract_urls(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let chars: Vec<char> = text.chars().collect();
-    let mut cursor = 0;
-    while cursor < chars.len() {
-        if chars[cursor] == ']' && cursor + 1 < chars.len() && chars[cursor + 1] == '(' {
-            let mut i = cursor + 2;
-            while i < chars.len() && chars[i] != ')' {
-                i += 1;
-            }
-            if i < chars.len() {
-                let url: String = chars[cursor + 2..i].iter().collect();
-                out.push(url.trim().to_string());
-            }
-            cursor = i.saturating_add(1);
-            continue;
-        }
-        if cursor + 5 < chars.len() && chars[cursor..cursor + 6] == ['h', 'r', 'e', 'f', '=', '"'] {
-            let mut i = cursor + 6;
-            while i < chars.len() && chars[i] != '"' {
-                i += 1;
-            }
-            if i < chars.len() {
-                out.push(chars[cursor + 6..i].iter().collect());
-            }
-            cursor = i.saturating_add(1);
-            continue;
-        }
-        if cursor + 4 < chars.len() && chars[cursor..cursor + 5] == ['s', 'r', 'c', '=', '"'] {
-            let mut i = cursor + 5;
-            while i < chars.len() && chars[i] != '"' {
-                i += 1;
-            }
-            if i < chars.len() {
-                out.push(chars[cursor + 5..i].iter().collect());
-            }
-            cursor = i.saturating_add(1);
-            continue;
-        }
-        cursor += 1;
-    }
-    out
 }
 
 /// The site/ summary: build status, Lighthouse scores and WASM size from the

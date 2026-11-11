@@ -6,11 +6,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "native")]
 use climb_report::charts::generate_charts;
+#[cfg(feature = "native")]
 use climb_report::html::{check_report, relative_href, render_html};
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize, ClimbResults};
 
 mod audit_pack;
+#[cfg(feature = "native")]
 mod charts;
 mod check_pins;
 mod commit_graph;
@@ -25,7 +28,9 @@ mod dns_rtt;
 mod docs_check;
 mod groups;
 mod headline;
+#[cfg(feature = "native")]
 mod ladder_verify;
+mod link_check;
 mod memory;
 mod package;
 mod pin_env;
@@ -37,8 +42,11 @@ mod source_hygiene;
 mod stability;
 mod verify_consolidated;
 mod verify_numbers;
+#[cfg(feature = "native")]
 mod wire;
+mod workflows;
 use audit_pack::{cmd_audit_pack, AuditPackArgs};
+#[cfg(feature = "native")]
 use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
 use commit_graph::{cmd_commit_graph, CommitGraphArgs};
@@ -50,10 +58,12 @@ use dist_tui::{cmd_dist_tui, DistTuiArgs};
 use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
-use docs_check::{cmd_docs_check, DocsCheckArgs};
+use docs_check::{cmd_docs_check, cmd_mermaid_lint, DocsCheckArgs, MermaidLintArgs};
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use headline::{cmd_headline, HeadlineArgs};
+#[cfg(feature = "native")]
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
+use link_check::{cmd_link_check, LinkCheckArgs};
 use memory::{cmd_memory_report, MemoryReportArgs};
 use package::{cmd_package, PackageArgs};
 use pin_env::cmd_pin_env;
@@ -66,7 +76,57 @@ use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use verify_numbers::{cmd_verify_numbers, VerifyNumbersArgs};
+#[cfg(feature = "native")]
 use wire::{cmd_wire_report, WireReportArgs};
+use workflows::{cmd_workflows, WorkflowsArgs};
+
+#[cfg(not(feature = "native"))]
+#[derive(Args)]
+pub(crate) struct ChartsArgs {
+    #[arg(long, default_value = "target/climb-results.json")]
+    results: PathBuf,
+    #[arg(long, default_value = "target/climb-report/charts")]
+    out: PathBuf,
+}
+
+#[cfg(not(feature = "native"))]
+fn cmd_charts(_: ChartsArgs) -> Result<()> {
+    bail!("`charts` requires the `native` feature")
+}
+
+#[cfg(not(feature = "native"))]
+#[derive(Args)]
+pub(crate) struct WireReportArgs {
+    #[arg(long, value_delimiter = ',', default_value = "all")]
+    sizes: Vec<SizeArg>,
+    #[arg(long, default_value_t = climb_bench::DEFAULT_WIRE_SEED)]
+    seed: u64,
+    #[arg(long)]
+    out: Option<PathBuf>,
+}
+
+#[cfg(not(feature = "native"))]
+fn cmd_wire_report(_: WireReportArgs) -> Result<()> {
+    bail!("`wire-report` requires the `native` feature")
+}
+
+#[cfg(not(feature = "native"))]
+#[derive(Args)]
+pub(crate) struct LadderVerifyArgs {
+    #[arg(long, value_delimiter = ',')]
+    sizes: Option<Vec<usize>>,
+    #[arg(long, default_value_t = climb_bench::DEFAULT_LADDER_SEED)]
+    seed: u64,
+    #[arg(long, default_value = "target/ladder-verification.json")]
+    out: PathBuf,
+    #[arg(long)]
+    record: Option<PathBuf>,
+}
+
+#[cfg(not(feature = "native"))]
+fn cmd_ladder_verify(_: LadderVerifyArgs) -> Result<()> {
+    bail!("`ladder-verify` requires the `native` feature")
+}
 
 /// Legacy CLI automation tasks — pinned-env, bench-all, report, wire-report,
 /// and other workspace operations.  The enum has grown over many
@@ -264,6 +324,14 @@ enum Commands {
     /// gates. The pack is written even when gates fail; the process exits
     /// non-zero when any gate fails.
     AuditPack(AuditPackArgs),
+    /// Lint the Mermaid diagrams in `README.md` and `docs/**/*.md`.
+    MermaidLint(MermaidLintArgs),
+    /// Check that every relative link and image path in `README.md` and
+    /// `docs/**/*.md` resolves to a file in the repository.
+    LinkCheck(LinkCheckArgs),
+    /// Lint the GitHub Actions workflows for full-SHA action pins, minimal
+    /// permissions, no `pull_request_target` and no secret references.
+    Workflows(WorkflowsArgs),
 }
 
 #[derive(Args)]
@@ -389,6 +457,9 @@ fn main() -> Result<()> {
         Commands::DatasetDigests(args) => cmd_dataset_digests(args),
         Commands::Preflight(args) => cmd_preflight(args),
         Commands::AuditPack(args) => cmd_audit_pack(args),
+        Commands::MermaidLint(args) => cmd_mermaid_lint(args),
+        Commands::LinkCheck(args) => cmd_link_check(args),
+        Commands::Workflows(args) => cmd_workflows(args),
     }
 }
 
@@ -687,6 +758,7 @@ fn load_results(path: &Path) -> Result<ClimbResults> {
     serde_json::from_str(&s).with_context(|| format!("failed to parse {}", path.display()))
 }
 
+#[cfg(feature = "native")]
 fn cmd_report_html(args: &ReportArgs) -> Result<()> {
     let results = load_results(&args.results)?;
 
@@ -720,6 +792,11 @@ fn cmd_report_html(args: &ReportArgs) -> Result<()> {
         .with_context(|| format!("failed to write {}", args.out.display()))?;
     println!("wrote {} (self-check clean)", args.out.display());
     Ok(())
+}
+
+#[cfg(not(feature = "native"))]
+fn cmd_report_html(_: &ReportArgs) -> Result<()> {
+    bail!("rendering the HTML report requires the `native` feature")
 }
 
 fn cmd_report_check(args: &ReportArgs) -> Result<()> {

@@ -20,6 +20,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
   <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
   <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
   <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 801/801" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=801%2F801&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
+  <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/actions" target="_blank" rel="noopener"><img alt="CI — open the GitHub Actions workflows" src="https://img.shields.io/static/v1?label=CI&amp;message=GitHub%20Actions&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=githubactions&amp;logoColor=white"></a>
 </div>
 <!-- badges:end -->
 
