@@ -23,7 +23,7 @@ rust-version = "1.98"
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sha2 = "0.10"
+sha2 = "0.11"
 # Configuration parsing for the generated README badge block.
 toml = "1.1.2"
 thiserror = "2"
@@ -34,7 +34,7 @@ clap = { version = "4", features = ["derive"] }
 hickory-proto = "0.26"
 rand = "0.10"
 rand_chacha = "0.10"
-sysinfo = "0.33"
+sysinfo = "0.39"
 # Batch 6 demo layer (climb-tui). ratatui's default `crossterm` backend resolves to
 # crossterm 0.29 (via ratatui-crossterm's default `crossterm_0_29` feature), so the direct
 # crossterm dependency is pinned to the same minor to keep a single copy in the graph.

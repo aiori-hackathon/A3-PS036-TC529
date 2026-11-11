@@ -29,7 +29,7 @@ climb-report = { path = "../climb-report", default-features = false }
 ratatui.workspace = true
 crossterm.workspace = true
 # SIGINT/SIGTERM/SIGHUP handlers restore raw mode and the alternate screen.
-signal-hook = "0.3"
+signal-hook = "0.4"
 serde_json.workspace = true
 sha2.workspace = true
 tracing.workspace = true
