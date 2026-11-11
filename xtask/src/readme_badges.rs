@@ -57,16 +57,17 @@ pub(crate) enum Row {
     Proof,
 }
 
-/// The badge slots in block order: the three identity badges, then the three
+/// The badge slots in block order: the three identity badges, then the four
 /// proof badges. The order is fixed by the two-row layout; each slot names
 /// the configuration table it is rendered from.
-const SLOT_KEYS: [(Row, &str); 6] = [
+const SLOT_KEYS: [(Row, &str); 7] = [
     (Row::Identity, "hackathon"),
     (Row::Identity, "problem_statement"),
     (Row::Identity, "track"),
     (Row::Proof, "built_with"),
     (Row::Proof, "video"),
     (Row::Proof, "claims"),
+    (Row::Proof, "ci"),
 ];
 
 /// The configuration file, parsed.
@@ -105,6 +106,8 @@ struct Badges {
     video: BadgeSpec,
     /// The claims badge.
     claims: BadgeSpec,
+    /// The CI badge.
+    ci: BadgeSpec,
 }
 
 impl Badges {
@@ -117,6 +120,7 @@ impl Badges {
             "built_with" => &self.built_with,
             "video" => &self.video,
             "claims" => &self.claims,
+            "ci" => &self.ci,
             other => unreachable!("unknown badge slot `{other}`"),
         }
     }
@@ -639,6 +643,7 @@ portal = "https://portal.example.invalid/guideline/"
 video = "https://video.example.invalid/watch?v=abc"
 rust = "https://rust.example.invalid/"
 claims = "docs/deck-facts.md"
+actions = "https://github.example.invalid/org/repo/actions"
 
 [badges.colours]
 orange = "#C55E33"
@@ -694,6 +699,15 @@ alt = "Claims verified: {claims}"
 link = "claims"
 label_color = "teal"
 message_color = "orange"
+
+[badges.ci]
+label = "CI"
+message = "GitHub Actions"
+alt = "CI — open the GitHub Actions workflows"
+link = "actions"
+label_color = "slate"
+message_color = "teal"
+logo = "githubactions"
 "##;
         std::fs::write(&path, text).expect("write the configuration");
         path
@@ -780,11 +794,11 @@ message_color = "orange"
         let results = write_results(&dir);
         let (badges, block, _) = generate(&config, &results).expect("generate the block");
 
-        assert_eq!(badges.len(), 6);
+        assert_eq!(badges.len(), 7);
         assert_eq!(badges[0].row, Row::Identity);
         assert_eq!(badges[2].row, Row::Identity);
         assert_eq!(badges[3].row, Row::Proof);
-        assert_eq!(badges[5].row, Row::Proof);
+        assert_eq!(badges[6].row, Row::Proof);
 
         assert!(block.starts_with(BADGES_BEGIN));
         assert!(block.contains(BADGES_END));
@@ -797,11 +811,28 @@ message_color = "orange"
 
         // Every badge is an anchor wrapping an image: the link is on the
         // anchor, never inside the image.
-        assert_eq!(block.matches("<a href=").count(), 6);
-        assert_eq!(block.matches("<img ").count(), 6);
+        assert_eq!(block.matches("<a href=").count(), 7);
+        assert_eq!(block.matches("<img ").count(), 7);
         assert!(!block.contains("]("), "no markdown image links");
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_ci_badge_carries_the_ci_label_and_links_to_actions() {
+        let root = workspace_root();
+        let (badges, _, _) = generate(&root.join(DEFAULT_CONFIG), &root.join(DEFAULT_RESULTS))
+            .expect("generate the committed badge block");
+        let ci = badges
+            .iter()
+            .find(|badge| badge.label == "CI")
+            .expect("the badge block carries a CI badge");
+        assert_eq!(ci.row, Row::Proof);
+        assert!(
+            ci.href.ends_with("/actions"),
+            "the CI badge must link to the Actions page: {}",
+            ci.href
+        );
     }
 
     #[test]

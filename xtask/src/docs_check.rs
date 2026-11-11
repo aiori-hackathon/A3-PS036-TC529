@@ -535,6 +535,77 @@ pub(crate) fn lint_mermaid_blocks(file: &str, text: &str) -> Vec<Violation> {
     violations
 }
 
+#[derive(Args)]
+pub(crate) struct MermaidLintArgs {
+    /// Workspace root holding `README.md` and `docs/`.
+    #[arg(long, default_value = ".")]
+    pub(crate) root: PathBuf,
+}
+
+/// Every markdown document the documentation checks read: `README.md` plus
+/// `docs/**/*.md`, sorted and deduplicated.
+pub(crate) fn all_markdown_files(root: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    let readme = root.join("README.md");
+    if readme.is_file() {
+        files.push(readme);
+    }
+    collect_markdown(&root.join("docs"), &mut files);
+    files.sort();
+    files.dedup();
+    files
+}
+
+/// Recursively collect `*.md` files under `dir`.
+fn collect_markdown(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_markdown(&path, out);
+        } else if path.extension().and_then(|value| value.to_str()) == Some("md") {
+            out.push(path);
+        }
+    }
+}
+
+/// Lint every mermaid block in the documentation under `root`.
+pub(crate) fn mermaid_violations(root: &Path) -> Result<Vec<Violation>> {
+    let mut violations = Vec::new();
+    for path in all_markdown_files(root) {
+        let text = std::fs::read_to_string(&path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        let label = path
+            .strip_prefix(root)
+            .unwrap_or(&path)
+            .display()
+            .to_string();
+        violations.extend(lint_mermaid_blocks(&label, &text));
+    }
+    Ok(violations)
+}
+
+/// The `mermaid-lint` subcommand: lint the diagrams without the documentation
+/// checks that need the quote sheet and the sample artifact.
+pub(crate) fn cmd_mermaid_lint(args: MermaidLintArgs) -> Result<()> {
+    let files = all_markdown_files(&args.root);
+    let violations = mermaid_violations(&args.root)?;
+    if violations.is_empty() {
+        println!("mermaid-lint: {} document(s) clean", files.len());
+        return Ok(());
+    }
+    for violation in &violations {
+        eprintln!("{violation}");
+    }
+    bail!(
+        "mermaid-lint: {} violation(s) across {} document(s)",
+        violations.len(),
+        files.len()
+    )
+}
+
 /// Check one documentation file's text against the quote sheet and the real
 /// workspace names. Pure: no filesystem, no subprocesses.
 pub(crate) fn check_file(
@@ -2900,6 +2971,17 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // The README's requirements-coverage section links the traceability table
     // and carries no hand-typed digits.
     violations.extend(check_requirements_block(&readme_label, &readme_text));
+
+    // Every GitHub Actions workflow must pin its third-party actions by full
+    // commit SHA, declare top-level permissions, and avoid pull_request_target
+    // and secrets.
+    for violation in crate::workflows::check_workflows(&args.root)?.1 {
+        violations.push(Violation {
+            file: violation.file,
+            line: violation.line,
+            message: violation.message,
+        });
+    }
 
     if let Err(err) = crate::headline::check_readme(&args.root, &results_path) {
         violations.push(Violation {

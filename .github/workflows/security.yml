@@ -1,0 +1,63 @@
+name: Security
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.lock
+      - deny.toml
+      - .github/workflows/security.yml
+  pull_request:
+    paths:
+      - Cargo.lock
+      - deny.toml
+      - .github/workflows/security.yml
+  schedule:
+    - cron: "0 3 * * 1"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: cargo audit and cargo deny
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
+        with:
+          cache: false
+
+      - name: Cache Cargo registry and audit tools
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: security
+          cache-bin: true
+
+      - name: Install cargo-audit and cargo-deny
+        run: |
+          command -v cargo-audit >/dev/null 2>&1 || cargo install --locked cargo-audit
+          command -v cargo-deny >/dev/null 2>&1 || cargo install --locked cargo-deny
+
+      - name: Run cargo audit per deny.toml ignores
+        run: |
+          ignores=()
+          while IFS= read -r id; do
+            if [ -n "$id" ]; then
+              ignores+=(--ignore "$id")
+            fi
+          done < <(grep -oE 'RUSTSEC-[0-9]{4}-[0-9]{4}' deny.toml)
+          cargo audit "${ignores[@]}"
+
+      - name: Run cargo deny check
+        run: cargo deny --all-features check

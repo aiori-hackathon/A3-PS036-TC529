@@ -26,11 +26,11 @@ cargo xtask readme-badges
 
 By default the command:
 1. Reads `docs/readme-config.toml` and `docs/sample-output/climb-results.json` (committed, provenance-stamped).
-2. Builds six badges in two centred rows inside the markers `<!-- badges:begin -->` and `<!-- badges:end -->` in `README.md`:
+2. Builds seven badges in two centred rows inside the markers `<!-- badges:begin -->` and `<!-- badges:end -->` in `README.md`:
    - **Identity row:** AIORI 3 Hackathon, Problem statement PS-036, Track 2 Cyber Security (portal links, slate label/orange message)
-   - **Proof row:** Built with Rust (rust-lang.org, ink label/slate message, `logo=rust`), Intro video YouTube (video URL, ink label/slate message, `logo=youtube`), Claims verified (links to `docs/deck-facts.md`, ink label/orange message)
+   - **Proof row:** Built with Rust (rust-lang.org, ink label/slate message, `logo=rust`), Intro video YouTube (video URL, ink label/slate message, `logo=youtube`), Claims verified (links to `docs/deck-facts.md`, ink label/orange message), CI GitHub Actions (links to the repository's Actions page, ink label/slate message, `logo=githubactions`)
 3. Renders each badge as an `<a>` wrapping an `<img>`, using the shields.io static endpoint `https://img.shields.io/static/v1` with query parameters `label`, `message`, `color`, `labelColor`, `style`, `logo`, `logoColor`. Every value is percent-encoded in code. `&` in attribute values is escaped as `&amp;`.
-4. Prints the six badge URLs to stdout.
+4. Prints the seven badge URLs to stdout.
 
 Override inputs:
 - `--config <path>` — alternate config file

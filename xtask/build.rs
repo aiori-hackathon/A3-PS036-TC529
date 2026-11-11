@@ -17,6 +17,10 @@ use std::env;
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
 
+    if env::var("CARGO_FEATURE_NATIVE").is_err() {
+        return;
+    }
+
     let lib_dir = env::var("DEP_MTLSLIB_LIB_DIR").unwrap_or_else(|_| {
         panic!(
             "xtask: DEP_MTLSLIB_LIB_DIR was not provided by climb-mtl-sys. \
