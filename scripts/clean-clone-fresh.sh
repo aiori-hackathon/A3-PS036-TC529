@@ -129,6 +129,12 @@ if [ "${MODE}" = "viewer-only" ]; then
     # them. The full mode runs the workspace test suite.
     run "cd '${WORKTREE}' && scripts/check-viewer-build.sh"
     run "cd '${WORKTREE}' && cargo clippy -p climb-tui --no-default-features --bins -- -D warnings"
+    # The quickstart's other two installs are exercised here, not just the
+    # clone-and-run path: the release runner and a `cargo install --git`
+    # from this repository into a throwaway prefix.
+    run "cd '${WORKTREE}' && cargo run --release -p climb-tui --no-default-features -- --help >/dev/null"
+    run "cd '${WORKTREE}' && cargo install --locked --git 'file://${ROOT}' --root '${WORKTREE}/.cargo-install' climb-tui --no-default-features"
+    run "'${WORKTREE}/.cargo-install/bin/climb-tui' --help >/dev/null"
     run "cd '${WORKTREE}' && ./target/debug/climb-tui --help >/dev/null"
 else
     # Full mode builds the pinned toolchain in Docker. The image is tagged with

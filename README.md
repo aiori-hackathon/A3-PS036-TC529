@@ -26,7 +26,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/dbc5e1274e672ef6218a2c333e1c97feb2bf871c" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/c0398e32eb9b6a6f08f68deba76a79377074ae7c" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -70,7 +70,7 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 - [**Report (HTML)**](docs/sample-output/report.html) — Self-contained results report with claims registry and drift checks
 - [**Deck PDF**](A3-PS036-TC529.pdf) — Team presentation deck
 - [**Intro video**](https://www.youtube.com/watch?v=gDHYamjWmtE) — Team CLIMB introduction
-- [**Quickstart**](#quickstart) — Prebuilt viewer, container, or a full native build
+- [**Quickstart**](#quickstart) — Viewer from source, container, or a full native build
 - [**Honest limits**](#honest-limits) — Empirical measurements only; no formal guarantees
 
 ## Live demo
@@ -140,7 +140,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/dbc5e1274e672ef6218a2c333e1c97feb2bf871c" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/c0398e32eb9b6a6f08f68deba76a79377074ae7c" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
@@ -159,26 +159,41 @@ commits appear after the next refresh.
 
 <!-- quickstart:begin -->
 The dashboard is a read-only viewer: it parses recorded artifacts and links no
-native crypto stack. There are two ways in, and only the second one needs a
-compiler at all.
+native crypto stack. The fastest path compiles only the viewer; the full path
+also builds the native measurement stack.
 
-### Fastest path — prebuilt viewer or container
+### Fastest path — run the viewer from source
 
-Download the viewer tarball from the latest release and run the binary, or run
-the published container image:
+There is no standalone release download yet, so every route compiles the
+viewer from this repository. Pick one; none needs the native cryptographic
+stack, and at run time none needs the network.
+
+**A. Run from a clone** (needs [Rust](https://rustup.rs); the pinned toolchain installs itself)
 
 ```bash
-tar -xzf climb-tui-*.tar.gz && ./climb-tui-*/climb-tui --tour
-docker run -it --rm climb-tui:latest
+git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
+cargo run --release -p climb-tui --no-default-features
 ```
 
-The tarball is produced from this checkout with `cargo xtask dist-tui`; the
-image is built with `docker build -f docker/Dockerfile.tui -t climb-tui .`.
-Both compile the sample results,
-the recorded DNS capture and the recorded ladder verification into the binary,
-so the dashboard renders with no checkout, no native prefix and no network.
-The status bar names which source it read: `[embedded]`, `[sample]`,
-`[target]` or `[explicit]`.
+**B. Install the binary onto your PATH**
+
+```bash
+cargo install --locked --git https://github.com/aiori-hackathon/A3-PS036-TC529 climb-tui --no-default-features
+climb-tui
+```
+
+**C. In a container** (needs Docker)
+
+```bash
+git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb
+docker build -f docker/Dockerfile.tui -t climb-tui .
+docker run -it --rm climb-tui
+```
+
+Each build compiles the sample results, the recorded DNS capture and the
+recorded ladder verification into the binary, so the dashboard renders without
+the measured artifacts or a native prefix. The status bar names which source it
+read: `[embedded]`, `[sample]`, `[target]` or `[explicit]`.
 
 ### Full reproduction — build the native stack
 
@@ -484,6 +499,10 @@ evidence that does not exist, and a row carrying a gap is never marked met.
 
 CLIMB reports empirical measurements only: no formal security guarantee, proof
 or certification is claimed for MTL mode, SLH-DSA or any component here.
+
+- **Any project website is a viewer, not a deployment:** if one is published it
+  presents recorded results and a client-side dashboard only, and no DNS
+  service, signing service or shell is exposed to the Internet.
 
 - **The benchmark follows an experimental Internet-Draft, not a ratified
   standard**, and [`docs/RESEARCH.md`](docs/RESEARCH.md) records the revision

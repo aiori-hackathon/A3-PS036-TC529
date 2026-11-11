@@ -102,8 +102,10 @@ const CLEAN_CLONE_LABEL: &str = "scripts/clean-clone-*.sh";
 /// clean-clone script. Each entry is a literal substring, so a renamed flag or
 /// a moved path in either place fails the check instead of drifting silently.
 const QUICKSTART_COMMANDS: &[&str] = &[
-    // Fastest path: a prebuilt viewer tarball or the viewer container.
-    "cargo xtask dist-tui",
+    // Fastest path: the three viewer installs that work from a clone today.
+    "git clone ",
+    "cargo run --release -p climb-tui --no-default-features",
+    "cargo install --locked --git",
     "docker build -f docker/Dockerfile.tui",
     "docker run -it --rm",
     // Full reproduction: the pinned native toolchain and the dashboard.
@@ -111,6 +113,10 @@ const QUICKSTART_COMMANDS: &[&str] = &[
     "docker/extract-libs.sh",
     "cargo run -p climb-tui",
 ];
+
+/// Phrase that promises a published artifact. A documentation file may only
+/// use it when the public repository actually publishes a release.
+const LATEST_RELEASE_PHRASE: &str = "latest release";
 
 /// Markers bracketing the numbers-of-record table in the progress log.
 const NUMBERS_BEGIN: &str = "<!-- numbers-of-record:begin -->";
@@ -1341,6 +1347,127 @@ pub(crate) fn check_quickstart(file: &str, text: &str, script: &str) -> Vec<Viol
         }
     }
     violations
+}
+
+/// What the public releases endpoint said when the documentation was checked.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum ReleaseAvailability {
+    /// The API answered: the repository publishes this many releases.
+    Known(usize),
+    /// The API could not be queried; the claim check is skipped with this
+    /// reason rather than failing an offline run.
+    Unavailable(String),
+}
+
+/// Extract `owner/repo` from a public GitHub web URL.
+pub(crate) fn github_slug(repo_web_url: &str) -> Option<String> {
+    let trimmed = repo_web_url.trim().trim_end_matches('/');
+    let trimmed = trimmed.strip_suffix(".git").unwrap_or(trimmed);
+    let mut parts = trimmed.rsplit('/');
+    let repo = parts.next()?;
+    let owner = parts.next()?;
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some(format!("{owner}/{repo}"))
+}
+
+/// One-based line number of the first line carrying `needle`, case-insensitively.
+fn first_line_with(text: &str, needle: &str) -> Option<usize> {
+    let needle = needle.to_lowercase();
+    text.lines()
+        .position(|line| line.to_lowercase().contains(&needle))
+        .map(|index| index + 1)
+}
+
+/// Fail when a documentation file promises a release while the repository has
+/// none. An unavailable probe is a skip, not a violation: the caller prints the
+/// reason so an offline reader knows the claim was not checked.
+pub(crate) fn check_release_claims(
+    file: &str,
+    text: &str,
+    availability: &ReleaseAvailability,
+) -> Vec<Violation> {
+    let Some(line) = first_line_with(text, LATEST_RELEASE_PHRASE) else {
+        return Vec::new();
+    };
+    match availability {
+        ReleaseAvailability::Known(0) => vec![Violation {
+            file: file.to_string(),
+            line,
+            message: format!(
+                "says `{LATEST_RELEASE_PHRASE}` but the repository publishes no release; \
+                 document a command that works from a clone, or publish a release first"
+            ),
+        }],
+        _ => Vec::new(),
+    }
+}
+
+/// The note printed when the release claim could not be verified.
+pub(crate) fn release_skip_note(availability: &ReleaseAvailability) -> Option<String> {
+    match availability {
+        ReleaseAvailability::Unavailable(reason) => {
+            Some(format!("release claim check skipped: {reason}"))
+        }
+        ReleaseAvailability::Known(_) => None,
+    }
+}
+
+/// Query the GitHub releases API for the public repository.
+///
+/// This is the only network access in the documentation gate, and the caller
+/// invokes it only when a documentation file makes a release claim. A failed
+/// request (offline, DNS failure, rate limit, non-2xx answer) is reported as
+/// [`ReleaseAvailability::Unavailable`], never as an empty release list; an
+/// answer that is not a JSON array is treated the same way.
+pub(crate) fn probe_github_releases(repo_web_url: &str) -> ReleaseAvailability {
+    let Some(slug) = github_slug(repo_web_url) else {
+        return ReleaseAvailability::Unavailable(format!(
+            "`{repo_web_url}` is not a GitHub repository URL"
+        ));
+    };
+    let url = format!("https://api.github.com/repos/{slug}/releases?per_page=1");
+    let output = match std::process::Command::new("curl")
+        .args([
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "8",
+            "--write-out",
+            "\n%{http_code}",
+            &url,
+        ])
+        .output()
+    {
+        Ok(output) => output,
+        Err(err) => {
+            return ReleaseAvailability::Unavailable(format!("curl could not run: {err}"));
+        }
+    };
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (body, status_line) = match stdout.rsplit_once('\n') {
+        Some((body, status)) => (body, status),
+        None => ("", stdout.as_ref()),
+    };
+    let status = status_line.trim();
+    if status != "200" {
+        let reason = if status.is_empty() || status == "000" {
+            "the network is unavailable".to_string()
+        } else {
+            format!("GitHub API returned HTTP {status}")
+        };
+        return ReleaseAvailability::Unavailable(reason);
+    }
+    match serde_json::from_str::<serde_json::Value>(body) {
+        Ok(serde_json::Value::Array(items)) => ReleaseAvailability::Known(items.len()),
+        Ok(_) => {
+            ReleaseAvailability::Unavailable("GitHub API did not return a release list".to_string())
+        }
+        Err(err) => {
+            ReleaseAvailability::Unavailable(format!("GitHub API response was not JSON: {err}"))
+        }
+    }
 }
 
 /// The body of the marker-bracketed commit-graph block of the README, and the
@@ -2612,6 +2739,24 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
         .to_string();
     violations.extend(check_logo_block(&readme_label, &readme_text));
 
+    // A documentation file may not point readers at a "latest release" when the
+    // public repository publishes none. The GitHub API is queried only when
+    // this file makes that claim, so an offline run with no such claim never
+    // touches the network; a failed query is printed as a skip, not a failure.
+    if readme_text.to_lowercase().contains(LATEST_RELEASE_PHRASE) {
+        let config_path = args.root.join("docs/readme-config.toml");
+        let config = crate::commit_graph::load_config(&config_path)?;
+        let availability = probe_github_releases(&config.repo_web_url);
+        if let Some(note) = release_skip_note(&availability) {
+            eprintln!("note: {note}");
+        }
+        violations.extend(check_release_claims(
+            &readme_label,
+            &readme_text,
+            &availability,
+        ));
+    }
+
     // The logo vectors under docs/media/logo follow the publication rules,
     // and the media README's logo table names every one of them, so the
     // documented set and the published set cannot drift apart.
@@ -3461,11 +3606,11 @@ mod tests {
     #[test]
     fn a_quickstart_command_missing_from_the_clean_clone_script_is_a_violation() {
         let doc = quickstart_doc(&complete_quickstart_body());
-        let script = complete_script().replace("cargo xtask dist-tui", "");
+        let script = complete_script().replace("cargo install --locked --git", "");
         let violations = check_quickstart("README.md", &doc, &script);
         assert!(
             violations.iter().any(|v| {
-                v.file == CLEAN_CLONE_LABEL && v.message.contains("cargo xtask dist-tui")
+                v.file == CLEAN_CLONE_LABEL && v.message.contains("cargo install --locked --git")
             }),
             "{violations:?}"
         );
@@ -3503,6 +3648,56 @@ mod tests {
             script.push('\n');
         }
         let violations = check_quickstart("README.md", &readme, &script);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn github_slug_reads_owner_and_repo() {
+        assert_eq!(
+            github_slug("https://github.com/aiori-hackathon/A3-PS036-TC529").as_deref(),
+            Some("aiori-hackathon/A3-PS036-TC529")
+        );
+        assert_eq!(
+            github_slug("https://github.com/aiori-hackathon/A3-PS036-TC529.git/").as_deref(),
+            Some("aiori-hackathon/A3-PS036-TC529")
+        );
+        assert_eq!(github_slug("not a url"), None);
+    }
+
+    #[test]
+    fn a_release_claim_fails_when_there_are_no_releases() {
+        let text = "intro\nDownload the viewer from the latest release.\n";
+        let violations = check_release_claims("README.md", text, &ReleaseAvailability::Known(0));
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].line, 2);
+        assert!(violations[0].message.contains("latest release"));
+        assert!(violations[0].message.contains("no release"));
+    }
+
+    #[test]
+    fn a_release_claim_passes_when_a_release_exists() {
+        let text = "Download the viewer from the LATEST RELEASE.\n";
+        let violations = check_release_claims("README.md", text, &ReleaseAvailability::Known(1));
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn a_release_claim_is_skipped_offline_with_a_printed_reason() {
+        let text = "Download the viewer from the latest release.\n";
+        let availability =
+            ReleaseAvailability::Unavailable("the network is unavailable".to_string());
+        let violations = check_release_claims("README.md", text, &availability);
+        assert!(violations.is_empty(), "{violations:?}");
+        let note = release_skip_note(&availability).expect("an offline probe prints a note");
+        assert!(note.contains("skipped"), "{note}");
+        assert!(note.contains("network is unavailable"), "{note}");
+        assert_eq!(release_skip_note(&ReleaseAvailability::Known(0)), None);
+    }
+
+    #[test]
+    fn a_document_without_a_release_claim_is_ignored() {
+        let text = "Build the viewer from a clone.\n";
+        let violations = check_release_claims("README.md", text, &ReleaseAvailability::Known(0));
         assert!(violations.is_empty(), "{violations:?}");
     }
 
