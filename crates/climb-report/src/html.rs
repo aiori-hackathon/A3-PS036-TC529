@@ -497,6 +497,35 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         );
     }
 
+    // Resolver cache: measured and analytical values in separate claims, so
+    // the report body can show both without merging their evidence classes.
+    if let Some(cache) = results.cache_use.as_ref() {
+        for (idx, row) in cache.analytical.iter().enumerate() {
+            let base = format!("/cache_use/analytical/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("cache-{idx}-measured"),
+                &format!("{base}/measured_bytes"),
+                Some(row.measured_bytes.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("cache-{idx}-analytical"),
+                &format!("{base}/analytical_bytes"),
+                Some(row.analytical_bytes.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("cache-{idx}-ratio"),
+                &format!("{base}/measured_over_analytical"),
+                Some(format!("{:.3}\u{d7}", row.measured_over_analytical)),
+            );
+        }
+    }
+
     // UDP fit: one claim group per modelled row, plus the capture
     // cross-check. Registered only when the section will render (non-empty
     // `derived.udp_fit`), so the registry and the body stay in lockstep.
@@ -1057,6 +1086,42 @@ fn render_dns_rtt_section(results: &ClimbResults) -> String {
     )
 }
 
+/// Render the resolver-cache section: measured Unbound accounting beside the
+/// analytical prediction, never merged into one value.
+///
+/// Every displayed value is pulled from the claims registry by id, so the body
+/// contains each registered cache value verbatim. Returns an empty string when
+/// the artifact carries no cache section.
+fn render_resolver_cache_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    let Some(cache) = results.cache_use.as_ref() else {
+        return String::new();
+    };
+    if cache.analytical.is_empty() {
+        return String::new();
+    }
+    let cell = |idx: usize, suffix: &str| -> String {
+        let id = format!("cache-{idx}-{suffix}");
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let mut rows = String::new();
+    for (idx, row) in cache.analytical.iter().enumerate() {
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&row.config),
+            row.r,
+            escape_html(&cell(idx, "measured")),
+            escape_html(&cell(idx, "analytical")),
+            escape_html(&cell(idx, "ratio")),
+        ));
+    }
+    format!(
+        "<section aria-labelledby=\"resolver-cache-h\">\n<h2 id=\"resolver-cache-h\">Resolver cache use: measured and analytical</h2>\n<p class=\"note\">Measured = Unbound&rsquo;s own accounting (<code>mem.cache.rrset</code> plus <code>mem.cache.message</code> after loading r distinct signed RRsets) together with the resolver container&rsquo;s resident memory before and after loading; evidence class MEASURED. Analytical = the closed-form prediction from the response wire sizes plus one shared ladder per batch; evidence class ANALYTICAL, never fitted to the measurement. The ratio is DERIVED and is reported, not used to tune the model. Limits: one local resolver on an internal bridge, Unbound&rsquo;s own overhead included, and a cold cache that is not byte-empty on start.</p>\n<table class=\"memtable\">\n<thead><tr><th>Configuration</th><th>r (distinct RRsets)</th><th>Measured cache bytes</th><th>Analytical cache bytes</th><th>Measured / analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
 /// Render the three-way wire-size comparison table (A/B/C).
 fn render_wire_comparison_section(results: &ClimbResults, claims: &[Claim]) -> String {
     if results.comparisons.is_empty() {
@@ -1272,6 +1337,7 @@ pub fn render_html(
     let reuse_html = render_reuse_section(results, &claims);
     let udp_fit_html = render_udp_fit_section(results, &claims);
     let dns_rtt_html = render_dns_rtt_section(results);
+    let resolver_cache_html = render_resolver_cache_section(results, &claims);
     let reproduction_mode = results.reproduction_mode.label();
     let reproduction_note = match results.reproduction_mode {
         crate::results::ReproductionMode::Remeasure => {
@@ -1355,7 +1421,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}{dns_rtt_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}{dns_rtt_html}{resolver_cache_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note"><strong>Reproduction mode: {reproduction_mode}.</strong> {reproduction_note}</p>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
@@ -1384,6 +1450,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         memory_html = memory_html,
         ladder_html = ladder_html,
         reuse_html = reuse_html,
+        resolver_cache_html = resolver_cache_html,
         wire_comparison_html = wire_comparison_html,
         timing_comparison_html = timing_comparison_html,
     ))
@@ -1859,6 +1926,7 @@ mod tests {
             }),
             dns_anatomy: None,
             ladder: Some(synthetic_ladder_section()),
+            cache_use: None,
             replication: None,
             dns_rtt: None,
             plain: Vec::new(),

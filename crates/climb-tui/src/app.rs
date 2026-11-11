@@ -841,6 +841,7 @@ mod tests {
                 },
                 dns_pipeline: None,
                 ladder: None,
+                cache_use: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
                 comparisons: Vec::new(),

@@ -101,11 +101,92 @@ impl ResultsView {
             .iter()
             .any(|row| row.harness_buffers_bytes > 0)
     }
+
+    /// Resolver-cache rows for the Memory tab, kept separate from the
+    /// benchmark-process memory above: each row pairs the measured Unbound
+    /// cache bytes for one (size, configuration) cell with the analytical
+    /// prediction for the same RRset count, plus the median container RSS
+    /// growth observed over the runs.
+    pub fn resolver_cache_rows(&self) -> Vec<ResolverCacheRow> {
+        let Some(cache) = self.results.cache_use.as_ref() else {
+            return Vec::new();
+        };
+        cache
+            .analytical
+            .iter()
+            .map(|row| {
+                let size = self
+                    .results
+                    .wire_size
+                    .iter()
+                    .find(|wire| wire.message_count == row.r)
+                    .map(|wire| size_display(&wire.size))
+                    .unwrap_or_else(|| format!("r={}", row.r));
+                let mut deltas: Vec<u64> = cache
+                    .measured
+                    .iter()
+                    .filter(|run| run.r == row.r && run.config == row.config)
+                    .map(|run| {
+                        run.container_rss_after_bytes
+                            .saturating_sub(run.container_rss_before_bytes)
+                    })
+                    .collect();
+                deltas.sort_unstable();
+                let rss_delta_bytes = if deltas.is_empty() {
+                    0
+                } else {
+                    deltas.get(deltas.len() / 2).copied().unwrap_or(0)
+                };
+                ResolverCacheRow {
+                    size,
+                    config: row.config.clone(),
+                    r: row.r,
+                    measured_bytes: row.measured_bytes,
+                    analytical_bytes: row.analytical_bytes,
+                    ratio: row.measured_over_analytical,
+                    rss_delta_bytes,
+                }
+            })
+            .collect()
+    }
+
+    /// Whether the artifact carries a resolver-cache section to render.
+    pub fn has_resolver_cache(&self) -> bool {
+        self.results
+            .cache_use
+            .as_ref()
+            .is_some_and(|cache| !cache.analytical.is_empty())
+    }
+}
+
+/// One resolver-cache cell for the Memory tab: measured Unbound cache bytes,
+/// the analytical prediction for the same RRset count, and the median container
+/// RSS growth over the runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResolverCacheRow {
+    /// Dataset label the RRset count maps to (`Small`, `Medium`, or `r=<n>`).
+    pub size: String,
+    /// Resolver configuration (`plain` or `mtl-condensed`).
+    pub config: String,
+    /// Number of distinct RRset owner names loaded.
+    pub r: usize,
+    /// Measured cache bytes (median of the runs for this cell).
+    pub measured_bytes: u64,
+    /// Analytical predicted cache bytes for the same RRset count.
+    pub analytical_bytes: u64,
+    /// `measured_bytes / analytical_bytes`, or `0.0` when no prediction.
+    pub ratio: f64,
+    /// Median container resident growth over the runs for this cell.
+    pub rss_delta_bytes: u64,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::data::test_support::{memory_result, view_with_memory};
+    use crate::data::test_support::{
+        memory_result, view_with_cache_section, view_with_memory, wire_row,
+    };
+    use crate::data::ResultsView;
+    use climb_report::cache::{CacheAnalyticalRow, CacheResults, CacheRun, UnboundStats};
 
     #[test]
     fn memory_stacks_sum_segments_and_report_residual() {
@@ -152,5 +233,103 @@ mod tests {
         let view = view_with_memory(Vec::new());
         assert!(view.memory_stacks().is_empty());
         assert!(!view.memory_has_harness());
+    }
+
+    fn cache_section(runs: Vec<(u64, u64)>, analytical: Vec<(usize, u64, u64)>) -> CacheResults {
+        CacheResults {
+            schema_version: 1,
+            class: "MEASURED".to_string(),
+            method: "unbound-control stats_noreset + container RSS".to_string(),
+            measured: runs
+                .into_iter()
+                .map(|(rrset, rss_delta)| CacheRun {
+                    config: "plain".to_string(),
+                    r: 10_000,
+                    container_rss_before_bytes: 1_000,
+                    container_rss_after_bytes: 1_000 + rss_delta,
+                    stats: UnboundStats {
+                        rrset_cache_bytes: rrset,
+                        rrset_cache_entries: 1,
+                        message_cache_bytes: 0,
+                        message_cache_entries: 1,
+                        ladder_cache_bytes: 0,
+                    },
+                })
+                .collect(),
+            analytical: analytical
+                .into_iter()
+                .map(|(r, measured, predicted)| CacheAnalyticalRow {
+                    config: "plain".to_string(),
+                    r,
+                    measured_bytes: measured,
+                    analytical_bytes: predicted,
+                    measured_over_analytical: if predicted == 0 {
+                        0.0
+                    } else {
+                        measured as f64 / predicted as f64
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    fn view_with_cache(cache: CacheResults) -> ResultsView {
+        view_with_cache_section(vec![wire_row("medium", 10_000, 90.0)], cache)
+    }
+
+    #[test]
+    fn resolver_cache_rows_pair_measured_with_analytical() {
+        let view = view_with_cache(cache_section(
+            vec![(10, 100), (20, 200), (30, 300), (40, 400), (50, 500)],
+            vec![(10_000, 30, 60)],
+        ));
+        let rows = view.resolver_cache_rows();
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.size, "Medium", "the RRset count maps to its wire size");
+        assert_eq!(row.config, "plain");
+        assert_eq!(row.measured_bytes, 30);
+        assert_eq!(row.analytical_bytes, 60);
+        assert!((row.ratio - 0.5).abs() < 1e-9);
+        assert_eq!(row.rss_delta_bytes, 300, "median container growth");
+        assert!(view.has_resolver_cache());
+    }
+
+    #[test]
+    fn resolver_cache_rows_fall_back_to_the_rrset_count() {
+        let view = view_with_cache(cache_section(Vec::new(), vec![(7, 10, 20)]));
+        let rows = view.resolver_cache_rows();
+        assert_eq!(rows[0].size, "r=7");
+        assert_eq!(rows[0].rss_delta_bytes, 0, "no runs, no RSS figure");
+    }
+
+    #[test]
+    fn resolver_cache_rows_are_empty_without_the_section() {
+        let view = view_with_memory(Vec::new());
+        assert!(view.resolver_cache_rows().is_empty());
+        assert!(!view.has_resolver_cache());
+    }
+
+    #[test]
+    fn committed_sample_cache_section_survives_the_tui_view() {
+        let results: climb_report::ClimbResults = serde_json::from_str(include_str!(
+            "../../../../docs/sample-output/climb-results.json"
+        ))
+        .expect("committed sample parses");
+        let view = ResultsView::new(results, None, crate::data::ReportHealth::Agree);
+        let rows = view.resolver_cache_rows();
+        assert_eq!(rows.len(), 4, "two sizes x two configurations");
+        assert!(view.has_resolver_cache());
+        for row in &rows {
+            assert!(
+                matches!(row.size.as_str(), "Small" | "Medium"),
+                "the RRset count maps to its dataset label: {}",
+                row.size
+            );
+            assert!(row.measured_bytes > 0);
+            assert!(row.analytical_bytes > 0);
+            assert!(row.rss_delta_bytes > 0);
+            assert!(row.ratio > 0.0);
+        }
     }
 }

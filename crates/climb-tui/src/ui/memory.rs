@@ -10,7 +10,9 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::data::ResultsView;
+use climb_report::charts::fmt_bytes;
+
+use crate::data::{ResolverCacheRow, ResultsView};
 use crate::theme::{Glyphs, Theme};
 use crate::widgets::stacked_bars::{SegmentStyle, StackGroup, StackedBars};
 
@@ -20,6 +22,12 @@ const WIDE_WIDTH: u16 = 100;
 const EXPLAINER_STACK_HEIGHT: u16 = 8;
 
 /// Render the Memory tab into `area`.
+///
+/// The tab carries two separate measurements. The upper panel is the benchmark
+/// process's own resident memory against the itemised analytical model; the
+/// lower panel, when the artifact carries a resolver-cache section, is the
+/// resolver's cache use — a different process, measured separately and never
+/// folded into the benchmark-process figures.
 pub fn render_memory(
     frame: &mut Frame,
     area: Rect,
@@ -29,7 +37,16 @@ pub fn render_memory(
 ) {
     let stacks = view.memory_stacks();
     let has_harness = view.memory_has_harness();
-    render_panels(frame, area, &stacks, has_harness, theme, glyphs);
+    let cache_rows = view.resolver_cache_rows();
+    if cache_rows.is_empty() {
+        render_panels(frame, area, &stacks, has_harness, theme, glyphs);
+        return;
+    }
+    let cache_height = (cache_rows.len() as u16 + 2).min(area.height / 2).max(5);
+    let [benchmark_area, cache_area] =
+        Layout::vertical([Constraint::Min(0), Constraint::Length(cache_height)]).areas(area);
+    render_panels(frame, benchmark_area, &stacks, has_harness, theme, glyphs);
+    render_cache_panel(frame, cache_area, &cache_rows, theme, glyphs);
 }
 
 /// Place the bars and the explainer: side by side when wide, stacked when narrow.
@@ -63,7 +80,7 @@ fn render_panels(
         theme,
         glyphs,
         title: format!(
-            "Memory{} measured vs modelled",
+            "Memory{} benchmark process memory",
             if theme.ascii { " -" } else { " \u{00b7}" }
         ),
         name_width: 14,
@@ -91,6 +108,68 @@ fn render_panels(
         )
         .wrap(Wrap { trim: false });
     frame.render_widget(explainer, explainer_area);
+}
+
+fn render_cache_panel(
+    frame: &mut Frame,
+    area: Rect,
+    rows: &[ResolverCacheRow],
+    theme: &Theme,
+    glyphs: &Glyphs,
+) {
+    let paragraph = Paragraph::new(cache_lines(rows, theme))
+        .block(
+            Block::bordered()
+                .border_set(glyphs.border)
+                .border_style(Style::new().fg(theme.border))
+                .title(Span::styled(
+                    " Resolver cache (separate measurement) ",
+                    Style::new().fg(theme.accent2).add_modifier(Modifier::BOLD),
+                )),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+fn cache_lines(rows: &[ResolverCacheRow], theme: &Theme) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    for row in rows {
+        let config = if row.config == "mtl-condensed" {
+            "MTL-condensed"
+        } else {
+            "plain"
+        };
+        let ratio = if row.analytical_bytes == 0 {
+            "no prediction".to_string()
+        } else {
+            format!("{:.2}\u{00d7}", row.ratio)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {:<7} {:<14}", row.size, config),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled("measured ", theme.measured),
+            Span::styled(
+                fmt_bytes(row.measured_bytes as f64),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled("  analytical ", theme.extrapolated),
+            Span::styled(
+                fmt_bytes(row.analytical_bytes as f64),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled(
+                format!("  {ratio}  RSS +{}", fmt_bytes(row.rss_delta_bytes as f64)),
+                Style::new().fg(theme.muted),
+            ),
+        ]));
+    }
+    lines.push(Line::from(Span::styled(
+        "  Unbound accounting + container RSS; one local resolver, not the benchmark process",
+        Style::new().fg(theme.muted),
+    )));
+    lines
 }
 
 fn explainer_lines(has_harness: bool, theme: &Theme) -> Vec<Line<'static>> {
@@ -200,6 +279,10 @@ mod tests {
                 render_panels(frame, frame.area(), stacks, has_harness, &theme, &glyphs);
             })
             .expect("rendering never fails on TestBackend");
+        buffer_text(&terminal)
+    }
+
+    fn buffer_text(terminal: &Terminal<TestBackend>) -> String {
         let buffer = terminal.backend().buffer();
         let mut out = String::new();
         for y in 0..buffer.area.height {
@@ -211,6 +294,104 @@ mod tests {
             out.push('\n');
         }
         out
+    }
+
+    fn render_view_to_string(view: &ResultsView, width: u16, height: u16) -> String {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        let glyphs = theme.glyphs();
+        let backend = TestBackend::new(width, height);
+        let mut terminal = Terminal::new(backend).expect("in-memory terminal");
+        terminal
+            .draw(|frame| {
+                render_memory(frame, frame.area(), view, &theme, &glyphs);
+            })
+            .expect("rendering never fails on TestBackend");
+        buffer_text(&terminal)
+    }
+
+    fn cache_view() -> ResultsView {
+        use climb_report::cache::{CacheAnalyticalRow, CacheResults, CacheRun, UnboundStats};
+        let cache = CacheResults {
+            schema_version: 1,
+            class: "MEASURED".to_string(),
+            method: "unbound-control stats_noreset + container RSS".to_string(),
+            measured: vec![CacheRun {
+                config: "plain".to_string(),
+                r: 100,
+                container_rss_before_bytes: 1_000,
+                container_rss_after_bytes: 501_000,
+                stats: UnboundStats {
+                    rrset_cache_bytes: 921_471,
+                    rrset_cache_entries: 102,
+                    message_cache_bytes: 97_594,
+                    message_cache_entries: 100,
+                    ladder_cache_bytes: 0,
+                },
+            }],
+            analytical: vec![CacheAnalyticalRow {
+                config: "plain".to_string(),
+                r: 100,
+                measured_bytes: 921_471,
+                analytical_bytes: 815_600,
+                measured_over_analytical: 1.1298,
+            }],
+        };
+        crate::data::test_support::view_with_cache_section(
+            vec![crate::data::test_support::wire_row("small", 100, 90.0)],
+            cache,
+        )
+    }
+
+    #[test]
+    fn cache_lines_name_both_measurements_and_the_ratio() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        let rows = vec![ResolverCacheRow {
+            size: "Small".to_string(),
+            config: "plain".to_string(),
+            r: 100,
+            measured_bytes: 921_471,
+            analytical_bytes: 815_600,
+            ratio: 1.1298,
+            rss_delta_bytes: 500_000,
+        }];
+        let text: String = cache_lines(&rows, &theme)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("Small"), "{text}");
+        assert!(text.contains("measured 921 kB"), "{text}");
+        assert!(text.contains("analytical 816 kB"), "{text}");
+        assert!(text.contains("1.13\u{00d7}"), "{text}");
+        assert!(text.contains("RSS +500 kB"), "{text}");
+    }
+
+    #[test]
+    fn memory_tab_separates_benchmark_and_resolver_cache() {
+        let out = render_view_to_string(&cache_view(), 120, 40);
+        assert!(
+            out.contains("benchmark process memory"),
+            "benchmark panel:\n{out}"
+        );
+        assert!(
+            out.contains("Resolver cache (separate measurement)"),
+            "cache panel:\n{out}"
+        );
+        assert!(out.contains("measured"), "cache row:\n{out}");
+        assert!(out.contains("analytical"), "cache row:\n{out}");
+        assert!(out.contains("1.13"), "cache ratio:\n{out}");
+    }
+
+    #[test]
+    fn memory_tab_omits_the_cache_panel_without_the_section() {
+        let view = crate::data::test_support::view_with_memory(Vec::new());
+        let out = render_view_to_string(&view, 120, 40);
+        assert!(!out.contains("Resolver cache"), "{out}");
     }
 
     #[test]

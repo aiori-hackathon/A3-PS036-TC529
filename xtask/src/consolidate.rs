@@ -62,6 +62,14 @@ pub(crate) struct ConsolidateArgs {
     #[arg(long, default_value = "data/dns-rtt.recorded.json")]
     dns_rtt_fixture: PathBuf,
 
+    /// Live resolver-cache artifact (from `cargo xtask dns-cache`)
+    #[arg(long, default_value = "target/dns-cache.json")]
+    cache_use: PathBuf,
+
+    /// Committed resolver-cache fixture, used when no live artifact exists
+    #[arg(long, default_value = "data/dns-cache.recorded.json")]
+    cache_use_fixture: PathBuf,
+
     /// Path to environment JSON (from `cargo xtask pin-env`)
     #[arg(long, default_value = "environment.json")]
     environment: PathBuf,
@@ -104,6 +112,8 @@ pub(crate) fn cmd_consolidate(args: ConsolidateArgs) -> Result<()> {
         replication_fixture_path: args.replication_fixture,
         dns_rtt_path: args.dns_rtt,
         dns_rtt_fixture_path: args.dns_rtt_fixture,
+        cache_use_path: args.cache_use,
+        cache_use_fixture_path: args.cache_use_fixture,
         environment_path: args.environment,
         baseline: args.baseline,
         rtt_ms: args.rtt_ms,

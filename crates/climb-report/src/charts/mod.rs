@@ -1832,6 +1832,7 @@ mod tests {
             dns_pipeline: None,
             dns_anatomy: None,
             ladder: None,
+            cache_use: None,
             replication: None,
             dns_rtt: None,
             plain: Vec::new(),

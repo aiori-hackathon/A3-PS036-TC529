@@ -4,6 +4,7 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
+use crate::cache::{CacheAnalyticalRow, CacheArtifact, CacheResults, CacheRun};
 use crate::dns_rtt::DnsRttSection;
 use crate::error::ReportError;
 use crate::ladder::{LadderSection, LadderSource, LadderVerification};
@@ -843,6 +844,12 @@ pub struct ClimbResults {
     /// `#[serde(default)]` keeps older artifacts parseable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dns_rtt: Option<DnsRttSection>,
+    /// Measured resolver cache use (Unbound's own accounting via
+    /// `unbound-control stats_noreset`, plus container RSS) together with the
+    /// closed-form analytical prediction. Additive: older artifacts without
+    /// this section still parse.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_use: Option<CacheResults>,
     /// Configuration A (plain SLH-DSA) per-message timings, one row per dataset
     /// size. Empty for results written before configuration A was routed here.
     #[serde(default)]
@@ -924,6 +931,11 @@ pub struct ConsolidateOptions {
     /// Committed recorded emulated-RTT fixture, used when no live artifact
     /// exists.
     pub dns_rtt_fixture_path: PathBuf,
+    /// Live resolver-cache artifact produced by `cargo xtask dns-cache`.
+    pub cache_use_path: PathBuf,
+    /// Committed recorded resolver-cache fixture, used when no live artifact
+    /// exists.
+    pub cache_use_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
     /// Assumed round-trip time in milliseconds for the modelled TCP fallback
@@ -2333,6 +2345,100 @@ fn load_dns_rtt_section(live: &Path, fixture: &Path) -> Result<Option<DnsRttSect
     read_json(path)
 }
 
+fn load_cache_use_section(
+    live: &Path,
+    fixture: &Path,
+) -> Result<Option<CacheResults>, ReportError> {
+    let path = if live.exists() {
+        live
+    } else if fixture.exists() {
+        fixture
+    } else {
+        return Ok(None);
+    };
+    let artifact: CacheArtifact = read_json(path)?;
+    Ok(Some(CacheResults {
+        schema_version: artifact.schema_version,
+        class: artifact.class,
+        method: artifact.method,
+        measured: artifact.runs,
+        analytical: Vec::new(),
+    }))
+}
+
+/// Median of a slice of u64; returns `0` for an empty slice (callers only
+/// invoke it on non-empty cells, so this is a defensive default, not a model).
+fn median_u64(values: Vec<u64>) -> u64 {
+    if values.is_empty() {
+        return 0;
+    }
+    let mut values = values;
+    values.sort_unstable();
+    let len = values.len();
+    let mid = len / 2;
+    if len.is_multiple_of(2) {
+        let a = values.get(mid - 1).copied().unwrap_or(0);
+        let b = values.get(mid).copied().unwrap_or(0);
+        (a + b) / 2
+    } else {
+        values.get(mid).copied().unwrap_or(0)
+    }
+}
+
+/// Pair the measured cache runs with the closed-form analytical prediction,
+/// one row per (`r`, configuration) cell. The analytical bytes come from
+/// [`climb_analytical::resolver_cache_bytes_from_wire`], fed by the measured
+/// wire sizes — nothing is fitted to the measurement.
+fn build_cache_analytical(
+    runs: &[CacheRun],
+    wire_size: &[crate::results::WireSizeResult],
+) -> Vec<CacheAnalyticalRow> {
+    use std::collections::BTreeMap;
+    let mut by_cell: BTreeMap<(usize, String), Vec<u64>> = BTreeMap::new();
+    for run in runs {
+        by_cell
+            .entry((run.r, run.config.clone()))
+            .or_default()
+            .push(run.stats.rrset_cache_bytes);
+    }
+    let mut rows = Vec::new();
+    for ((r, config), bytes) in by_cell {
+        let config_enum = match config.as_str() {
+            "plain" => climb_analytical::CacheConfig::Plain,
+            "mtl-condensed" => climb_analytical::CacheConfig::MtlCondensed,
+            _ => continue,
+        };
+        let wire = wire_size.iter().find(|w| w.message_count == r);
+        let analytical_bytes = wire
+            .and_then(|w| {
+                climb_analytical::resolver_cache_bytes_from_wire(
+                    r,
+                    r,
+                    config_enum,
+                    w.without_mtl_total_bytes,
+                    w.with_mtl_total_bytes,
+                    w.ladder_len,
+                )
+            })
+            .map(|estimate| estimate.predicted_cache_bytes)
+            .unwrap_or(0);
+        let measured_bytes = median_u64(bytes);
+        let measured_over_analytical = if analytical_bytes > 0 {
+            measured_bytes as f64 / analytical_bytes as f64
+        } else {
+            0.0
+        };
+        rows.push(CacheAnalyticalRow {
+            config,
+            r,
+            measured_bytes,
+            analytical_bytes,
+            measured_over_analytical,
+        });
+    }
+    rows
+}
+
 /// Normalise an absolute path for storage in a published artifact.
 ///
 /// The checkout root becomes `<repo>` and a path below the user's home
@@ -2523,6 +2629,10 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &opts.replication_fixture_path,
     )?;
     let dns_rtt = load_dns_rtt_section(&opts.dns_rtt_path, &opts.dns_rtt_fixture_path)?;
+    let mut cache_use = load_cache_use_section(&opts.cache_use_path, &opts.cache_use_fixture_path)?;
+    if let Some(ref mut section) = cache_use {
+        section.analytical = build_cache_analytical(&section.measured, &wire_size);
+    }
 
     let plain = plain_timings(&plain_records);
     let classical_lengths = load_classical_signature_lengths(
@@ -2633,6 +2743,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         ladder,
         replication,
         dns_rtt,
+        cache_use,
         plain,
         classical,
         comparisons,
@@ -2978,6 +3089,8 @@ mod tests {
                 replication_fixture_path: root.join("no-replication-fixture.json"),
                 dns_rtt_path: root.join("no-dns-rtt.json"),
                 dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+                cache_use_path: root.join("no-cache-use.json"),
+                cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
                 environment_path: root.join("no-env.json"),
                 baseline: "new".to_string(),
                 rtt_ms: None,
@@ -3268,6 +3381,7 @@ mod tests {
             ladder: Some(sample_ladder_section()),
             replication: None,
             dns_rtt: None,
+            cache_use: None,
             plain,
             classical: Vec::new(),
             comparisons,
@@ -3337,6 +3451,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3369,6 +3485,7 @@ mod tests {
             dns_pipeline: None,
             dns_anatomy: None,
             ladder: None,
+            cache_use: None,
             replication: None,
             dns_rtt: None,
             plain: Vec::new(),
@@ -3624,6 +3741,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3695,6 +3814,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             environment_path: root.join("environment.json"),
             rtt_ms: None,
             baseline: "new".to_string(),
@@ -3790,6 +3911,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -4025,6 +4148,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -4341,6 +4466,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
@@ -4704,6 +4831,7 @@ mod tests {
                 dns_pipeline: None,
                 dns_anatomy: None,
                 ladder: None,
+                cache_use: None,
                 replication: None,
                 dns_rtt: None,
                 plain: Vec::new(),

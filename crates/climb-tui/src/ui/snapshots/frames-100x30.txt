@@ -144,7 +144,7 @@ style-digest contrast: 3ad76bd3066f8470
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                               │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Memory · measured vs modelled ─────────────────────────────┐┌ Reading these numbers ─────────────┐
+┌ Memory · benchmark process memory ─────────────────────────┐┌ Reading these numbers ─────────────┐
 │ Small                                                      ││                                    │
 │ Analytical   ░░░░░░░░░░░░░              2.18 MB            ││  analytical itemised model total   │
 │ Measured     ██████████████████████████ 4.15 MB            ││  measured   resident median (n     │
@@ -163,17 +163,17 @@ style-digest contrast: 3ad76bd3066f8470
 │                                                            ││                                    │
 │                                                            ││                                    │
 │                                                            ││                                    │
-│                                                            ││                                    │
-│                                                            ││                                    │
-│                                                            ││                                    │
-│                                                            ││                                    │
-│                                                            ││                                    │
-│                                                            ││                                    │
 └────────────────────────────────────────────────────────────┘└────────────────────────────────────┘
+┌ Resolver cache (separate measurement) ───────────────────────────────────────────────────────────┐
+│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.29 MB                 │
+│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.52 MB                   │
+│  Medium  MTL-condensed measured 8.43 MB  analytical 2.74 MB  3.08×  RSS +12.7 MB                 │
+│  Medium  plain         measured 8.43 MB  analytical 83.3 MB  0.10×  RSS +12.5 MB                 │
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/clim… · ? help
-style-digest dark: 87a314c37ecdfbd3
-style-digest light: 1dac9edc93bda1b2
-style-digest contrast: 3f64970508938d35
+style-digest dark: 0933a07e43eb6967
+style-digest light: f20968e7ef67a54c
+style-digest contrast: cdf939232fd441fe
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐

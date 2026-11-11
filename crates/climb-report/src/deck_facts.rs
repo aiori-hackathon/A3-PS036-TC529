@@ -49,6 +49,9 @@ pub enum Section {
     Replication,
     /// Measured emulated-RTT DNS latency from the local bridge.
     DnsRtt,
+    /// Resolver cache use: measured Unbound accounting and the analytical
+    /// prediction, kept in separate rows.
+    ResolverCache,
     /// Toolchain, kernel, CPU, pinning, submodule pins and commit SHA.
     Environment,
     /// Workspace test counts from the recorded test run.
@@ -57,7 +60,7 @@ pub enum Section {
 
 impl Section {
     /// Section render order.
-    pub const ORDER: [Section; 13] = [
+    pub const ORDER: [Section; 14] = [
         Section::WireBytes,
         Section::SigningTime,
         Section::VerifyingTime,
@@ -69,6 +72,7 @@ impl Section {
         Section::Classical,
         Section::Replication,
         Section::DnsRtt,
+        Section::ResolverCache,
         Section::Environment,
         Section::Quality,
     ];
@@ -88,6 +92,7 @@ impl Section {
             Section::Classical => "Classical baselines",
             Section::Replication => "Replication",
             Section::DnsRtt => "DNS latency (emulated RTT)",
+            Section::ResolverCache => "Resolver cache",
             Section::Environment => "Environment",
             Section::Quality => "Quality",
         }
@@ -1461,6 +1466,109 @@ fn record_method(methods: &mut Vec<String>, method: String) {
     }
 }
 
+/// Collect the resolver-cache section: the measured Unbound accounting and the
+/// analytical prediction, each in its own row, plus their ratio.
+///
+/// Values come from the consolidated `cache_use` section, whose `analytical`
+/// rows pair the measured median for a configuration with the closed-form
+/// prediction. The evidence classes are never merged: a measured byte count is
+/// `MEASURED`, a predicted byte count is `ANALYTICAL`, and only their ratio is
+/// `DERIVED`.
+fn collect_resolver_cache(
+    out: &mut Collected,
+    results: Option<(&Path, &Value)>,
+) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    let Some(rows) = array_at(root, path, "/cache_use/analytical")? else {
+        out.notes.push(Note::custom(
+            Section::ResolverCache,
+            "no resolver-cache section in the consolidated results \
+             (measure with `cargo xtask dns-cache`, then consolidate with `--cache-use`)",
+        ));
+        return Ok(());
+    };
+
+    for (i, row) in rows.iter().enumerate() {
+        let base = format!("/cache_use/analytical/{i}");
+        let config = opt_str(row, "/config", path)?.unwrap_or_default();
+        let r = opt_u64(row, "/r", path)?.unwrap_or(0);
+        let size = cache_size_label(root, path, r)?.unwrap_or_else(|| format!("R = {r}"));
+        let config_label = match config.as_str() {
+            "mtl-condensed" => "MTL-condensed",
+            "plain" => "plain",
+            other => other,
+        };
+        let nk = (r > 0).then(|| format!("n = {r}"));
+
+        if let Some(v) = opt_u64(row, "/measured_bytes", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — resolver cache bytes, {config_label} (measured)"),
+                    unit: "B".to_string(),
+                    class: Some(EvidenceClass::Measured),
+                    nk: nk.clone(),
+                    baseline: Baseline::Na,
+                },
+                fmt_bytes(v),
+                &format!("{base}/measured_bytes"),
+                &source,
+            ));
+        }
+        if let Some(v) = opt_u64(row, "/analytical_bytes", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — resolver cache bytes, {config_label} (analytical)"),
+                    unit: "B".to_string(),
+                    class: Some(EvidenceClass::Analytical),
+                    nk: nk.clone(),
+                    baseline: Baseline::Na,
+                },
+                fmt_bytes(v),
+                &format!("{base}/analytical_bytes"),
+                &source,
+            ));
+        }
+        if let Some(v) = opt_f64(row, "/measured_over_analytical", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — resolver cache measured / analytical, {config_label}"),
+                    unit: "×".to_string(),
+                    class: Some(EvidenceClass::Derived),
+                    nk,
+                    baseline: Baseline::Na,
+                },
+                fmt_ratio(v),
+                &format!("{base}/measured_over_analytical"),
+                &source,
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// Map a distinct-RRset count to the dataset-size label recorded in the wire
+/// section (`Small`/`Medium`/`Large`), so cache rows use the same size names
+/// as every other section. Returns `None` when no wire row carries that count.
+fn cache_size_label(root: &Value, path: &Path, r: u64) -> Result<Option<String>, ReportError> {
+    let Some(rows) = array_at(root, path, "/wire_size")? else {
+        return Ok(None);
+    };
+    for row in rows {
+        if opt_u64(row, "/message_count", path)? == Some(r) {
+            if let Some(size) = opt_str(row, "/size", path)? {
+                return Ok(Some(size_display(&size)));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// Collect the memory section: raw report rows (medians, ranges) that the
 /// results copy repeats, plus the results-only peak, sample count, itemised
 /// analytical model and residual.
@@ -2755,6 +2863,7 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
             Section::Classical,
             Section::Replication,
             Section::DnsRtt,
+            Section::ResolverCache,
             Section::Environment,
         ] {
             collected
@@ -2813,6 +2922,7 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     collect_classical(&mut collected, results_ref)?;
     collect_replication(&mut collected, results_ref)?;
     collect_dns_rtt(&mut collected, results_ref)?;
+    collect_resolver_cache(&mut collected, results_ref)?;
     collect_memory(
         &mut collected,
         memory_raw

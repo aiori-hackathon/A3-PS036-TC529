@@ -615,7 +615,7 @@
       }
     ]
   },
-  "dns_rtt":   {
+  "dns_rtt": {
     "cells": [
       {
         "delay_ms": 0.0,
@@ -26760,7 +26760,7 @@
     "overall_wire_reduction_percent": 96.46231903880918,
     "largest_wire_reduction_percent": 97.0055122898562,
     "overall_verifying_trust_cached_speedup_avg": 569.3478317190618,
-    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B → 658 B)",
+    "headline": "MTL condensed responses are ~97.3% smaller than full signatures (24,438 B \u2192 658 B)",
     "reuse": [
       {
         "size": "small",
@@ -28559,5 +28559,302 @@
   "reproduction_mode": "unknown",
   "warnings": [
     "dropped superseded benchmark row `Signing OneK Without MTL`: it measured a batch of 1000 messages instead of one signature per iteration"
-  ]
+  ],
+  "cache_use": {
+    "schema_version": 1,
+    "class": "MEASURED",
+    "method": "unbound-control stats_noreset + container RSS",
+    "measured": [
+      {
+        "config": "plain",
+        "r": 100,
+        "container_rss_before_bytes": 3837788,
+        "container_rss_after_bytes": 5382340,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 100,
+        "container_rss_before_bytes": 3837788,
+        "container_rss_after_bytes": 5648678,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 100,
+        "container_rss_before_bytes": 4009754,
+        "container_rss_after_bytes": 5042601,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 100,
+        "container_rss_before_bytes": 3846176,
+        "container_rss_after_bytes": 5369757,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 100,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 5017436,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "container_rss_before_bytes": 3837788,
+        "container_rss_after_bytes": 4825546,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 5128585,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 5140119,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 5328863,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "container_rss_before_bytes": 3846176,
+        "container_rss_after_bytes": 5066719,
+        "stats": {
+          "rrset_cache_bytes": 921471,
+          "rrset_cache_entries": 102,
+          "message_cache_bytes": 97594,
+          "message_cache_entries": 100,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "container_rss_before_bytes": 3850371,
+        "container_rss_after_bytes": 16808673,
+        "stats": {
+          "rrset_cache_bytes": 8429932,
+          "rrset_cache_entries": 967,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 16190013,
+        "stats": {
+          "rrset_cache_bytes": 8429932,
+          "rrset_cache_entries": 967,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 16515072,
+        "stats": {
+          "rrset_cache_bytes": 8429932,
+          "rrset_cache_entries": 967,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "container_rss_before_bytes": 3837788,
+        "container_rss_after_bytes": 16336814,
+        "stats": {
+          "rrset_cache_bytes": 8438615,
+          "rrset_cache_entries": 968,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "container_rss_before_bytes": 3850371,
+        "container_rss_after_bytes": 16357785,
+        "stats": {
+          "rrset_cache_bytes": 8438615,
+          "rrset_cache_entries": 968,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "container_rss_before_bytes": 3850371,
+        "container_rss_after_bytes": 16703815,
+        "stats": {
+          "rrset_cache_bytes": 8421249,
+          "rrset_cache_entries": 966,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 16378757,
+        "stats": {
+          "rrset_cache_bytes": 8429932,
+          "rrset_cache_entries": 967,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "container_rss_before_bytes": 3841982,
+        "container_rss_after_bytes": 16525557,
+        "stats": {
+          "rrset_cache_bytes": 8438615,
+          "rrset_cache_entries": 968,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "container_rss_before_bytes": 4104126,
+        "container_rss_after_bytes": 16808673,
+        "stats": {
+          "rrset_cache_bytes": 8438615,
+          "rrset_cache_entries": 968,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "container_rss_before_bytes": 3850371,
+        "container_rss_after_bytes": 16630415,
+        "stats": {
+          "rrset_cache_bytes": 8429932,
+          "rrset_cache_entries": 967,
+          "message_cache_bytes": 3431602,
+          "message_cache_entries": 10000,
+          "ladder_cache_bytes": 66104
+        }
+      }
+    ],
+    "analytical": [
+      {
+        "config": "mtl-condensed",
+        "r": 100,
+        "measured_bytes": 921471,
+        "analytical_bytes": 24392,
+        "measured_over_analytical": 37.77759101344703
+      },
+      {
+        "config": "plain",
+        "r": 100,
+        "measured_bytes": 921471,
+        "analytical_bytes": 815600,
+        "measured_over_analytical": 1.1298075036782738
+      },
+      {
+        "config": "mtl-condensed",
+        "r": 10000,
+        "measured_bytes": 8429932,
+        "analytical_bytes": 2738056,
+        "measured_over_analytical": 3.078801894482801
+      },
+      {
+        "config": "plain",
+        "r": 10000,
+        "measured_bytes": 8429932,
+        "analytical_bytes": 83290000,
+        "measured_over_analytical": 0.10121181414335455
+      }
+    ]
+  }
 }

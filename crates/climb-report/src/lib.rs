@@ -10,6 +10,7 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
 )]
 
+pub mod cache;
 pub mod charts;
 pub mod deck_facts;
 pub mod dns_rtt;
@@ -24,6 +25,10 @@ pub mod replication;
 pub mod results;
 pub mod summary;
 
+pub use cache::{
+    parse_unbound_stats, CacheAnalyticalRow, CacheArtifact, CacheParseError, CacheResults,
+    CacheRun, UnboundStats, CACHE_USE_CLASS, CACHE_USE_METHOD, CACHE_USE_SCHEMA_VERSION,
+};
 pub use dns_rtt::{
     DnsRttCell, DnsRttSection, DnsRttStatus, DNS_RTT_DELAYS_MS, DNS_RTT_FULL_SAMPLES,
     DNS_RTT_LABEL, DNS_RTT_SCHEMA_VERSION,

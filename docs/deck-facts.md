@@ -522,6 +522,23 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | unbound / mtl-condensed / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/samples | target/climb-results.json |
 | unbound / mtl-condensed / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/truncated | target/climb-results.json |
 
+## Resolver cache
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Small — resolver cache bytes, MTL-condensed (measured) | 921471 | B | MEASURED | n = 100 | n/a | /cache_use/analytical/0/measured_bytes | target/climb-results.json |
+| Small — resolver cache bytes, MTL-condensed (analytical) | 24392 | B | ANALYTICAL | n = 100 | n/a | /cache_use/analytical/0/analytical_bytes | target/climb-results.json |
+| Small — resolver cache measured / analytical, MTL-condensed | 37.78 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/0/measured_over_analytical | target/climb-results.json |
+| Small — resolver cache bytes, plain (measured) | 921471 | B | MEASURED | n = 100 | n/a | /cache_use/analytical/1/measured_bytes | target/climb-results.json |
+| Small — resolver cache bytes, plain (analytical) | 815600 | B | ANALYTICAL | n = 100 | n/a | /cache_use/analytical/1/analytical_bytes | target/climb-results.json |
+| Small — resolver cache measured / analytical, plain | 1.13 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/1/measured_over_analytical | target/climb-results.json |
+| Medium — resolver cache bytes, MTL-condensed (measured) | 8429932 | B | MEASURED | n = 10000 | n/a | /cache_use/analytical/2/measured_bytes | target/climb-results.json |
+| Medium — resolver cache bytes, MTL-condensed (analytical) | 2738056 | B | ANALYTICAL | n = 10000 | n/a | /cache_use/analytical/2/analytical_bytes | target/climb-results.json |
+| Medium — resolver cache measured / analytical, MTL-condensed | 3.079 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/2/measured_over_analytical | target/climb-results.json |
+| Medium — resolver cache bytes, plain (measured) | 8429932 | B | MEASURED | n = 10000 | n/a | /cache_use/analytical/3/measured_bytes | target/climb-results.json |
+| Medium — resolver cache bytes, plain (analytical) | 83290000 | B | ANALYTICAL | n = 10000 | n/a | /cache_use/analytical/3/analytical_bytes | target/climb-results.json |
+| Medium — resolver cache measured / analytical, plain | 0.1012 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/3/measured_over_analytical | target/climb-results.json |
+
 ## Environment
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
@@ -538,22 +555,22 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | aa63ac9a37bda91fe324457981ee84219378ff4a | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | 2ba7989859c7dd3dc9dab26efcdb3d1587063e5c | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 853 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 1 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 3 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 32 | — | MEASURED | n = 32 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1320 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 
 ---
 
 ## Footer
 
-- Rows rendered: 455 (from 601 collected facts; 146 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 284, ANALYTICAL: 71, EXTRAPOLATED: 24, DERIVED: 75; UNCLASSIFIED: 1.
+- Rows rendered: 467 (from 613 collected facts; 146 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 288, ANALYTICAL: 75, EXTRAPOLATED: 24, DERIVED: 79; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

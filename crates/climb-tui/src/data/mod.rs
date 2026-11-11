@@ -12,6 +12,7 @@ mod integrity;
 mod ladder;
 mod live;
 mod memory;
+pub(crate) use memory::ResolverCacheRow;
 mod method;
 mod overview;
 mod reuse;
@@ -539,6 +540,7 @@ pub(crate) mod test_support {
                 environment: environment(),
                 dns_pipeline: dns,
                 ladder: None,
+                cache_use: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
                 comparisons: Vec::new(),
@@ -716,6 +718,16 @@ pub(crate) mod test_support {
         let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
         view.results.memory.measured = measured;
         view.results.dns_anatomy = None;
+        view
+    }
+
+    /// A view carrying a resolver-cache section beside the given wire rows.
+    pub(crate) fn view_with_cache_section(
+        wire: Vec<WireSizeResult>,
+        cache: climb_report::cache::CacheResults,
+    ) -> ResultsView {
+        let mut view = view_with(Vec::new(), Vec::new(), wire, None, empty_derived());
+        view.results.cache_use = Some(cache);
         view
     }
 
@@ -1062,6 +1074,8 @@ mod tests {
             replication_fixture_path: root.join("no-replication-fixture.json"),
             dns_rtt_path: root.join("no-dns-rtt.json"),
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,

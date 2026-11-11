@@ -260,6 +260,37 @@ fn udp_aggregate(results: &ClimbResults) -> Vec<(String, String, u64, u64, u64, 
 }
 
 /// Every headline metric, recomputed from raw rows.
+/// Median `mem.cache.rrset` bytes over the raw measurement runs for one
+/// configuration and RRset count.
+///
+/// The headline cache rows are recomputed from these per-run rows rather than
+/// read from the consolidated median, so a tampered `measured_bytes` cell is
+/// caught: the recomputed value and the stored pointer must agree.
+fn median_cache_rrset_bytes(
+    cache: &crate::cache::CacheResults,
+    r: usize,
+    config: &str,
+) -> Option<u64> {
+    let mut values: Vec<u64> = cache
+        .measured
+        .iter()
+        .filter(|run| run.r == r && run.config == config)
+        .map(|run| run.stats.rrset_cache_bytes)
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let mid = values.len() / 2;
+    if values.len().is_multiple_of(2) {
+        let a = values.get(mid - 1).copied().unwrap_or(0);
+        let b = values.get(mid).copied().unwrap_or(0);
+        Some((a + b) / 2)
+    } else {
+        values.get(mid).copied()
+    }
+}
+
 pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
     let mut metrics = Vec::new();
 
@@ -557,6 +588,106 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
         }
     }
 
+    // --- Resolver cache use at the headline size. ----------------------
+    // The pointer indexes into the `cache_use.analytical` array, located by
+    // (`message_count`, configuration) rather than by position.
+    if let Some(cache) = results.cache_use.as_ref() {
+        let medium_messages = results
+            .wire_size
+            .iter()
+            .find(|w| w.size.eq_ignore_ascii_case(HEADLINE_SIZE))
+            .map(|w| w.message_count)
+            .unwrap_or(0);
+        if medium_messages > 0 {
+            for (config, _baseline, id, _label, config_label) in [
+                (
+                    "plain",
+                    "A",
+                    "cache_rrset_bytes_medium_plain",
+                    "Resolver cache, Medium rrset bytes — plain",
+                    "plain",
+                ),
+                (
+                    "mtl-condensed",
+                    "C",
+                    "cache_rrset_bytes_medium_mtl",
+                    "Resolver cache, Medium rrset bytes — MTL-condensed",
+                    "MTL-condensed",
+                ),
+            ] {
+                if let Some(index) = cache
+                    .analytical
+                    .iter()
+                    .position(|r| r.r == medium_messages && r.config == config)
+                {
+                    if cache.analytical.get(index).is_some() {
+                        if let Some(measured_bytes) =
+                            median_cache_rrset_bytes(cache, medium_messages, config)
+                        {
+                            metrics.push(Metric {
+                                id: id.to_string(),
+                                label: format!(
+                                    "Medium — resolver cache bytes, {config_label} (measured)"
+                                ),
+                                unit: "B",
+                                class: "MEASURED",
+                                baseline: "n/a",
+                                value: measured_bytes as f64,
+                                denominator: None,
+                                display: fmt_count(measured_bytes as f64),
+                                pointer: format!("/cache_use/analytical/{index}/measured_bytes"),
+                                denominator_pointer: None,
+                                report_pointer: format!(
+                                    "/cache_use/analytical/{index}/measured_bytes"
+                                ),
+                                sheet_label: format!(
+                                    "Medium — resolver cache bytes, {config_label} (measured)"
+                                ),
+                            });
+                        }
+                    }
+                }
+            }
+            if let Some(index) = cache
+                .analytical
+                .iter()
+                .position(|r| r.r == medium_messages && r.config == "mtl-condensed")
+            {
+                if let Some(row) = cache.analytical.get(index) {
+                    if row.analytical_bytes > 0 {
+                        if let Some(measured_bytes) =
+                            median_cache_rrset_bytes(cache, medium_messages, "mtl-condensed")
+                        {
+                            let ratio = measured_bytes as f64 / row.analytical_bytes as f64;
+                            metrics.push(Metric {
+                                id: "cache_ratio_medium_mtl".to_string(),
+                                label:
+                                    "Medium — resolver cache measured / analytical, MTL-condensed"
+                                        .to_string(),
+                                unit: "\u{d7}",
+                                class: "DERIVED",
+                                value: ratio,
+                                denominator: None,
+                                display: fmt_ratio(ratio),
+                                pointer: format!(
+                                    "/cache_use/analytical/{index}/measured_over_analytical"
+                                ),
+                                denominator_pointer: None,
+                                report_pointer: format!(
+                                    "/cache_use/analytical/{index}/measured_over_analytical"
+                                ),
+                                sheet_label:
+                                    "Medium — resolver cache measured / analytical, MTL-condensed"
+                                        .to_string(),
+                                baseline: "n/a",
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     metrics
 }
 
@@ -771,6 +902,74 @@ mod tests {
         );
         assert!((metric(&metrics, "large_memory_ratio").value - 1.1044228).abs() < 1e-5);
         assert_eq!(metric(&metrics, "ladder_buffer_n100").value, 132.0);
+    }
+
+    #[test]
+    fn cache_metrics_recompute_the_median_from_raw_runs() {
+        let mut results = sample_results();
+        let medium = results
+            .wire_size
+            .iter()
+            .find(|w| w.size.eq_ignore_ascii_case("Medium"))
+            .expect("committed sample carries a Medium wire row")
+            .message_count;
+        let cache = results
+            .cache_use
+            .as_mut()
+            .expect("committed sample carries cache use");
+        let index = cache
+            .analytical
+            .iter()
+            .position(|r| r.r == medium && r.config == "mtl-condensed")
+            .expect("committed sample carries a Medium MTL-condensed row");
+        // Tamper with the stored median and ratio: the metric must be
+        // recomputed from the raw per-run rows, not read from these cells.
+        if let Some(row) = cache.analytical.get_mut(index) {
+            row.measured_bytes = 1;
+            row.measured_over_analytical = 1.0;
+        }
+        let analytical_bytes = cache
+            .analytical
+            .get(index)
+            .map(|row| row.analytical_bytes)
+            .unwrap_or(0);
+        assert!(analytical_bytes > 0);
+
+        let metrics = headline_metrics(&results);
+        let bytes = metric(&metrics, "cache_rrset_bytes_medium_mtl");
+        assert_eq!(
+            bytes.value, 8_429_932.0,
+            "the median of the raw runs wins over the tampered cell"
+        );
+        let ratio = metric(&metrics, "cache_ratio_medium_mtl");
+        assert!((ratio.value - 8_429_932.0 / analytical_bytes as f64).abs() < 1e-9);
+        assert_ne!(ratio.value, 1.0);
+    }
+
+    #[test]
+    fn cache_metrics_skip_a_configuration_without_raw_runs() {
+        let mut results = sample_results();
+        let medium = results
+            .wire_size
+            .iter()
+            .find(|w| w.size.eq_ignore_ascii_case("Medium"))
+            .expect("committed sample carries a Medium wire row")
+            .message_count;
+        let cache = results
+            .cache_use
+            .as_mut()
+            .expect("committed sample carries cache use");
+        cache
+            .measured
+            .retain(|run| !(run.r == medium && run.config == "plain"));
+
+        let metrics = headline_metrics(&results);
+        assert!(
+            !metrics
+                .iter()
+                .any(|m| m.id == "cache_rrset_bytes_medium_plain"),
+            "a configuration with no raw runs must not publish a median"
+        );
     }
 
     #[test]

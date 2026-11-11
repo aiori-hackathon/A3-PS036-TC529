@@ -134,6 +134,48 @@ buffers, keypair context). Measured and analytical are reported side by side
 with the residual stated, never forced to agree; the ratio row in the headline
 table is the honest summary of the model's accuracy.
 
+## Resolver cache: measured and analytical, kept separate
+
+The resolver cache measurement answers a different question from the benchmark
+process memory (§Memory): how much cache space a recursive resolver holds
+while serving a workload, not how much RAM the benchmark process itself uses.
+
+Measured. NSD-MTL and Unbound-MTL run on the internal Docker bridge. A fast
+client (a single UDP socket, `R` sequential queries — never one `dig` process
+per name) loads `R` distinct signed RRsets into Unbound's cache for each of
+two configurations:
+
+* `plain` — every response carries a full signature, nothing shared;
+* `mtl-condensed` — every response carries a condensed proof and one signed
+  ladder is shared across the whole batch.
+
+Between every run the resolver cache is flushed (Unbound restarted) so each
+run measures cold loading of the same `R` names. After loading, Unbound's own
+accounting is read with `unbound-control stats_noreset` — `mem.cache.rrset`,
+`mem.cache.message`, `rrset.cache.count`, `msg.cache.count` — and the
+container's resident memory is sampled before and after. `R` takes the
+blueprint Small (100) and Medium (10,000) sizes; each cell is repeated at
+least five times. Evidence class: `MEASURED`. Label: "resolver cache use,
+local Docker bridge".
+
+Analytical. The predicted cache bytes are `R × mean response wire size`,
+plus the shared ladder bytes once for `mtl-condensed` (zero for `plain`). The
+mean response size comes from the wire-size measurement (full signature total
+divided by message count for `plain`; amortised total minus the ladder, divided
+by message count, for `mtl-condensed`), and the ladder size comes from the
+ladder-verification measurement. No constant is fitted to the measurement; the
+inputs are themselves measurements. The measured / analytical ratio is
+reported on every surface, exactly as the Memory tab does for benchmark-process
+memory.
+
+Honest limits. One resolver only, local bridge only (no Internet deployment).
+Unbound's accounting includes its own cache-structure overhead (a cold cache
+already reports nonzero `mem.cache.rrset`/`mem.cache.message`), so measured
+bytes are not expected to equal the analytical wire-bytes prediction; the
+ratio states the gap honestly rather than forcing agreement. Entry counts
+(`rrset.cache.count`, `msg.cache.count`) are reported where the resolver build
+exposes them.
+
 ## Evidence classes
 
 Every number in the report, charts, TUI and README carries one of these

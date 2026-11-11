@@ -1,0 +1,24 @@
+[
+  {
+    "size": "Small",
+    "seed": 4849331494946035253,
+    "message_count": 100,
+    "ladder_len": 7992,
+    "condensed": {
+      "min": 108,
+      "max": 172,
+      "mean": 164.32,
+      "total": 16432,
+      "uniform": false
+    },
+    "with_mtl_total": 24424,
+    "without_mtl_total": 815632,
+    "reduction_percent": 97.00551228985621,
+    "full_invariant_samples": 6,
+    "plain": {
+      "signature_len": 7856,
+      "samples": 1,
+      "total": 785600
+    }
+  }
+]

@@ -10,10 +10,12 @@
     deny(clippy::unwrap_used, clippy::expect_used, clippy::indexing_slicing)
 )]
 
+pub mod cache;
 pub mod ladder;
 pub mod reuse;
 pub mod udp_fit;
 
+pub use cache::{resolver_cache_bytes, resolver_cache_bytes_from_wire, CacheConfig};
 pub use ladder::{
     auth_path_len, predicted_condensed_len, predicted_ladder_len, rung_for_leaf, rungs, Rung,
     CONDENSED_FIXED_LEN, MTL_INDEX_LEN,

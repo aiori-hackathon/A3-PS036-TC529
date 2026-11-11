@@ -163,6 +163,16 @@ RUN echo "/usr/local/lib" > /etc/ld.so.conf.d/climb-unbound.conf && ldconfig
 RUN mkdir -p /var/lib/unbound /run/unbound \
     && chown -R nobody:nogroup /var/lib/unbound /run/unbound
 
+# Generate the unbound-control TLS certificates so `unbound-control
+# stats_noreset` (used by the resolver-cache measurement) can authenticate
+# to the control interface. The control interface is bound to 127.0.0.1
+# inside the container only (see docker/configs/unbound.conf), so these
+# certs never cross the bridge. Run as root here, before dropping to nobody.
+RUN /usr/local/unbound/sbin/unbound-control-setup -d /var/lib/unbound \
+    && chown -R nobody:nogroup /var/lib/unbound \
+    && chmod 644 /var/lib/unbound/unbound_server.pem /var/lib/unbound/unbound_control.pem \
+    && chmod 600 /var/lib/unbound/unbound_server.key /var/lib/unbound/unbound_control.key
+
 EXPOSE 53/udp 53/tcp
 
 USER nobody

@@ -19,6 +19,7 @@ mod dataset_digests;
 mod deck_delta;
 mod deck_facts;
 mod dist_tui;
+mod dns_cache;
 mod dns_demo;
 mod dns_rtt;
 mod docs_check;
@@ -46,6 +47,7 @@ use dataset_digests::{cmd_dataset_digests, DatasetDigestsArgs};
 use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
 use dist_tui::{cmd_dist_tui, DistTuiArgs};
+use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
 use docs_check::{cmd_docs_check, DocsCheckArgs};
@@ -156,6 +158,12 @@ enum Commands {
     /// Write the replication summary that consolidation embeds: pending until
     /// `data/replication/` holds a second host's results document.
     ReplicateSummary(ReplicateSummaryArgs),
+    /// Measure resolver cache use: load R distinct signed RRsets through the
+    /// local NSD+Unbound pipeline, read Unbound's own cache accounting
+    /// (`unbound-control stats_noreset`) and container RSS, and repeat. Both a
+    /// plain (full-signature) and an MTL-condensed (shared ladder)
+    /// configuration are measured. Evidence class MEASURED, local only.
+    DnsCache(DnsCacheArgs),
     /// Measure DNS query latency across the local Docker bridge with emulated
     /// RTT delays (tc netem, with userspace-sleep fallback). Evidence class
     /// MEASURED, labelled "emulated RTT, local bridge"; never presented as
@@ -324,13 +332,25 @@ enum ReportFormat {
     Html,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
 pub(crate) enum SizeArg {
     All,
     Small,
     OneK,
     Medium,
     Large,
+}
+
+impl std::fmt::Display for SizeArg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SizeArg::All => write!(f, "all"),
+            SizeArg::Small => write!(f, "small"),
+            SizeArg::OneK => write!(f, "onek"),
+            SizeArg::Medium => write!(f, "medium"),
+            SizeArg::Large => write!(f, "large"),
+        }
+    }
 }
 
 fn main() -> Result<()> {
@@ -350,6 +370,7 @@ fn main() -> Result<()> {
         Commands::DeckDelta(args) => cmd_deck_delta(args),
         Commands::ReplicateCompare(args) => cmd_replicate_compare(args),
         Commands::ReplicateSummary(args) => cmd_replicate_summary(args),
+        Commands::DnsCache(args) => cmd_dns_cache(args),
         Commands::DnsRtt(args) => cmd_dns_rtt(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::ReadmeBadges(args) => cmd_readme_badges(args),

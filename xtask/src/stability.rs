@@ -448,6 +448,7 @@ mod tests {
                 "dns_anatomy",
                 "ladder",
                 "dns_rtt",
+                "cache_use",
                 "plain",
                 "classical",
                 "comparisons",

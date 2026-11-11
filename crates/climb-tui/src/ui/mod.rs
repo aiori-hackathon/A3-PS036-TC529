@@ -561,6 +561,7 @@ mod tests {
                 },
                 dns_pipeline: dns,
                 ladder: None,
+                cache_use: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
                 comparisons: vec![ConfigComparison {
@@ -1245,6 +1246,7 @@ mod tests {
                 dns_pipeline: None,
                 dns_anatomy: None,
                 ladder: None,
+                cache_use: None,
                 plain: Vec::new(),
                 classical: Vec::new(),
                 comparisons: Vec::new(),

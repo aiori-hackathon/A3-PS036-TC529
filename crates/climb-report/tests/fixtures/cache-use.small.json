@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "mode": "quick",
+  "recorded_at": "0",
+  "git_commit": null,
+  "hostname": "fixture",
+  "uname": "fixture",
+  "label": "resolver cache use, test fixture",
+  "class": "MEASURED",
+  "method": "unbound-control stats_noreset + container RSS",
+  "resolver": "unbound",
+  "r_values": [
+    100
+  ],
+  "configs": [
+    "plain",
+    "mtl-condensed"
+  ],
+  "repeats": 2,
+  "runs": [
+    {
+      "config": "plain",
+      "r": 100,
+      "container_rss_before_bytes": 3837788,
+      "container_rss_after_bytes": 5382340,
+      "stats": {
+        "rrset_cache_bytes": 921471,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97594,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      }
+    },
+    {
+      "config": "plain",
+      "r": 100,
+      "container_rss_before_bytes": 3837788,
+      "container_rss_after_bytes": 5648678,
+      "stats": {
+        "rrset_cache_bytes": 921471,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97594,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      }
+    },
+    {
+      "config": "mtl-condensed",
+      "r": 100,
+      "container_rss_before_bytes": 3837788,
+      "container_rss_after_bytes": 4825546,
+      "stats": {
+        "rrset_cache_bytes": 921471,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97594,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      }
+    },
+    {
+      "config": "mtl-condensed",
+      "r": 100,
+      "container_rss_before_bytes": 3841982,
+      "container_rss_after_bytes": 5128585,
+      "stats": {
+        "rrset_cache_bytes": 921471,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97594,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      }
+    }
+  ],
+  "warnings": []
+}

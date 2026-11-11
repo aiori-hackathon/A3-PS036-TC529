@@ -120,17 +120,11 @@ style-digest contrast: 94d34e952b5e45b6
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method           │
 └──────────────────────────────────────────────────────────────────────────────┘
-┌ Memory · measured vs modelled ───────────────────────────────────────────────┐
+┌ Memory · benchmark process memory ───────────────────────────────────────────┐
 │ Small                                                                        │
 │ Analytical   ░░░░░░░░░░░░░░░░░░░░░░▒                      2.18 MB            │
 │ Measured     ████████████████████████████████████████████ 4.15 MB            │
 │   peak 4.15 MB · ratio 1.90× · resid 1.97 MB (+90.3%) · n=7, IQR 94.2 kB     │
-│ Medium                                                                       │
-│ Analytical   ░░░░░░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒             10.5 MB            │
-│ Measured     ██████████████████████████████████████████   14 MB              │
-│   peak 14.4 MB · ratio 1.33× · resid 3.51 MB (+33.4%) · n=7, IQR 94.2 kB     │
-│ Large                                                                        │
-│ Analytical   ░░▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒▒        984 MB             │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Reading these numbers ───────────────────────────────────────────────────────┐
 │                                                                              │
@@ -140,10 +134,16 @@ style-digest contrast: 94d34e952b5e45b6
 │  peak     = high-water − baseline                                            │
 │  residual = resident median − model                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
+┌ Resolver cache (separate measurement) ───────────────────────────────────────┐
+│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.29│
+│MB                                                                            │
+│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.52  │
+│MB                                                                            │
+└──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: e83c397fd1796877
-style-digest light: 0bd28558684cec06
-style-digest contrast: 9ae00df90bed3c71
+style-digest dark: 67dcf73ecffebb4c
+style-digest light: fae3eb4de1aba318
+style-digest contrast: e3377ea4b544fe2e
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
