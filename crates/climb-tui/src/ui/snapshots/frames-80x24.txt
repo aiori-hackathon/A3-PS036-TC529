@@ -237,9 +237,10 @@ style-digest contrast: 44b50de0ddd801cd
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method           │
 └──────────────────────────────────────────────────────────────────────────────┘
  Method · baselines: embedded copy  (Up/Down scroll)
-┌ Scope · 116 rows · Up/Down scroll ───────────────────────────────────────────┐
+┌ Scope · 117 rows · Up/Down scroll ───────────────────────────────────────────┐
 │Scope                                                                         │
 │  This suite measures Merkle Tree Ladder amortisation for post-quantum DNSSEC │
+│  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Larg│
 │  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                    │
 │  dataset sizes             Small, OneK, Medium, Large                        │
 │  results generated         2026-10-22T15:30:06+05:30                         │
@@ -254,9 +255,8 @@ style-digest contrast: 44b50de0ddd801cd
 │                                                                              │
 │  This suite measures Merkle Tree Ladder (MTL) amortisation for post-quantum  │
 │  DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the │
-│  labels below are the ones the report, charts, TUI and README use.           │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: c67bee4b4aea6c68
-style-digest light: b328ae6b2d563d7e
-style-digest contrast: ecb3d3ffde7f707d
+style-digest dark: 6bc055fab4ba0c7f
+style-digest light: bf5faf3be4a2c6bc
+style-digest contrast: f17cc72187f688d7

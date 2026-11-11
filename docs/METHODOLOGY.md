@@ -1,8 +1,11 @@
 # Methodology
 
 How CLIMB measures, what each number's evidence class means, and where the
-numbers come from. The three dataset sizes are Small (100 messages), OneK
-(1,000), Medium (10,000) and Large (1,000,000); the algorithm throughout is
+numbers come from. The benchmark matrix covers three evaluated dataset sizes
+(Small, Medium, Large) plus one intermediate validation size used only to
+validate the extrapolation identity — Small, Medium and Large carry 100,
+10,000 and 1,000,000 messages, and the intermediate validation size is OneK,
+at 1,000 messages. The algorithm throughout is
 SLH-DSA-SHA2-128s-MTL-SHA2-128, the small-signature variant chosen because
 DNS-over-UDP is exactly the size-sensitive context MTL mode targets.
 

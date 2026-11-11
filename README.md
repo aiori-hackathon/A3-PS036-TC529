@@ -51,7 +51,7 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 <!-- demo-video:end -->
 
 
-**Jump to:** [Demo video](#watch-the-demo) · [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Run the dashboard](#run-the-dashboard-on-your-machine) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Honest limits](#honest-limits)
+**Jump to:** [Demo video](#watch-the-demo) · [Judge fast path](#judge-fast-path) · [Live demo](#live-demo) · [Headline results](#headline-results) · [Built in the open](#built-in-the-open) · [Quickstart](#quickstart) · [Run the dashboard](#run-the-dashboard-on-your-machine) · [Baselines](#baselines) · [How to read the report](#how-to-read-the-report) · [Repository map](#repository-map) · [Requirements coverage](#requirements-coverage) · [Honest limits](#honest-limits)
 
 
 | Name | Role | Link |
@@ -321,6 +321,11 @@ consistently across the report, charts, TUI and this README:
 - **C — MTL amortised** — one signed Merkle tree ladder is shared across the
   whole batch; each message carries only a condensed authentication path.
 
+The benchmark matrix runs three evaluated dataset sizes (Small, Medium,
+Large) plus one intermediate validation size used only to validate the
+extrapolation identity, and every configuration signs the same deterministic,
+seed-pinned dataset for a given size.
+
 See [`docs/BASELINES.md`](docs/BASELINES.md) for the wire-byte formula of each
 configuration and how the signing benchmark realises each one.
 
@@ -368,7 +373,9 @@ Supporting directories:
   implementation);
 - `docs/` — `ARCHITECTURE.md`, `METHODOLOGY.md`, `BASELINES.md`,
   `RESEARCH.md` (source provenance), `REPRODUCIBILITY.md` (every input and the
-  check that enforces it), the generated quote sheet `deck-facts.md`, and
+  check that enforces it), `COMPLIANCE.md` (requirements traceability),
+  `PSEUDOCODE.md` and `DEMO-PROTOTYPE.md` (the pseudocode and demonstration
+  deliverables), the generated quote sheet `deck-facts.md`, and
   `sample-output/` (committed, provenance-stamped sample artifacts);
 - `data/` — recorded fixtures (DNS capture, ladder verification);
 - `scripts/` — environment pinning, clean-clone check helpers, the logo asset
@@ -460,6 +467,18 @@ packing date. Packing fails when an input is missing or when the report
 disagrees with the results it ships beside.
 
 </details>
+
+## Requirements coverage
+
+<!-- requirements:begin -->
+Every requirement of the problem statement is traced to its evidence in
+[`docs/COMPLIANCE.md`](docs/COMPLIANCE.md): one table mapping each
+requirement and expected outcome to the tracked file that implements it,
+the automation command that reproduces it, the JSON pointer into the
+committed results artifact, and the dashboard tab that shows it. The
+automation resolves every pointer in that table, so a row cannot cite
+evidence that does not exist, and a row carrying a gap is never marked met.
+<!-- requirements:end -->
 
 ## Honest limits
 

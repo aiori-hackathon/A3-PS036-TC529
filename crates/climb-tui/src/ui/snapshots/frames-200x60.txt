@@ -525,14 +525,15 @@ style-digest contrast: 4683f841073c652e
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method                                                                                                                                   │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  Method · baselines: embedded copy  (Up/Down scroll)
-┌ Contents ────────────────────┐┌ Scope · 116 rows · Up/Down scroll ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+┌ Contents ────────────────────┐┌ Scope · 117 rows · Up/Down scroll ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
 │▸ Scope                       ││Scope                                                                                                                                                                 │
 │  Baselines A/B/C             ││  This suite measures Merkle Tree Ladder amortisation for post-quantum DNSSEC signing. The same deterministic message sets are signed with MTL amortisation and withou│
-│  Evidence classes            ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                                                                                                            │
-│  Environment and pinning     ││  dataset sizes             Small, OneK, Medium, Large                                                                                                                │
-│  Sampling and extrapolation  ││  results generated         2026-10-22T15:30:06+05:30                                                                                                                 │
-│  Known limits                ││  Reproduce every artifact from a clean checkout:                                                                                                                     │
-│  Accessibility               ││    cargo xtask reproduce --report-only                                                                                                                               │
+│  Evidence classes            ││  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Large) plus one intermediate validation size used only to validate the extrapolation identit│
+│  Environment and pinning     ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                                                                                                            │
+│  Sampling and extrapolation  ││  dataset sizes             Small, OneK, Medium, Large                                                                                                                │
+│  Known limits                ││  results generated         2026-10-22T15:30:06+05:30                                                                                                                 │
+│  Accessibility               ││  Reproduce every artifact from a clean checkout:                                                                                                                     │
+│                              ││    cargo xtask reproduce --report-only                                                                                                                               │
 │                              ││    cargo xtask reproduce --remeasure                                                                                                                                 │
 │                              ││    cargo xtask report --check                                                                                                                                        │
 │                              ││    cargo run -p climb-tui                                                                                                                                            │
@@ -578,9 +579,8 @@ style-digest contrast: 4683f841073c652e
 │                              ││  baseline A. Where a report or chart says "no amortisation", it means B.                                                                                             │
 │                              ││                                                                                                                                                                      │
 │                              ││How the signing benchmark realises each setting                                                                                                                       │
-│                              ││                                                                                                                                                                      │
 └──────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
-style-digest dark: 259fb96a8b94bb90
-style-digest light: 950b7acc7c76c1ca
-style-digest contrast: 356e8bd05929b798
+style-digest dark: 77832b8048c51c48
+style-digest light: c92edf6ad6d5a998
+style-digest contrast: 9674b721acbfe54e

@@ -32,6 +32,25 @@
 //! differs from the fresh generation is a violation with a diff. The block's
 //! own lines are exempt from the numeric-result rule — and only those lines;
 //! the rule itself is unchanged for every other line of every document.
+//!
+//! The requirements-traceability table (`docs/COMPLIANCE.md`, between its
+//! own markers) is checked one level further: every evidence file it cites
+//! must exist in the repository tree, every command must parse with the real
+//! automation CLI, every artifact pointer must resolve in the committed
+//! results artifact, and every tab name must be one the dashboard's tab
+//! enum really has, so a requirement cannot cite evidence that does not
+//! exist. The status column is held honest too: a row that is not `met` must
+//! name the deliverable that closes its gap, and a `met` row must not.
+//! A present-but-malformed table is a hard error naming the file and line.
+//!
+//! The dataset-size sentence that describes the benchmark matrix must be
+//! carried identically (modulo whitespace) by every surface that states
+//! it: the README, the methodology document and the dashboard's Method tab
+//! source.
+//!
+//! The README's requirements-coverage section (between the
+//! `<!-- requirements:begin -->` and `<!-- requirements:end -->` markers)
+//! must link the traceability table and carry no digits in its prose.
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -123,6 +142,38 @@ const NON_CRATE_IDS: &[&str] = &["climb_net"];
 /// Marker on a numbers-of-record row whose artifact was superseded, so its
 /// value need not appear in the quote sheet. Case-insensitive substring match.
 const HISTORICAL_TAG: &str = "historical";
+
+/// The requirements-traceability document, relative to the workspace root.
+const COMPLIANCE_FILE: &str = "docs/COMPLIANCE.md";
+
+/// Markers bracketing the requirements table in that document.
+const COMPLIANCE_BEGIN: &str = "<!-- compliance:begin -->";
+const COMPLIANCE_END: &str = "<!-- compliance:end -->";
+
+/// The dashboard's tab-enum source: its `title()` match arms name every tab
+/// the requirements table may cite.
+const TAB_SOURCE: &str = "crates/climb-tui/src/app.rs";
+
+/// The methodology document, one of the surfaces that must carry the
+/// dataset-size sentence.
+const METHODOLOGY_FILE: &str = "docs/METHODOLOGY.md";
+
+/// The dashboard's Method-tab data source, the other such surface.
+const METHOD_SOURCE: &str = "crates/climb-tui/src/data/method.rs";
+
+/// Markers bracketing the README's requirements-coverage section.
+const REQUIREMENTS_BEGIN: &str = "<!-- requirements:begin -->";
+const REQUIREMENTS_END: &str = "<!-- requirements:end -->";
+
+/// The dataset-size sentence every describing surface must carry, modulo
+/// whitespace.
+const DATASET_SIZE_SENTENCE: &str = "three evaluated dataset sizes (Small, Medium, Large) plus one intermediate validation size used only to validate the extrapolation identity";
+
+/// The statuses a requirements row may carry.
+const COMPLIANCE_STATUSES: &[&str] = &["met", "partial", "pending"];
+
+/// The marker for an intentionally empty table cell.
+const EMPTY_CELL: &str = "\u{2014}";
 
 /// One parsed row of the quote sheet's fact tables.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1836,6 +1887,30 @@ pub(crate) fn tracked_files(root: &Path) -> Result<HashSet<String>> {
         .collect())
 }
 
+/// Repository paths that exist in the working tree: tracked files plus
+/// untracked files git does not ignore. The documentation gates run before
+/// the tree is staged, so a freshly written file is already citable; a
+/// path that is ignored or does not exist is not.
+fn citable_files(root: &Path) -> Result<HashSet<String>> {
+    let mut command = Command::new("git");
+    command
+        .args([
+            "ls-files",
+            "--cached",
+            "--others",
+            "--exclude-standard",
+            "-z",
+        ])
+        .current_dir(root);
+    let output = proc::run(&mut command, Duration::from_secs(120), "git ls-files")?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    Ok(text
+        .split('\0')
+        .filter(|path| !path.is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
 /// Every markdown file under a directory, recursively.
 fn markdown_files(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut found = Vec::new();
@@ -2149,6 +2224,329 @@ fn check_path_hygiene(root: &Path, tracked: &HashSet<String>) -> Result<Vec<Viol
     Ok(violations)
 }
 
+// ---------------------------------------------------------------------------
+// The requirements-traceability table, the dataset-size sentence and the
+// README's coverage section
+// ---------------------------------------------------------------------------
+
+/// One parsed row of the requirements-traceability table.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComplianceRow {
+    /// Line the row starts on, for located violations.
+    pub(crate) line: usize,
+    /// The requirement, in the problem statement's own wording.
+    pub(crate) requirement: String,
+    /// `met`, `partial` or `pending`.
+    pub(crate) status: String,
+    /// The deliverable that closes the gap, or the empty-cell marker.
+    pub(crate) gap: String,
+    /// Cited evidence files, repo-relative.
+    pub(crate) evidence: Vec<String>,
+    /// The cited automation command, or the empty-cell marker.
+    pub(crate) command: String,
+    /// Cited JSON pointers into the committed results artifact.
+    pub(crate) pointer: Vec<String>,
+    /// Cited dashboard tab titles.
+    pub(crate) tab: Vec<String>,
+}
+
+/// Split a comma-separated list cell; the empty-cell marker means "none".
+fn split_list(cell: &str) -> Vec<String> {
+    if cell == EMPTY_CELL {
+        return Vec::new();
+    }
+    cell.split(", ")
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
+/// Parse the requirements table between its markers. A document that is
+/// present but malformed is a hard error naming the file and line; an
+/// absent document is reported as a violation by the caller.
+pub(crate) fn parse_compliance_rows(text: &str) -> Result<Vec<ComplianceRow>> {
+    let mut rows = Vec::new();
+    let mut inside = false;
+    let mut table_rows_seen = 0usize;
+    for (index, line) in text.lines().enumerate() {
+        let line_number = index + 1;
+        let trimmed = line.trim();
+        if trimmed == COMPLIANCE_BEGIN {
+            if inside {
+                bail!("{COMPLIANCE_FILE}:{line_number}: nested {COMPLIANCE_BEGIN} marker");
+            }
+            inside = true;
+            continue;
+        }
+        if trimmed == COMPLIANCE_END {
+            if !inside {
+                bail!(
+                    "{COMPLIANCE_FILE}:{line_number}: {COMPLIANCE_END} without {COMPLIANCE_BEGIN}"
+                );
+            }
+            if rows.is_empty() {
+                bail!("{COMPLIANCE_FILE}: the markers carry no table rows");
+            }
+            return Ok(rows);
+        }
+        if !inside || !line.starts_with('|') {
+            continue;
+        }
+        // The first table row is the header, the second the separator.
+        if table_rows_seen == 1 {
+            let separator = line
+                .split('|')
+                .skip(1)
+                .filter(|cell| !cell.trim().is_empty())
+                .all(|cell| {
+                    let cell = cell.trim();
+                    cell.chars().all(|c| c == '-' || c == ':')
+                });
+            if !separator {
+                bail!(
+                    "{COMPLIANCE_FILE}:{line_number}: the table's second row must be its separator"
+                );
+            }
+            table_rows_seen += 1;
+            continue;
+        }
+        table_rows_seen += 1;
+        if table_rows_seen == 1 {
+            continue;
+        }
+        let cells: Vec<&str> = line.split('|').collect();
+        // Seven content cells means nine pieces around the two outer bars.
+        if cells.len() != 9 {
+            bail!(
+                "{COMPLIANCE_FILE}:{line_number}: a table row needs 7 cells, found {}",
+                cells.len().saturating_sub(2)
+            );
+        }
+        // Cells may be wrapped in backticks for rendering; the checks read
+        // the bare value.
+        let cell = |index: usize| cells[index].trim().trim_matches('`').trim().to_string();
+        rows.push(ComplianceRow {
+            line: line_number,
+            requirement: cell(1),
+            status: cell(2),
+            gap: cell(3),
+            evidence: split_list(&cell(4)),
+            command: cell(5),
+            pointer: split_list(&cell(6)),
+            tab: split_list(&cell(7)),
+        });
+    }
+    if inside {
+        bail!("{COMPLIANCE_FILE}: {COMPLIANCE_BEGIN} is never closed");
+    }
+    bail!("{COMPLIANCE_FILE}: missing {COMPLIANCE_BEGIN} / {COMPLIANCE_END} markers");
+}
+
+/// True when the command parses as a real automation invocation. The
+/// leading `cargo xtask` is stripped, and the remaining subcommand and its
+/// flags are validated against the actual CLI parser, so a renamed or
+/// invented subcommand fails instead of drifting silently.
+fn automation_command_parses(command: &str) -> bool {
+    let words: Vec<&str> = command.split_whitespace().collect();
+    let rest: &[&str] = match words.as_slice() {
+        ["cargo", "xtask", rest @ ..] => rest,
+        _ => return false,
+    };
+    <crate::Cli as clap::Parser>::try_parse_from(
+        std::iter::once("xtask").chain(rest.iter().copied()),
+    )
+    .is_ok()
+}
+
+/// The dashboard tab titles, parsed from the tab enum's `title()` match arms
+/// (`Tab::Variant => "Title"`), so a cited tab that no longer exists fails.
+pub(crate) fn tab_titles(app_source: &str) -> Vec<String> {
+    let mut titles = Vec::new();
+    for line in app_source.lines() {
+        let trimmed = line.trim();
+        let Some(rest) = trimmed.strip_prefix("Tab::") else {
+            continue;
+        };
+        let Some((_, title)) = rest.split_once(" => \"") else {
+            continue;
+        };
+        if let Some(title) = title.strip_suffix("\",") {
+            titles.push(title.to_string());
+        }
+    }
+    titles
+}
+
+/// The requirements-traceability table: every cited file exists in the
+/// repository tree, every command parses as a real automation invocation,
+/// every artifact pointer resolves in the committed results artifact, every
+/// tab is a real dashboard tab, and the status column is honest — a
+/// gap-carrying row is never met.
+pub(crate) fn check_compliance_table(
+    root: &Path,
+    citable: &HashSet<String>,
+    tabs: &[String],
+    results: &serde_json::Value,
+) -> Result<Vec<Violation>> {
+    let text = match std::fs::read_to_string(root.join(COMPLIANCE_FILE)) {
+        Ok(text) => text,
+        Err(error) => {
+            return Ok(vec![Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: 1,
+                message: format!("cannot read the requirements table: {error}"),
+            }]);
+        }
+    };
+    let rows = parse_compliance_rows(&text)?;
+    let mut violations = Vec::new();
+    for row in &rows {
+        if !COMPLIANCE_STATUSES.contains(&row.status.as_str()) {
+            violations.push(Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: row.line,
+                message: format!(
+                    "status `{}` is not one of `met`, `partial`, `pending`",
+                    row.status
+                ),
+            });
+        }
+        if row.status == "met" && row.gap != EMPTY_CELL {
+            violations.push(Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: row.line,
+                message: "a met row must leave the gap column empty".to_string(),
+            });
+        }
+        if row.status != "met" && row.gap == EMPTY_CELL {
+            violations.push(Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: row.line,
+                message: "a row that is not met must name the deliverable that closes its gap"
+                    .to_string(),
+            });
+        }
+        if row.evidence.is_empty() {
+            violations.push(Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: row.line,
+                message: "a row must cite at least one tracked evidence file".to_string(),
+            });
+        }
+        for file in &row.evidence {
+            if !citable.contains(file) {
+                violations.push(Violation {
+                    file: COMPLIANCE_FILE.to_string(),
+                    line: row.line,
+                    message: format!("evidence file `{file}` is not in the repository tree"),
+                });
+            }
+        }
+        if !row.command.is_empty()
+            && row.command != EMPTY_CELL
+            && !automation_command_parses(&row.command)
+        {
+            violations.push(Violation {
+                file: COMPLIANCE_FILE.to_string(),
+                line: row.line,
+                message: format!(
+                    "command `{}` does not parse as an automation invocation",
+                    row.command
+                ),
+            });
+        }
+        for pointer in &row.pointer {
+            if !pointer.starts_with('/') || results.pointer(pointer).is_none() {
+                violations.push(Violation {
+                    file: COMPLIANCE_FILE.to_string(),
+                    line: row.line,
+                    message: format!(
+                        "artifact pointer `{pointer}` does not resolve in the committed results artifact"
+                    ),
+                });
+            }
+        }
+        for tab in &row.tab {
+            if !tabs.contains(tab) {
+                violations.push(Violation {
+                    file: COMPLIANCE_FILE.to_string(),
+                    line: row.line,
+                    message: format!("dashboard tab `{tab}` is not one of {}", tabs.join(", ")),
+                });
+            }
+        }
+    }
+    Ok(violations)
+}
+
+/// Whitespace-normalised text: every run of whitespace collapses to one
+/// space, so a sentence wrapped across source or prose lines still matches.
+fn normalize_ws(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// The dataset-size sentence must appear, modulo whitespace, on every
+/// surface that describes the benchmark matrix. Each surface is a
+/// (label, text) pair; the README and the methodology document are prose,
+/// the dashboard's Method tab is its data source.
+pub(crate) fn check_dataset_size_sentence(surfaces: &[(&str, &str)]) -> Vec<Violation> {
+    let sentence = normalize_ws(DATASET_SIZE_SENTENCE);
+    let mut violations = Vec::new();
+    for (label, text) in surfaces {
+        if !normalize_ws(text).contains(&sentence) {
+            violations.push(Violation {
+                file: (*label).to_string(),
+                line: 1,
+                message: format!(
+                    "must carry the dataset-size sentence: \"{DATASET_SIZE_SENTENCE}\""
+                ),
+            });
+        }
+    }
+    violations
+}
+
+/// The README's requirements-coverage section: marker-bracketed, linking the
+/// requirements-traceability document, and carrying no digits in its prose.
+pub(crate) fn check_requirements_block(readme_label: &str, readme_text: &str) -> Vec<Violation> {
+    let mut violations = Vec::new();
+    let begin = readme_text.find(REQUIREMENTS_BEGIN);
+    let end = readme_text.find(REQUIREMENTS_END);
+    let (Some(begin), Some(end)) = (begin, end) else {
+        violations.push(Violation {
+            file: readme_label.to_string(),
+            line: 1,
+            message: format!(
+                "is missing the `{REQUIREMENTS_BEGIN}` / `{REQUIREMENTS_END}` coverage markers"
+            ),
+        });
+        return violations;
+    };
+    // One-based line the opening marker sits on, so violations inside the
+    // block are located in the whole file rather than the block alone.
+    let marker_line = readme_text[..begin].matches('\n').count() + 1;
+    let block = &readme_text[begin + REQUIREMENTS_BEGIN.len()..end];
+    if !block.contains("docs/COMPLIANCE.md") {
+        violations.push(Violation {
+            file: readme_label.to_string(),
+            line: marker_line,
+            message: "the requirements-coverage section must link docs/COMPLIANCE.md".to_string(),
+        });
+    }
+    if let Some(line_number) = block.lines().enumerate().find_map(|(index, line)| {
+        line.contains(|c: char| c.is_ascii_digit())
+            .then_some(index + 1)
+    }) {
+        violations.push(Violation {
+            file: readme_label.to_string(),
+            line: marker_line + line_number,
+            message: "the requirements-coverage prose must carry no digits".to_string(),
+        });
+    }
+    violations
+}
+
 pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     let sheet_path = args.root.join(&args.quote_sheet);
     let sheet_text = std::fs::read_to_string(&sheet_path)
@@ -2320,6 +2718,44 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // The README's generated tables are rebuilt from the same artifact the
     // quote sheet reads, and every surface is recomputed from raw rows.
     let results_path = args.root.join(&args.results);
+
+    // The requirements-traceability table: every file, command, artifact
+    // pointer and tab name it cites must resolve against the real
+    // repository, the real CLI and the committed results artifact, so a
+    // requirement cannot cite evidence that does not exist.
+    let results_json: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(&results_path)
+            .with_context(|| format!("failed to read {}", results_path.display()))?,
+    )
+    .with_context(|| format!("failed to parse {}", results_path.display()))?;
+    let app_source = std::fs::read_to_string(args.root.join(TAB_SOURCE))
+        .with_context(|| format!("failed to read {}", TAB_SOURCE))?;
+    let tabs = tab_titles(&app_source);
+    let citable = citable_files(&args.root)?;
+    violations.extend(check_compliance_table(
+        &args.root,
+        &citable,
+        &tabs,
+        &results_json,
+    )?);
+
+    // The dataset-size sentence must be carried by every surface that
+    // describes the benchmark matrix: the README, the methodology document
+    // and the dashboard's Method tab.
+    let methodology_text = std::fs::read_to_string(args.root.join(METHODOLOGY_FILE))
+        .with_context(|| format!("failed to read {}", METHODOLOGY_FILE))?;
+    let method_source = std::fs::read_to_string(args.root.join(METHOD_SOURCE))
+        .with_context(|| format!("failed to read {}", METHOD_SOURCE))?;
+    violations.extend(check_dataset_size_sentence(&[
+        ("README.md", readme_text.as_str()),
+        (METHODOLOGY_FILE, methodology_text.as_str()),
+        (METHOD_SOURCE, method_source.as_str()),
+    ]));
+
+    // The README's requirements-coverage section links the traceability table
+    // and carries no hand-typed digits.
+    violations.extend(check_requirements_block(&readme_label, &readme_text));
+
     if let Err(err) = crate::headline::check_readme(&args.root, &results_path) {
         violations.push(Violation {
             file: "README.md".to_string(),
@@ -3570,6 +4006,368 @@ mod tests {
             violations[0].message.contains("no managed badge block"),
             "{violations:?}"
         );
+    }
+
+    // ---- The requirements-traceability table -----------------------------------
+
+    /// A requirements table with the given rows, wrapped in the markers and
+    /// carrying the header and separator the parser expects.
+    fn compliance_doc(rows: &str) -> String {
+        format!(
+        "# Trace\n\n{COMPLIANCE_BEGIN}\n| Requirement | Status | Gap closed by | Evidence | Command | Artifact pointer | TUI tab |\n| --- | --- | --- | --- | --- | --- | --- |\n{rows}{COMPLIANCE_END}\n"
+    )
+    }
+
+    /// A temp workspace root holding the given compliance document, so the
+    /// check reads a fixture exactly the way it reads the committed file.
+    fn compliance_root(doc: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "climb-docs-compliance-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        let dir = root.join("docs");
+        std::fs::create_dir_all(&dir).expect("docs dir");
+        std::fs::write(dir.join("COMPLIANCE.md"), doc).expect("write table");
+        root
+    }
+
+    /// A results artifact with the one pointer a well-formed fixture row cites.
+    fn sample_results_json() -> serde_json::Value {
+        serde_json::json!({"ladder": {"algorithm": "SLH-DSA-SHA2-128s-MTL-SHA2-128"}})
+    }
+
+    #[test]
+    fn compliance_rows_are_parsed_between_the_markers() {
+        let doc = compliance_doc(
+        "| use one supported PQC signature algorithm | met | — | `README.md` | `cargo xtask bench-all` | `/ladder/algorithm` | Signing |\n",
+    );
+        let rows = parse_compliance_rows(&doc).expect("the markers and table parse");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].requirement,
+            "use one supported PQC signature algorithm"
+        );
+        assert_eq!(rows[0].status, "met");
+        assert_eq!(rows[0].gap, EMPTY_CELL);
+        assert_eq!(rows[0].evidence, vec!["README.md".to_string()]);
+        assert_eq!(rows[0].command, "cargo xtask bench-all");
+        assert_eq!(rows[0].pointer, vec!["/ladder/algorithm".to_string()]);
+        assert_eq!(rows[0].tab, vec!["Signing".to_string()]);
+    }
+
+    #[test]
+    fn a_compliance_table_without_markers_fails_to_parse() {
+        let err = parse_compliance_rows("# Trace\n\nno table at all\n")
+            .expect_err("the markers are mandatory");
+        assert!(err.to_string().contains("missing"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn an_injected_broken_artifact_pointer_is_a_violation() {
+        let doc = compliance_doc(
+        "| requirement | met | — | `README.md` | `cargo xtask bench-all` | `/no/such/pointer` | Signing |\n",
+    );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("/no/such/pointer"),
+            "the broken pointer must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_evidence_file_outside_the_repository_is_a_violation() {
+        let doc = compliance_doc(
+        "| requirement | met | — | `docs/not-committed.md` | — | `/ladder/algorithm` | Signing |\n",
+    );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&[]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("docs/not-committed.md"),
+            "the missing evidence file must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_command_that_does_not_parse_is_a_violation() {
+        let doc = compliance_doc(
+        "| requirement | met | — | `README.md` | `cargo xtask not-a-subcommand` | `/ladder/algorithm` | Signing |\n",
+    );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("not-a-subcommand"),
+            "the command must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_unknown_dashboard_tab_is_a_violation() {
+        let doc = compliance_doc(
+            "| requirement | met | — | `README.md` | — | `/ladder/algorithm` | Widget |\n",
+        );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("Widget") && violations[0].message.contains("Signing"),
+            "the tab and the real ones must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_wrong_status_word_is_a_violation() {
+        let doc = compliance_doc(
+        "| requirement | done | some future deliverable | `README.md` | — | `/ladder/algorithm` | Signing |\n",
+    );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("met"),
+            "the allowed statuses must be listed: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_partial_row_without_a_named_gap_is_a_violation() {
+        let doc = compliance_doc("| requirement | partial | — | `README.md` | — | — | — |\n");
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("gap"),
+            "the gap rule must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_met_row_with_a_named_gap_is_a_violation() {
+        let doc = compliance_doc(
+            "| requirement | met | some future deliverable | `README.md` | — | — | — |\n",
+        );
+        let root = compliance_root(&doc);
+        let violations = check_compliance_table(
+            &root,
+            &tracked(&["README.md"]),
+            &["Signing".to_string()],
+            &sample_results_json(),
+        )
+        .expect("the table parses");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("met"),
+            "the met rule must be named: {violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn automation_commands_parse_with_the_real_cli() {
+        for good in [
+            "cargo xtask bench-all --sizes all",
+            "cargo xtask report --format html",
+            "cargo xtask docs-check",
+            "cargo xtask reproduce",
+        ] {
+            assert!(automation_command_parses(good), "must parse: {good}");
+        }
+        for bad in [
+            "cargo xtask not-a-subcommand",
+            "cargo xtask bench-all --sizes bogus-size",
+            "make bench",
+            "cargo bench",
+        ] {
+            assert!(!automation_command_parses(bad), "must not parse: {bad}");
+        }
+    }
+
+    #[test]
+    fn tab_titles_are_parsed_from_the_tab_enum_arms() {
+        let source = r#"
+    pub fn title(self) -> &'static str {
+        match self {
+            Tab::Overview => "Overview",
+            Tab::Signing => "Signing",
+        }
+    }
+    pub fn index(self) -> usize {
+        match self {
+            Tab::Overview => 0,
+            Tab::Signing => 1,
+        }
+    }
+"#;
+        assert_eq!(
+            tab_titles(source),
+            vec!["Overview".to_string(), "Signing".to_string()]
+        );
+    }
+
+    #[test]
+    fn the_committed_tab_enum_names_nine_tabs() {
+        let source = std::fs::read_to_string(workspace_root().join(TAB_SOURCE))
+            .expect("the tab source is committed");
+        let titles = tab_titles(&source);
+        assert_eq!(
+            titles,
+            vec![
+                "Overview",
+                "Signing",
+                "Verifying",
+                "Wire",
+                "Memory",
+                "Ladder",
+                "Live",
+                "Integrity",
+                "Method",
+            ]
+        );
+    }
+
+    #[test]
+    fn the_committed_compliance_table_passes_the_check() {
+        let root = workspace_root();
+        let citable = citable_files(&root).expect("git ls-files runs");
+        let app_source =
+            std::fs::read_to_string(root.join(TAB_SOURCE)).expect("tab source is committed");
+        let results: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join(SAMPLE_RESULTS)).expect("results are committed"),
+        )
+        .expect("results parse");
+        let violations =
+            check_compliance_table(&root, &citable, &tab_titles(&app_source), &results)
+                .expect("the committed table parses");
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // ---- The dataset-size sentence ---------------------------------------------
+
+    #[test]
+    fn a_surface_without_the_dataset_size_sentence_is_a_violation() {
+        let violations = check_dataset_size_sentence(&[("README.md", "no sizes mentioned here")]);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert_eq!(violations[0].file, "README.md");
+        assert!(
+            violations[0].message.contains("dataset-size"),
+            "the missing sentence must be named: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_wrapped_dataset_size_sentence_still_matches() {
+        let wrapped = "The benchmark matrix runs three evaluated dataset sizes\n(Small, Medium, Large) plus one intermediate validation size used only to\nvalidate the extrapolation identity, and nothing else changes.";
+        assert!(check_dataset_size_sentence(&[("docs/wrapped.md", wrapped)]).is_empty());
+    }
+
+    #[test]
+    fn the_committed_surfaces_carry_the_dataset_size_sentence() {
+        let root = workspace_root();
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        let methodology =
+            std::fs::read_to_string(root.join(METHODOLOGY_FILE)).expect("methodology is committed");
+        let method =
+            std::fs::read_to_string(root.join(METHOD_SOURCE)).expect("method tab is committed");
+        let violations = check_dataset_size_sentence(&[
+            ("README.md", readme.as_str()),
+            (METHODOLOGY_FILE, methodology.as_str()),
+            (METHOD_SOURCE, method.as_str()),
+        ]);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // ---- The README's requirements-coverage section -----------------------------
+
+    #[test]
+    fn a_readme_without_the_coverage_markers_is_a_violation() {
+        let violations = check_requirements_block("README.md", "# CLIMB\n\nno section\n");
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("coverage markers"),
+            "the markers must be named: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_coverage_block_without_the_compliance_link_is_a_violation() {
+        let readme = format!(
+        "# CLIMB\n\n{REQUIREMENTS_BEGIN}\nEvery requirement is traced somewhere.\n{REQUIREMENTS_END}\n"
+    );
+        let violations = check_requirements_block("README.md", &readme);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("docs/COMPLIANCE.md"),
+            "the link must be named: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_digit_in_the_coverage_prose_is_a_violation() {
+        let readme = format!(
+        "# CLIMB\n\n{REQUIREMENTS_BEGIN}\nSee docs/COMPLIANCE.md for all 25 requirements.\n{REQUIREMENTS_END}\n"
+    );
+        let violations = check_requirements_block("README.md", &readme);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("digits"),
+            "the digit rule must be named: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn the_committed_coverage_block_passes_the_check() {
+        let root = workspace_root();
+        let readme = std::fs::read_to_string(root.join("README.md")).expect("README is committed");
+        assert!(check_requirements_block("README.md", &readme).is_empty());
     }
 }
 

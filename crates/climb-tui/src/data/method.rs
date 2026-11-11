@@ -230,6 +230,9 @@ fn scope_section(view: &ResultsView) -> MethodSection {
              signing. The same deterministic message sets are signed with MTL amortisation \
              and without it, and the difference is reported per dataset size.",
         ),
+        MethodLine::text(
+            "The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Large) plus one intermediate validation size used only to validate the extrapolation identity.",
+        ),
         MethodLine::field(
             "algorithm",
             view.algorithm()

@@ -118,6 +118,33 @@ fn scope_carries_the_algorithm_sizes_and_reproduce_commands() {
 }
 
 #[test]
+fn scope_states_the_dataset_size_sentence_the_docs_use() {
+    let root = temp_root("sizes-sentence");
+    let state = loaded(&root, &sample_results());
+    let view = MethodView::build(&root.join("target/climb-results.json"), &state);
+    let scope = &view.sections()[0];
+    let joined = scope
+        .lines
+        .iter()
+        .filter_map(|line| match line {
+            MethodLine::Text(text) => Some(text.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let normalized = joined.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(
+        normalized.contains(
+            "three evaluated dataset sizes (Small, Medium, Large) plus one \
+             intermediate validation size used only to validate the \
+             extrapolation identity"
+        ),
+        "the scope section must state the canonical dataset-size sentence: {joined:?}"
+    );
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
 fn evidence_class_lines_are_the_four_classes_explained() {
     let root = temp_root("classes");
     let state = loaded(&root, &sample_results());

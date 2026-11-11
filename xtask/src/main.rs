@@ -173,9 +173,12 @@ enum Commands {
     ///
     /// Fails when a Mermaid node id in README.md or docs/*.md looks like a
     /// crate or binary name but is not one, when a numeric result (a number
-    /// plus a result unit) is absent from docs/deck-facts.md, or when a
+    /// plus a result unit) is absent from docs/deck-facts.md, when a
     /// headline-table row's value, unit, evidence class or baseline does not
-    /// match a quote-sheet row.
+    /// match a quote-sheet row, when the requirements table in
+    /// docs/COMPLIANCE.md cites evidence that does not resolve, or when the
+    /// dataset-size sentence is not carried consistently by the README, the
+    /// methodology document and the dashboard's Method tab.
     DocsCheck(DocsCheckArgs),
     /// Regenerate the README badge block from one configuration file.
     ///
