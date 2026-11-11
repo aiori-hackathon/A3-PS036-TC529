@@ -543,10 +543,14 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Environment — timestamp | 2026-10-20T13:13:45+05:30 | — | MEASURED | — | n/a | /timestamp + /environment/timestamp | environment.json + target/climb-results.json |
-| Environment — rustc version | rustc 1.98.1 (48a229cea 2026-09-01) | — | MEASURED | — | n/a | /toolchain/rustc_version + /environment/toolchain/rustc_version | environment.json + target/climb-results.json |
-| Environment — cargo version | cargo 1.98.1 (797e8a9bc 2026-08-05) | — | MEASURED | — | n/a | /toolchain/cargo_version + /environment/toolchain/cargo_version | environment.json + target/climb-results.json |
-| Environment — kernel release | 7.2.5-3-omarchy | — | MEASURED | — | n/a | /system/kernel_release + /environment/system/kernel_release | environment.json + target/climb-results.json |
+| Environment — timestamp | 2026-11-11T19:10:05+05:30 | — | MEASURED | — | n/a | /timestamp | environment.json |
+| Environment — timestamp | 2026-10-20T13:13:45+05:30 | — | MEASURED | — | n/a | /environment/timestamp | target/climb-results.json |
+| Environment — rustc version | rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2) | — | MEASURED | — | n/a | /toolchain/rustc_version | environment.json |
+| Environment — rustc version | rustc 1.98.1 (48a229cea 2026-09-01) | — | MEASURED | — | n/a | /environment/toolchain/rustc_version | target/climb-results.json |
+| Environment — cargo version | cargo 1.99.1 (5f94df478 2026-08-27) (Arch Linux rust 1:1.99.1-2) | — | MEASURED | — | n/a | /toolchain/cargo_version | environment.json |
+| Environment — cargo version | cargo 1.98.1 (797e8a9bc 2026-08-05) | — | MEASURED | — | n/a | /environment/toolchain/cargo_version | target/climb-results.json |
+| Environment — kernel release | 7.2.14-arch1-1 | — | MEASURED | — | n/a | /system/kernel_release | environment.json |
+| Environment — kernel release | 7.2.5-3-omarchy | — | MEASURED | — | n/a | /environment/system/kernel_release | target/climb-results.json |
 | Environment — CPU model | 11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz | — | MEASURED | — | n/a | /cpu/model_name + /environment/cpu/model_name | environment.json + target/climb-results.json |
 | Environment — CPU governor | powersave | — | MEASURED | — | n/a | /benchmark_runtime/cpu_governor + /environment/benchmark_runtime/cpu_governor | environment.json + target/climb-results.json |
 | Environment — pin expression | taskset -c 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_expression + /environment/benchmark_runtime/pin_expression | environment.json + target/climb-results.json |
@@ -555,22 +559,26 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 2ba7989859c7dd3dc9dab26efcdb3d1587063e5c | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | 81997b7f1716e3863bd04daab771dae8cd13f78c | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1320 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 875 | — | MEASURED | n = 33 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 4 | — | MEASURED | n = 33 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 3 | — | MEASURED | n = 33 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 33 | — | MEASURED | n = 33 | n/a | n/a | cargo test --workspace |
 
 ---
 
 ## Footer
 
-- Rows rendered: 467 (from 613 collected facts; 146 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 288, ANALYTICAL: 75, EXTRAPOLATED: 24, DERIVED: 79; UNCLASSIFIED: 1.
+- Rows rendered: 471 (from 613 collected facts; 142 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 292, ANALYTICAL: 75, EXTRAPOLATED: 24, DERIVED: 79; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
-- Inconsistencies: none.
+- Inconsistencies (4):
+  - [Environment] Environment — timestamp: field "value": 2026-11-11T19:10:05+05:30 (environment.json) vs 2026-10-20T13:13:45+05:30 (target/climb-results.json)
+  - [Environment] Environment — rustc version: field "value": rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2) (environment.json) vs rustc 1.98.1 (48a229cea 2026-09-01) (target/climb-results.json)
+  - [Environment] Environment — cargo version: field "value": cargo 1.99.1 (5f94df478 2026-08-27) (Arch Linux rust 1:1.99.1-2) (environment.json) vs cargo 1.98.1 (797e8a9bc 2026-08-05) (target/climb-results.json)
+  - [Environment] Environment — kernel release: field "value": 7.2.14-arch1-1 (environment.json) vs 7.2.5-3-omarchy (target/climb-results.json)

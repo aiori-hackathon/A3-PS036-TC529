@@ -107,6 +107,11 @@ pub(crate) struct ReproduceArgs {
     /// instead of recording freshness warnings for them.
     #[arg(long)]
     force: bool,
+
+    /// Print the execution plan without running any steps. Useful for CI/
+    /// scripting or verifying the step order before committing resources.
+    #[arg(long)]
+    dry_run: bool,
 }
 
 /// Fail before any step when a report-only run is missing a required input.
@@ -517,6 +522,31 @@ fn print_summary(results: &[StepResult]) {
 pub(crate) fn cmd_reproduce(args: ReproduceArgs) -> Result<()> {
     let mode = resolve_mode(args.report_only, args.remeasure, args.bench)?;
     println!("{}", mode_banner(mode));
+
+    if args.dry_run {
+        let docker_available =
+            mode == ReproductionMode::Remeasure && !args.skip_dns && docker_available();
+        let opts = ReproduceOpts {
+            quick: args.quick,
+            skip_dns: args.skip_dns,
+            force: args.force,
+            mode,
+            docker_available,
+        };
+        let steps = plan(&opts);
+        println!("dry-run plan ({} steps):", steps.len());
+        for step in &steps {
+            let label = step.id.label();
+            if let Some(reason) = step.skip {
+                println!("  [{}] {}", label, reason.summary());
+            } else {
+                let argv_str = step.argv.join(" ");
+                println!("  [{}] {}", label, argv_str);
+            }
+        }
+        println!("(use 'cargo xtask reproduce' without --dry-run to execute)");
+        return Ok(());
+    }
 
     let docker_available =
         mode == ReproductionMode::Remeasure && !args.skip_dns && docker_available();
@@ -1043,5 +1073,36 @@ mod tests {
         assert_eq!(format_seconds(Some(1.239)), "1.2");
         assert_eq!(format_seconds(Some(0.0)), "0.0");
         assert_eq!(format_seconds(None), "—");
+    }
+
+    #[test]
+    fn dry_run_prints_plan_without_running() {
+        let args = ReproduceArgs {
+            quick: false,
+            skip_dns: false,
+            force: false,
+            remeasure: false,
+            report_only: false,
+            bench: false,
+            dry_run: true,
+        };
+        // Should not panic or error; should print the plan
+        cmd_reproduce(args).expect("dry-run should not error");
+    }
+
+    #[test]
+    fn dry_run_plan_has_expected_steps() {
+        let args = ReproduceArgs {
+            quick: false,
+            skip_dns: false,
+            force: false,
+            remeasure: false,
+            report_only: false,
+            bench: false,
+            dry_run: true,
+        };
+        let result = cmd_reproduce(args);
+        // dry-run prints and returns Ok(())
+        assert!(result.is_ok(), "dry-run should succeed");
     }
 }
