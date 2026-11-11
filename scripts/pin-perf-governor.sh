@@ -9,6 +9,14 @@
 # Requirements: root (sudo).  The script assumes it already runs as root and
 #               does NOT call sudo internally.
 #
+# Preflight refusal (exit non-zero, no switching attempted):
+#   — Governor is not already set to the target (not currently performance
+#     on a performance-capable core, or mixed/non-performance when performance
+#     is expected).
+#   — The machine is running on battery power (AC offline).
+#   — Average core usage over the last minute exceeds 20% (load average
+#     check), to avoid fighting system workloads.
+#
 # Usage:
 #   sudo ./scripts/pin-perf-governor.sh [governor]
 #
@@ -42,6 +50,61 @@ if [[ "${EUID}" -ne 0 ]]; then
         printf '\n'
     } >&2
     exit 1
+fi
+
+# --- Preflight: check governor state ---------------------------------------
+# Refuse to proceed if the current governor is not already the target.
+# Check the first online CPU's governor as the representative reading.
+CURRENT_GOV=""
+for f in /sys/devices/system/cpu/cpu[0-9]*/cpufreq/scaling_governor; do
+    [[ -f "$f" ]] || continue
+    CURRENT_GOV="$(<"$f")"
+    break
+done
+
+if [[ -n "$CURRENT_GOV" && "$CURRENT_GOV" != "$GOVERNOR" ]]; then
+    printf 'Error: governor is currently "%s", not "%s".\n' "$CURRENT_GOV" "$GOVERNOR" >&2
+    printf 'Pin-perf-governor refuses to proceed when the governor is not already set to the target.\n' >&2
+    exit 5
+fi
+
+# --- Preflight: check if running on battery --------------------------------
+# If AC is offline and a battery supply is online, refuse to proceed.
+# This preserves battery life and avoids non-reproducible frequency scaling.
+AC_STATUS="$(</sys/class/power_supply/AC/online 2>/dev/null || echo "unknown")"
+BATTERY_ONLINE="false"
+for b in /sys/class/power_supply/BAT*; do
+    if [[ -f "$b/online" ]]; then
+        BATTERY_ONLINE="$(<"$b/online" 2>/dev/null || echo "unknown")"
+    fi
+done
+
+if [[ "$AC_STATUS" != "1" ]] && [[ "$BATTERY_ONLINE" == "1" ]]; then
+    printf 'Error: running on battery power (AC offline).\n' >&2
+    printf 'Pin-perf-governor refuses to proceed when running on battery.\n' >&2
+    exit 6
+fi
+
+# --- Preflight: check core usage > 20% ------------------------------------
+# Load average over the last minute as a percentage of logical CPUs.
+LOAD1="$(</proc/loadavg 2>/dev/null | awk '{print $1}')"
+if [[ -n "$LOAD1" ]]; then
+    LOGICAL_CPUS="$(nproc 2>/dev/null || echo "1")"
+    # Use bc or awk for floating point; fall back to integer math.
+    if command -v bc &>/dev/null; then
+        USAGE_PERCENT="$(echo "scale=1; $LOAD1 / $LOGICAL_CPUS * 100" | bc)"
+    else
+        # Integer-only: compare load1 * 100 <=> logical_cpus * load_ceil
+        # Simple ceiling division: (load1 + logical_cpus - 1) / logical_cpus
+        LOAD_CEIL="$(($(LOAD1 + LOGICAL_CPUS - 1) / LOGICAL_CPUS))"
+        USAGE_PERCENT="$(echo "$LOAD_CEIL * 100 / 1" | bc 2>/dev/null || echo "0")"
+    fi
+    USAGE_INT="${USAGE_PERCENT%.*}"  # strip fractional part
+    if [[ "$USAGE_INT" -gt 20 ]]; then
+        printf 'Error: average core usage is %s%% (exceeds 20%% threshold).\n' "$USAGE_INT" >&2
+        printf 'Pin-perf-governor refuses to proceed when average core usage exceeds 20%%.%s\n' >&2
+        exit 7
+    fi
 fi
 
 # --- enumerate CPU governor files ------------------------------------------

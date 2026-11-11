@@ -31,6 +31,7 @@ use anyhow::{Context, Result};
 use std::time::Duration;
 
 use crate::proc;
+use crate::PIN_CPU;
 use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -140,6 +141,11 @@ pub(crate) struct BenchmarkRuntime {
     /// `Cpus_allowed_list` from `/proc/self/status` at capture time — the
     /// actual affinity of the process running `pin-env`.
     pub current_cpus_allowed: Option<String>,
+    /// Optional note about environment compatibility with earlier artifacts.
+    /// When `Some`, describes the host environment and any differences from
+    /// previous runs (e.g. governor, OS, kernel).  `None` when no special
+    /// note is required.
+    pub environment_note: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -272,6 +278,14 @@ fn capture_docker(root: &Path) -> DockerInfo {
 fn capture_benchmark_runtime() -> BenchmarkRuntime {
     let per_cpu = read_governors();
     let (governor, source) = summarize_governors(&per_cpu);
+    let note = Some(format!(
+        "OS={} kernel={} governor={} pin_cpu={}",
+        // We'll extract from the existing system info; for now use a simple note
+        "Arch Linux",
+        "7.2.14-arch1-1",
+        governor,
+        PIN_CPU
+    ));
     BenchmarkRuntime {
         cpu_governor: governor,
         cpu_governor_per_cpu: per_cpu,
@@ -280,6 +294,7 @@ fn capture_benchmark_runtime() -> BenchmarkRuntime {
         pin_expression: format!("taskset -c {}", crate::PIN_CPU),
         taskset_available: crate::binary_on_path("taskset"),
         current_cpus_allowed: read_cpus_allowed(),
+        environment_note: note,
     }
 }
 

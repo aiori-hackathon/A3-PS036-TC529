@@ -141,7 +141,7 @@ fn cmd_ladder_verify(_: LadderVerifyArgs) -> Result<()> {
 ///   cpu1=1,428,276  cpu3=140,767  cpu0=65,862  cpu2=53,645
 /// CPU 2 is the quietest logical CPU and the quieter sibling of physical core 0,
 /// making it the least-contended choice for a single-threaded benchmark.
-const PIN_CPU: u32 = 2;
+pub const PIN_CPU: u32 = 2;
 
 /// CLIMB task automation — pin the environment, run benchmarks, generate reports.
 #[derive(Parser)]
