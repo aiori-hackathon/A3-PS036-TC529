@@ -1,327 +1,513 @@
 # Site copy deck
 
-Derived from `docs/site/copy-prototype.md` (the prototype's strings) and
-`docs/site/numbers-prototype.md` (its numbers). This is the copy the site should ship; it is
-not yet implemented.
+The exact words for every route in `docs/site/ia.md`. This deck replaces the
+prototype handoff: the prototype's strings and numbers are inventoried in
+`docs/site/copy-prototype.md` and `docs/site/numbers-prototype.md`, and the
+audit is in `docs/site/prototype-audit.md`. Where the prototype and this deck
+differ, this deck wins.
 
-## The W0 rules are missing
+**How to read it.** Each route's copy sits between `<!-- copy:begin -->` and
+`<!-- copy:end -->` markers. That is the text the site renders; it is the text
+`scripts/site-check.py copy` scans. Everything outside the markers is a rule,
+a reference table or a note for the implementer, not copy. Numbers in the copy
+are fact-id slots, not literals: the implementer reads the value from the
+committed artifact at build time.
 
-The brief refers to "the W0 rules" for banned words, fact ids and the scope sentence. **No W0
-document exists in this repository.** A search for `W0`, `banned`, `scope sentence` and `copy
-deck` outside `target/` and `third_party/` returns no policy file, and the project progress log has
-no W0 entry. Rather than invent a rulebook and call it W0, this deck applies rules derived from
-evidence that does exist:
+## Voice
 
-| Rule | Source | How it is applied here |
-| --- | --- | --- |
-| No security claim, proof or certification | `README.md:506–507`; `docs/deck-facts.md:18–19` | banned-word list below; the disclaimer is kept verbatim |
-| Every number is read from a recorded artifact | `README.md:85–92`; `docs/deck-facts.md:3–6` | every numeric slot carries a fact id from `docs/site/numbers-prototype.md` |
-| Evidence class travels with the number | `README.md:87–91`; `docs/deck-facts.md:8–13` | class is shown next to each figure; `≈` only for `EXTRAPOLATED` |
-| Do not present a model as a measurement | `README.md:119` | the UDP-fit row stays `ANALYTICAL`; the DNS rows keep their local-capture scope |
-| A website is a viewer, not a deployment | `README.md:509–511` | no live service, no implied deployment; the DNS card says "local only" |
-| No hardcoded results in source | project coding rules | the deck gives fact ids, not literals for the implementer to retype |
-
-If a W0 policy is later added, reconcile it against this table and record the difference rather
-than silently re-styling the deck.
+- Short sentences. One idea per sentence, one idea per screen.
+- Plain words. Describe what was measured, not how impressive it is.
+- Confident and checkable: `Measured, not claimed.` Every figure carries its
+  evidence chip and the baseline it is compared against.
+- Numbers reach the page through a fact id. A digit in the copy carries its
+  `[F-…]` slot on the same line; the value is read from the artifact, not typed
+  by hand.
+- No emoji. No exclamation marks. No "AI-powered" or similar framing.
+- No superlatives and no absolutes. Say the dataset, the baseline and the
+  ratio; let the reader draw the conclusion.
 
 ## Banned words and phrases
 
-| Do not use | Reason | Use instead |
+The scan in `scripts/site-check.py copy` fails on any of these, outside code
+spans, anywhere in this file. The second column is why, the third is the
+replacement.
+
+| Do not use | Why | Use instead |
 | --- | --- | --- |
-| secure, security, secured | implies a property the benchmark does not test | name the measured behaviour: "condensed path", "smaller response", "fewer round trips" |
-| proof, proves, proven | reads as formal verification | "measures", "records", "shows" |
-| guarantee, guaranteed | absolute | "reports", "records" |
-| trust, trusted (unqualified) | hides a verifier assumption | "pre-validated ladder (the verifier trusts the cached ladder)" |
-| unbreakable, quantum-proof, future-proof, hack-proof | marketing absolute | delete |
-| certified, complies, compliant | implies audit/certification | "measured against", "documented in" |
-| eliminates, zero-risk, 100 %, always, never fails | absolute | give the measured ratio and its scope |
-| up to (as a headline multiplier) | cherry-picks the best case | state the dataset and the baseline |
-| revolutionary, seamless, effortless, world-class, best-in-class, cutting-edge, game-changing, unprecedented, military-grade | unverifiable praise | delete |
-| "the next layer of trust" | security framing; also absent from the delivered prototype | one of the two hero alternatives below |
+| `revolutionary`, `seamless`, `cutting-edge`, `game-changing`, `next-generation`, `world-class`, `best-in-class`, `effortless`, `unprecedented`, `powerful` | unverifiable praise | delete, or state the measured effect |
+| `leverage`, `unlock` | buzzwords that hide the action | the plain verb: `use`, `read`, `open` |
+| `military-grade`, `bulletproof`, `unbreakable`, `hack-proof`, `future-proof`, `quantum-proof`, `quantum-safe` | security absolutes the benchmark does not test | `post-quantum signature`; name the measured behaviour |
+| `secure`, `secured` | implies a property this benchmark does not test | name the mechanism: `condensed path`, `smaller response`, `fewer round trips` |
+| `proof`, `proves`, `proven`, `guarantee`, `guaranteed`, `certified`, `compliant` | reads as formal verification, audit or certification | `measures`, `records`, `shows`, `documented in` |
+| `eliminates`, `zero-risk`, `always`, `never` | absolutes | the measured ratio and its scope |
 
-Words that are allowed but must be defined once: **claim** (a numeric assertion in the report,
-not a security claim), **evidence class**, **trust cached** (always as the defined verifier
-assumption), **condensed path**.
+Words that are allowed but defined once: **claim** (a numeric assertion in the
+report, not a security claim), **evidence class**, **pre-validated ladder**,
+**condensed path**. The word **trust** is used only in the precise mechanism
+phrase "the verifier trusts the cached ladder", not as an unqualified claim
+about the system.
 
-## Keep / change / add by section
+## Fact ids the copy needs
 
-### Hero
+Every fact id used below. `scripts/site-check.py copy` resolves each one
+against the committed artifact `docs/sample-output/climb-results.json` and
+fails on an undeclared or unresolvable id. Two ids are **not** in the results
+artifact and are listed as such: the scan prints them as `not in the artifact`
+with their real source rather than passing them silently.
 
-| Keep | Change | Add |
-| --- | --- | --- |
-| `Post-quantum DNSSEC, measured.` | nothing in the H1 | a one-line "What this page is" note: recorded results viewer, not a service |
-| the lede's mechanism wording | replace "changes the performance and wire efficiency" with the concrete metrics when the site has room | link to the methodology next to the lede |
-| `Explore the benchmark`, `View on GitHub` | — | — |
-| `AIORI-3 Hackathon, problem statement PS-036.` | drop "Experimental research benchmark." from the meta line if the scope block is visible | scope block link |
+A value carries one of six chips. Four are the **evidence classes** — Measured,
+Derived, Analytical, Extrapolated — and are the site's only status colours.
+Two are **provenance tags**, text-only in `muted`, for a value that is not a
+measurement result: **Constant** (a fixed protocol or model input) and
+**Generated** (a count emitted by a tool). No chip is typed on the page; the
+build reads the class from this table.
 
-### Results
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| four-row layout and evidence labels | `≈ 9,405 ×` → `9,434 ×`, class `Derived` | the scope sentence verbatim (below) |
-| `96.508 %`, the byte totals, `11 of 12`, `1,232 B` | `≈ 215.3 ×` → `77.34 ×`, class `Derived` | a "read from the artifact at build time" provenance line |
-| evidence legend | "Per-message cost scaled to batch size" → "Ratio of recorded per-message costs" | link to `docs/deck-facts.md` as the full table |
-| `Every figure carries its evidence class and baseline.` | "Values come from the repository's recorded artifacts, Medium dataset." → "Values are read from the recorded artifacts; this page shows the Medium dataset." | — |
-
-### Capabilities (seven cards)
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| all seven titles and the one-command promise | "Seven things the benchmark measures" → "Seven capabilities, each with the command that reproduces it" | a note that the commands run locally |
-| the seven commands | tighten card bodies to one sentence each | a link from card (f) to the local-only scope |
-| the `(a)`–`(g)` markers | move "All seven capabilities are in the open repository" out of the card grid | — |
-
-### Explore the ladder
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| the instruction sentence | "Choose a capability to open its branches" → "Choose a capability, then a leaf" | keyboard hint: "Use Tab to move; Enter or Space to open" |
-| the 16 leaves and their commands | `9,405 ×` → `9,434 ×`; `215.3 ×` → `77.34 ×`; `1.90 ×` → `1.628 ×`; remove the `Extrapolated` badge from both Medium speed-ups | a visible label for the canvas: "Diagram: selected capability and branch" (the drawing itself stays decorative) |
-| evidence badges | "Trusted cached ladder" → "Pre-validated cached ladder" | — |
-
-### How it works (A, B, C)
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| A/B/C tab names and the three explanations | "In C, one signed ladder is shared across a batch" is accurate; keep | "The diagram is illustrative; the byte bars are measured." |
-| the byte bars and their labels | replace `data-w` hardcoded percentages with values derived from the byte facts | a per-tab accessible description that changes with the tab |
-| `signature or ladder`, `condensed path` legend | — | — |
-
-### Architecture
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| one sentence naming the workspace, OpenSSL, liboqs, libMTL, Criterion, NSD/Unbound | cut the repository-map restatement; the README already owns it | a link to `docs/ARCHITECTURE.md` |
-| the diagram | keep the crate/binary names exactly as the workspace spells them | an accessible long description or a table equivalent |
-
-### Transparency
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| "Reproducible datasets" and `cargo xtask reproduce` | "Nothing on this page is typed in by hand" → "No result on this page is typed in by hand" (only true once the site reads the artifact) | a "What this is not" block |
-| "Pinned and fingerprinted" | — | link to `environment.json` |
-| "Claims registry" | `771 of 771` → the generated count (`852 of 852` at audit time) | a sentence defining "claim" as a numeric assertion |
-| "Known experimental limits" | do not restate the README's full limits list; keep three sentences and link | the verbatim security disclaimer |
-| the methodology link | — | the scope sentence, or a link back to it |
-
-### Team
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| names, roles, profile links | — | a "team code" line if the event needs it |
-| — | do not duplicate the README table by hand if it can be generated from one source | — |
-
-### Footer
-
-| Keep | Change | Add |
-| --- | --- | --- |
-| the clone command, `Copy`, `Open the repository` | `Sign once. Prove many.` → one of the alternatives below | the `Measured, not claimed.` tagline from the README |
-| the keyword list | drop `1,232-byte UDP payload` from the keyword list; it is a model constant, not a capability | — |
-| the project/method/event link columns | `771 of 771 claims verified` → generated count or no count | the MIT licence line, which matches the repository's `LICENSE` |
-
-## Final copy deck
-
-Annotations in `[F-…]` are fact ids; they are not rendered. Every number below is a slot, not a
-literal for the implementer to type.
-
-### Hero
-
-> **Post-quantum DNSSEC, measured.**
->
-> Measuring how Merkle Tree Ladder amortisation changes the performance and wire efficiency of
-> post-quantum DNSSEC signing with SLH-DSA.
->
-> [Explore the benchmark] [View on GitHub]
->
-> AIORI-3 Hackathon, problem statement PS-036. Experimental research benchmark.
-
-### Results
-
-> **Results**
->
-> Every figure carries its evidence class and baseline. Values are read from the recorded
-> artifacts; this page shows the Medium dataset.
->
-> **96.508 %** — Derived. Wire reduction, C vs A. From measured bytes: 2,743,352 B vs
-> 78,560,000 B. `[F-wire-medium-c-vs-a]`
->
-> **9,434 ×** — Derived. Signing speed-up, C vs A. Ratio of the recorded plain per-message cost
-> to the recorded MTL per-message cost. `[F-sign-medium-c-vs-a]`
->
-> **77.34 ×** — Derived. Verification speed-up, C vs A, with a pre-validated cached ladder.
-> `[F-verify-medium-c-vs-a]`
->
-> **11 of 12** — Analytical. Modelled UDP response profiles that fit the 1,232-byte payload in
-> configuration C. `[F-udp-c-fit]`
->
-> Measured: recorded directly · Derived: computed from measurements · Analytical: closed-form
-> model · Extrapolated: unit cost × count, shown with `≈`.
->
-> Definitions in `docs/METHODOLOGY.md`. Full table in `docs/deck-facts.md`.
-
-**Scope and limits** (the README's scope sentence, verbatim):
-
-> **Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an
-> analytical payload model, not a measurement; signing and verifying speed-ups are derived from
-> per-message measurements. The DNS-latency rows are a `tc netem` delay on the local Docker
-> bridge, not Internet latency, and the Unbound control served the full response in both modes,
-> so its multiple is not a condensed win. No row in this table is extrapolated by the
-> `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread
-> column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run
-> of the headline benchmark.
-
-> Results are empirical measurements from one parameter set
-> (SLH-DSA-SHA2-128s-MTL-SHA2-128), one reference implementation and one laptop-class machine.
-> No formal security guarantee, proof or certification is claimed for MTL mode, SLH-DSA or any
-> component here.
-
-### Capabilities
-
-> **Capabilities**
->
-> Seven capabilities, each with the command that reproduces it. Select a card to open it in the
-> ladder. Every command runs locally.
->
-> **(a) Signing performance.** Criterion timings of SLH-DSA signing, with and without MTL.
-> `cargo xtask bench-all`
->
-> **(b) Verification performance.** Per-message verification, including a pre-validated cached
-> ladder. `cargo xtask bench-all`
->
-> **(c) Wire efficiency.** Wire-size and DNS packet analysis plus an analytical UDP-fit model.
-> `cargo xtask wire-report`
->
-> **(d) Memory analysis.** Measured memory compared with a closed-form model.
-> `cargo xtask memory-report`
->
-> **(e) Ladder visualisation.** Ladder shape and condensed paths in the terminal dashboard.
-> `cargo run -p climb-tui`
->
-> **(f) DNS packet replay.** A recorded capture from patched NSD and Unbound, replayed locally.
-> `cargo xtask dns-demo`
->
-> **(g) Integrity and provenance.** Claims registry, drift checks and a checksummed release
-> bundle. `cargo xtask report --check`
->
-> All seven capabilities are in the open repository. [View on GitHub ↗]
-
-### Explore the ladder
-
-> **Explore the ladder**
->
-> Choose a capability, then a leaf, to see its evidence class and the command that reproduces
-> it. Use Tab to move; Enter or Space to open.
->
-> *Diagram: the selected capability, its branches, and the selected leaf.*
-
-Leaf copy, corrected:
-
-| Leaf | Copy |
-| --- | --- |
-| Batch speed-up | Medium dataset, C vs A: `9,434 ×` `[F-sign-medium-c-vs-a]`. Ratio of recorded per-message costs. |
-| Trusted cached ladder | With a verifier that trusts an already-checked ladder, C vs A is `77.34 ×` `[F-verify-medium-c-vs-a]`. |
-| Measured vs model | Small dataset: measured memory is `1.628 ×` the analytical estimate `[F-mem-small-ratio]`. |
-| Recorded capture | Live response for `www.climb.example. A`: condensed vs full is a `97.307 %` reduction, baseline B `[F-dns-www-a]`. |
-
-All other leaves keep the prototype's wording from `docs/site/copy-prototype.md`; their numbers
-already match the artifacts.
-
-### How it works
-
-> **How it works**
->
-> In C, one signed ladder is shared across a batch. Each response carries only a small condensed
-> authentication path, not the full ladder. The diagram is illustrative; the byte bars are
-> measured.
->
-> **A · Plain SLH-DSA.** No ladder. The DNSSEC status quo before any MTL wrapper.
->
-> **B · MTL, no amortisation.** Every message carries its condensed path joined to the whole
-> ladder.
->
-> **C · MTL amortised.** The ladder is signed once for the batch. Each message carries only its
-> path.
->
-> Wire bytes, Medium dataset: A `78,560,000 B` `[F-wire-medium-a]`, B `83,295,296 B`
-> `[F-wire-medium-b]`, C `2,743,352 B` `[F-wire-medium-c]`.
-
-### Architecture
-
-> **Architecture**
->
-> A Rust workspace links OpenSSL, liboqs and libMTL, benchmarks with Criterion, and captures
-> live DNS from patched NSD and Unbound in Docker. The full repository map is in
-> `docs/ARCHITECTURE.md`.
-
-### Transparency
-
-> **Transparency**
->
-> No result on this page is typed in by hand. Each number is read from a recorded artifact and
-> checked against a claims registry.
->
-> **Reproducible datasets.** Deterministic datasets at three sizes with repeated trials. One
-> command, `cargo xtask reproduce`, rebuilds the artifact chain.
->
-> **Pinned and fingerprinted.** liboqs and libMTL are pinned submodules. `environment.json`
-> records CPU, kernel and toolchain.
->
-> **Claims registry.** Each claim stores its JSON pointer, expected value and pass/fail mark.
-> The generated badge currently reports `852 of 852` claims verified `[F-claims-count]`.
->
-> **Known experimental limits.** Results are empirical. They cover one parameter set
-> (SLH-DSA-SHA2-128s-MTL-SHA2-128), one reference implementation and one laptop-class machine.
-> Native SLH-DSA is not SIMD-tuned in the pinned build. The DNS pipeline runs locally only. The
-> full list is in the README's "Honest limits" section.
->
-> **What this is not.** This page is a viewer for recorded results, not a DNS service, a signing
-> service or a shell. No formal security guarantee, proof or certification is claimed.
->
-> [Read the methodology ↗]
-
-### Team
-
-> **Team CLIMB**
->
-> AIORI-3 Hackathon, problem statement PS-036, team code A3-PS036-TC529.
->
-> **Pratyay Mukherjee** — Team Lead and Developer — GitHub profile ↗
->
-> **Mohit Kumar Yadav** — Lead Researcher, UI and Logo Designer — GitHub profile ↗
->
-> **Dr. Maibam Devi** — Faculty Mentor — NFSU profile ↗
-
-### Footer
-
-> **One signed ladder. Many short paths.**
->
-> Clone it, rebuild every number, check the claims yourself.
->
-> `git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb`
-> [Copy] [Open the repository]
->
-> *Measured, not claimed.*
-
-Alternative headline if a shorter line is wanted: **`Sign a batch. Measure the difference.`**
-Neither alternative claims anything about security.
-
-## Number slots
-
-The implementer renders these from the artifact; the deck never carries the digits as source.
-
-| Slot | Fact id | Class | Value at audit time |
+| Fact id | Where used | Chip | JSON pointer / source |
 | --- | --- | --- | --- |
-| Wire reduction, C vs A | `F-wire-medium-c-vs-a` | DERIVED | 96.508 % |
-| A wire bytes | `F-wire-medium-a` | MEASURED | 78,560,000 B |
-| B wire bytes | `F-wire-medium-b` | MEASURED | 83,295,296 B |
-| C wire bytes | `F-wire-medium-c` | MEASURED | 2,743,352 B |
-| Wire reduction, C vs B | `F-wire-medium-c-vs-b` | DERIVED | 96.706 % |
-| Signing speed-up, C vs A | `F-sign-medium-c-vs-a` | DERIVED | 9,434 × |
-| Verifying speed-up, cached, C vs A | `F-verify-medium-c-vs-a` | DERIVED | 77.34 × |
-| UDP fit, configuration C | `F-udp-c-fit` | ANALYTICAL | 11 of 12 |
-| UDP payload constant | `F-udp-payload` | model constant | 1,232 B |
-| Live DNS reduction | `F-dns-www-a` | DERIVED | 97.307 % |
-| Small memory ratio | `F-mem-small-ratio` | DERIVED | 1.628 × |
-| Claims verified | `F-claims-count` | generated | 852 of 852 |
-| Dataset count | `F-wire-sizes` | MEASURED | 3 |
-| Parameter set | `F-parameter-set` | recorded | SLH-DSA-SHA2-128s-MTL-SHA2-128 |
+| `F-wire-medium-c-vs-a` | `/`, `/dashboard`, `/calculator` | Derived | `/comparisons/2/wire_reduction_c_vs_a_percent` |
+| `F-sign-medium-c-vs-a` | `/`, `/dashboard`, `/calculator` | Derived | `/comparisons/2/signing_speedup_c_vs_a` |
+| `F-verify-medium-c-vs-a` | `/`, `/dashboard` | Derived | `/comparisons/2/verifying_speedup_cached_vs_a` |
+| `F-udp-c-fit` | `/`, `/dashboard` | Analytical | `/derived/udp_fit/aggregate/2/fit_rows` |
+| `F-udp-c-total` | `/`, `/dashboard` | Analytical | `/derived/udp_fit/aggregate/2/total_rows` |
+| `F-wire-medium-a` | `/dashboard`, `/calculator` | Measured | `/wire_size/1/plain_total_bytes` |
+| `F-wire-medium-b` | `/dashboard` | Measured | `/wire_size/1/without_mtl_total_bytes` |
+| `F-wire-medium-c` | `/dashboard`, `/calculator` | Measured | `/wire_size/1/with_mtl_total_bytes` |
+| `F-wire-medium-c-vs-b` | `/dashboard` | Derived | `/comparisons/2/wire_reduction_c_vs_b_percent` |
+| `F-sign-batch-size` | `/calculator` | Measured | `/wire_size/1/message_count` |
+| `F-mem-small-ratio` | `/dashboard` | Derived | `/memory/measured/0/measured_analytical_total_ratio` |
+| `F-dns-www-a` | `/dashboard` | Derived | `/dns_pipeline/reduction_percent_www_a` |
+| `F-wire-sizes` | `/report`, `/reproduce`, `/method` | Measured | `/wire_size` (array length) |
+| `F-parameter-set` | `/report`, `/reproduce`, `/method`, limits | Measured | `/dns_pipeline/algorithm` |
+| `F-udp-payload` | `/calculator`, `/dashboard`, `/method` | Constant | **not in the artifact**: `UDP_MTU_1232` in `crates/climb-analytical/src/udp_fit.rs` |
+| `F-claims-count` | `/verify`, footer | Generated | **not in the artifact**: emitted by `cargo xtask readme-badges` |
+
+The two non-artifact ids are the only ones the copy cannot read from the
+results artifact. They are real values with a defined source, listed here
+rather than passed as if artifact-backed.
+
+## The scope sentence
+
+Used verbatim in the footer and in Honest limits:
+
+> This website presents recorded results and a client-side dashboard. The
+> DNSSEC and PQC benchmark itself is not deployed on the Internet; the DNS
+> testbed runs locally.
+
+---
+
+## `/` — Home
+
+<!-- copy:begin id=home-hero -->
+Eyebrow: `/01.00 PQC DNSSEC - MTL benchmark`
+
+Headline: **Post-quantum DNSSEC, without the weight.**
+
+Subhead: Measuring how Merkle Tree Ladder amortisation changes the size and
+the cost of post-quantum DNSSEC signing with SLH-DSA.
+
+Buttons: **Open the dashboard** (primary) · **See the evidence** (secondary)
+
+Microcopy under the buttons: Recorded results, read from the committed
+artifact. This page is a viewer, not a service.
+
+Alt text for the hero art: The CLIMB wordmark over a ladder of Merkle tree
+rungs; decorative.
+<!-- copy:end -->
+
+<!-- copy:begin id=home-figures -->
+Headline: **Four things the benchmark measured**
+
+Figure 1. Wire reduction, C against A: **96.508 %** (Derived) `[F-wire-medium-c-vs-a]`.
+
+Figure 2. Signing speed-up, C against A: **9,434 ×** (Derived) `[F-sign-medium-c-vs-a]`.
+
+Figure 3. Verification speed-up with a pre-validated ladder, C against A: **77.34 ×** (Derived) `[F-verify-medium-c-vs-a]`.
+
+Figure 4. Modelled UDP responses that fit the payload in configuration C: **11 of 12** (Analytical) `[F-udp-c-fit]` `[F-udp-c-total]`.
+
+Evidence legend: Measured: read from a measurement artifact · Derived: computed from recorded values · Analytical: closed-form model · Extrapolated: unit cost times count, shown with `≈`.
+
+Microcopy: Every figure carries its evidence class and the baseline it is compared against. Definitions are in Method. The full table is the quote sheet.
+<!-- copy:end -->
+
+<!-- copy:begin id=home-mechanism -->
+Headline: **How the ladder saves weight**
+
+Body: In configuration C one signed ladder is shared across a batch. Each
+response carries a short condensed authentication path, not the whole ladder.
+The diagram is illustrative; the byte figures are measured.
+
+Baseline A — plain SLH-DSA: one full signature per message. No ladder.
+
+Baseline B — MTL without amortisation: each message carries its condensed
+path joined to the whole ladder.
+
+Baseline C — MTL amortised: the ladder is signed once per batch; each message
+carries only its path.
+<!-- copy:end -->
+
+<!-- copy:begin id=home-limits -->
+Headline: **Honest limits**
+
+Body: These results are empirical measurements from one parameter set
+(SLH-DSA-SHA2-128s-MTL-SHA2-128, Measured) `[F-parameter-set]`, one reference
+implementation and one laptop-class machine. They are not a formal
+verification, an audit or a certification. The DNS pipeline runs locally, on a
+testbed, not on the Internet.
+
+Button: **Read the method**
+<!-- copy:end -->
+
+## `/dashboard` — Dashboard
+
+<!-- copy:begin id=dashboard-head -->
+Eyebrow: `/02.00 Recorded results`
+
+Headline: **The dashboard**
+
+Subhead: Every recorded result, on one page, with its evidence class. Read
+from the committed artifact; nothing here is typed in.
+
+Dataset control, labels: **Small** · **Medium** · **Large**
+
+View control, labels: **Total** · **Per message**
+
+Microcopy: Switching the dataset re-renders the figures; it does not re-run
+the benchmark.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-wire -->
+Panel headline: **Wire bytes**
+
+Body: Configuration A sends **78,560,000 B** (Measured) `[F-wire-medium-a]`.
+
+Body: Configuration B sends **83,295,296 B** (Measured) `[F-wire-medium-b]`.
+
+Body: Configuration C sends **2,743,352 B** (Measured) `[F-wire-medium-c]`.
+
+Body: C against A is a **96.508 %** reduction (Derived) `[F-wire-medium-c-vs-a]`; C against B is **96.706 %** (Derived) `[F-wire-medium-c-vs-b]`.
+
+Microcopy: Medium dataset. The bar for B is the full width; A and C are drawn
+against it. A hatched bar means a modelled value.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-signing -->
+Panel headline: **Signing**
+
+Body: Batch signing is **9,434 ×** faster in C than in A on the Medium dataset (Derived) `[F-sign-medium-c-vs-a]`. The ratio compares the recorded plain per-message cost with the recorded MTL per-message cost.
+
+Microcopy: Log scale. The shaded band is the recorded spread over five runs.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-verifying -->
+Panel headline: **Verifying**
+
+Body: With a verifier that trusts an already-checked ladder, verification in C
+is **77.34 ×** faster than in A (Derived) `[F-verify-medium-c-vs-a]`.
+
+Microcopy: This is the pre-validated-ladder case, not a cold verification.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-memory -->
+Panel headline: **Memory**
+
+Body: On the Small dataset the measured memory is **1.628 ×** the closed-form estimate (Derived) `[F-mem-small-ratio]`.
+
+Microcopy: Measured is peak resident memory; the estimate is the library's own
+page-size model plus the harness buffers. They are reported side by side, not
+forced to agree.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-udp -->
+Panel headline: **Does it fit a UDP packet?**
+
+Body: In configuration C, **11 of 12** modelled response profiles fit the payload (Analytical) `[F-udp-c-fit]` `[F-udp-c-total]`.
+
+Microcopy: The payload size is an EDNS(0) constant, not a measurement. The gauge marks the 512 B DNS limit and the 1,232 B EDNS(0) payload (Constant) `[F-udp-payload]`. A modelled fit is not a captured packet.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-dns -->
+Panel headline: **Live DNS**
+
+Body: In the local capture, the response for `www.climb.example. A` is
+**97.307 %** smaller condensed than full (Derived) `[F-dns-www-a]`.
+
+Microcopy: One local capture over TCP, replayed from the committed file. Not
+an Internet measurement.
+<!-- copy:end -->
+
+<!-- copy:begin id=dashboard-states -->
+Empty state (no artifact): No results artifact was found. Run the reproduce
+command, or open the committed sample.
+
+Error state (artifact present but unreadable): The results artifact at the
+expected path could not be parsed. The path is named below. Nothing on this
+page is being guessed from a partial file.
+<!-- copy:end -->
+
+## `/calculator` — Break-even calculator
+
+<!-- copy:begin id=calculator-head -->
+Eyebrow: `/03.00 Break-even`
+
+Headline: **Where does the ladder start to win?**
+
+Subhead: Put your own message count against the recorded per-message costs and
+see where configuration C crosses configuration A.
+
+Input label: Messages per batch
+
+Input label: Response profile
+
+Button: **Compute**
+
+Microcopy: The per-message costs and the byte totals are read from the
+artifact; only your message count is your own input.
+<!-- copy:end -->
+
+<!-- copy:begin id=calculator-output -->
+Result headline: **Your batch**
+
+Body: At your message count, C sends **2,743,352 B** (Measured) `[F-wire-medium-c]` against A's **78,560,000 B** (Measured) `[F-wire-medium-a]`, a **96.508 %** reduction (Derived) `[F-wire-medium-c-vs-a]`.
+
+Body: The recorded signing ratio is **9,434 ×** (Derived) `[F-sign-medium-c-vs-a]`, measured on the 10,000-message batch (Measured) `[F-sign-batch-size]`.
+
+Microcopy: The payload constant used by the fit model is **1,232 B** (Constant) `[F-udp-payload]`; it is a constant, not a measurement.
+<!-- copy:end -->
+
+<!-- copy:begin id=calculator-states -->
+Empty state (no input yet): Enter a message count to see the crossing.
+
+Error state (count is zero or not a number): Enter a whole number of
+messages, one or more.
+
+Microcopy: The calculator is client-side. Your input is not sent anywhere.
+<!-- copy:end -->
+
+## `/report` — Report
+
+<!-- copy:begin id=report-head -->
+Eyebrow: `/04.00 The record`
+
+Headline: **The full report**
+
+Subhead: The rendered report and the machine-readable results artifact, from
+the same recorded run.
+
+Body: The run covers **3** dataset sizes (Measured) `[F-wire-sizes]` with the parameter set **SLH-DSA-SHA2-128s-MTL-SHA2-128** (Measured) `[F-parameter-set]`.
+
+Button: **Download the results artifact**
+
+Button: **Open the HTML report**
+
+Microcopy: The artifact is the source; the HTML report is rendered from it.
+Both are committed.
+<!-- copy:end -->
+
+<!-- copy:begin id=report-states -->
+Empty state (no report built): No report has been rendered from this artifact
+yet. The download is still available.
+
+Error state (render failed): The report could not be rendered from the
+artifact at the named path. The artifact itself is unchanged.
+<!-- copy:end -->
+
+## `/verify` — Verify
+
+<!-- copy:begin id=verify-head -->
+Eyebrow: `/05.00 Check it yourself`
+
+Headline: **Verify the numbers**
+
+Subhead: Every number the site shows is a claim in the registry. Each claim
+stores its pointer, its expected value and its pass mark.
+
+Body: The generated badge reports **852 of 852** claims verified (Generated) `[F-claims-count]`.
+
+Button: **Copy the verify command**
+
+Microcopy: Run the command locally to re-resolve every claim against the
+committed artifact. The count is generated by the badge step, not typed in.
+<!-- copy:end -->
+
+<!-- copy:begin id=verify-states -->
+Empty state (registry absent): No claims registry is available for this
+artifact.
+
+Error state (a claim fails): A claim did not resolve to its recorded value.
+The failing pointer is named. A failed claim is reported, not hidden.
+<!-- copy:end -->
+
+## `/reproduce` — Reproduce
+
+<!-- copy:begin id=reproduce-head -->
+Eyebrow: `/06.00 Rebuild it`
+
+Headline: **Rebuild every number**
+
+Subhead: The pinned environment and the commands that regenerate the artifacts
+from a clean clone.
+
+Body: The run uses **3** dataset sizes (Measured) `[F-wire-sizes]` and the parameter set **SLH-DSA-SHA2-128s-MTL-SHA2-128** (Measured) `[F-parameter-set]`.
+
+Button: **Copy the command**
+
+Microcopy: The commands run locally. The benchmark is not deployed on the
+Internet; the DNS testbed runs in Docker on your machine.
+<!-- copy:end -->
+
+<!-- copy:begin id=reproduce-states -->
+Empty state (no environment recorded): No environment fingerprint is present
+for this checkout.
+
+Error state (a pinned dependency is missing): A pinned dependency is not
+present. Fetch the submodules and run the build again; the command is printed
+with the failing step named.
+<!-- copy:end -->
+
+## `/method` — Method
+
+<!-- copy:begin id=method-head -->
+Eyebrow: `/07.00 Definitions`
+
+Headline: **Method**
+
+Subhead: The baselines, the evidence classes and the limits, in one place.
+
+Body: The results cover **3** dataset sizes (Measured) `[F-wire-sizes]` with the parameter set **SLH-DSA-SHA2-128s-MTL-SHA2-128** (Measured) `[F-parameter-set]`.
+
+Body: The UDP-fit model uses a **1,232 B** payload constant (Constant) `[F-udp-payload]`. It is an EDNS(0) size, not a measured packet.
+
+Microcopy: A condensed response is a Merkle authentication path. A full
+response is the whole signed ladder. A pre-validated ladder is one the
+verifier has already checked.
+<!-- copy:end -->
+
+<!-- copy:begin id=method-classes -->
+Headline: **Evidence classes**
+
+Measured: read from a measurement artifact.
+
+Derived: computed from other recorded values, such as a ratio or byte
+arithmetic.
+
+Analytical: from a closed-form model.
+
+Extrapolated: unit cost times count, applied to a measured per-message cost
+rather than a whole-batch measurement, shown with `≈`.
+<!-- copy:end -->
+
+## `/team` — Team
+
+<!-- copy:begin id=team -->
+Eyebrow: `/08.00 Who`
+
+Headline: **Team CLIMB**
+
+Subhead: AIORI-3 Hackathon, problem statement PS-036, team A3-PS036-TC529.
+
+Body: Pratyay Mukherjee — Team Lead and Developer.
+
+Body: Mohit Kumar Yadav — Lead Researcher, UI and Logo Designer.
+
+Body: Dr. Maibam Devi — Faculty Mentor.
+
+Microcopy: Contact and profile links are on the repository.
+<!-- copy:end -->
+
+## `/commits` — Commits
+
+<!-- copy:begin id=commits -->
+Eyebrow: `/09.00 Built in the open`
+
+Headline: **Commits**
+
+Subhead: The public commit graph, regenerated from the public history.
+
+Alt text: A cumulative commit-count staircase with daily bars and milestone
+flags, drawn from the public commit history.
+
+Microcopy: The graph describes public commits only. It carries no e-mail
+address and no claim that any milestone was met on time.
+<!-- copy:end -->
+
+## `/404`
+
+<!-- copy:begin id=notfound -->
+Eyebrow: `/404`
+
+Headline: **That page is not here.**
+
+Body: The address did not match a route. The dashboard and the method are the
+two places most readers want.
+
+Buttons: **Open the dashboard** · **Read the method**
+<!-- copy:end -->
+
+## Footer
+
+<!-- copy:begin id=footer -->
+Tagline: **Measured, not claimed.**
+
+Scope: This website presents recorded results and a client-side dashboard. The
+DNSSEC and PQC benchmark itself is not deployed on the Internet; the DNS
+testbed runs locally.
+
+Column heading: Project. Links: Dashboard · Calculator · Report · Verify.
+
+Column heading: Method. Links: Method · Reproduce · Commits.
+
+Column heading: Event. Links: AIORI-3 Hackathon · problem statement PS-036 ·
+team A3-PS036-TC529.
+
+Legal: MIT licence. Results are empirical measurements; nothing here is a
+formal verification or a certification.
+
+Badge line: **852 of 852** claims verified (Generated) `[F-claims-count]`.
+<!-- copy:end -->
+
+## Honest limits
+
+<!-- copy:begin id=limits -->
+Headline: **Honest limits**
+
+Body: These results are empirical measurements from one parameter set
+(SLH-DSA-SHA2-128s-MTL-SHA2-128, Measured) `[F-parameter-set]`, one reference
+implementation and one laptop-class machine. They are not a formal
+verification, an audit or a certification, and nothing here should be read as
+one.
+
+Body: The DNS pipeline runs locally, on a Docker testbed, not on the Internet.
+The live-DNS figures come from a local capture, replayed from a committed
+file.
+
+Body: Signing and verification speed-ups are ratios of recorded per-message
+costs. The UDP-fit rows are an analytical payload model, not a measurement.
+The spread on a speed-up is the recorded spread over five runs, not a re-run
+of the headline benchmark.
+
+Body: This website presents recorded results and a client-side dashboard. The
+DNSSEC and PQC benchmark itself is not deployed on the Internet; the DNS
+testbed runs locally.
+<!-- copy:end -->
+
+## What we did not measure
+
+<!-- copy:begin id=not-measured -->
+Headline: **What we did not measure**
+
+Body: No Internet latency. The DNS delay is a local network-emulation delay on
+the Docker bridge, not a path across the Internet.
+
+Body: No hardware-cache counters on the website. The optional CPU cache
+counters are a Linux-only bonus metric and are not part of these figures.
+
+Body: No multi-machine replication. The results come from one laptop-class
+machine, and the machine is the environment the fingerprint records.
+
+Body: No third-party audit and no certification. Nothing here has been
+reviewed by anyone outside the team.
+
+Body: No security property. The benchmark measures time and bytes; it does not
+test whether MTL mode or SLH-DSA is hard to break, and it does not claim to.
+<!-- copy:end -->
