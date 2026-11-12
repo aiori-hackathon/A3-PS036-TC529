@@ -144,6 +144,54 @@ impl ResultsView {
             .collect()
     }
 
+    /// Break-even status lines for the Wire tab's gauge panel.
+    ///
+    /// Every line is read from `derived.sweep`; a results document without the
+    /// section says so rather than showing an empty panel.
+    pub fn break_even_lines(&self) -> Vec<String> {
+        let Some(section) = self.results.derived.sweep.as_ref() else {
+            return vec!["Break-even: no sweep artifact in this run".to_string()];
+        };
+        let crossing = |metric: &str| -> String {
+            section
+                .crossovers
+                .iter()
+                .find(|c| c.metric == metric)
+                .and_then(|c| c.n)
+                .map(|n| format!("N = {n}"))
+                .unwrap_or_else(|| "not reached".to_string())
+        };
+        let mut lines = vec![
+            format!(
+                "Break-even C vs A: bytes {} \u{00b7} signing {}",
+                crossing("wire"),
+                crossing("signing")
+            ),
+            format!(
+                "Verification: cached {} \u{00b7} cold {}",
+                crossing("verify-cached"),
+                crossing("verify-cold")
+            ),
+        ];
+        if let Some(range) = section.best_range.as_ref() {
+            let end = range
+                .end_n
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| "\u{2014}".to_string());
+            lines.push(format!("Best N: {} \u{2013} {end}", range.start_n));
+        }
+        let worst_fit = section
+            .udp_fit
+            .iter()
+            .filter(|row| row.config == "mtl-amortised")
+            .filter_map(|row| row.last_fit_n.map(|n| (row.profile_label.clone(), n)))
+            .min_by_key(|(_, n)| *n);
+        if let Some((profile, n)) = worst_fit {
+            lines.push(format!("UDP fit to N = {n} ({profile})"));
+        }
+        lines
+    }
+
     /// Payloads, axis and provenance for the UDP-fit gauge.
     ///
     /// Prefers the DNS capture's full-signature and condensed-response sizes;
@@ -424,6 +472,42 @@ mod tests {
         let gauge = view.udp_gauge_data();
         assert!(gauge.markers.is_empty());
         assert_eq!(gauge.axis_max, 0);
+    }
+
+    #[test]
+    fn break_even_lines_show_every_crossover_and_the_best_range() {
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/sweep.recorded.json");
+        let text = std::fs::read_to_string(&path).expect("read committed sweep");
+        let section: climb_report::sweep::SweepSection =
+            serde_json::from_str(&text).expect("parse committed sweep");
+        let mut derived = empty_derived();
+        derived.sweep = Some(section);
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, derived);
+        let lines = view.break_even_lines();
+        assert!(lines[0].contains("bytes N = 2"), "{:?}", lines);
+        assert!(lines[0].contains("signing N = 2"), "{:?}", lines);
+        assert!(lines[1].contains("cached N = 1"), "{:?}", lines);
+        assert!(lines[1].contains("cold N = 4"), "{:?}", lines);
+        assert!(
+            lines.iter().any(|line| line.contains("Best N: 4")),
+            "{:?}",
+            lines
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("UDP fit to N =")),
+            "{:?}",
+            lines
+        );
+    }
+
+    #[test]
+    fn break_even_lines_say_when_no_sweep_is_present() {
+        let view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        assert_eq!(
+            view.break_even_lines(),
+            vec!["Break-even: no sweep artifact in this run".to_string()]
+        );
     }
 
     #[test]

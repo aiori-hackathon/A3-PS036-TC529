@@ -40,6 +40,8 @@ fn consolidate_memory(
         dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
         cache_use_path: root.join("no-cache-use.json"),
         cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+        sweep_path: root.join("no-sweep.json"),
+        sweep_fixture_path: root.join("no-sweep-fixture.json"),
         environment_path: root.join("no-env.json"),
         baseline: "new".to_string(),
         rtt_ms: None,

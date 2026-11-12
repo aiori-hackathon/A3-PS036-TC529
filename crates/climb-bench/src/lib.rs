@@ -17,6 +17,7 @@
 
 pub mod ladder_verify;
 pub mod memory;
+pub mod sweep;
 pub mod wire_size;
 #[cfg(feature = "native")]
 pub use ladder_verify::measure_ladder_rows;
@@ -32,6 +33,9 @@ pub use memory::{
 pub use memory::{
     compare_to_analytical, RssComparison, RssDeltaReport, RssDeltaRun, RssSizeReport,
 };
+#[cfg(feature = "native")]
+pub use sweep::measure_sweep;
+pub use sweep::{SweepMeasuredRow, SweepMeasurement, SweepModelInputs};
 #[cfg(feature = "native")]
 pub use wire_size::measure_wire_sizes;
 pub use wire_size::{CondensedStats, PlainRrsigStats, WireSizeReport, DEFAULT_WIRE_SEED};

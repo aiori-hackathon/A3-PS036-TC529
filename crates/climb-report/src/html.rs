@@ -744,6 +744,107 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
         }
     }
 
+    // Batch-size sweep: one claim group per crossover, the best range and the
+    // C rows of the UDP-fit window. Registered only when the section is
+    // present, so the registry and the body stay in lockstep.
+    if let Some(sweep) = results.derived.sweep.as_ref() {
+        for (idx, crossover) in sweep.crossovers.iter().enumerate() {
+            let base = format!("/derived/sweep/crossovers/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-{idx}-label"),
+                &format!("{base}/label"),
+                Some(crossover.label.clone()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-{idx}-n"),
+                &format!("{base}/n"),
+                crossover.n.map(|n| format!("N = {n}")),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-{idx}-class"),
+                &format!("{base}/class"),
+                Some(crossover.class.label().to_string()),
+            );
+        }
+        if let Some(range) = sweep.best_range.as_ref() {
+            push_claim(
+                &mut claims,
+                &root,
+                "sweep-best-start",
+                "/derived/sweep/best_range/start_n",
+                Some(format!("N = {}", range.start_n)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "sweep-best-end",
+                "/derived/sweep/best_range/end_n",
+                range.end_n.map(|n| format!("N = {n}")),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                "sweep-best-class",
+                "/derived/sweep/best_range/class",
+                Some(range.class.label().to_string()),
+            );
+        }
+        push_claim(
+            &mut claims,
+            &root,
+            "sweep-measured-max",
+            "/derived/sweep/measured_max_n",
+            Some(format!("N = {}", sweep.measured_max_n)),
+        );
+        for (idx, row) in sweep.udp_fit.iter().enumerate() {
+            if row.config != "mtl-amortised" {
+                continue;
+            }
+            let base = format!("/derived/sweep/udp_fit/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-udp-{idx}-profile"),
+                &format!("{base}/profile_label"),
+                Some(row.profile_label.clone()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-udp-{idx}-first"),
+                &format!("{base}/first_fit_n"),
+                row.first_fit_n.map(|n| format!("N = {n}")),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-udp-{idx}-last"),
+                &format!("{base}/last_fit_n"),
+                row.last_fit_n.map(|n| format!("N = {n}")),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-udp-{idx}-bytes"),
+                &format!("{base}/max_response_bytes_at_last_fit"),
+                Some(format!("{} B", row.max_response_bytes_at_last_fit)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("sweep-udp-{idx}-class"),
+                &format!("{base}/class"),
+                Some(row.class.label().to_string()),
+            );
+        }
+    }
+
     // Signature context: one claim group per context row. Registered only
     // when the section will render (non-empty `derived.signature_context`),
     // so the registry and the body stay in lockstep.
@@ -1014,6 +1115,70 @@ fn render_reuse_section(results: &ClimbResults, claims: &[Claim]) -> String {
     }
     format!(
         "<section aria-labelledby=\"reuse-h\">\n<h2 id=\"reuse-h\">Ladder reuse: cold vs warm</h2>\n<p class=\"note\">Effective per-message time = (t_cold + (r &minus; 1) &times; t_warm) &divide; r and effective bytes = condensed + ladder &divide; r, both against the unamortised per-message baseline (plain SLH-DSA verify time, full MTL signature bytes). t_cold is one full ladder validation per message; t_warm reuses a trust-cached ladder. r* is the smallest candidate reuse count whose effective per-message time or bytes is at or below the baseline; an em dash means no candidate in range reached parity. Every value is read from the results artifact.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>Time r*</th><th>Bytes r*</th><th>Evidence class</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+    )
+}
+
+/// Render the break-even section: the four C-vs-A crossovers and the UDP-fit
+/// window of the amortised configuration. Every displayed value is pulled from
+/// the claims registry by id, so the body contains each registered value
+/// verbatim — the property [`check_claims`] enforces. Returns an empty string
+/// when no sweep section was folded into the results.
+fn render_sweep_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    let Some(section) = results
+        .derived
+        .sweep
+        .as_ref()
+        .filter(|section| !section.crossovers.is_empty())
+    else {
+        return String::new();
+    };
+    let value = |id: &str| -> String {
+        claims
+            .iter()
+            .find(|c| c.id == id)
+            .map_or("\u{2014}".to_string(), |c| c.formatted.clone())
+    };
+    let crossing = |metric: &str| -> String {
+        section
+            .crossovers
+            .iter()
+            .position(|c| c.metric == metric)
+            .map(|idx| value(&format!("sweep-{idx}-n")))
+            .unwrap_or_else(|| "\u{2014}".to_string())
+    };
+    let mut crossing_rows = String::new();
+    for idx in 0..section.crossovers.len() {
+        crossing_rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&value(&format!("sweep-{idx}-label"))),
+            escape_html(&value(&format!("sweep-{idx}-n"))),
+            escape_html(&value(&format!("sweep-{idx}-class"))),
+        ));
+    }
+    let mut udp_rows = String::new();
+    for (idx, row) in section.udp_fit.iter().enumerate() {
+        if row.config != "mtl-amortised" {
+            continue;
+        }
+        udp_rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&value(&format!("sweep-udp-{idx}-profile"))),
+            escape_html(&value(&format!("sweep-udp-{idx}-first"))),
+            escape_html(&value(&format!("sweep-udp-{idx}-last"))),
+            escape_html(&value(&format!("sweep-udp-{idx}-bytes"))),
+            escape_html(&value(&format!("sweep-udp-{idx}-class"))),
+        ));
+    }
+    let best_start = value("sweep-best-start");
+    let best_end = value("sweep-best-end");
+    let best_class = value("sweep-best-class");
+    let measured_max = value("sweep-measured-max");
+    let wire = crossing("wire");
+    let sign = crossing("signing");
+    let cached = crossing("verify-cached");
+    let cold = crossing("verify-cold");
+    format!(
+        "<section aria-labelledby=\"sweep-h\">\n<h2 id=\"sweep-h\">Break-even: where MTL starts to win</h2>\n<p class=\"lede\">C beats A on wire bytes from {wire}, on batch signing time from {sign}, on trust-cached verification from {cached} and on cold verification from {cold}.</p>\n<p class=\"note\">The sweep signs one real batch at every power of two up to 1,048,576. Rows measured with the real library stop at {measured_max}; any row above that limit is labelled EXTRAPOLATED and uses the closed-form ladder model validated against every measured row. The best batch-size range is {best_start} to {best_end} ({best_class}): it starts at the worst C-vs-A crossing and ends at the largest N whose worst-profile condensed response still fits one 1,232-byte UDP packet.</p>\n<table class=\"memtable\">\n<thead><tr><th>Comparison</th><th>Break-even</th><th>Evidence</th></tr></thead>\n<tbody>\n{crossing_rows}</tbody>\n</table>\n<p class=\"note\"><strong>UDP fit window, C (MTL amortised).</strong> A response fits one 1,232-byte UDP packet from the first N through the last N; the largest modelled response at the last fitting size is shown. The fit is an analytical model over the measured condensed maxima, and configurations A and B never fit a single packet in any profile.</p>\n<table class=\"memtable\">\n<thead><tr><th>Response profile</th><th>First fit</th><th>Last fit</th><th>Max response</th><th>Evidence</th></tr></thead>\n<tbody>\n{udp_rows}</tbody>\n</table>\n</section>\n"
     )
 }
 
@@ -1431,6 +1596,7 @@ pub fn render_html(
     let wire_comparison_html = render_wire_comparison_section(results, &claims);
     let timing_comparison_html = render_timing_comparison_section(results, &claims);
     let context_html = render_context_section(results, &claims);
+    let sweep_html = render_sweep_section(results, &claims);
 
     Ok(format!(
         r#"<!DOCTYPE html>
@@ -1499,7 +1665,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
 </ul>
 <p class="note">"No amortisation" is the MTL wrapper's non-amortised mode, not a plain SLH-DSA RRSIG (which would carry a single full SLH-DSA signature per RRset and no ladder). The wire-byte formulas for each configuration are documented in <code>docs/BASELINES.md</code>.</p>
 </section>
-{wire_comparison_html}{timing_comparison_html}{context_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}{dns_rtt_html}{resolver_cache_html}<section aria-labelledby="method-h">
+{wire_comparison_html}{timing_comparison_html}{context_html}{sweep_html}{memory_html}{ladder_html}{reuse_html}{udp_fit_html}{dns_rtt_html}{resolver_cache_html}<section aria-labelledby="method-h">
 <h2 id="method-h">Methodology &amp; scope</h2>
 <p class="note"><strong>Reproduction mode: {reproduction_mode}.</strong> {reproduction_note}</p>
 <p class="note">Timings are Criterion-measured means with 95% confidence intervals. Hollow bars and fitted curves are extrapolations (N &times; mean per-message cost, or an OLS fit of the MTL-amortised batch total) — descriptive summaries of the measured runs, not measurements themselves; every chart carries a three-line footnote naming its source files. Wire-size and memory figures are exact measurements of real output.</p>
@@ -1531,6 +1697,7 @@ footer {{ color:var(--muted); font-size:.85rem; padding:1.5rem 0 3rem; }}
         resolver_cache_html = resolver_cache_html,
         wire_comparison_html = wire_comparison_html,
         timing_comparison_html = timing_comparison_html,
+        sweep_html = sweep_html,
     ))
 }
 
@@ -2026,6 +2193,7 @@ mod tests {
                 headline: Some("MTL cuts www.a wire bytes by 97.3%.".to_string()),
                 reuse: Vec::new(),
                 udp_fit: None,
+                sweep: None,
                 signature_context: Vec::new(),
                 stability: None,
                 primitives: None,
@@ -2482,6 +2650,7 @@ mod tests {
             overall_verifying_trust_cached_speedup_avg: None,
             headline: None,
             udp_fit: None,
+            sweep: None,
             reuse: Vec::new(),
             signature_context: Vec::new(),
             stability: None,
@@ -3039,6 +3208,30 @@ mod tests {
             html.contains("full RRSIG is served in both modes"),
             "the Unbound control note is missing"
         );
+        assert_eq!(check_claims(&html, &results), Vec::<String>::new());
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn a_sweep_section_renders_every_crossover_and_fit_window() {
+        let mut results = synthetic_results();
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/sweep.recorded.json");
+        let text = std::fs::read_to_string(&path).expect("read committed sweep");
+        let section: crate::sweep::SweepSection =
+            serde_json::from_str(&text).expect("parse committed sweep");
+        results.derived.sweep = Some(section);
+        let dir = unique_temp_dir("html-sweep");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(html.contains("Break-even: where MTL starts to win"));
+        assert!(html.contains("C beats A on wire bytes from N = 2"));
+        assert!(html.contains("UDP fit window"));
+        assert!(html.contains("1,232"));
         assert_eq!(check_claims(&html, &results), Vec::<String>::new());
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }

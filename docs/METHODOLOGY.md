@@ -201,6 +201,49 @@ prediction; the ratio states the gap honestly rather than forcing agreement.
 Entry counts (`rrset.cache.count`, `msg.cache.count`) are reported where the
 resolver build exposes them; no ladder entry count is invented.
 
+## Where MTL starts to win: the batch-size sweep
+
+`cargo xtask sweep` signs one real batch with libMTL at every power of two
+from a single message through the 1,048,576-message Large dataset. At each `N`
+it records the signed-ladder length, every condensed-signature length (min,
+mean, max and sum), the three wire totals and the wall-clock time to sign the
+whole batch once. A row measured with the real library is labelled `MEASURED`;
+a row above the measured limit keeps the same shape but is labelled
+`EXTRAPOLATED`, built from the closed-form ladder model that the ladder
+verification artifact checks against real bytes at every measured size and from
+the per-operation costs timed in the same pass.
+
+The three wire totals are arithmetic over the recorded row:
+
+* **A** = `N × plain signature length`, one full SLH-DSA signature per message.
+* **B** = `sum(condensed) + N × signed ladder`, one complete MTL signature per message.
+* **C** = `sum(condensed) + signed ladder`, one shared ladder.
+
+The timing comparisons use the same row fields. Signing is `N × t_plain_sign`
+for A, `N × t_mtl_single` for B and the measured batch time for C. Verification
+is `N × t_plain_verify` for A, `N × t_verify_condensed_cached` for trust-cached
+C, and `t_cold + (N − 1) × t_verify_condensed_cached` for cold C: the ladder is
+validated once and the remaining condensed paths reuse it.
+
+Finding. C beats A on wire bytes from `N = 2` and on batch signing time from
+`N = 2`. Trust-cached verification wins from `N = 1`, while cold verification
+needs `N = 4` because one full ladder validation is paid up front. A condensed
+response fits the 1,232-byte UDP payload from `N = 1`; the single-RRSIG response
+profile keeps fitting through the largest measured batch, the two-RRSIG profile
+also reaches the largest batch, and the three-RRSIG profile stops fitting at
+`N = 32,768`. The best batch-size range is therefore `N = 4` to `N = 32,768`:
+past the worst C-versus-A crossing and inside every response profile's UDP
+window. At `N = 1` MTL is not yet worthwhile — the ladder is an extra cost
+carried by one message — which is exactly the "small batches lose" result the
+conformance runs showed.
+
+The sweep is resumable (`--resume` keeps measured rows for the requested
+sizes) and is expected to finish well inside the twenty-minute budget on the
+pinned host; the recorded `elapsed_ms` and `limit_reason` state what the run
+actually did. Every crossover, UDP-fit window and the best range are recomputed
+from the raw rows by `cargo xtask verify-numbers`, so the published thresholds
+cannot drift from the measurements behind them.
+
 ## Evidence classes
 
 Every number in the report, charts, TUI and README carries one of these

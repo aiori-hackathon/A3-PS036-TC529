@@ -444,6 +444,23 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | UDP fit, leaves=1000000 — R (RSA-2048, context) Positive A with NS fit ≤1232 B | 100.000 | % | ANALYTICAL | n = 1000000 | n/a | /derived/udp_fit/rows/47/fit_1232_percent | target/climb-results.json |
 | UDP fit — worst case fit ≤1232 B | 0.000 | % | ANALYTICAL | — | n/a | /derived/udp_fit/rows/*/fit_1232_percent | target/climb-results.json |
 
+## Break-even sweep
+
+| Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Wire bytes, C vs A — break-even | 2 | N | MEASURED | measured to N = 1048576 | n/a | /derived/sweep/crossovers/0/n | target/climb-results.json |
+| Batch signing time, C vs A — break-even | 2 | N | MEASURED | measured to N = 1048576 | n/a | /derived/sweep/crossovers/1/n | target/climb-results.json |
+| Verification (trust-cached), C vs A — break-even | 1 | N | MEASURED | measured to N = 1048576 | n/a | /derived/sweep/crossovers/2/n | target/climb-results.json |
+| Verification (cold), C vs A — break-even | 4 | N | MEASURED | measured to N = 1048576 | n/a | /derived/sweep/crossovers/3/n | target/climb-results.json |
+| Best batch-size range — start | 4 | N | DERIVED | measured to N = 1048576 | n/a | /derived/sweep/best_range/start_n | target/climb-results.json |
+| Best batch-size range — end | 32768 | N | DERIVED | measured to N = 1048576 | n/a | /derived/sweep/best_range/end_n | target/climb-results.json |
+| UDP fit, Positive A (www) / C — first fit | 1 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/2/first_fit_n | target/climb-results.json |
+| UDP fit, Positive A (www) / C — last fit | 1048576 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/2/last_fit_n | target/climb-results.json |
+| UDP fit, Positive A with NS / C — first fit | 1 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/5/first_fit_n | target/climb-results.json |
+| UDP fit, Positive A with NS / C — last fit | 32768 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/5/last_fit_n | target/climb-results.json |
+| UDP fit, NXDOMAIN/NSEC3 (parameter) / C — first fit | 1 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/8/first_fit_n | target/climb-results.json |
+| UDP fit, NXDOMAIN/NSEC3 (parameter) / C — last fit | 1048576 | N | ANALYTICAL | measured to N = 1048576 | n/a | /derived/sweep/udp_fit/8/last_fit_n | target/climb-results.json |
+
 ## Classical baselines
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
@@ -610,13 +627,13 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 468f4cff20eeef34df462aa7799572f9a13c7057 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | fea347548a3f182bb2392c6c3ecdcebed275f882 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1461 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1487 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
@@ -625,7 +642,7 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Footer
 
-- Rows rendered: 517 (from 677 collected facts; 160 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 307, ANALYTICAL: 77, EXTRAPOLATED: 24, DERIVED: 108; UNCLASSIFIED: 1.
+- Rows rendered: 529 (from 689 collected facts; 160 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 311, ANALYTICAL: 83, EXTRAPOLATED: 24, DERIVED: 110; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

@@ -42,6 +42,8 @@ mod reproduce;
 mod sample_check;
 mod source_hygiene;
 mod stability;
+#[cfg(feature = "native")]
+mod sweep;
 mod verify_consolidated;
 mod verify_numbers;
 #[cfg(feature = "native")]
@@ -78,6 +80,8 @@ use reproduce::{cmd_reproduce, ReproduceArgs};
 use sample_check::{cmd_sample_check, SampleCheckArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
+#[cfg(feature = "native")]
+use sweep::{cmd_sweep, SweepArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use verify_numbers::{cmd_verify_numbers, VerifyNumbersArgs};
 #[cfg(feature = "native")]
@@ -130,6 +134,18 @@ pub(crate) struct LadderVerifyArgs {
 #[cfg(not(feature = "native"))]
 fn cmd_ladder_verify(_: LadderVerifyArgs) -> Result<()> {
     bail!("`ladder-verify` requires the `native` feature")
+}
+
+#[cfg(not(feature = "native"))]
+#[derive(Args)]
+pub(crate) struct SweepArgs {
+    #[arg(long)]
+    quick: bool,
+}
+
+#[cfg(not(feature = "native"))]
+fn cmd_sweep(_: SweepArgs) -> Result<()> {
+    bail!("`sweep` requires the `native` feature")
 }
 
 /// Legacy CLI automation tasks — pinned-env, bench-all, report, wire-report,
@@ -190,6 +206,13 @@ enum Commands {
     /// fields, and records the result as a `LadderVerification` document. This
     /// is the measured evidence the closed-form ladder model is checked against.
     LadderVerify(LadderVerifyArgs),
+    /// Sweep batch sizes from 1 upward and record where MTL starts to win.
+    ///
+    /// Each measured size signs one real batch and records ladder bytes,
+    /// condensed-signature statistics, the three wire totals and the batch
+    /// signing time. Sizes above `--measured-max` are recorded as
+    /// EXTRAPOLATED from the validated model.
+    Sweep(SweepArgs),
     /// Bring up the live MTL DNS pipeline, sign a zone, issue scripted
     /// queries, capture raw wire bytes, and tear down.
     ///
@@ -447,6 +470,7 @@ fn main() -> Result<()> {
         Commands::WireReport(args) => cmd_wire_report(args),
         Commands::MemoryReport(args) => cmd_memory_report(args),
         Commands::LadderVerify(args) => cmd_ladder_verify(args),
+        Commands::Sweep(args) => cmd_sweep(args),
         Commands::DnsDemo(args) => cmd_dns_demo(args),
         Commands::Consolidate(args) => cmd_consolidate(args),
         Commands::VerifyConsolidated(args) => cmd_verify_consolidated(args),

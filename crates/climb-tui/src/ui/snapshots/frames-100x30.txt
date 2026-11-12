@@ -115,12 +115,12 @@ style-digest contrast: 019071a5fb13fabe
 │ MTL amortised  ▒              24,424 B · 97.0%       ││ from live capture                        │
 │ No amortisation██████████████ 815,632 B              ││ RTT: NSD plain 4.021×, condensed 1.01× at│
 │   condensed signature: min 108 B / mean 164 B / max …││ Unbound: full response in both modes (con│
-│ Medium                                               ││ █ full signature  24.4 kB · exceeds 4.1 k│
-│ Plain SLH-DSA  █████████████  78,560,000 B           ││ ░ condensed proof  658 B · fits within 1.│
-│ MTL amortised  ▒              2,743,352 B · 96.7%    ││                                          │
-│ No amortisation██████████████ 83,295,296 B           ││                                          │
-│   condensed signature: min 140 B / mean 274 B / max …││                                          │
-│ Large                                                ││                                          │
+│ Medium                                               ││ Break-even C vs A: bytes N = 2 · signing │
+│ Plain SLH-DSA  █████████████  78,560,000 B           ││ Verification: cached N = 1 · cold N = 4  │
+│ MTL amortised  ▒              2,743,352 B · 96.7%    ││ Best N: 4 – 32768                        │
+│ No amortisation██████████████ 83,295,296 B           ││ UDP fit to N = 32768 (Positive A with NS)│
+│   condensed signature: min 140 B / mean 274 B / max …││ █ full signature  24.4 kB · exceeds 4.1 k│
+│ Large                                                ││ ░ condensed proof  658 B · fits within 1.│
 │ Plain SLH-DSA  ████████████   7,856,000,000 B        ││                                          │
 │ MTL amortised  ▒              367,067,832 B · 95.7%  ││                                          │
 │ No amortisation██████████████ 8,487,059,712 B        ││                                          │
@@ -136,9 +136,9 @@ style-digest contrast: 019071a5fb13fabe
 │                                                      ││                                          │
 └──────────────────────────────────────────────────────┘└──────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/clim… · ? help
-style-digest dark: e330b17d5837e434
-style-digest light: 30e20f362e31aaa5
-style-digest contrast: 8ea314b166958e30
+style-digest dark: 24d3e7fb4d7d7541
+style-digest light: 41aa85510ac16b78
+style-digest contrast: d5ba15e8deb25bfb
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -291,7 +291,7 @@ style-digest contrast: b35475deae8cb4da
 │  Evidence classes            ││  The benchmark matrix runs three evaluated dataset sizes (Small, │
 │  Environment and pinning     ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128        │
 │  Sampling and extrapolation  ││  dataset sizes             Small, OneK, Medium, Large            │
-│  Known limits                ││  results generated         2026-11-13T00:35:23+05:30             │
+│  Known limits                ││  results generated         2026-11-13T01:31:46+05:30             │
 │  Accessibility               ││  Reproduce every artifact from a clean checkout:                 │
 │                              ││    cargo xtask reproduce --report-only                           │
 │                              ││    cargo xtask reproduce --remeasure                             │
@@ -311,6 +311,6 @@ style-digest contrast: b35475deae8cb4da
 │                              ││  ───────────────  ───────────────────────────────────────────────│
 └──────────────────────────────┘└──────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/clim… · ? help
-style-digest dark: 37973e4a7b516524
-style-digest light: 41ef8bc35e4eadd0
-style-digest contrast: 279d4b1a3d11ab26
+style-digest dark: d6a8bbc9e6e973e6
+style-digest light: 437ce5e9aecbcf16
+style-digest contrast: 88bb8eeeb3280c20

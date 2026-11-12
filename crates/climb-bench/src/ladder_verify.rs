@@ -253,6 +253,41 @@ fn parse_condensed(
     Ok(bytes.len())
 }
 
+/// Structural fields a batch-size sweep needs from a signed ladder.
+#[cfg(feature = "native")]
+pub(crate) struct ParsedLadderRaw {
+    /// Number of rungs.
+    pub(crate) rung_count: usize,
+    /// Unsigned ladder-buffer length in bytes.
+    pub(crate) ladder_buffer_len: usize,
+    /// Embedded underlying signature length in bytes.
+    pub(crate) signature_len: u32,
+}
+
+/// Parse a signed ladder into the fields the sweep records.
+#[cfg(feature = "native")]
+pub(crate) fn parse_signed_ladder_raw(
+    bytes: &[u8],
+    leaf_count: usize,
+) -> Result<ParsedLadderRaw, LadderVerifyError> {
+    let parsed = parse_signed_ladder(bytes, leaf_count)?;
+    Ok(ParsedLadderRaw {
+        rung_count: parsed.rungs.len(),
+        ladder_buffer_len: parsed.ladder_buffer_len,
+        signature_len: parsed.signature_len,
+    })
+}
+
+/// Validate one condensed signature and return its serialized length.
+#[cfg(feature = "native")]
+pub(crate) fn parse_condensed_raw(
+    bytes: &[u8],
+    leaf_count: usize,
+    leaf_index: usize,
+) -> Result<usize, LadderVerifyError> {
+    parse_condensed(bytes, leaf_count, leaf_index)
+}
+
 /// Sign `N` messages for each size and measure the resulting ladder shape.
 ///
 /// One keypair is reused across every size; each [`sign_batch`] call builds a

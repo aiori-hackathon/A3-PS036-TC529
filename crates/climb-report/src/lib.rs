@@ -24,6 +24,7 @@ pub mod render;
 pub mod replication;
 pub mod results;
 pub mod summary;
+pub mod sweep;
 
 pub use cache::{
     parse_unbound_stats, CacheAnalyticalRow, CacheArtifact, CacheParseError, CacheResults,
@@ -53,13 +54,19 @@ pub use replication::{
 pub use results::{
     consolidate_results, ClimbResults, ConsolidateOptions, DnsAnatomyRecord, DnsAnatomySection,
     DnsCapture, DnsCaptureFlags, DnsCaptureHost, DnsCaptureImage, DnsCaptureQuery,
-    DnsCaptureSource, DnsPipelineHeadline, PrimitivesFreq, PrimitivesSection, ReproductionMode,
-    StabilityRatioStats, StabilitySection, BASELINE_SPREAD_LIMIT, BOUND_POINTER,
+    DnsCaptureSource, DnsPipelineHeadline, EvidenceClass, PrimitivesFreq, PrimitivesSection,
+    ReproductionMode, StabilityRatioStats, StabilitySection, BASELINE_SPREAD_LIMIT, BOUND_POINTER,
     CONSOLIDATE_COMMAND, HEADLINE_QNAME, HEADLINE_QTYPE,
 };
 pub use summary::{
     condition_label, condition_short_label, parse_group_id, summarize, BenchKind, MtlMode, Size,
     SummaryRow, LABEL_WITHOUT_MTL, LABEL_WITH_MTL, SHORT_LABEL_WITHOUT_MTL, SHORT_LABEL_WITH_MTL,
+};
+pub use sweep::{
+    analyze, best_range, crossovers, extrapolated_row, first_crossover, max_response_bytes,
+    measured_row, udp_fit, CrossoverMetric, MeasuredSweepRow, SweepBestRange, SweepCostModel,
+    SweepCrossover, SweepRow, SweepSection, SweepUdpFitRow, DEFAULT_MAX_N, QUICK_SIZES,
+    SWEEP_SCHEMA_VERSION,
 };
 
 pub use climb_bench::{LadderRow, LadderRung};

@@ -30,7 +30,11 @@ mod tests {
     /// A ceiling just above the committed document's measured size. Raw
     /// per-query records belong in the companion sample document, so a jump
     /// past this budget means the split regressed and the binary grew again.
-    const RESULTS_BUDGET_BYTES: usize = 120_000;
+    // The batch-size sweep adds 21 measured rows plus the recomputed
+    // crossovers, UDP-fit windows and best range to the embedded document.
+    // The budget still sits just above the real file (137 kB at the time of
+    // writing) so an accidental raw-record embedding still fails.
+    const RESULTS_BUDGET_BYTES: usize = 160_000;
 
     fn results() -> serde_json::Value {
         serde_json::from_slice(RESULTS).expect("embedded results parse")

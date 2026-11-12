@@ -43,6 +43,8 @@ pub enum Section {
     Reuse,
     /// UDP fit summary across profiles/configurations.
     UdpFit,
+    /// Batch-size sweep and C-vs-A break-even points.
+    Sweep,
     /// Classical DNSSEC signature baselines, context only.
     Classical,
     /// Cross-host replication of the headline ratios.
@@ -60,7 +62,7 @@ pub enum Section {
 
 impl Section {
     /// Section render order.
-    pub const ORDER: [Section; 14] = [
+    pub const ORDER: [Section; 15] = [
         Section::WireBytes,
         Section::SigningTime,
         Section::VerifyingTime,
@@ -69,6 +71,7 @@ impl Section {
         Section::DnsLive,
         Section::Reuse,
         Section::UdpFit,
+        Section::Sweep,
         Section::Classical,
         Section::Replication,
         Section::DnsRtt,
@@ -89,6 +92,7 @@ impl Section {
             Section::DnsLive => "DNS live",
             Section::Reuse => "Reuse",
             Section::UdpFit => "UDP fit",
+            Section::Sweep => "Break-even sweep",
             Section::Classical => "Classical baselines",
             Section::Replication => "Replication",
             Section::DnsRtt => "DNS latency (emulated RTT)",
@@ -2482,6 +2486,104 @@ fn collect_reuse(out: &mut Collected, results: Option<(&Path, &Value)>) -> Resul
     Ok(())
 }
 
+fn collect_sweep(out: &mut Collected, results: Option<(&Path, &Value)>) -> Result<(), ReportError> {
+    let Some((path, root)) = results else {
+        return Ok(());
+    };
+    let source = path.display().to_string();
+    if let Some(sweep) = root.pointer("/derived/sweep") {
+        let measured_max = opt_u64(sweep, "/measured_max_n", path)?;
+        let nk = measured_max.map(|n| format!("measured to N = {n}"));
+        if let Some(crossovers) = sweep.get("crossovers").and_then(Value::as_array) {
+            for (idx, row) in crossovers.iter().enumerate() {
+                let base = format!("/derived/sweep/crossovers/{idx}");
+                let Some(label) = opt_str(row, "/label", path)? else {
+                    continue;
+                };
+                let class = opt_class(row, "/class", path)?.or(Some(EvidenceClass::Derived));
+                if let Some(n) = opt_u64(row, "/n", path)? {
+                    out.facts.push(fact(
+                        Row {
+                            section: Section::Sweep,
+                            label: format!("{label} — break-even"),
+                            unit: "N".to_string(),
+                            class,
+                            nk: nk.clone(),
+                            baseline: Baseline::Na,
+                        },
+                        n.to_string(),
+                        &format!("{base}/n"),
+                        &source,
+                    ));
+                }
+            }
+        }
+        if let Some(range) = sweep.get("best_range") {
+            let class = opt_class(range, "/class", path)?.or(Some(EvidenceClass::Derived));
+            if let Some(n) = opt_u64(range, "/start_n", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Sweep,
+                        label: "Best batch-size range — start".to_string(),
+                        unit: "N".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    n.to_string(),
+                    "/derived/sweep/best_range/start_n",
+                    &source,
+                ));
+            }
+            if let Some(n) = opt_u64(range, "/end_n", path)? {
+                out.facts.push(fact(
+                    Row {
+                        section: Section::Sweep,
+                        label: "Best batch-size range — end".to_string(),
+                        unit: "N".to_string(),
+                        class,
+                        nk: nk.clone(),
+                        baseline: Baseline::Na,
+                    },
+                    n.to_string(),
+                    "/derived/sweep/best_range/end_n",
+                    &source,
+                ));
+            }
+        }
+        if let Some(rows) = sweep.get("udp_fit").and_then(Value::as_array) {
+            for (idx, row) in rows.iter().enumerate() {
+                if opt_str(row, "/config", path)?.as_deref() != Some("mtl-amortised") {
+                    continue;
+                }
+                let base = format!("/derived/sweep/udp_fit/{idx}");
+                let Some(profile) = opt_str(row, "/profile_label", path)? else {
+                    continue;
+                };
+                let class = opt_class(row, "/class", path)?.or(Some(EvidenceClass::Analytical));
+                for (suffix, field) in [("first fit", "first_fit_n"), ("last fit", "last_fit_n")] {
+                    if let Some(n) = opt_u64(row, &format!("/{field}"), path)? {
+                        out.facts.push(fact(
+                            Row {
+                                section: Section::Sweep,
+                                label: format!("UDP fit, {profile} / C — {suffix}"),
+                                unit: "N".to_string(),
+                                class,
+                                nk: nk.clone(),
+                                baseline: Baseline::Na,
+                            },
+                            n.to_string(),
+                            &format!("{base}/{field}"),
+                            &source,
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn collect_udp_fit(
     out: &mut Collected,
     results: Option<(&Path, &Value)>,
@@ -3039,6 +3141,7 @@ pub fn generate(input: &DeckFactsInput) -> Result<DeckFactsOutput, ReportError> 
     collect_summaries(&mut collected, results_ref)?;
     collect_reuse(&mut collected, results_ref)?;
     collect_udp_fit(&mut collected, results_ref)?;
+    collect_sweep(&mut collected, results_ref)?;
     collect_classical(&mut collected, results_ref)?;
     collect_replication(&mut collected, results_ref)?;
     collect_dns_rtt(&mut collected, results_ref)?;
@@ -3884,6 +3987,58 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
                 .iter()
                 .any(|note| note.text.starts_with("Unbound control:")),
             "the control note must not appear without an Unbound cell"
+        );
+    }
+
+    #[test]
+    fn sweep_rows_carry_break_even_and_udp_fit_facts() {
+        let value = serde_json::json!({
+            "derived": {
+                "sweep": {
+                    "measured_max_n": 1_048_576,
+                    "crossovers": [{
+                        "label": "Wire bytes, C vs A",
+                        "n": 2,
+                        "class": "measured"
+                    }],
+                    "best_range": {
+                        "start_n": 4,
+                        "end_n": 32_768,
+                        "class": "derived"
+                    },
+                    "udp_fit": [{
+                        "profile_label": "Positive A (www)",
+                        "config": "mtl-amortised",
+                        "first_fit_n": 1,
+                        "last_fit_n": 1_048_576,
+                        "class": "analytical"
+                    }]
+                }
+            }
+        });
+        let mut collected = Collected::default();
+        collect_sweep(
+            &mut collected,
+            Some((Path::new("target/climb-results.json"), &value)),
+        )
+        .expect("collect");
+        let fact = |label: &str| {
+            collected
+                .facts
+                .iter()
+                .find(|fact| fact.label == label)
+                .unwrap_or_else(|| panic!("missing fact {label}"))
+        };
+        assert_eq!(fact("Wire bytes, C vs A — break-even").value, "2");
+        assert_eq!(
+            fact("Wire bytes, C vs A — break-even").class,
+            Some(EvidenceClass::Measured)
+        );
+        assert_eq!(fact("Best batch-size range — start").value, "4");
+        assert_eq!(fact("Best batch-size range — end").value, "32768");
+        assert_eq!(
+            fact("UDP fit, Positive A (www) / C — last fit").value,
+            "1048576"
         );
     }
 }

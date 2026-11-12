@@ -39,7 +39,12 @@ pub fn render_wire(
 ) {
     let stacks = view.wire_stacks(app.baseline());
     let mut gauge = view.udp_gauge_data();
-    gauge.status_note = Some(view.rtt_status_line());
+    let mut status = view.rtt_status_line();
+    for line in view.break_even_lines() {
+        status.push('\n');
+        status.push_str(&line);
+    }
+    gauge.status_note = Some(status);
     let fit = view.udp_fit_table();
     render_panels(frame, area, &stacks, &gauge, &fit, theme, glyphs);
 }

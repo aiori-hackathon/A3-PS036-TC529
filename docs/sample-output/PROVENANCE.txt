@@ -1,6 +1,6 @@
-commit SHA: 468f4cff20eeef34df462aa7799572f9a13c7057
+commit SHA: fea347548a3f182bb2392c6c3ecdcebed275f882
 rustc: rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2)
 submodule SHAs: third_party/MTL=53ce25dcc35c15e051c5263e41aaeaede18a8aa7, third_party/liboqs=5a1a854b0dc9f2141bdc771c555ee60c37950183
-date: 2026-11-13T00:35:30+05:30
+date: 2026-11-13T01:31:52+05:30
 normalisation: absolute workspace paths replaced with <repo>
 checks: results/report claim counts equal; report --check clean; second consolidation byte-identical apart from generated_at and diagnostics

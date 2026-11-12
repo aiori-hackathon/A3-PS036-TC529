@@ -948,6 +948,7 @@ pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
     let (results, results_json, sheet, readme) = read_inputs(&args)?;
     check_rtt_pending(&results_json, &sheet)?;
     check_dns_rtt_samples(&args, &results_json)?;
+    check_sweep(&results)?;
     let report = read_report(&args)?;
     let facts = parse_quote_sheet(&sheet);
     if facts.is_empty() {
@@ -1038,6 +1039,105 @@ pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
     )
 }
 
+/// Recompute every published sweep crossover, UDP-fit range and best range
+/// from the raw rows embedded in `derived.sweep`, and check the wire
+/// arithmetic on every row. A present-but-inconsistent section is a hard
+/// error; an absent section is reported and skipped (the artifact may predate
+/// the sweep).
+fn check_sweep(results: &ClimbResults) -> Result<()> {
+    let Some(section) = results.derived.sweep.as_ref() else {
+        println!("sweep: no sweep section in the artifact (optional)");
+        return Ok(());
+    };
+    if section.rows.is_empty() {
+        bail!("sweep: the section carries no rows");
+    }
+    for pair in section.rows.windows(2) {
+        let (Some(left), Some(right)) = (pair.first(), pair.get(1)) else {
+            continue;
+        };
+        if left.n >= right.n {
+            bail!("sweep: rows are not in ascending N order at {}", right.n);
+        }
+    }
+    let plain = section.cost_model.plain_signature_len_bytes;
+    for row in &section.rows {
+        let expected_a = row.n.saturating_mul(plain);
+        if row.wire_a_bytes != expected_a {
+            bail!(
+                "sweep: row N={} has A={} bytes but N x plain signature = {expected_a}",
+                row.n,
+                row.wire_a_bytes
+            );
+        }
+        let expected_b = row
+            .condensed_total
+            .saturating_add(row.n.saturating_mul(row.signed_ladder_len as u64));
+        if row.wire_b_bytes != expected_b {
+            bail!(
+                "sweep: row N={} has B={} bytes but condensed + N x ladder = {expected_b}",
+                row.n,
+                row.wire_b_bytes
+            );
+        }
+        let expected_c = row
+            .condensed_total
+            .saturating_add(row.signed_ladder_len as u64);
+        if row.wire_c_bytes != expected_c {
+            bail!(
+                "sweep: row N={} has C={} bytes but condensed + ladder = {expected_c}",
+                row.n,
+                row.wire_c_bytes
+            );
+        }
+        if row.class == climb_report::EvidenceClass::Measured && row.batch_sign_ns.is_none() {
+            bail!(
+                "sweep: measured row N={} carries no batch signing time",
+                row.n
+            );
+        }
+    }
+
+    let recomputed = climb_report::sweep::crossovers(&section.rows);
+    if recomputed != section.crossovers {
+        let stored: Vec<(&str, Option<u64>)> = section
+            .crossovers
+            .iter()
+            .map(|c| (c.metric.as_str(), c.n))
+            .collect();
+        let fresh: Vec<(&str, Option<u64>)> = recomputed
+            .iter()
+            .map(|c| (c.metric.as_str(), c.n))
+            .collect();
+        bail!(
+            "sweep: stored crossovers {stored:?} disagree with a recomputation from the raw rows {fresh:?}"
+        );
+    }
+    let recomputed_udp = climb_report::sweep::udp_fit(&section.rows, plain);
+    if recomputed_udp != section.udp_fit {
+        bail!("sweep: UDP-fit ranges disagree with a recomputation from the raw rows");
+    }
+    let recomputed_best =
+        climb_report::sweep::best_range(&section.rows, &section.crossovers, &section.udp_fit);
+    if recomputed_best != section.best_range {
+        bail!("sweep: the best batch-size range disagrees with a recomputation from the raw rows");
+    }
+
+    let measured = section
+        .rows
+        .iter()
+        .filter(|row| row.class == climb_report::EvidenceClass::Measured)
+        .count();
+    println!(
+        "sweep: {} rows ({measured} measured, {} extrapolated), {} crossovers and {} UDP-fit rows recomputed",
+        section.rows.len(),
+        section.rows.len().saturating_sub(measured),
+        section.crossovers.len(),
+        section.udp_fit.len()
+    );
+    Ok(())
+}
+
 fn truncate(text: &str, width: usize) -> String {
     if text.chars().count() <= width {
         text.to_string()
@@ -1047,7 +1147,6 @@ fn truncate(text: &str, width: usize) -> String {
         out
     }
 }
-
 /// Build the in-memory inputs from the committed fixture files. Kept for the
 /// tests, which exercise one surface at a time.
 #[cfg(test)]
@@ -1468,5 +1567,48 @@ mod tests {
         std::fs::remove_file(dir.join("dns-rtt-samples.json")).unwrap();
         check_dns_rtt_samples(&args, &results_json).expect("absent companion is a warning");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn sample_with_sweep() -> ClimbResults {
+        let mut results = sample_results();
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../data/sweep.recorded.json");
+        let text = std::fs::read_to_string(&path).expect("read committed sweep");
+        results.derived.sweep = Some(serde_json::from_str(&text).expect("parse committed sweep"));
+        results
+    }
+
+    #[test]
+    fn sweep_crossovers_recompute_from_the_raw_rows() {
+        let results = sample_with_sweep();
+        check_sweep(&results).expect("the committed sweep must recompute");
+
+        let mut tampered = sample_with_sweep();
+        if let Some(section) = tampered.derived.sweep.as_mut() {
+            if let Some(crossover) = section.crossovers.first_mut() {
+                crossover.n = Some(999_999);
+            }
+        }
+        let error = check_sweep(&tampered).expect_err("a changed crossover must fail");
+        assert!(format!("{error:#}").contains("crossovers"), "{error:#}");
+    }
+
+    #[test]
+    fn sweep_wire_arithmetic_is_rechecked_from_the_raw_row() {
+        let mut results = sample_with_sweep();
+        if let Some(section) = results.derived.sweep.as_mut() {
+            if let Some(row) = section.rows.first_mut() {
+                row.wire_a_bytes = row.wire_a_bytes.saturating_add(1);
+            }
+        }
+        let error = check_sweep(&results).expect_err("a changed wire total must fail");
+        assert!(format!("{error:#}").contains("A="), "{error:#}");
+    }
+
+    #[test]
+    fn an_absent_sweep_section_is_reported_not_failed() {
+        let mut results = sample_results();
+        results.derived.sweep = None;
+        check_sweep(&results).expect("an absent sweep is optional");
     }
 }

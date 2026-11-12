@@ -852,6 +852,7 @@ mod tests {
                     headline: None,
                     reuse: Vec::new(),
                     udp_fit: None,
+                    sweep: None,
                     signature_context: Vec::new(),
                     stability: None,
                     primitives: None,

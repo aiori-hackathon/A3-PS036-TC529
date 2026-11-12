@@ -145,12 +145,12 @@ style-digest contrast: 7af2b6a02847a73a
 │ MTL amortised  ▒                         24,424 B · 97.0%       ││ from live capture                                 │
 │ No amortisation█████████████████████████ 815,632 B              ││ RTT: NSD plain 4.021×, condensed 1.01× at 50 ms   │
 │   condensed signature: min 108 B / mean 164 B / max 172 B       ││ Unbound: full response in both modes (control)    │
-│ Medium                                                          ││ █ full signature  24.4 kB · exceeds 4.1 kB (TCP)  │
-│ Plain SLH-DSA  ███████████████████████   78,560,000 B           ││ ░ condensed proof  658 B · fits within 1.23 kB    │
-│ MTL amortised  ▒                         2,743,352 B · 96.7%    ││                                                   │
-│ No amortisation█████████████████████████ 83,295,296 B           ││                                                   │
-│   condensed signature: min 140 B / mean 274 B / max 284 B       ││                                                   │
-│ Large                                                           ││                                                   │
+│ Medium                                                          ││ Break-even C vs A: bytes N = 2 · signing N = 2    │
+│ Plain SLH-DSA  ███████████████████████   78,560,000 B           ││ Verification: cached N = 1 · cold N = 4           │
+│ MTL amortised  ▒                         2,743,352 B · 96.7%    ││ Best N: 4 – 32768                                 │
+│ No amortisation█████████████████████████ 83,295,296 B           ││ UDP fit to N = 32768 (Positive A with NS)         │
+│   condensed signature: min 140 B / mean 274 B / max 284 B       ││ █ full signature  24.4 kB · exceeds 4.1 kB (TCP)  │
+│ Large                                                           ││ ░ condensed proof  658 B · fits within 1.23 kB    │
 │ Plain SLH-DSA  ███████████████████████   7,856,000,000 B        ││                                                   │
 │ MTL amortised  ▒                         367,067,832 B · 95.7%  ││                                                   │
 │ No amortisation█████████████████████████ 8,487,059,712 B        ││                                                   │
@@ -176,9 +176,9 @@ style-digest contrast: 7af2b6a02847a73a
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
 share fitting 1232 B · analytical · cross-check exact at 0 B
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
-style-digest dark: 121a012477ad1347
-style-digest light: 9c9e1c35e1c4263b
-style-digest contrast: 726bba3a2e2d3dd9
+style-digest dark: 489204d7cdc56dd5
+style-digest light: b3a32bb5ed60d9bc
+style-digest contrast: 6f7cb865ad751604
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -371,7 +371,7 @@ style-digest contrast: 170e87e90cc32c5e
 │  Evidence classes            ││  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Large) plus │
 │  Environment and pinning     ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                            │
 │  Sampling and extrapolation  ││  dataset sizes             Small, OneK, Medium, Large                                │
-│  Known limits                ││  results generated         2026-11-13T00:35:23+05:30                                 │
+│  Known limits                ││  results generated         2026-11-13T01:31:46+05:30                                 │
 │  Accessibility               ││  Reproduce every artifact from a clean checkout:                                     │
 │                              ││    cargo xtask reproduce --report-only                                               │
 │                              ││    cargo xtask reproduce --remeasure                                                 │
@@ -401,6 +401,6 @@ style-digest contrast: 170e87e90cc32c5e
 │                              ││Where "no amortisation" sits among possible baselines                                 │
 └──────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
-style-digest dark: 176675c701f1399a
-style-digest light: 2c1a268029e78def
-style-digest contrast: c47c322bb1a6d788
+style-digest dark: e34f710e0b0232e8
+style-digest light: e998d48a783c2495
+style-digest contrast: 53673dd5923571e2

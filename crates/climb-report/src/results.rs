@@ -623,6 +623,12 @@ pub struct DerivedSummary {
     /// keeps results written before this section existed parseable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub udp_fit: Option<UdpFitSection>,
+    /// Batch-size sweep rows and the break-even analysis computed from them.
+    /// `#[serde(default)]` keeps results written before this section existed
+    /// parseable; a present-but-invalid document is a hard error naming the
+    /// path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sweep: Option<crate::sweep::SweepSection>,
     /// Compact signature-context table: classical baselines beside
     /// configurations A/B/C at the headline (Medium) dataset size. Empty
     /// when no classical rows were consolidated — the table exists to frame
@@ -938,6 +944,10 @@ pub struct ConsolidateOptions {
     /// Committed recorded resolver-cache fixture, used when no live artifact
     /// exists.
     pub cache_use_fixture_path: PathBuf,
+    /// Live batch-size sweep artifact produced by `cargo xtask sweep`.
+    pub sweep_path: PathBuf,
+    /// Committed recorded sweep fixture, used when no live artifact exists.
+    pub sweep_fixture_path: PathBuf,
     pub environment_path: PathBuf,
     pub baseline: String,
     /// Assumed round-trip time in milliseconds for the modelled TCP fallback
@@ -1134,6 +1144,8 @@ fn derive_summary(
         // Attached by `consolidate_results` once the plain signature length is
         // known; the pure derivation has no input for it.
         udp_fit: None,
+        // Likewise attached by `consolidate_results` from the sweep artifact.
+        sweep: None,
         // Likewise attached by `consolidate_results`, which has the classical
         // rows and the udp-fit section to build the context table from.
         signature_context: Vec::new(),
@@ -2402,6 +2414,24 @@ fn load_cache_use_section(
     }))
 }
 
+/// Load the batch-size sweep section from the live artifact or the committed
+/// fixture. Absent inputs yield `None`; a present-but-unparseable document is a
+/// hard error naming the path, never a silently empty section.
+fn load_sweep_section(
+    live: &Path,
+    fixture: &Path,
+) -> Result<Option<crate::sweep::SweepSection>, ReportError> {
+    let path = if live.exists() {
+        live
+    } else if fixture.exists() {
+        fixture
+    } else {
+        return Ok(None);
+    };
+    let section: crate::sweep::SweepSection = read_json(path)?;
+    Ok(Some(section))
+}
+
 /// Median of a slice of u64; returns `0` for an empty slice (callers only
 /// invoke it on non-empty cells, so this is a defensive default, not a model).
 fn median_u64(values: Vec<u64>) -> u64 {
@@ -2736,6 +2766,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         section.analytical = build_cache_analytical(&section.measured, &wire_size);
         section.ladder_analytical = build_ladder_analytical(&section.ladder);
     }
+    let sweep = load_sweep_section(&opts.sweep_path, &opts.sweep_fixture_path)?;
 
     let plain = plain_timings(&plain_records);
     let classical_lengths = load_classical_signature_lengths(
@@ -2829,6 +2860,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &classical,
         derived.udp_fit.as_ref(),
     );
+    derived.sweep = sweep;
 
     // Consolidation rebuilds the document from its measurement inputs, but it
     // cannot regenerate cross-run stability: that section is written by a
@@ -3202,6 +3234,8 @@ mod tests {
                 dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
                 cache_use_path: root.join("no-cache-use.json"),
                 cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+                sweep_path: root.join("no-sweep.json"),
+                sweep_fixture_path: root.join("no-sweep-fixture.json"),
                 environment_path: root.join("no-env.json"),
                 baseline: "new".to_string(),
                 rtt_ms: None,
@@ -3279,6 +3313,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3652,6 +3688,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -3697,6 +3735,7 @@ mod tests {
                 headline: None,
                 reuse: Vec::new(),
                 udp_fit: None,
+                sweep: None,
                 signature_context: Vec::new(),
                 stability: None,
                 primitives: None,
@@ -3942,6 +3981,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             environment_path: root.join("nonexistent-environment.json"),
             baseline: "new".to_string(),
             rtt_ms: None,
@@ -4015,6 +4056,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             environment_path: root.join("environment.json"),
             rtt_ms: None,
             baseline: "new".to_string(),
@@ -4112,6 +4155,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -4349,6 +4394,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             rtt_ms: None,
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
@@ -4667,6 +4714,8 @@ mod tests {
             dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
             cache_use_path: root.join("no-cache-use.json"),
             cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            sweep_path: root.join("no-sweep.json"),
+            sweep_fixture_path: root.join("no-sweep-fixture.json"),
             environment_path: root.join("no-env.json"),
             baseline: "new".to_string(),
             classical_signatures_path: root.join("no-classical-signatures.json"),
