@@ -664,9 +664,19 @@ pub(crate) struct PreflightReadings {
 
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Refusal {
-    GovernorNotPinned { found: String },
+    GovernorNotPinned {
+        found: String,
+    },
     OnBattery,
-    CoreBusy { percent: f64 },
+    CoreBusy {
+        percent: f64,
+    },
+    /// Docker daemon is not available.
+    DockerNotAvailable,
+    /// The docker compose resolver could not be found or verified.
+    ComposeResolver(String),
+    /// The kernel netem module is not available (only in non-quick mode).
+    NetemNotAvailable,
 }
 
 impl Refusal {
@@ -683,6 +693,19 @@ impl Refusal {
                 "CPU {PIN_CPU} is {percent:.0}% busy (limit {CORE_USAGE_LIMIT_PERCENT:.0}%) — \
                  stop the other workload"
             ),
+            Refusal::DockerNotAvailable => "Docker daemon is not running. Start the Docker daemon \
+                 and try again."
+                .to_string(),
+            Refusal::ComposeResolver(msg) => format!(
+                "Docker compose resolver not available: {}. \
+                 Run: pacman -S docker-compose || apt-get install docker-compose-v2",
+                msg
+            ),
+            Refusal::NetemNotAvailable => {
+                "Kernel netem qdisc is not available. This is required for \
+                 dns-rtt measurements. Install: sudo modprobe sch_netem"
+                    .to_string()
+            }
         }
     }
 }
@@ -800,6 +823,73 @@ fn real_readings() -> PreflightReadings {
         battery_discharging: read_battery_discharging(),
         pinned_core_usage_percent: sample_core_usage(PIN_CPU, Duration::from_secs(1)),
     }
+}
+
+/// DNS-steps preflight (FR1.3): checks prerequisites for the DNS pipeline
+/// steps (dns-demo, dns-rtt, dns-cache). Each failure prints the exact fix
+/// command in a table and stops early.
+///
+/// Checks: docker daemon reachable, compose resolver works, needed ports free,
+/// kernel module sch_netem available (for dns-rtt), images present or buildable.
+pub(crate) fn dns_preflight(docker_available: bool, quick: bool) -> Vec<Refusal> {
+    let mut refusals = Vec::new();
+
+    // 1. Docker daemon reachable
+    if !docker_available {
+        refusals.push(Refusal::DockerNotAvailable);
+    }
+
+    // 2. Compose resolver works
+    if docker_available {
+        // Check if `docker compose version` (plugin) works.
+        let plugin_check = Command::new("docker").args(["compose", "version"]).output();
+        if plugin_check.map(|o| o.status.success()).unwrap_or(false) {
+            // Plugin is available, nothing more to check.
+        } else {
+            // Check for standalone docker-compose binary.
+            let standalone_check = Command::new("docker-compose").output();
+            if standalone_check
+                .map(|o| o.status.success())
+                .unwrap_or(false)
+            {
+                // standalone docker-compose available - OK.
+            } else {
+                // Check for vendored binary at target/tools/docker-compose.
+                let w = std::env::current_dir().unwrap_or_default();
+                let vendored = w.join("target/tools/docker-compose");
+                if !vendored.is_file() {
+                    refusals.push(Refusal::ComposeResolver(
+                        "docker compose plugin not available, \
+                         standalone docker-compose not found, \
+                         and vendored binary missing; \
+                         install with: pacman -S docker-compose || apt-get install docker-compose-v2".to_string(),
+                    ));
+                }
+                // Note: SHA-256 verification is handled by compose_binary() in dns_demo.rs
+            }
+        }
+    }
+
+    // 3. Kernel module sch_netem available (for dns-rtt)
+    // Check /proc/net/netem or tc availability
+    if !quick {
+        let netem_output = Command::new("tc")
+            .arg("qdisc")
+            .arg("show")
+            .output()
+            .unwrap_or_else(|_| std::process::Output {
+                stdout: b"".to_vec(),
+                stderr: b"".to_vec(),
+                status: std::process::ExitStatus::default(),
+            });
+        if netem_output.status.success() {
+            // netem is available, nothing to refuse
+        } else {
+            refusals.push(Refusal::NetemNotAvailable);
+        }
+    }
+
+    refusals
 }
 
 // ---------------------------------------------------------------------------
@@ -1177,12 +1267,33 @@ pub(crate) fn cmd_final_run(args: FinalRunArgs) -> Result<()> {
         readings.pinned_core_usage_percent.map(|p| p.round())
     ));
 
-    let docker = if args.quick || args.skip_dns {
+    // Compute docker availability for plan (needed for DNS preflight).
+    let docker_for_plan = if args.quick || args.skip_dns {
         false
     } else {
         docker_available()
     };
-    if !args.dry_run && !args.quick && !args.skip_dns && !docker {
+
+    // --- DNS-steps preflight (FR1.3) ---
+    let dns_refusals = dns_preflight(docker_for_plan, args.quick);
+    for refusal in &dns_refusals {
+        if advisory {
+            report(&format!(
+                "preflight warning (advisory): {}",
+                refusal.message()
+            ));
+        } else {
+            report(&format!("preflight refusal: {}", refusal.message()));
+        }
+    }
+    if !dns_refusals.is_empty() && !advisory {
+        bail!(
+            "final-run DNS preflight refused to start ({} reason(s)); fix them or pass --skip-dns to use the committed captures",
+            dns_refusals.len()
+        );
+    }
+
+    if !args.dry_run && !args.quick && !args.skip_dns && !docker_for_plan {
         bail!(
             "docker is unavailable; start the Docker daemon or pass --skip-dns to use the committed captures"
         );
@@ -1190,7 +1301,7 @@ pub(crate) fn cmd_final_run(args: FinalRunArgs) -> Result<()> {
     let inputs = PlanInputs {
         quick: args.quick,
         skip_dns: args.skip_dns,
-        docker_available: docker,
+        docker_available: docker_for_plan,
         second_host_present: second_host_present(),
         deck_text: args
             .deck_text

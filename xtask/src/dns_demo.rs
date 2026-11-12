@@ -230,10 +230,20 @@ pub(crate) fn host_user() -> String {
 // Docker subprocess helpers
 // ---------------------------------------------------------------------------
 
-/// Build a `docker compose` command rooted at the workspace.
-/// Resolve the `docker compose` command: prefer the `docker compose` plugin,
-/// then the standalone `docker-compose` binary, then the vendored copy under
-/// `target/tools/docker-compose`.
+/// SHA-256 of the vendored docker-compose binary at `target/tools/docker-compose`.
+/// Updated when the binary is replaced; stored in the repo so the resolver
+/// can verify integrity.
+pub(crate) const VENDORED_DOCKER_COMPOSE_SHA256: &str =
+    "dba9d98e1ba5bfe11d88c99b9bd32fc4a0624a30fafe68eea34d61a3e42fd372";
+
+/// Resolve the `docker compose` command following the CLIMB contract:
+/// 1. Prefer the `docker compose` plugin when `docker compose version` succeeds.
+/// 2. Otherwise the pinned standalone binary at `target/tools/docker-compose`,
+///    verified by SHA-256 against the value in `VENDORED_DOCKER_COMPOSE_SHA256`.
+/// 3. Otherwise stop with a message naming the package to install.
+///
+/// Returns the command binary name to use in `compose_cmd`, or exits the process
+/// with an install instruction if neither option is available.
 fn compose_binary() -> String {
     // Check if `docker compose` works as a plugin.
     let plugin_check = std::process::Command::new("docker")
@@ -242,19 +252,73 @@ fn compose_binary() -> String {
     if plugin_check.map(|o| o.status.success()).unwrap_or(false) {
         return "docker".to_string();
     }
-    // Check for standalone docker-compose.
-    let standalone = std::process::Command::new("docker-compose").output();
-    if standalone.map(|o| o.status.success()).unwrap_or(false) {
-        return "docker-compose".to_string();
-    }
-    // Fall back to vendored copy.
-    let vendored = std::env::current_dir()
-        .unwrap_or_default()
-        .join("target/tools/docker-compose");
+    // Check the vendored standalone binary with SHA-256 verification.
+    let workspace = std::env::current_dir().unwrap_or_default();
+    let vendored = workspace.join("target/tools/docker-compose");
     if vendored.is_file() {
-        return vendored.to_string_lossy().to_string();
+        let actual = sha256_file(&vendored);
+        if actual == VENDORED_DOCKER_COMPOSE_SHA256 {
+            return vendored.to_string_lossy().to_string();
+        }
     }
-    "docker".to_string()
+    // Vendored binary missing or hash mismatch: stop with install instruction.
+    stop_with_compose_install()
+}
+
+/// Return the SHA-256 hex digest of a file by calling `sha256sum`.
+fn sha256_file(path: &std::path::Path) -> String {
+    let output = Command::new("sha256sum")
+        .arg(path.to_string_lossy().to_string())
+        .output();
+    match output {
+        Ok(out) => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            // sha256sum output: "<hash>  <filename>"
+            stdout.split_whitespace().next().unwrap_or("").to_string()
+        }
+        Err(_) => "unknown".to_string(),
+    }
+}
+
+/// Print an install hint and exit.
+fn stop_with_compose_install() -> ! {
+    // Heuristic: name the package based on what package manager is available.
+    let mut install_msg = String::from("Unable to resolve docker compose command. ");
+    // Check for pacman (Arch) and apt (Debian/Ubuntu)
+    let _output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(
+            r#"if command -v pacman &>/dev/null; then
+                 echo "pacman: docker-compose"
+               elif command -v apt-get &>/dev/null; then
+                 echo "apt: docker-compose-v2"
+               else
+                 echo "unknown"
+               fi"#,
+        )
+        .output()
+        .unwrap_or_else(|_| {
+            eprintln!("failed to execute shell command for package detection");
+            std::process::Output {
+                stdout: b"".to_vec(),
+                stderr: b"".to_vec(),
+                status: std::process::ExitStatus::default(),
+            }
+        });
+    let output = String::from_utf8_lossy(&_output.stdout);
+    if output.contains("pacman") {
+        install_msg.push_str("Run: pacman -S docker-compose");
+    } else if output.contains("apt") {
+        install_msg.push_str("Run: apt-get install docker-compose-v2");
+    } else {
+        install_msg.push_str(
+            "Install docker-compose via your package manager \
+             (e.g. 'pacman -S docker-compose' or 'apt-get install docker-compose-v2')",
+        );
+    }
+    install_msg.push('\n');
+    eprintln!("{}", install_msg);
+    std::process::exit(1);
 }
 
 pub(crate) fn compose_cmd(root: &Path, args: &[&str]) -> Command {
@@ -1074,7 +1138,10 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
         humanln!("  Pipeline LEFT RUNNING (--keep).");
         humanln!();
         humanln!("  To tear down manually:");
-        humanln!("    docker compose -f docker/compose.dns-pipeline.yml down");
+        humanln!(
+            "    {}",
+            render_cmd(&compose_cmd(&root, &["down", "--remove-orphans"]))
+        );
         humanln!();
         humanln!("  Scratch directory:  {}", scratch.display());
         humanln!("  Signed zone:        {}", signed_zone.display());
@@ -1084,7 +1151,14 @@ pub(crate) fn cmd_dns_demo(args: DnsDemoArgs) -> Result<()> {
             let cmd = compose_cmd(&root, &["down", "--remove-orphans"]);
             let status = run_cmd_status(cmd)?;
             if !status.success() {
-                eprintln!("  warning: docker compose down exited with {status}");
+                // Use the resolved compose binary name for the warning message.
+                let binary = compose_binary();
+                let cmd_name = if binary == "docker" {
+                    "docker compose"
+                } else {
+                    &binary
+                };
+                eprintln!("  warning: {cmd_name} down exited with {status}");
             }
         }
         guard.disarm(); // prevent double-down in Drop
