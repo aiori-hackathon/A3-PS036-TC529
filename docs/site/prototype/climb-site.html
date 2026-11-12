@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CLIMB: Cryptographic Ladder Impact Measurement Benchmark</title>
+<meta name="description" content="CLIMB is a reproducible Rust benchmark measuring how Merkle Tree Ladder amortisation changes the performance and wire efficiency of post-quantum DNSSEC signing with SLH-DSA.">
+<meta name="theme-color" content="#13161b"><link rel="icon" href="data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyODciIGhlaWdodD0iMjg3IiB2aWV3Qm94PSIwIDAgMjg3IDI4NyIgZmlsbD0ibm9uZSI+CiA8c3R5bGU+QG1lZGlhIChwcmVmZXJzLWNvbG9yLXNjaGVtZTogZGFyaykgeyAuaW5rIHsgZmlsbDogI0YyRURFNDsgc3Ryb2tlOiAjRjJFREU0OyB9IH08L3N0eWxlPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSAwIDE1LjUpIiBkPSJNMCAwTDU3IDBMMTQyIDczTDIyOCAwTDI4NyAwTDI4NyAyNTZMMjI3IDI1NkwyMjcgMTAyTDE0MiAxNzZMNTggMTAyTDU4IDI1NkwwIDI1NkwwIDBaIiBmaWxsPSJ1cmwoI20tb3JhbmdlKSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSAwIDE1LjUpIiBkPSJNMCAwTDU3IDBMMTQyIDczTDIyOCAwTDI4NyAwTDI4NyAyNTZMMjI3IDI1NkwyMjcgMTAyTDE0MiAxNzZMNTggMTAyTDU4IDI1NkwwIDI1NkwwIDBaIiBmaWxsPSJ1cmwoI20tcm9zZSkiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgMCAxNS41KSIgZD0iTTAgMEw1NyAwTDE0MiA3M0wyMjggMEwyODcgMEwyODcgMjU2TDIyNyAyNTZMMjI3IDEwMkwxNDIgMTc2TDU4IDEwMkw1OCAyNTZMMCAyNTZMMCAwWiIgZmlsbD0idXJsKCNtLWJhc2UpIi8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDgzIDE2MS41KSIgZD0iTTU5IDBMNTkgMzhMMCAzOEwwIDYzTDI3IDYzTDI3IDExMCIgY2xhc3M9ImluayIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjMDAwMDAwIiBzdHJva2Utd2lkdGg9IjExIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIi8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDE0MiAxOTkuNSkiIGQ9Ik0wIDBMNTkgMEw1OSAyNUwzMiAyNUwzMiA3MiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRkYwMDAwIiBzdHJva2Utd2lkdGg9IjExIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIi8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDU4IDIyNC41KSIgZD0iTTI1IDBMMCAwTDAgNDciIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0ZGMDAwMCIgc3Ryb2tlLXdpZHRoPSIxMSIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSAyMDEgMjI0LjUpIiBkPSJNMCAwTDI1IDBMMjUgNDciIGNsYXNzPSJpbmsiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzA1MDUwNSIgc3Ryb2tlLXdpZHRoPSIxMSIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSAxMTcgMTIwLjUpIiBkPSJNNTAgMjVDNTAgMzguODA3IDM4LjgwNyA1MCAyNSA1MEMxMS4xOTMgNTAgMCAzOC44MDcgMCAyNUMwIDExLjE5MyAxMS4xOTMgMCAyNSAwQzM4LjgwNyAwIDUwIDExLjE5MyA1MCAyNSIgY2xhc3M9ImluayIgZmlsbD0iIzAwMDAwMCIvPgogPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJtLW9yYW5nZSIgeDE9Ii0xLjU1MiIgeTE9Ii02LjQ3MSIgeDI9IjI4OS40IiB5Mj0iMjU0LjQxNiIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMC4xODEiIHN0b3AtY29sb3I9IiNGRDU1MDAiLz48c3RvcCBvZmZzZXQ9IjAuNDk5IiBzdG9wLWNvbG9yPSIjRkQ1NzAwIiBzdG9wLW9wYWNpdHk9IjAuNTY3Ii8+PHN0b3Agb2Zmc2V0PSIwLjgyIiBzdG9wLWNvbG9yPSIjRkU1OTAwIiBzdG9wLW9wYWNpdHk9IjAiLz48L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0ibS1yb3NlIiB4MT0iMjkwLjE4MiIgeTE9IjI1MS45MTUiIHgyPSIwLjg1MyIgeTI9Ii0xNS4wMSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMC4xMjciIHN0b3AtY29sb3I9IiNEOUQ5RDkiLz48c3RvcCBvZmZzZXQ9IjAuMjg0IiBzdG9wLWNvbG9yPSIjRjEwMDAwIiBzdG9wLW9wYWNpdHk9IjAiLz48L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0ibS1iYXNlIiB4MT0iMjM4LjUyNCIgeTE9IjIyNi4xNSIgeDI9IjMxNC4zMTkiIHkyPSIyNzkuMDYxIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjNEQxMTExIiBzdG9wLW9wYWNpdHk9IjAiLz48c3RvcCBvZmZzZXQ9IjEiIHN0b3AtY29sb3I9IiM0RDExMTEiLz48L2xpbmVhckdyYWRpZW50PgogPC9kZWZzPgo8L3N2Zz4K">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&amp;family=Geist:wght@400;500;600&amp;display=swap">
+<style>
+:root{--ink:#07080a;--navy:#06234b;--mar:#4d1111;--or:#ff5400;--or2:#fe7f00;--rose:#ffa6a6;--cr:#f2ede4;--mut:#a9a398;--ln:rgba(242,237,228,.13);--logo:url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiPz4KPHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIxMTYyIiBoZWlnaHQ9IjI3NCIgdmlld0JveD0iMTcwIDMxNiAxMTYyIDI3NCIgZmlsbD0ibm9uZSI+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDE3NCAzMjApIiBkPSJNMjQwIDQxQzIxNSAxNCAxNzkgMCAxNDAgMEM2MCAwIDAgNTggMCAxMzNDMCAyMDggNTkgMjY2IDEzOSAyNjZDMTgwIDI2NiAyMTUgMjUwIDI0MCAyMjRMMTkxIDE4MkMxNzYgMTk3IDE1OSAyMDQgMTM5IDIwNEM5OCAyMDQgNjggMTc0IDY4IDEzM0M2OCA5MiA5OCA2MSAxMzkgNjFDMTYwIDYxIDE3NiA2OSAxOTEgODNMMjQwIDQxWiIgZmlsbD0iI0YyRURFNCIgc3Ryb2tlPSJ1cmwoI2MtZWRnZSkiIHN0cm9rZS13aWR0aD0iMSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSA0NDYgMzI0KSIgZD0iTTAgMEw3MCAwTDcwIDE0NEwwIDE0NFoiIGZpbGw9IiNGRjU0MDAiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgNDQ2IDQwNSkiIGQ9Ik0wIDBMNzAgMEw3MCAyMEwwIDIwWiIgZmlsbD0iI0YyRURFNCIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSA0NDYgNDY4KSIgZD0iTTAgMEw3MCAwTDcwIDIxTDAgMjFaIiBmaWxsPSIjRjJFREU0Ii8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDQ0NiA0ODkpIiBkPSJNMCAwTDcwIDBMNzAgMzFMMTg2IDMxTDE4NiA5MUwwIDkxTDAgMFoiIGZpbGw9InVybCgjZm9vdC1uYXZ5KSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSA0NDYgNDg5KSIgZD0iTTAgMEw3MCAwTDcwIDMxTDE4NiAzMUwxODYgOTFMMCA5MUwwIDBaIiBmaWxsPSJ1cmwoI2Zvb3Qtcm9zZSkiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgNDQ2IDQ4OSkiIGQ9Ik0wIDBMNzAgMEw3MCAzMUwxODYgMzFMMTg2IDkxTDAgOTFMMCAwWiIgZmlsbD0idXJsKCNmb290LW9yYW5nZSkiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgNjYzIDMyNCkiIGQ9Ik0wIDBMNjggMEw2OCAyNTZMMCAyNTZaIiBmaWxsPSIjRjJFREU0Ii8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDc2MiAzMjQpIiBkPSJNMCAwTDU3IDBMMTQyIDczTDIyOCAwTDI4NyAwTDI4NyAyNTZMMjI3IDI1NkwyMjcgMTAyTDE0MiAxNzZMNTggMTAyTDU4IDI1NkwwIDI1NkwwIDBaIiBmaWxsPSJ1cmwoI20tb3JhbmdlKSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSA3NjIgMzI0KSIgZD0iTTAgMEw1NyAwTDE0MiA3M0wyMjggMEwyODcgMEwyODcgMjU2TDIyNyAyNTZMMjI3IDEwMkwxNDIgMTc2TDU4IDEwMkw1OCAyNTZMMCAyNTZMMCAwWiIgZmlsbD0idXJsKCNtLXJvc2UpIi8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDc2MiAzMjQpIiBkPSJNMCAwTDU3IDBMMTQyIDczTDIyOCAwTDI4NyAwTDI4NyAyNTZMMjI3IDI1NkwyMjcgMTAyTDE0MiAxNzZMNTggMTAyTDU4IDI1NkwwIDI1NkwwIDBaIiBmaWxsPSJ1cmwoI20tYmFzZSkiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgODQ1IDQ3MCkiIGQ9Ik01OSAwTDU5IDM4TDAgMzhMMCA2M0wyNyA2M0wyNyAxMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0iI0YyRURFNCIgc3Ryb2tlLXdpZHRoPSIxMSIgc3Ryb2tlLWxpbmVjYXA9InNxdWFyZSIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSA5MDQgNTA4KSIgZD0iTTAgMEw1OSAwTDU5IDI1TDMyIDI1TDMyIDcyIiBmaWxsPSJub25lIiBzdHJva2U9IiNGRjAwMDAiIHN0cm9rZS13aWR0aD0iMTEiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgODIwIDUzMykiIGQ9Ik0yNSAwTDAgMEwwIDQ3IiBmaWxsPSJub25lIiBzdHJva2U9IiNGRjAwMDAiIHN0cm9rZS13aWR0aD0iMTEiIHN0cm9rZS1saW5lY2FwPSJzcXVhcmUiLz4KIDxwYXRoIHRyYW5zZm9ybT0ibWF0cml4KDEgMCAwIDEgOTYzIDUzMykiIGQ9Ik0wIDBMMjUgMEwyNSA0NyIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjRjJFREU0IiBzdHJva2Utd2lkdGg9IjExIiBzdHJva2UtbGluZWNhcD0ic3F1YXJlIi8+CiA8cGF0aCB0cmFuc2Zvcm09Im1hdHJpeCgxIDAgMCAxIDg3OSA0MjkpIiBkPSJNNTAgMjVDNTAgMzguODA3IDM4LjgwNyA1MCAyNSA1MEMxMS4xOTMgNTAgMCAzOC44MDcgMCAyNUMwIDExLjE5MyAxMS4xOTMgMCAyNSAwQzM4LjgwNyAwIDUwIDExLjE5MyA1MCAyNSIgZmlsbD0iI0YyRURFNCIvPgogPHBhdGggdHJhbnNmb3JtPSJtYXRyaXgoMSAwIDAgMSAxMDgwIDMyNCkiIGQ9Ik0wIDBMMTU0IDBDMjAwIDAgMjI5IDMwIDIyOSA3M0MyMjkgMTAyIDIxNCAxMjUgMTg5IDEzN0MyMjUgMTQ4IDI0OCAxNzUgMjQ4IDIxMUMyNDggMjM4IDIyOCAyNTYgMTkxIDI1NkwwIDI1NkwwIDBaTTcwIDU2TDcwIDEwMUwxMzQgMTAxQzE1MCAxMDEgMTU5IDkyIDE1OSA3OEMxNTkgNjUgMTUwIDU2IDEzNCA1Nkw3MCA1NlpNNzAgMTU0TDcwIDIwMkwxNDcgMjAyQzE2NCAyMDIgMTc0IDE5MyAxNzQgMTc4QzE3NCAxNjMgMTY0IDE1NCAxNDcgMTU0TDcwIDE1NFoiIGZpbGw9IiNGMkVERTQiIGZpbGwtcnVsZT0iZXZlbm9kZCIvPgogPGRlZnM+CiAgPGxpbmVhckdyYWRpZW50IGlkPSJjLWVkZ2UiIHgxPSIxMjAiIHkxPSIwIiB4Mj0iMTIwIiB5Mj0iMjY2IiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjQzk2MjYyIi8+PHN0b3Agb2Zmc2V0PSIwLjYyNyIgc3RvcC1jb2xvcj0iIzc3M0YzRiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9saW5lYXJHcmFkaWVudD4KICA8bGluZWFyR3JhZGllbnQgaWQ9ImZvb3QtbmF2eSIgeDE9IjIyMy42OTkiIHkxPSIxMDMuOTQ2IiB4Mj0iMTI2LjIzNiIgeTI9IjguMTQzIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjMDYyMzRCIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjMDAwMDAwIiBzdG9wLW9wYWNpdHk9IjAiLz48L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0iZm9vdC1yb3NlIiB4MT0iNzguNDM4IiB5MT0iMzQuODc2IiB4Mj0iMTM3Ljg3NCIgeTI9Ijk5LjYxMSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iI0U1OUI5QiIvPjxzdG9wIG9mZnNldD0iMSIgc3RvcC1jb2xvcj0iI0ZGQTZBNiIgc3RvcC1vcGFjaXR5PSIwIi8+PC9saW5lYXJHcmFkaWVudD4KICA8bGluZWFyR3JhZGllbnQgaWQ9ImZvb3Qtb3JhbmdlIiB4MT0iMzQuMzM1IiB5MT0iLTE2LjI5NSIgeDI9IjQ0LjUyNCIgeTI9IjYzLjkyIiBncmFkaWVudFVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHN0b3Agb2Zmc2V0PSIwIiBzdG9wLWNvbG9yPSIjRkU3RjAwIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjRkU3RjAwIiBzdG9wLW9wYWNpdHk9IjAiLz48L2xpbmVhckdyYWRpZW50PgogIDxsaW5lYXJHcmFkaWVudCBpZD0ibS1vcmFuZ2UiIHgxPSItMS41NTIiIHkxPSItNi40NzEiIHgyPSIyODkuNCIgeTI9IjI1NC40MTYiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAuMTgxIiBzdG9wLWNvbG9yPSIjRkQ1NTAwIi8+PHN0b3Agb2Zmc2V0PSIwLjQ5OSIgc3RvcC1jb2xvcj0iI0ZENTcwMCIgc3RvcC1vcGFjaXR5PSIwLjU2NyIvPjxzdG9wIG9mZnNldD0iMC44MiIgc3RvcC1jb2xvcj0iI0ZFNTkwMCIgc3RvcC1vcGFjaXR5PSIwIi8+PC9saW5lYXJHcmFkaWVudD4KICA8bGluZWFyR3JhZGllbnQgaWQ9Im0tcm9zZSIgeDE9IjI5MC4xODIiIHkxPSIyNTEuOTE1IiB4Mj0iMC44NTMiIHkyPSItMTUuMDEiIGdyYWRpZW50VW5pdHM9InVzZXJTcGFjZU9uVXNlIj48c3RvcCBvZmZzZXQ9IjAuMTI3IiBzdG9wLWNvbG9yPSIjRDlEOUQ5Ii8+PHN0b3Agb2Zmc2V0PSIwLjI4NCIgc3RvcC1jb2xvcj0iI0YxMDAwMCIgc3RvcC1vcGFjaXR5PSIwIi8+PC9saW5lYXJHcmFkaWVudD4KICA8bGluZWFyR3JhZGllbnQgaWQ9Im0tYmFzZSIgeDE9IjIzOC41MjQiIHkxPSIyMjYuMTUiIHgyPSIzMTQuMzE5IiB5Mj0iMjc5LjA2MSIgZ3JhZGllbnRVbml0cz0idXNlclNwYWNlT25Vc2UiPjxzdG9wIG9mZnNldD0iMCIgc3RvcC1jb2xvcj0iIzREMTExMSIgc3RvcC1vcGFjaXR5PSIwIi8+PHN0b3Agb2Zmc2V0PSIxIiBzdG9wLWNvbG9yPSIjNEQxMTExIi8+PC9saW5lYXJHcmFkaWVudD4KIDwvZGVmcz4KPC9zdmc+Cg==");--fd:"Bricolage Grotesque","Helvetica Neue",Arial,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-behavior:smooth;scroll-padding-top:72px;background:var(--ink)}
+body{margin:0;color:var(--cr);font:400 16px/1.6 Geist,"Helvetica Neue",Arial,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+a{color:inherit}:focus-visible{outline:2px solid var(--or2);outline-offset:3px}
+p{margin:0}h1,h2,h3{margin:0;font-family:var(--fd);font-weight:700;letter-spacing:-.03em;line-height:1.06}
+h2{font-size:clamp(1.9rem,3.4vw,2.8rem)}h3{font-size:1.15rem;letter-spacing:-.015em}
+.w{max-width:1180px;margin:0 auto;padding:0 24px}section{padding:88px 0}
+.sh{display:grid;grid-template-columns:1fr 1fr;gap:48px;align-items:end}.sh p{color:var(--mut);max-width:54ch}
+.btn{display:inline-block;padding:12px 20px;border-radius:6px;font-weight:600;font-size:15px;text-decoration:none;border:1px solid rgba(242,237,228,.3);background:none;color:var(--cr);cursor:pointer;font-family:inherit}
+.btn:hover{border-color:var(--cr)}.btn.p{background:var(--or);border-color:var(--or);color:#0b0b0d}.btn.p:hover{background:var(--or2);border-color:var(--or2)}
+.ev{display:inline-flex;align-items:center;gap:8px;font-size:13px;font-weight:500;color:var(--cr);white-space:nowrap}
+.ev::before{content:"";width:10px;height:10px;border-radius:50%;border:1.5px solid currentColor;flex:none}
+.ev.m::before{background:currentColor}.ev.d{color:var(--rose)}.ev.d::before{background:linear-gradient(90deg,currentColor 50%,transparent 50%)}
+.ev.a::before{border-style:dashed}.ev.x{color:var(--or2)}.ev.x::before{border-style:dotted;border-width:2px}.ev.n{display:none}
+code{font:12.5px ui-monospace,Menlo,monospace}
+.logo{display:block;aspect-ratio:1162/274;background:var(--logo) center/contain no-repeat}
+#fx{position:fixed;inset:0;width:100%;height:100%;z-index:-1;pointer-events:none}
+/* header */
+#hd{position:fixed;inset:0 0 auto;z-index:30;padding-top:env(safe-area-inset-top,0px);background:var(--ink);border-bottom:1px solid var(--ln)}
+#hd .w{display:flex;align-items:center;justify-content:space-between;height:64px}.brand{width:112px}
+#pb{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--or);transform-origin:left;transform:scaleX(0)}
+#nv{display:flex;align-items:center;gap:22px;font-size:14px;color:var(--mut)}#nv a{text-decoration:none;position:relative}#nv a:hover,#nv a.on{color:var(--cr)}
+#nv a.on::after{content:"";position:absolute;left:0;right:0;bottom:-9px;height:2px;background:var(--or)}
+#nv .btn{padding:8px 14px;font-size:14px;color:var(--cr)}#nv .btn::after{display:none}#mn{display:none}
+/* hero */
+.hero{position:relative;overflow:hidden;min-height:100svh;display:flex;align-items:flex-start;padding:140px 0 72px}
+#gc{position:absolute;left:0;top:0;pointer-events:none;-webkit-mask-image:linear-gradient(#000 55%,transparent);mask-image:linear-gradient(#000 55%,transparent)}
+.hg{position:relative;display:grid;gap:76px;justify-items:center;text-align:center;width:100%}
+h1{font-size:clamp(2.6rem,5.4vw,4.6rem);line-height:1;letter-spacing:-.04em}
+.ld{color:var(--mut);font-size:1.1rem;max-width:50ch;margin:22px auto 0}.cta{display:flex;gap:12px;flex-wrap:wrap;justify-content:center;margin-top:30px}
+.mt{margin-top:24px;font-size:13px;color:var(--mut)}
+.lo{position:relative;width:min(360px,68vw);margin:64px auto 0}.hl{width:100%;position:relative;z-index:1}
+#ob,#of{position:absolute;left:50%;top:50%;width:170%;aspect-ratio:1;transform:translate(-50%,-50%);pointer-events:none}#ob{z-index:0}#of{z-index:2}
+/* results */
+.led{list-style:none;margin:56px 0 0;padding:0;border-top:1px solid var(--ln)}
+.led li{display:grid;grid-template-columns:170px minmax(240px,1fr) 1.1fr;gap:24px;align-items:baseline;padding:28px 0;border-bottom:1px solid var(--ln)}
+.nm{font:700 clamp(2.3rem,4.4vw,3.7rem)/1 var(--fd);letter-spacing:-.035em;font-variant-numeric:tabular-nums}.led li:first-child .nm{color:var(--or)}
+.led p{color:var(--mut)}.key{display:flex;flex-wrap:wrap;gap:12px 28px;margin-top:28px;font-size:13px;color:var(--mut)}
+.note{margin-top:18px;font-size:13.5px;color:var(--mut)}.note a{color:var(--cr)}
+/* cards */
+.cds{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-top:56px}
+.cd{position:relative;isolation:isolate;min-height:224px;padding:24px;display:flex;flex-direction:column;justify-content:flex-end;gap:8px;text-align:left;color:#0b0b0d;background:none;border:0;font:inherit;cursor:pointer;text-decoration:none}
+.cd::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--cr);clip-path:polygon(0 0,calc(100% - 72px) 0,calc(100% - 56px) 18px,100% 18px,100% 100%,0 100%);transition:background .3s}
+.cd::after{content:"";position:absolute;right:20px;top:2px;width:10px;height:10px;border-radius:50%;background:var(--cr)}
+.cd .k{position:absolute;top:26px;left:24px;font-size:1.5rem;font-weight:300}.cd h3{font-size:1.08rem}.cd p{font-size:14px;line-height:1.5;color:#33333a}
+.cd .mo{max-height:0;opacity:0;overflow:hidden;transition:max-height .35s,opacity .35s,padding .35s;font:12px ui-monospace,Menlo,monospace;background:rgba(11,11,13,.08);border-radius:3px;padding:0 8px;align-self:flex-start}
+.cd:hover .mo,.cd:focus-visible .mo{max-height:40px;opacity:1;padding:6px 8px}.cd:hover::before{background:#fff}
+.cd.or::before,.cd.or::after{background:var(--or)}.cd.or{justify-content:center;align-items:center;text-align:center;gap:14px;font-size:15px}.cd.or:hover::before{background:var(--or2)}
+/* ladder */
+.lad{position:relative;display:grid;grid-template-columns:150px 250px 290px 1fr;column-gap:72px;align-items:center;margin-top:56px;padding:56px 44px;min-height:660px;border:1px solid var(--ln);border-radius:14px;background:radial-gradient(70% 60% at 0 50%,rgba(77,17,17,.38),transparent 70%),rgba(242,237,228,.02);overflow:hidden}
+.lad svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.lad path{fill:none;stroke:rgba(242,237,228,.17);stroke-width:1.2;stroke-dasharray:1}.lad path.hv{stroke:rgba(254,127,0,.75);stroke-width:1.7}.lad path.on{stroke:var(--or);stroke-width:2;filter:drop-shadow(0 0 5px rgba(255,84,0,.8))}
+.nd{fill:#07080a;stroke:rgba(242,237,228,.35);stroke-width:1.2}.nd.on{fill:var(--or);stroke:var(--or)}.pd{fill:var(--or2);filter:drop-shadow(0 0 6px #ff5400)}
+.rt{position:relative;width:150px;height:150px;border-radius:50%;display:grid;place-content:center;text-align:center;background:radial-gradient(circle at 35% 30%,var(--or2),var(--or) 42%,var(--mar) 100%);box-shadow:0 0 90px rgba(255,84,0,.3);color:#0b0b0d;font:700 20px/1.05 var(--fd);transition:opacity 1s .2s}.rt small{font:500 12px Geist,sans-serif}
+.rt::before,.rt::after{content:"";position:absolute;inset:-20px;border-radius:50%;border:1px dashed rgba(242,237,228,.3);animation:sp 50s linear infinite}.rt::after{inset:-40px;border-style:dotted;border-color:rgba(255,166,166,.4);animation-duration:80s;animation-direction:reverse}
+@keyframes sp{to{transform:rotate(360deg)}}
+.cp,.lv{position:relative;display:flex;flex-direction:column;gap:12px}
+.c,.l{display:flex;align-items:center;justify-content:space-between;gap:12px;width:100%;padding:15px 18px;border:1px solid var(--ln);border-radius:8px;background:#0d0f13;color:var(--cr);font:500 15px/1.3 Geist,sans-serif;text-align:left;cursor:pointer;transition:border-color .25s,box-shadow .25s,transform .25s,background .25s,opacity .7s calc(var(--i,0)*70ms + .3s)}
+.c b{font:500 12px ui-monospace,Menlo,monospace;color:var(--mut)}.c:hover,.l:hover{border-color:rgba(255,84,0,.7);transform:translateX(5px)}
+.c[aria-pressed=true],.l[aria-pressed=true]{border-color:var(--or);background:#1d1008;box-shadow:0 0 0 1px var(--or),0 0 30px rgba(255,84,0,.22)}
+.js .lad:not(.in) :is(.c,.rt,.dt){opacity:0}
+.dt{position:relative;padding:28px;border:1px solid var(--ln);border-radius:12px;background:rgba(13,15,19,.9);display:flex;flex-direction:column;gap:14px;min-height:300px;transition:opacity 1s .5s}
+.dt h3{font-size:1.5rem}.dt .cr{font-size:13px;color:var(--mut)}.dt p{color:var(--mut);font-size:15.5px}
+.cmd{display:flex;align-items:center;gap:8px;margin-top:auto;background:#050608;border:1px solid var(--ln);border-radius:6px;padding:6px 6px 6px 12px}
+.cmd code{flex:1;overflow-x:auto;white-space:nowrap}.cmd button{font:500 12px Geist,sans-serif;background:none;border:1px solid var(--ln);color:var(--cr);border-radius:4px;padding:5px 10px;cursor:pointer}.cmd button:hover{border-color:var(--or2)}
+/* how */
+.tb{display:flex;gap:28px;margin-top:48px;border-bottom:1px solid var(--ln);flex-wrap:wrap}
+.tb button{background:none;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;padding:10px 0;color:var(--mut);font:500 15px Geist,sans-serif;cursor:pointer}.tb button[aria-selected=true]{color:var(--cr);border-color:var(--or)}
+.hw{display:grid;grid-template-columns:1fr 1.1fr;gap:56px;margin-top:40px;align-items:center}.hw p{color:var(--mut);margin-top:10px}
+.bars{display:grid;gap:10px;margin-top:32px}.bars>p{font-size:13px;margin:0 0 4px}.bar{display:grid;grid-template-columns:22px 1fr;gap:12px;align-items:center;font-weight:600}
+.trk{position:relative;height:26px;border:1px solid var(--ln);border-radius:4px}.fill{height:100%;width:0;background:rgba(242,237,228,.22);border-radius:3px;transition:width 1s cubic-bezier(.2,.7,.2,1)}.bar.on .fill{background:var(--or)}
+.val{position:absolute;top:3px;font:12px ui-monospace,Menlo,monospace;font-weight:400}
+.dg{border:1px solid var(--ln);border-radius:8px;background:rgba(242,237,228,.025);padding:12px}.dg svg{display:block;width:100%;height:auto}
+/* architecture / transparency / team */
+.arch{margin-top:48px;border:1px solid var(--ln);border-radius:8px;background:rgba(7,8,10,.5);padding:16px;overflow-x:auto}.arch svg{min-width:760px;width:100%;height:auto}
+.tr{display:grid;grid-template-columns:repeat(3,1fr);margin-top:48px;border-top:1px solid var(--ln)}.tr div{padding:28px 28px 0 0}.tr div+div{padding-left:28px;border-left:1px solid var(--ln)}.tr p{color:var(--mut);margin-top:10px}
+.lim{margin:48px 0 0;max-width:780px;border-left:3px solid var(--or);padding-left:22px}.lim p{color:var(--mut);margin-top:8px}.lk{display:inline-block;margin-top:28px;color:var(--cr);font-weight:600}
+.tm{list-style:none;margin:48px 0 0;padding:0;border-top:1px solid var(--ln)}.tm li{display:grid;grid-template-columns:1.2fr 1.4fr auto;gap:24px;padding:22px 0;border-bottom:1px solid var(--ln);align-items:baseline}.tm span{color:var(--mut)}
+/* footer */
+#ft{border-top:1px solid var(--ln);padding:88px 0 36px;margin-top:40px}
+.fh{display:grid;grid-template-columns:1.25fr 1fr;gap:56px;align-items:end}.fh h2{font-size:clamp(2.8rem,7.4vw,6.2rem);line-height:.95;letter-spacing:-.045em}
+.gs{display:grid;gap:14px;justify-items:start}.gs .cmd{width:100%}.gs>span{font-size:14px;color:var(--mut)}
+.kw{list-style:none;display:flex;flex-wrap:wrap;gap:4px 22px;margin:56px 0 0;padding:20px 0;border-block:1px solid var(--ln);font:400 14px/1.7 Geist,"Helvetica Neue",Arial,system-ui,sans-serif;color:var(--mut)}
+.fg{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:32px;margin-top:48px;font-size:14px}.fg ul{list-style:none;margin:0;padding:0;display:grid;gap:8px}.fg h3{font:600 14px Geist,sans-serif;margin-bottom:12px;letter-spacing:0}.fg li,.fg p{color:var(--mut)}.fg a{text-decoration:none;color:var(--cr)}.fg a:hover{color:var(--or2)}
+.fb{display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-top:56px;padding-top:20px;border-top:1px solid var(--ln);font-size:13px;color:var(--mut)}
+/* reveal + scale */
+.js .r{opacity:0;transform:translateY(24px);transition:opacity .9s cubic-bezier(.2,.7,.2,1) calc(var(--d,0)*80ms),transform .9s cubic-bezier(.2,.7,.2,1) calc(var(--d,0)*80ms)}.js .r.in{opacity:1;transform:none}
+.js .r.cd{transition:opacity .9s cubic-bezier(.2,.7,.2,1) calc(var(--d,0)*80ms),transform .9s cubic-bezier(.2,.7,.2,1) calc(var(--d,0)*80ms)}
+.js .cl .cs{display:block;clip-path:inset(-.2em 100% -.2em 0);transition:clip-path 1.1s cubic-bezier(.7,0,.2,1)}.js .cl.in .cs{clip-path:inset(-.2em -.1em -.2em 0)}
+#sc{position:fixed;right:14px;top:50%;height:min(64vh,540px);width:40px;transform:translateY(-50%);z-index:20;pointer-events:none}
+#rl i{position:absolute;right:0;height:1px;background:rgba(242,237,228,.24)}#rl i.mj{background:var(--cr)}
+#rl a{position:absolute;right:50px;transform:translateY(-50%);font-size:12px;color:var(--cr);text-decoration:none;opacity:0;transition:opacity .25s;white-space:nowrap;pointer-events:auto;padding:4px 6px;background:rgba(7,8,10,.8);border-radius:4px}
+#sc:hover #rl a,#rl a.on{opacity:1}#rl a.on{color:var(--or2)}
+#ix{position:absolute;right:0;width:44px;height:2px;margin-top:-1px;background:var(--or);}
+#pr{position:absolute;right:0;bottom:-28px;font:12px ui-monospace,Menlo,monospace;color:var(--mut)}#sc:hover{pointer-events:auto}
+.bd{max-width:1180px;margin:0 auto;padding:0 24px;height:160px}.bd canvas{display:block;width:100%;height:100%;-webkit-mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent);mask-image:linear-gradient(90deg,transparent,#000 14%,#000 86%,transparent)}
+@keyframes grw{from{transform:scaleY(0);opacity:0}}@keyframes fl{to{stroke-dashoffset:-10}}@keyframes fw{to{stroke-dashoffset:10}}@keyframes pl{50%{stroke-opacity:.3}}
+.dg svg rect{transform-box:fill-box;transform-origin:top;animation:grw .7s cubic-bezier(.2,.7,.2,1) both}.dg svg g>rect:nth-child(2){animation-delay:.12s}.dg svg g>rect:nth-child(3){animation-delay:.24s}
+.dg .fw{stroke-dasharray:5 5;animation:fw .9s linear infinite}
+.arch path{stroke-dasharray:4 6;animation:fl 1.2s linear infinite}.arch rect{transition:stroke .3s,fill .3s}.arch rect:hover{stroke:#ff5400;fill:#1a0f09}.arch rect[stroke="#ff5400"]{animation:pl 2.6s ease-in-out infinite}
+@media(hover:none){.cd .mo{max-height:40px;opacity:1;padding:6px 8px}}
+@media(max-width:1100px){#sc{display:none}}
+@media(max-width:900px){section{padding:64px 0}.hero{padding-top:120px}.lo{margin-top:52px}.bd{height:120px}.sh,.hw,.fh{grid-template-columns:1fr;gap:24px}.hg{gap:48px}
+#mn{display:block;background:none;border:1px solid var(--ln);color:var(--cr);border-radius:6px;padding:7px 12px;font:inherit;cursor:pointer}
+#nv{display:none;position:absolute;top:100%;left:0;right:0;height:calc(100svh - 64px);flex-direction:column;align-items:flex-start;gap:6px;background:rgba(7,8,10,.97);padding:24px;font:600 1.9rem var(--fd);letter-spacing:-.03em;color:var(--cr);overflow:auto}#nv.open{display:flex}#nv .btn{margin-top:16px;font:600 15px Geist,sans-serif}#nv a.on::after{bottom:-2px}
+.led li{grid-template-columns:1fr;gap:8px}.cds{grid-template-columns:1fr 1fr}.lad{grid-template-columns:1fr;row-gap:22px;padding:28px 18px;min-height:0}.lad svg{display:none}.rt{width:96px;height:96px;margin:28px auto;font-size:16px}.rt::before{inset:-12px}.rt::after{inset:-24px}
+.cp{display:grid;grid-template-columns:1fr 1fr}.c:hover,.l:hover{transform:none}.tr{grid-template-columns:1fr}.tr div,.tr div+div{padding:24px 0 0;border:0}.tm li{grid-template-columns:1fr;gap:4px}.fg{grid-template-columns:1fr 1fr}.fg>div:first-child{grid-column:1/-1}.fh>*,.gs{min-width:0}.gs .cmd{min-width:0;max-width:100%}}
+@media(max-width:560px){.cds,.cp{grid-template-columns:1fr}.cd{min-height:190px}.cta .btn{flex:1 1 100%;text-align:center}.w{padding:0 18px}.key{gap:10px 18px}}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.fill{transition:none}.rt::before,.rt::after,.dg svg rect,.dg .fw,.arch path,.arch rect{animation:none}.js .r,.js .cl .cs{opacity:1!important;transform:none!important;clip-path:none!important;transition:none!important}}
+
+/* ===== glass + neumorphism =====
+   glass: floating / content layers (header, tiles, cards, panels)
+   neumorphism: tactile controls (buttons, nodes, tabs, wells, tracks) on a slate ground */
+html{background:#13161b}
+:root{--g1:#1b1e25;--g2:#0f1217;--well:#0d0f13;
+ --up:9px 9px 20px rgba(0,0,0,.55),-7px -7px 18px rgba(255,255,255,.04);
+ --up-s:5px 5px 11px rgba(0,0,0,.5),-4px -4px 10px rgba(255,255,255,.04);
+ --up-xs:3px 3px 7px rgba(0,0,0,.5),-2px -2px 6px rgba(255,255,255,.04);
+ --in:inset 6px 6px 13px rgba(0,0,0,.55),inset -5px -5px 12px rgba(255,255,255,.035)}
+.orbs{position:fixed;inset:0;z-index:-1;overflow:hidden;pointer-events:none}
+.orbs i{position:absolute;width:46vmax;height:46vmax;border-radius:50%;will-change:transform}
+.orbs i:nth-child(1){left:-14vmax;top:6vh;background:radial-gradient(circle,rgba(255,84,0,.30),transparent 62%);animation:dr1 30s ease-in-out infinite alternate}
+.orbs i:nth-child(2){right:-16vmax;top:34vh;background:radial-gradient(circle,rgba(24,96,200,.46),transparent 62%);animation:dr2 36s ease-in-out infinite alternate}
+.orbs i:nth-child(3){left:28vw;bottom:-26vmax;background:radial-gradient(circle,rgba(255,166,166,.16),transparent 62%);animation:dr3 42s ease-in-out infinite alternate}
+@keyframes dr1{to{transform:translate3d(42vw,26vh,0) scale(1.15)}}
+@keyframes dr2{to{transform:translate3d(-38vw,-22vh,0) scale(.9)}}
+@keyframes dr3{to{transform:translate3d(-30vw,-16vh,0) scale(1.2)}}
+
+/* ---------- glass ---------- */
+:is(.led li,.tm li,.tr>div,.lim,.dg,.arch){position:relative;border:0;
+ background:radial-gradient(280px circle at var(--mx,50%) var(--my,-30%),rgba(255,255,255,var(--sp,.05)),transparent 70%),linear-gradient(150deg,rgba(255,255,255,.085),rgba(255,255,255,.025) 55%,rgba(255,255,255,.055));
+ -webkit-backdrop-filter:blur(16px) saturate(1.7) brightness(1.06);backdrop-filter:blur(16px) saturate(1.7) brightness(1.06);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.26),inset 0 -1px 0 rgba(255,255,255,.05),inset 0 0 22px rgba(255,255,255,.03),0 14px 34px -16px rgba(0,0,0,.65)}
+:is(.led li,.tm li,.tr>div,.lim,.dg,.arch):hover{--sp:.16}
+:is(#hd,.led li,.tm li,.tr>div,.lim,.dg,.arch)::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+ background:linear-gradient(135deg,rgba(255,255,255,.55),rgba(255,255,255,.07) 32%,rgba(255,255,255,.02) 62%,rgba(255,255,255,.34));
+ -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask:linear-gradient(#000 0 0) content-box exclude,linear-gradient(#000 0 0)}
+.rf :is(#hd,.dg){-webkit-backdrop-filter:url(#lg) blur(10px) saturate(1.8) brightness(1.08);backdrop-filter:url(#lg) blur(10px) saturate(1.8) brightness(1.08)}
+
+#hd{inset:calc(10px + env(safe-area-inset-top,0px)) auto auto 50%;transform:translateX(-50%);width:min(1180px,calc(100% - 20px));padding-top:0;border:0;border-radius:22px;
+ background:radial-gradient(420px circle at var(--mx,50%) var(--my,-60%),rgba(255,255,255,.12),transparent 70%),linear-gradient(160deg,rgba(255,255,255,.1),rgba(255,255,255,.03) 60%,rgba(255,255,255,.07));
+ -webkit-backdrop-filter:blur(16px) saturate(1.8) brightness(1.05);backdrop-filter:blur(16px) saturate(1.8) brightness(1.05);
+ box-shadow:inset 0 1px 0 rgba(255,255,255,.3),inset 0 0 26px rgba(255,255,255,.04),0 18px 40px -16px rgba(0,0,0,.7)}
+#hd .w{height:56px;max-width:none;padding:0 20px}
+#pb{left:22px;right:22px;bottom:3px;border-radius:2px}
+html{scroll-padding-top:84px}
+#nv a.on::after{bottom:-6px;border-radius:2px}
+
+.led{border-top:0;display:grid;gap:14px}
+.led li{border-radius:20px;padding:26px 32px}
+.led li:first-child{background:radial-gradient(300px circle at var(--mx,20%) var(--my,-30%),rgba(255,255,255,calc(var(--sp,.05) + .03)),transparent 70%),linear-gradient(150deg,rgba(255,110,30,.2),rgba(255,255,255,.03) 60%,rgba(255,255,255,.06))}
+.dg,.arch{border-radius:22px;padding:18px}
+.tr{border-top:0;gap:16px}
+.tr>div,.tr>div+div{padding:28px;border:0;border-radius:20px}
+.lim{border-left:0;border-radius:20px;padding:26px 30px;max-width:820px}
+.lim::after{content:"";position:absolute;left:0;top:20px;bottom:20px;width:3px;border-radius:2px;background:var(--or)}
+.tm{border-top:0;display:grid;gap:12px}
+.tm li{border-bottom:0;border-radius:18px;padding:22px 28px}
+
+/* ---------- neumorphism ---------- */
+.btn,#mn,.gs .cmd button,.kw li{background:linear-gradient(145deg,var(--g1),var(--g2));border:1px solid transparent;box-shadow:var(--up-s)}
+.btn{border-radius:14px;padding:13px 24px}
+.btn:hover,#mn:hover{border-color:transparent;background:linear-gradient(145deg,#20242c,#12151a)}
+.btn:active,#mn:active,.gs .cmd button:active{box-shadow:var(--in);background:linear-gradient(145deg,#0e1115,#151920)}
+.btn.p{color:#0b0b0d;background:linear-gradient(145deg,#ff6c22,#e84a00);border-color:transparent;box-shadow:6px 6px 14px rgba(0,0,0,.55),-4px -4px 10px rgba(255,255,255,.05),inset 1px 1px 0 rgba(255,255,255,.28)}
+.btn.p:hover{background:linear-gradient(145deg,#ff7a33,#f05200);border-color:transparent}
+.btn.p:active{box-shadow:inset 5px 5px 11px rgba(120,25,0,.55),inset -3px -3px 8px rgba(255,150,80,.25)}
+#nv .btn{padding:8px 16px;border-radius:12px}
+.gs .cmd{background:var(--well);border:0;border-radius:14px;box-shadow:var(--in);padding:8px 8px 8px 16px}
+.gs .cmd button{border-radius:10px;padding:6px 13px;box-shadow:var(--up-xs)}
+.gs .cmd button:hover{color:var(--or2)}
+.tb{display:inline-flex;gap:6px;padding:6px;border:0;border-radius:18px;background:var(--well);box-shadow:var(--in)}
+.tb button{border:0;margin:0;border-radius:12px;padding:9px 18px}
+.tb button[aria-selected=true]{color:var(--or2);background:linear-gradient(145deg,#1f232b,#13161b);box-shadow:var(--up-xs)}
+.trk{border:0;border-radius:999px;background:var(--well);box-shadow:var(--in)}
+.fill{border-radius:999px;box-shadow:2px 2px 6px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.28)}
+.kw{border-block:0;padding:6px 2px;margin-top:48px;gap:14px 12px}
+.kw li{border-radius:12px;padding:.4em 1em;box-shadow:var(--up-xs)}
+#rl a{border-radius:8px;background:linear-gradient(145deg,var(--g1),var(--g2));box-shadow:var(--up-xs)}
+
+@media(max-width:900px){
+ #nv{top:calc(100% + 8px);height:auto;max-height:calc(100svh - 96px);border-radius:20px;background:rgba(19,22,27,.96);border:1px solid rgba(255,255,255,.08);padding:20px;box-shadow:var(--up)}
+ .tb{display:flex;border-radius:18px}.led li{padding:22px}
+}
+@media(prefers-reduced-motion:reduce){.orbs i{animation:none}}
+
+/* front page: the logo alone, large; the text sits in a small intro right after it */
+.hero{display:block;padding:0;min-height:0}
+.hg{min-height:100svh;display:grid;place-items:center;align-content:center;gap:0;padding-top:72px;padding-bottom:40px}
+.lo{width:min(900px,90vw);margin:0}
+.intro{position:relative;max-width:640px;text-align:center;padding:24px 24px 104px}
+.intro h1{font-size:clamp(1.15rem,1.8vw,1.45rem);line-height:1.25;letter-spacing:-.02em}
+.intro .ld{font-size:15px;margin:12px auto 0;max-width:52ch}
+.intro .cta{margin-top:22px}
+.intro .mt{margin-top:18px;font-size:12.5px}
+@media(max-width:900px){.hero{padding:0}.hg{gap:0}.lo{margin:0}}
+
+/* ladder: full-bleed, borderless, roomy columns so no text is clipped */
+@media(min-width:901px){
+#ladder{overflow-x:clip}
+.lad{width:100vw;max-width:none;margin-left:calc(50% - 50vw);margin-right:0;
+ grid-template-columns:150px minmax(230px,1fr) minmax(290px,1.15fr) minmax(340px,1.5fr);
+ column-gap:clamp(40px,5vw,96px);padding:56px clamp(24px,4vw,80px);
+ border:0;border-radius:0;overflow:visible;
+ background:radial-gradient(55% 55% at 12% 50%,rgba(77,17,17,.28),transparent 70%)}
+}
+.lad>*{min-width:0}
+.c,.l{flex-wrap:wrap;background:rgba(13,15,19,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.c span:first-child,.l span:first-child{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+.dt{background:rgba(13,15,19,.55);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+</style></head><body>
+<div class="orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false"><defs><filter id="lg" x="-5%" y="-5%" width="110%" height="110%" color-interpolation-filters="sRGB"><feTurbulence type="fractalNoise" baseFrequency=".007 .011" numOctaves="2" seed="7" result="n"/><feGaussianBlur in="n" stdDeviation="2" result="nb"/><feDisplacementMap in="SourceGraphic" in2="nb" scale="22" xChannelSelector="R" yChannelSelector="G"/></filter></defs></svg>
+<canvas id="fx" aria-hidden="true"></canvas>
+<header id="hd"><div class="w"><a class="brand logo" href="#top" aria-label="CLIMB home"></a>
+<button id="mn" aria-expanded="false" aria-controls="nv">Menu</button>
+<nav id="nv" aria-label="Primary"><a href="#results">Results</a><a href="#capabilities">Capabilities</a><a href="#ladder">Ladder</a><a href="#how">How it works</a><a href="#architecture">Architecture</a><a href="#transparency">Transparency</a><a href="#team">Team</a><a class="btn" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener">GitHub</a></nav></div><i id="pb" aria-hidden="true"></i></header>
+<aside id="sc" aria-label="Page index"><div id="rl"></div><i id="ix"></i><span id="pr">0%</span></aside>
+<main id="top">
+<section class="hero"><canvas id="gc" aria-hidden="true"></canvas>
+<div class="w hg"><div class="lo"><canvas id="ob" aria-hidden="true"></canvas><i class="hl logo" role="img" aria-label="CLIMB, Cryptographic Ladder Impact Measurement Benchmark"></i><canvas id="of" aria-hidden="true"></canvas></div></div>
+<div class="w intro"><div><h1>Post-quantum DNSSEC, measured.</h1>
+<p class="ld">Measuring how Merkle Tree Ladder amortisation changes the performance and wire efficiency of post-quantum DNSSEC signing with SLH-DSA.</p>
+<div class="cta"><a class="btn p" href="#results">Explore the benchmark</a><a class="btn" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener">View on GitHub</a></div>
+<p class="mt">AIORI-3 Hackathon, problem statement PS-036. Experimental research benchmark.</p></div></div></section>
+
+<section id="results"><div class="w"><div class="sh"><h2>Results</h2><p>Every figure carries its evidence class and baseline. Values come from the repository’s recorded artifacts, Medium dataset.</p></div>
+<ol class="led">
+<li><span class="ev d">Derived</span><span class="nm"><span data-n="96.508" data-d="3">96.508</span>%</span><p>Wire reduction, C vs A. From measured bytes: 2,743,352 B vs 78,560,000 B.</p></li>
+<li><span class="ev x">Extrapolated ≈</span><span class="nm">≈<span data-n="9405" data-d="0">9,405</span>×</span><p>Signing speed-up, C vs A. Per-message cost scaled to batch size.</p></li>
+<li><span class="ev x">Extrapolated ≈</span><span class="nm">≈<span data-n="215.3" data-d="1">215.3</span>×</span><p>Verification speed-up, C vs A, with a trusted cached ladder.</p></li>
+<li><span class="ev a">Analytical</span><span class="nm"><span data-n="11" data-d="0">11</span> of 12</span><p>Modelled UDP response profiles that fit 1,232 bytes in configuration C.</p></li></ol>
+<div class="key"><span class="ev m">Measured: recorded directly</span><span class="ev d">Derived: computed from measurements</span><span class="ev a">Analytical: closed-form model</span><span class="ev x">Extrapolated: unit cost × count</span></div>
+<p class="note">Definitions in <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md" rel="noopener">docs/METHODOLOGY.md</a>. Full table in <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/deck-facts.md" rel="noopener">docs/deck-facts.md</a>.</p></div></section>
+
+<div class="bd" aria-hidden="true"><canvas data-m="0"></canvas></div>
+<section id="capabilities"><div class="w"><div class="sh"><h2>Capabilities</h2><p>Seven things the benchmark measures, each reproducible from one command. Select a card to open it in the ladder.</p></div><div class="cds" id="cds"></div></div></section>
+
+<section id="ladder"><div class="w"><div class="sh"><h2>Explore the ladder</h2><p>Choose a capability to open its branches, then a leaf to see its evidence class and the command that reproduces it.</p></div>
+<div class="lad" id="lad"><svg id="sv" aria-hidden="true"></svg><div class="rt" id="rt">CLIMB<small>ladder</small></div><div class="cp" id="cp" role="group" aria-label="Capabilities"></div><div class="lv" id="lv" role="group" aria-label="Branches"></div><article class="dt" id="dt" aria-live="polite"></article></div></div></section>
+
+<div class="bd" aria-hidden="true"><canvas data-m="1"></canvas></div>
+<section id="how"><div class="w"><div class="sh"><h2>How it works</h2><p>In C, one signed ladder is shared across a batch. Each response carries only a small condensed authentication path, not the full ladder.</p></div>
+<div class="tb" role="tablist" aria-label="Configurations"><button role="tab" id="t0" aria-selected="true">A · Plain SLH-DSA</button><button role="tab" id="t1" aria-selected="false" tabindex="-1">B · MTL, no amortisation</button><button role="tab" id="t2" aria-selected="false" tabindex="-1">C · MTL amortised</button></div>
+<div class="hw"><div role="tabpanel" aria-live="polite"><h3 id="ph"></h3><p id="pp"></p>
+<div class="bars" id="bars"><p><span class="ev m">Measured</span> Wire bytes, Medium dataset</p>
+<div class="bar"><span>A</span><div class="trk"><div class="fill" data-w="94.3"></div><span class="val" style="right:8px">78,560,000 B</span></div></div>
+<div class="bar"><span>B</span><div class="trk"><div class="fill" data-w="100"></div><span class="val" style="right:8px">83,295,296 B</span></div></div>
+<div class="bar"><span>C</span><div class="trk"><div class="fill" data-w="3.3"></div><span class="val" style="left:calc(3.3% + 8px)">2,743,352 B</span></div></div></div></div>
+<div class="dg"><svg viewBox="0 0 360 232" role="img" aria-label="Diagram of what each of three messages carries in the selected configuration" font-family="Geist,sans-serif" font-size="11">
+<g fill="none" stroke="#a9a398"><rect x="20" y="96" width="80" height="26"/><rect x="140" y="96" width="80" height="26"/><rect x="260" y="96" width="80" height="26"/></g>
+<g fill="#a9a398" text-anchor="middle"><text x="60" y="113">message 1</text><text x="180" y="113">message 2</text><text x="300" y="113">message 3</text></g>
+<g id="gA" fill="#f2ede4"><rect x="20" y="130" width="80" height="48"/><rect x="140" y="130" width="80" height="48"/><rect x="260" y="130" width="80" height="48"/></g>
+<g id="gB"><g fill="#ff5400"><rect x="20" y="130" width="80" height="14"/><rect x="140" y="130" width="80" height="14"/><rect x="260" y="130" width="80" height="14"/></g><g fill="#f2ede4"><rect x="20" y="146" width="80" height="38"/><rect x="140" y="146" width="80" height="38"/><rect x="260" y="146" width="80" height="38"/></g></g>
+<g id="gC"><rect x="30" y="14" width="300" height="28" fill="#f2ede4"/><text x="180" y="32" text-anchor="middle" fill="#07080a" font-weight="600">one signed ladder</text><path class="fw" d="M60 96V69H300V96M180 69V42" stroke="#ff5400" stroke-width="2" fill="none"/><g fill="#ff5400"><rect x="20" y="130" width="80" height="12"/><rect x="140" y="130" width="80" height="12"/><rect x="260" y="130" width="80" height="12"/></g><g fill="#fff"><circle r="3"><animateMotion dur="2s" repeatCount="indefinite" path="M180 42V69H60V96"/></circle><circle r="3"><animateMotion dur="2s" begin=".35s" repeatCount="indefinite" path="M180 42V96"/></circle><circle r="3"><animateMotion dur="2s" begin=".7s" repeatCount="indefinite" path="M180 42V69H300V96"/></circle></g></g>
+<text id="gt" x="180" y="204" text-anchor="middle" fill="#a9a398"></text><rect x="82" y="216" width="8" height="8" fill="#f2ede4"/><text x="96" y="224" fill="#a9a398">signature or ladder</text><rect x="210" y="216" width="8" height="8" fill="#ff5400"/><text x="224" y="224" fill="#a9a398">condensed path</text></svg></div></div></div></section>
+
+<div class="bd" aria-hidden="true"><canvas data-m="0"></canvas></div>
+<section id="architecture"><div class="w"><div class="sh"><h2>Architecture</h2><p>A Rust workspace links OpenSSL, liboqs and libMTL, benchmarks with Criterion, and captures live DNS from patched NSD and Unbound in Docker.</p></div>
+<div class="arch"><svg viewBox="0 0 900 250" role="img" aria-label="Native libraries and DNS pipeline feed the Rust workspace, which feeds consolidated results, report, dashboard and quote sheet" font-family="Geist,sans-serif" font-size="13" fill="#f2ede4">
+<g fill="#0d0f13" stroke="rgba(242,237,228,.22)"><rect x="10" y="20" width="150" height="40" rx="4"/><rect x="10" y="75" width="150" height="40" rx="4"/><rect x="10" y="130" width="150" height="40" rx="4"/><rect x="10" y="185" width="150" height="40" rx="4"/><rect x="230" y="40" width="170" height="60" rx="4"/><rect x="230" y="130" width="170" height="60" rx="4"/><rect x="470" y="85" width="170" height="70" rx="4" stroke="#ff5400"/><rect x="710" y="30" width="170" height="50" rx="4"/><rect x="710" y="105" width="170" height="50" rx="4"/><rect x="710" y="180" width="170" height="50" rx="4"/></g>
+<g stroke="rgba(255,84,0,.6)" stroke-width="1.4" fill="none"><path d="M160 40H195V70H230M160 95H195V70M160 150H195V160H230M160 205H195V160"/><path d="M400 70H435V120H470M400 160H435V120"/><path d="M640 120H675V55H710M640 120H710M640 120H675V205H710"/></g>
+<g text-anchor="middle"><text x="85" y="45">OpenSSL</text><text x="85" y="100">liboqs</text><text x="85" y="155">libMTL</text><text x="85" y="210">Docker build</text><text x="315" y="66">Rust workspace</text><text x="315" y="84" fill="#a9a398">Criterion benchmarks</text><text x="315" y="156">NSD + Unbound</text><text x="315" y="174" fill="#a9a398">DNS capture</text><text x="555" y="116">consolidate</text><text x="555" y="134" fill="#a9a398">climb-results.json</text><text x="795" y="60">HTML report</text><text x="795" y="135">TUI dashboard</text><text x="795" y="210">deck-facts.md</text></g></svg></div></div></section>
+
+<div class="bd" aria-hidden="true"><canvas data-m="1"></canvas></div>
+<section id="transparency"><div class="w"><div class="sh"><h2>Transparency</h2><p>Nothing on this page is typed in by hand. Each number is read from a recorded artifact and checked against a claims registry.</p></div>
+<div class="tr"><div><h3>Reproducible datasets</h3><p>Deterministic datasets in three sizes and repeated trials. One command, <code>cargo xtask reproduce</code>, rebuilds the artifact chain.</p></div>
+<div><h3>Pinned and fingerprinted</h3><p>liboqs and libMTL are pinned submodules. <code>environment.json</code> records CPU, kernel and toolchain.</p></div>
+<div><h3>Claims registry</h3><p>Each claim stores its JSON pointer, expected value and pass or fail mark. The README badge reports 771 of 771 verified.</p></div></div>
+<div class="lim"><h3>Known experimental limits</h3><p>Results are empirical. No formal security guarantee, proof or certification is claimed for MTL mode, SLH-DSA or any component. They cover one parameter set (SLH-DSA-SHA2-128s-MTL-SHA2-128), one reference implementation and one laptop-class machine. Native SLH-DSA is not SIMD-tuned in the pinned build. The DNS pipeline runs locally only.</p></div>
+<a class="lk" href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md" rel="noopener">Read the methodology ↗</a></div></section>
+
+<div class="bd" aria-hidden="true"><canvas data-m="0"></canvas></div>
+<section id="team"><div class="w"><div class="sh"><h2>Team CLIMB</h2><p>AIORI-3 Hackathon, problem statement PS-036, team code A3-PS036-TC529.</p></div>
+<ul class="tm"><li><h3>Pratyay Mukherjee</h3><span>Team Lead and Developer</span><a href="https://github.com/profm0r14rty" rel="noopener">GitHub profile ↗</a></li>
+<li><h3>Mohit Kumar Yadav</h3><span>Lead Researcher, UI and Logo Designer</span><a href="https://github.com/Mohh12glitch" rel="noopener">GitHub profile ↗</a></li>
+<li><h3>Dr. Maibam Devi</h3><span>Faculty Mentor</span><a href="https://www.nfsu.ac.in/Faculty/profile/664" rel="noopener">NFSU profile ↗</a></li></ul></div></section>
+</main>
+
+<footer id="ft"><div class="w">
+<div class="fh"><h2>Sign once. Prove many.</h2><div class="gs"><span>Clone it, rebuild every number, check the claims yourself.</span><div class="cmd"><code>git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb</code><button type="button" data-c="git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb">Copy</button></div><a class="btn p" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener">Open the repository</a></div></div>
+<ul class="kw" aria-label="Project keywords"><li class="r">post-quantum</li><li>SLH-DSA</li><li class="o">Merkle Tree Ladder</li><li>DNSSEC</li><li class="r">amortisation</li><li>condensed authentication path</li><li class="o">wire bytes</li><li>1,232-byte UDP payload</li><li class="r">libMTL</li><li>liboqs</li><li>Criterion</li><li class="o">reproducible</li><li>evidence classes</li><li class="r">claims registry</li><li>NSD and Unbound</li><li>Rust</li></ul>
+<div class="fg"><div><h3>CLIMB</h3><p style="max-width:38ch">Cryptographic Ladder Impact Measurement Benchmark. A reproducible look at what Merkle Tree Ladder amortisation buys post-quantum DNSSEC.</p></div>
+<div><h3>Project</h3><ul><li><a href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener">GitHub repository</a></li><li><a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/A3-PS036-TC529.pdf" rel="noopener">Presentation deck (PDF)</a></li><li><a href="https://www.youtube.com/watch?v=gDHYamjWmtE" rel="noopener">Introduction video</a></li></ul></div>
+<div><h3>Method</h3><ul><li><a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md" rel="noopener">Research methodology</a></li><li><a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/BASELINES.md" rel="noopener">Baselines A, B, C</a></li><li><a href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/ARCHITECTURE.md" rel="noopener">Documentation</a></li></ul></div>
+<div><h3>Event</h3><ul><li><a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" rel="noopener">AIORI-3 guidelines</a></li><li>Track 2, Cyber Security</li><li>PS-036 · A3-PS036-TC529</li></ul></div></div>
+<div class="fb"><span>MIT licence. 771 of 771 claims verified.</span><span>Experimental research benchmark. No formal security guarantee is claimed.</span></div></div></footer>
+
+<script>
+(function(){document.documentElement.classList.add('js');var bst=1;
+var rm=matchMedia('(prefers-reduced-motion: reduce)').matches,$=function(s){return document.querySelector(s)},$$=function(s){return[].slice.call(document.querySelectorAll(s))};
+var m=$('#mn'),nv=$('#nv');m.onclick=function(){var o=nv.classList.toggle('open');m.setAttribute('aria-expanded',o)};nv.onclick=function(e){if(e.target.tagName=='A'){nv.classList.remove('open');m.setAttribute('aria-expanded',false)}};
+document.addEventListener('click',function(e){var b=e.target.closest('[data-c]');if(!b)return;try{navigator.clipboard.writeText(b.dataset.c);b.textContent='Copied';setTimeout(function(){b.textContent='Copy'},1400)}catch(x){}});
+/* ladder */
+var EV={m:'Measured',d:'Derived',a:'Analytical',x:'Extrapolated ≈',n:''};
+var T=[["Signing performance",[["SLH-DSA signing","m","Criterion benchmark groups time signing for plain SLH-DSA (A) and MTL with and without amortisation (B, C).","cargo xtask bench-all"],["Batch speed-up","x","Medium dataset, C vs A: about 9,405×. Per-message cost multiplied by message count, not a whole-batch run.","cargo xtask deck-facts"]]],
+["Verification performance",[["Per-message verify","m","Verification cost per message under each configuration.","cargo xtask bench-all"],["Trusted cached ladder","x","With a verifier that trusts an already-checked ladder, C vs A is about 215.3×.","cargo xtask deck-facts"]]],
+["Wire efficiency",[["Wire bytes, Medium","m","A: 78,560,000 B. B: 83,295,296 B. C: 2,743,352 B.","cargo xtask wire-report"],["Wire reduction","d","C vs A is 96.508%, computed from the measured bytes. C vs B is 96.706%.","cargo xtask wire-report"],["UDP payload fit","a","A closed-form model in climb-analytical. In configuration C, 11 of 12 modelled response profiles fit the 1,232-byte payload.","cargo xtask wire-report"]]],
+["Memory analysis",[["Memory probe","m","Memory probes in climb-bench record real usage.","cargo xtask memory-report"],["Measured vs model","d","Small dataset: measured memory is 1.90× the analytical estimate.","cargo xtask memory-report"]]],
+["Ladder visualisation",[["Ladder verification","n","Checks a recorded ladder fixture from the data folder.","cargo xtask ladder-verify"],["Terminal dashboard","n","climb-tui shows ladder shape, results and the Integrity tab. It opens on committed sample results.","cargo run -p climb-tui"]]],
+["DNS packet replay",[["Recorded capture","d","Live response for www.climb.example. A: condensed vs full is a 97.307% reduction, baseline B.","cargo xtask dns-demo"],["Live pipeline","n","Patched NSD and Unbound in local Docker capture real wire bytes. Local only, no Internet deployment.","cargo xtask dns-demo"]]],
+["Integrity and provenance",[["Claims registry","n","Every claim embeds a JSON pointer into the results, its expected value and a pass or fail mark.","cargo xtask report --check"],["Docs drift check","n","Fails if any number in the README or docs is not in the quote sheet.","cargo xtask docs-check"],["Release bundle","n","Report, results, fixtures, SHA256SUMS and a PROVENANCE.txt naming the commit.","cargo xtask package"]]]];
+var lad=$('#lad'),sv=$('#sv'),cp=$('#cp'),lv=$('#lv'),dt=$('#dt'),rt=$('#rt'),NS='http://www.w3.org/2000/svg',ac=0,al=0,hc=-1,hl=-1,rev=0,pc=[],pl=[],ps2=[];
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
+T.forEach(function(c,i){var b=document.createElement('button');b.className='c';b.style.setProperty('--i',i);b.innerHTML='<span>'+c[0]+'</span><b>'+c[1].length+'</b>';
+ b.onclick=function(){ac=i;al=0;render(1)};b.onmouseenter=function(){hc=i;hv()};b.onmouseleave=function(){hc=-1;hv()};cp.appendChild(b)});
+function hv(){pc.forEach(function(p,i){p.classList.toggle('hv',i==hc&&i!=ac)});pl.forEach(function(p,j){p.classList.toggle('hv',j==hl&&j!=al)})}
+function render(a){[].forEach.call(cp.children,function(b,i){b.setAttribute('aria-pressed',i==ac)});lv.innerHTML='';hl=-1;
+ T[ac][1].forEach(function(l,j){var b=document.createElement('button');b.className='l';b.setAttribute('aria-pressed',j==al);b.innerHTML='<span>'+l[0]+'</span><span class="ev '+l[1]+'">'+EV[l[1]]+'</span>';b.onclick=function(){al=j;render(0)};b.onmouseenter=function(){hl=j;hv()};b.onmouseleave=function(){hl=-1;hv()};lv.appendChild(b)});
+ var l=T[ac][1][al];dt.innerHTML='<span class="cr">'+T[ac][0]+'</span><h3>'+l[0]+'</h3><span class="ev '+l[1]+'">'+EV[l[1]]+'</span><p>'+esc(l[2])+'</p><div class="cmd"><code>'+l[3]+'</code><button type="button" data-c="'+l[3]+'">Copy</button></div>';draw(a)}
+function st(x1,y1,x2,y2){var m=(x1+x2)/2;return'M'+x1+' '+y1+'C'+m+' '+y1+' '+m+' '+y2+' '+x2+' '+y2}
+function draw(a){sv.innerHTML='';pc=[];pl=[];ps2=[];if(innerWidth<=900)return;var o=lad.getBoundingClientRect();
+ function pt(el,s){var r=el.getBoundingClientRect();return[(s?r.right:r.left)-o.left,r.top+r.height/2-o.top]}
+ function add(p1,p2,on,an,dl){var p=document.createElementNS(NS,'path'),h=!rev||an,n=document.createElementNS(NS,'circle');p.setAttribute('d',st(p1[0],p1[1],p2[0],p2[1]));p.setAttribute('pathLength',1);if(on)p.classList.add('on');
+  p.style.strokeDashoffset=h?1:0;p.style.transition='stroke-dashoffset 1.2s cubic-bezier(.5,0,.2,1) '+dl+'s,stroke .3s,stroke-width .3s';sv.appendChild(p);
+  n.setAttribute('cx',p2[0]);n.setAttribute('cy',p2[1]);n.setAttribute('r',3.5);n.setAttribute('class','nd'+(on?' on':''));sv.appendChild(n);if(h)ps2.push(p);return p}
+ var r=pt(rt,1);[].forEach.call(cp.children,function(b,i){pc.push(add(r,pt(b,0),i==ac,0,i*.08))});
+ var c=pt(cp.children[ac],1);[].forEach.call(lv.children,function(b,j){pl.push(add(c,pt(b,0),j==al,a,.1+j*.1))});
+ add(pt(lv.children[al],1),pt(dt,0),1,a,.4);
+ if(!rm){var d=document.createElementNS(NS,'circle'),m=document.createElementNS(NS,'animateMotion');d.setAttribute('r',3.5);d.setAttribute('class','pd');m.setAttribute('dur','2.6s');m.setAttribute('repeatCount','indefinite');m.setAttribute('path',pc[ac].getAttribute('d'));d.appendChild(m);sv.appendChild(d)}
+ void sv.getBoundingClientRect();if(rev)ps2.forEach(function(p){p.style.strokeDashoffset=0});hv()}
+function revLad(){rev=1;ps2.forEach(function(p){p.style.strokeDashoffset=0})}
+var D=[["Criterion timings of SLH-DSA signing, with and without MTL.","cargo xtask bench-all"],["Per-message verification, including a trusted cached ladder.","cargo xtask bench-all"],["Wire-size and DNS packet analysis plus an analytical UDP-fit model.","cargo xtask wire-report"],["Measured memory compared with a closed-form model.","cargo xtask memory-report"],["Ladder shape and condensed paths in the terminal dashboard.","cargo run -p climb-tui"],["A recorded capture from patched NSD and Unbound, replayed locally.","cargo xtask dns-demo"],["Claims registry, drift checks and a checksummed release bundle.","cargo xtask report --check"]],cds=$('#cds');
+D.forEach(function(d,i){var b=document.createElement('button');b.className='cd';b.type='button';b.innerHTML='<span class="k">('+'abcdefg'[i]+')</span><h3>'+T[i][0]+'</h3><p>'+d[0]+'</p><span class="mo">'+d[1]+'</span>';b.onclick=function(){ac=i;al=0;render(1);$('#ladder').scrollIntoView({behavior:rm?'auto':'smooth'})};cds.appendChild(b)});
+cds.insertAdjacentHTML('beforeend','<a class="cd or" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener"><span>All seven capabilities are in the open repository.</span><b>View on GitHub ↗</b></a>');
+render(1);new ResizeObserver(function(){draw()}).observe(lad);
+/* configurations */
+var HW=[["A: one full signature per RRset","No ladder. The DNSSEC status quo before any MTL wrapper.","one full signature each","gA"],["B: full MTL signature per message","Every message carries its condensed path joined to the whole ladder.","path plus full ladder, repeated","gB"],["C: one ladder, many short paths","The ladder is signed once for the batch. Each message carries only its path.","shared ladder, short path each","gC"]],tabs=$$('[role=tab]'),bars=$$('.bar');
+function sel(k,f){tabs.forEach(function(t,j){t.setAttribute('aria-selected',j==k);t.tabIndex=j==k?0:-1;bars[j].classList.toggle('on',j==k);$('#'+HW[j][3]).style.display=j!=k?'none':''});$('#ph').textContent=HW[k][0];$('#pp').textContent=HW[k][1];$('#gt').textContent=HW[k][2];if(f)tabs[k].focus()}
+tabs.forEach(function(t,k){t.onclick=function(){sel(k)};t.onkeydown=function(e){if(e.key=='ArrowRight')sel((k+1)%3,1);if(e.key=='ArrowLeft')sel((k+2)%3,1)}});sel(0);
+/* one reveal: figures count up, bars fill */
+function count(el){var n=+el.dataset.n,d=+el.dataset.d,t0=0,f=function(t){t0=t0||t;var p=Math.min((t-t0)/1400,1);el.textContent=(n*(1-Math.pow(1-p,3))).toLocaleString('en',{minimumFractionDigits:d,maximumFractionDigits:d});if(p<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
+if(!rm){$$('.fill').forEach(function(b){b.style.width=0});$$('[data-n]').forEach(function(e){e.textContent='0'})}
+new IntersectionObserver(function(es,io){es.forEach(function(e){if(!e.isIntersecting)return;io.unobserve(e.target);if(e.target.id=='bars')$$('.fill').forEach(function(b){b.style.width=b.dataset.w+'%'});else $$('[data-n]').forEach(rm?function(){}:count)})},{threshold:.25}).observe($('#bars'));
+new IntersectionObserver(function(es,io){if(es[0].isIntersecting){io.disconnect();$$('[data-n]').forEach(function(e){if(rm)return;count(e)})}},{threshold:.2}).observe($('.led'));
+if(rm)$$('.fill').forEach(function(b){b.style.width=b.dataset.w+'%'});
+/* hero: calm grid ripple + nanoparticle orbits */
+var hero=$('.hero'),gc=$('#gc'),g=gc.getContext('2d'),ob=$('#ob'),of=$('#of'),cb=ob.getContext('2d'),cf=of.getContext('2d'),lo=$('.lo');
+var CELL=56,COL=[[255,84,0],[254,127,0],[255,166,166]],rip=[],ci=0,W=0,H=0,dpr=1,vis=false,last=0,nxt=0,raf=0,mx=-1e4,my=-1e4,V=560,TINT=['242,237,228','255,166,166','254,127,0'];
+var RG=[{A:215,B:70,L:-22*Math.PI/180},{A:185,B:104,L:26*Math.PI/180}],ps=[];
+for(var i=0;i<(innerWidth<700?360:720);i++){var q=Math.random();ps.push({g:i%2,t:Math.random()*6.283,v:.2+Math.random()*.4,s:1+(Math.random()-.5)*.34,r:.3+Math.random()*.45,a:.3+Math.random()*.55,c:TINT[q<.72?0:q<.88?1:2],ox:0,oy:0})}
+function size(){dpr=Math.min(devicePixelRatio||1,2);var r=hero.getBoundingClientRect();W=r.width;H=r.height;gc.width=W*dpr;gc.height=H*dpr;gc.style.width=W+'px';gc.style.height=H+'px';var s=Math.round(of.getBoundingClientRect().width*dpr);ob.width=ob.height=of.width=of.height=s;if(!vis)frame(performance.now(),0)}
+function add(x,y,a,t){rip.push({x:x,y:y,t:t||performance.now(),c:COL[ci++%3],a:a})}
+function ctr(){var r=lo.getBoundingClientRect(),h=hero.getBoundingClientRect();return[r.left+r.width/2-h.left,r.top+r.height/2-h.top]}
+function k(x,y,now){var b=0,c=COL[0];for(var i=0;i<rip.length;i++){var q=rip[i],age=(now-q.t)/1000,d=Math.hypot(x-q.x,y-q.y),u=(d-age*260)/70,v=Math.exp(-u*u)*(1-age/4)*q.a;if(v>b){b=v;c=q.c}}return[b,c]}
+function frame(now,dt){g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);rip=rip.filter(function(q){return now-q.t<4000});
+ g.strokeStyle='rgba(242,237,228,.05)';g.lineWidth=1;g.beginPath();var x,y;for(x=0;x<=W;x+=CELL){g.moveTo(x+.5,0);g.lineTo(x+.5,H)}for(y=0;y<=H;y+=CELL){g.moveTo(0,y+.5);g.lineTo(W,y+.5)}g.stroke();
+ if(rip.length)for(x=0;x<=W;x+=CELL)for(y=0;y<=H;y+=CELL){var h=k(x+CELL/2,y,now),v=k(x,y+CELL/2,now),n=k(x,y,now);
+  if(h[0]>.05){g.strokeStyle='rgba('+h[1]+','+Math.min(.5,h[0]*.5)+')';g.beginPath();g.moveTo(x,y+.5);g.lineTo(x+CELL,y+.5);g.stroke()}
+  if(v[0]>.05){g.strokeStyle='rgba('+v[1]+','+Math.min(.5,v[0]*.5)+')';g.beginPath();g.moveTo(x+.5,y);g.lineTo(x+.5,y+CELL);g.stroke()}
+  if(n[0]>.08){g.fillStyle='rgba('+n[1]+','+Math.min(.7,n[0]*.7)+')';g.fillRect(x-1,y-1,2,2)}}
+ var s=of.width/V,rc=of.getBoundingClientRect(),mvx=(mx-rc.left)/rc.width*V,mvy=(my-rc.top)/rc.height*V,R=84;
+ [cb,cf].forEach(function(c){c.setTransform(1,0,0,1,0,0);c.clearRect(0,0,of.width,of.height);c.setTransform(s,0,0,s,0,0)});
+ RG.forEach(function(Q){cb.strokeStyle='rgba(242,237,228,.07)';cb.lineWidth=.8;cb.beginPath();cb.ellipse(280,280,Q.A,Q.B,Q.L,Math.PI,2*Math.PI);cb.stroke();cf.strokeStyle='rgba(242,237,228,.16)';cf.lineWidth=.8;cf.beginPath();cf.ellipse(280,280,Q.A,Q.B,Q.L,0,Math.PI);cf.stroke()});
+ ps.forEach(function(p){var Q=RG[p.g],ca=Math.cos(Q.L),sa=Math.sin(Q.L);p.t+=p.v*dt*bst;var sn=Math.sin(p.t),ex=Q.A*p.s*Math.cos(p.t),ey=Q.B*p.s*sn,px=280+ex*ca-ey*sa,py=280+ex*sa+ey*ca,tx=0,ty=0,dx=px-mvx,dy=py-mvy,d=Math.hypot(dx,dy);
+  if(d<R&&d>.01){var f=(1-d/R);tx=dx/d*f*11;ty=dy/d*f*11}p.ox+=(tx-p.ox)*.12;p.oy+=(ty-p.oy)*.12;
+  var fr=sn>0,c=fr?cf:cb,r=p.r*(fr?1:.8);c.fillStyle='rgba('+p.c+','+(p.a*(fr?1:.5)).toFixed(2)+')';c.fillRect(px+p.ox-r,py+p.oy-r,r*2,r*2)})}
+function loop(now){if(!vis)return;var dt=Math.min((now-last)/1000||.016,.05);last=now;if(now>nxt){var c=ctr();add(c[0],c[1],.8,now);nxt=now+5200}frame(now,dt);raf=requestAnimationFrame(loop)}
+size();new ResizeObserver(size).observe(hero);
+if(rm){var c0=ctr();add(c0[0],c0[1],.8,performance.now()-1200);frame(performance.now(),0)}
+else{addEventListener('pointermove',function(e){mx=e.clientX;my=e.clientY},{passive:true});document.addEventListener('pointerleave',function(){mx=my=-1e4});
+ hero.addEventListener('pointerdown',function(e){if(e.target.closest('a,button'))return;var r=hero.getBoundingClientRect();add(e.clientX-r.left,e.clientY-r.top,.6)});
+ new IntersectionObserver(function(es){vis=es[0].isIntersecting;cancelAnimationFrame(raf);if(vis){last=performance.now();raf=requestAnimationFrame(loop)}}).observe(hero)}
+
+/* scroll: reveal, scale index, nav spy, climbing particles */
+var secs=$$('main section'),LB=['Top','Results','Capabilities','Ladder','How it works','Architecture','Transparency','Team'],rl=$('#rl'),ix=$('#ix'),pr=$('#pr'),pb=$('#pb'),nl=$$('#nv a[href^="#"]'),N=72,tk=[],lb=[],mj=[],ticking=0;
+for(var i=0;i<=N;i++){var t=document.createElement('i');t.style.top=i/N*100+'%';rl.appendChild(t);tk.push(t)}
+secs.forEach(function(s,i){var a=document.createElement('a');a.href='#'+(s.id||'top');a.textContent=LB[i];rl.appendChild(a);lb.push(a)});
+function lay(){var mxs=Math.max(1,document.documentElement.scrollHeight-innerHeight);secs.forEach(function(s,i){lb[i].style.top=Math.min(1,(s.getBoundingClientRect().top+scrollY)/mxs)*100+'%'});
+ mj=tk.map(function(t,i){return secs.some(function(s){return Math.abs(Math.min(1,(s.getBoundingClientRect().top+scrollY)/mxs)*N-i)<.5})});tk.forEach(function(t,i){t.classList.toggle('mj',mj[i])});upd()}
+function upd(){var mxs=Math.max(1,document.documentElement.scrollHeight-innerHeight),p=Math.min(1,scrollY/mxs),cur=0;
+ secs.forEach(function(s,i){if(s.getBoundingClientRect().top<innerHeight*.4)cur=i});
+ tk.forEach(function(t,i){var e=(i/N-p)*N;t.style.width=((mj[i]?16:7)+20*Math.exp(-e*e/9))+'px'});
+ ix.style.top=p*100+'%';pr.textContent=Math.round(p*100)+'%';pb.style.transform='scaleX('+p+')';
+ lb.forEach(function(a,i){a.classList.toggle('on',i==cur)});nl.forEach(function(a){a.classList.toggle('on',a.getAttribute('href')=='#'+secs[cur].id)})}
+addEventListener('scroll',function(){if(!ticking){ticking=1;requestAnimationFrame(function(){ticking=0;upd()})}},{passive:true});addEventListener('resize',lay);addEventListener('load',lay);setTimeout(lay,800);lay();
+$$('.sh p,.led li,.key,.note,.tr>div,.lim,.lk,.tm li,.hw>*,.arch,.fg>div,.fb,.cd,.gs,.kw li,.mt,.ld,.cta').forEach(function(e){e.classList.add('r');e.style.setProperty('--d',[].indexOf.call(e.parentNode.children,e))});
+$$('h1,h2').forEach(function(e){e.classList.add('cl');e.innerHTML='<span class="cs">'+e.innerHTML+'</span>'});
+var fx=$('#fx'),f=fx.getContext('2d'),FW=0,FH=0,fp=[],bu=[],sy=scrollY,sv2=0;
+function fz(){FW=fx.width=innerWidth;FH=fx.height=innerHeight}fz();addEventListener('resize',fz);
+for(var i=0;i<(innerWidth<700?60:130);i++)fp.push({x:Math.random()*innerWidth,y:Math.random()*innerHeight,z:.25+Math.random()*.75,a:.12+Math.random()*.35,o:Math.random()<.18});
+function burst(x,y){if(rm)return;for(var i=0;i<34;i++){var a=Math.random()*6.283,s=.5+Math.random()*2.2;bu.push({x:x,y:y,vx:Math.cos(a)*s,vy:Math.sin(a)*s-1,l:1,s:1+Math.random()*1.4,c:TINT[Math.random()<.6?2:0]})}}
+new IntersectionObserver(function(es,io){es.forEach(function(e){if(!e.isIntersecting)return;var t=e.target;t.classList.add('in');io.unobserve(t);if(t.id=='lad')revLad();if(t.tagName=='H2'){var r=t.getBoundingClientRect();burst(r.left+Math.min(r.width,260)/2,r.top+r.height/2)}})},{threshold:.15,rootMargin:'0px 0px -6% 0px'}).observe&&(function(io){$$('.r,.cl,#lad').forEach(function(e){io.observe(e)})})(new IntersectionObserver(function(es,io){es.forEach(function(e){if(!e.isIntersecting)return;var t=e.target;t.classList.add('in');io.unobserve(t);if(t.id=='lad')revLad();if(t.tagName=='H2'){var r=t.getBoundingClientRect();burst(r.left+Math.min(r.width,260)/2,r.top+r.height/2)}})},{threshold:.15,rootMargin:'0px 0px -6% 0px'}));
+function fl(){var y=scrollY;sv2+=((y-sy)-sv2)*.12;sy=y;bst=1+Math.min(Math.abs(sv2)*.06,3);f.clearRect(0,0,FW,FH);
+ fp.forEach(function(p){p.y-=p.z*(.18+sv2*.35);if(p.y<-6)p.y=FH+6;if(p.y>FH+6)p.y=-6;var s=p.o?1.6:1;f.fillStyle=p.o?'rgba(254,127,0,'+p.a+')':'rgba(242,237,228,'+p.a+')';f.fillRect(p.x,p.y,s,s+Math.abs(sv2)*p.z*.6)});
+ bu=bu.filter(function(b){return b.l>0});bu.forEach(function(b){b.x+=b.vx;b.y+=b.vy;b.vy-=.02;b.vx*=.98;b.l-=.012;f.fillStyle='rgba('+b.c+','+(b.l*.8).toFixed(2)+')';f.fillRect(b.x,b.y,b.s,b.s)});requestAnimationFrame(fl)}
+if(!rm)fl();
+
+/* architecture: data packets along the pipeline */
+$$('.arch path').forEach(function(p,gi){if(rm)return;p.getAttribute('d').split(/(?=M)/).forEach(function(d,j){var c=document.createElementNS(NS,'circle'),m=document.createElementNS(NS,'animateMotion');c.setAttribute('r',3);c.setAttribute('fill','#ff5400');m.setAttribute('dur','2.6s');m.setAttribute('begin',(j*.5+gi*.3)+'s');m.setAttribute('repeatCount','indefinite');m.setAttribute('path',d);c.appendChild(m);p.parentNode.appendChild(c)})});
+/* section bands: 0 = hashes climbing a Merkle tree, 1 = packets hopping a ladder */
+function band(cv,mode){var g=cv.getContext('2d'),W=0,H=0,dp=1,pk=[],lit=[],xs=[],ys=[],lv=3,pa=[],vis=false,last=0,nx=0,raf=0,SP=46;
+ function bt(){var n=W<520?8:16,l,i;lv=Math.log2(n);xs=[];ys=[];lit=[];for(l=0;l<=lv;l++){xs[l]=[];lit[l]=[];ys[l]=H-14-l*(H-34)/lv;for(i=0;i<(n>>l);i++){xs[l][i]=l?(xs[l-1][2*i]+xs[l-1][2*i+1])/2:(i+.5)*W/n;lit[l][i]=0}}
+  pa=[];for(i=0;i<n;i++){var P=[[xs[0][i],ys[0]]],cu=[0],nd=[0],d=0,ix=i;for(l=1;l<=lv;l++){ix>>=1;var a=P[P.length-1],ym=(a[1]+ys[l])/2;[[a[0],ym],[xs[l][ix],ym],[xs[l][ix],ys[l]]].forEach(function(q){var p=P[P.length-1];d+=Math.abs(q[0]-p[0])+Math.abs(q[1]-p[1]);P.push(q);cu.push(d)});nd.push(d)}pa.push({P:P,cu:cu,nd:nd,L:d})}}
+ function at(p,d){for(var i=1;i<p.P.length;i++)if(d<=p.cu[i]){var u=(d-p.cu[i-1])/(p.cu[i]-p.cu[i-1]||1);return[p.P[i-1][0]+(p.P[i][0]-p.P[i-1][0])*u,p.P[i-1][1]+(p.P[i][1]-p.P[i-1][1])*u]}return p.P[p.P.length-1]}
+ function ry(r){return H*(.26+r*.24)}
+ function sz(){dp=Math.min(devicePixelRatio||1,2);var r=cv.getBoundingClientRect();W=r.width;H=r.height;cv.width=W*dp;cv.height=H*dp;if(!mode)bt();pk=[];draw()}
+ function step(now,dt){if(now>nx){nx=now+(mode?650:380);if(pk.length<8)pk.push(mode?{x:-8,y:ry(1),r:1,tr:1,k:-1,sp:70+Math.random()*50,t:[]}:{i:Math.random()*pa.length|0,d:0})}
+  pk=pk.filter(function(p){if(!mode){p.d+=dt*110;for(var l=0;l<=lv;l++)if(p.d>=pa[p.i].nd[l])lit[l][p.i>>l]=1;return p.d<pa[p.i].L+14}
+   var ty=ry(p.tr),dy=ty-p.y;if(Math.abs(dy)>.5)p.y+=Math.sign(dy)*Math.min(Math.abs(dy),dt*150);else{p.x+=p.sp*dt;var k=Math.floor(p.x/SP);if(k!=p.k){p.k=k;p.x=k*SP;if(Math.random()<.45)p.tr=Math.max(0,Math.min(2,p.tr+(Math.random()<.5?-1:1)))}}
+   p.t.push([p.x,p.y]);if(p.t.length>30)p.t.shift();return p.x<W+20});
+  if(!mode)lit.forEach(function(a){for(var i=0;i<a.length;i++)a[i]=Math.max(0,a[i]-dt*1.1)})}
+ function draw(){g.setTransform(dp,0,0,dp,0,0);g.clearRect(0,0,W,H);var l,i;
+  if(!mode){g.strokeStyle='rgba(242,237,228,.11)';g.lineWidth=1;g.beginPath();for(l=1;l<=lv;l++)for(i=0;i<xs[l].length;i++){var ym=(ys[l-1]+ys[l])/2;[2*i,2*i+1].forEach(function(c){g.moveTo(xs[l-1][c],ys[l-1]);g.lineTo(xs[l-1][c],ym);g.lineTo(xs[l][i],ym);g.lineTo(xs[l][i],ys[l])})}g.stroke();
+   for(l=0;l<=lv;l++)for(i=0;i<xs[l].length;i++){var v=lit[l][i],s=3+l*1.2;g.fillStyle=v>.03?'rgba(255,84,0,'+(.35+.65*v)+')':'rgba(242,237,228,.24)';g.fillRect(xs[l][i]-s/2,ys[l]-s/2,s,s)}
+   pk.forEach(function(p){for(var k=0;k<9;k++){var q=at(pa[p.i],Math.max(0,p.d-k*6));g.fillStyle='rgba(255,166,166,'+(.9*(1-k/9)).toFixed(2)+')';g.fillRect(q[0]-1,q[1]-1,2,2)}})}
+  else{g.strokeStyle='rgba(242,237,228,.13)';g.lineWidth=1;g.beginPath();for(i=0;i<3;i++){g.moveTo(0,ry(i)+.5);g.lineTo(W,ry(i)+.5)}for(var x=SP;x<W;x+=SP){g.moveTo(x+.5,ry(0));g.lineTo(x+.5,ry(2))}g.stroke();
+   pk.forEach(function(p){var n=p.t.length;p.t.forEach(function(q,j){g.fillStyle=(j%3?'rgba(255,166,166,':'rgba(254,127,0,')+(j/n*.85).toFixed(2)+')';g.fillRect(q[0]-1,q[1]-1,2,2)});g.fillStyle='#ff5400';g.fillRect(p.x-2,p.y-2,4,4)})}}
+ function loop(now){if(!vis)return;var dt=Math.min((now-last)/1000||.016,.05);last=now;step(now,dt);draw();raf=requestAnimationFrame(loop)}
+ sz();new ResizeObserver(sz).observe(cv);if(rm)return;
+ new IntersectionObserver(function(es){vis=es[0].isIntersecting;cancelAnimationFrame(raf);if(vis){last=performance.now();raf=requestAnimationFrame(loop)}}).observe(cv)}
+$$('.bd canvas').forEach(function(c){band(c,+c.dataset.m)});
+})();
+</script>
+<script>
+/* glass: pointer-tracked specular light; refraction filter on chromium */
+(function(){var de=document.documentElement;if(navigator.userAgentData)de.classList.add('rf');
+var G='#hd,.led li,.tm li,.tr>div,.lim,.dg,.arch',raf=0,ev;
+addEventListener('pointermove',function(e){ev=e;if(raf)return;raf=requestAnimationFrame(function(){raf=0;var t=ev.target,el=t&&t.closest&&t.closest(G);if(!el)return;var r=el.getBoundingClientRect();el.style.setProperty('--mx',(ev.clientX-r.left)+'px');el.style.setProperty('--my',(ev.clientY-r.top)+'px')})},{passive:true})})();
+</script></body></html>
