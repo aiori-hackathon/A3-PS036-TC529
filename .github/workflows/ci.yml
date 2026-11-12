@@ -47,6 +47,10 @@ jobs:
           cargo clippy -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-viewer.log
           cargo clippy -p climb-report --no-default-features -- -D warnings 2>&1 | tee target/test-logs/clippy-report.log
 
+
+      - name: Fetch main branch
+        run: git fetch origin main
+
       - name: Check committed sample pair
         run: cargo run -p xtask --no-default-features -- sample-check
 
