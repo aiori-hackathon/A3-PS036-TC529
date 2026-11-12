@@ -1222,7 +1222,10 @@ mod tests {
             .expect("the committed sample artifact must carry a stability section");
         assert!(!section.runs.is_empty());
         for row in &section.runs {
-            assert!(row.ratio_name.starts_with("signing_speedup_model_"));
+            assert!(
+                row.ratio_name.starts_with("signing_speedup_")
+                    || row.ratio_name.starts_with("verifying_speedup_")
+            );
             assert!(row.n_runs >= 1);
             assert!(row.min <= row.median && row.median <= row.max);
         }

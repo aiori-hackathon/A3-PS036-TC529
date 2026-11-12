@@ -99,12 +99,12 @@ in this table drifts from the quote sheet.
 | Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A | — |
 | Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B | — |
 | Wire bytes, Medium — C (MTL amortised) | 2,743,352 B | MEASURED | C | — |
-| Signing speed-up, Medium — C vs A | 9,405 × | DERIVED | A | pending |
-| Verifying speed-up, Medium, trust cached ladder — C vs A | 215.3 × | DERIVED | A | pending |
+| Signing speed-up, Medium — C vs A | 9,434 × | DERIVED | A | model median 9407.3 × (9394.2–9419.4, n=5) |
+| Verifying speed-up, Medium, trust cached ladder — C vs A | 77.34 × | DERIVED | A | model median 81.4 × (76.7–84.3, n=5) |
 | UDP fit, 12 analytical rows — A (plain SLH-DSA) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | A | — |
 | UDP fit, 12 analytical rows — B (MTL, no amortisation) modelled responses fitting the 1,232-byte UDP payload | 0 of 12 | ANALYTICAL | B | — |
 | UDP fit, 12 analytical rows — C (MTL amortised) modelled responses fitting the 1,232-byte UDP payload | 11 of 12 | ANALYTICAL | C | — |
-| Large memory (measured resident median) | 1,087,139,840 B | MEASURED | n/a | — |
+| Large memory (measured resident median) | 1,086,554,112 B | MEASURED | n/a | — |
 | Large memory (measured / analytical ratio) | 1.104 × | DERIVED | n/a | — |
 | Ladder buffer at N=100 (Small dataset), 3 rungs | 132 B | MEASURED | n/a | — |
 | Medium — resolver cache bytes, plain (measured) | 8,429,932 B | MEASURED | n/a | — |
@@ -129,9 +129,9 @@ message.
 <!-- classical:begin -->
 | Algorithm | Signature bytes | Verify per message | Evidence class | Baseline |
 | --- | --- | --- | --- | --- |
-| Ed25519 (context) | 64 B | 90.28 µs | MEASURED | n/a |
-| ECDSA P-256 (context) | 64 B | 704.76 µs | MEASURED | n/a |
-| RSA-2048 (context) | 256 B | 499.72 µs | MEASURED | n/a |
+| Ed25519 (context) | 64 B | 28.59 µs | MEASURED | n/a |
+| ECDSA P-256 (context) | 64 B | 261.46 µs | MEASURED | n/a |
+| RSA-2048 (context) | 256 B | 198.53 µs | MEASURED | n/a |
 <!-- classical:end -->
 
 Classical rows carry baseline `n/a` because they are context, not variants of

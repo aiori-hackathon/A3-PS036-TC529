@@ -732,8 +732,8 @@ mod tests {
         let app = live_app();
         let out = render_to_string(&app, 120, 40);
         for needle in [
-            "RECORDED CAPTURE 2026-10-12",
-            "commit \u{2014}",
+            "RECORDED CAPTURE 2026-11-12",
+            "commit 8638261ce47e",
             "[recorded fixture]",
             "www.climb.example. A",
             "without MTL \u{b7} full pass",
@@ -784,7 +784,7 @@ mod tests {
         app.set_live(loaded_live());
         let out = render_to_string(&app, 120, 40);
         for needle in [
-            "RECORDED CAPTURE 2026-10-12",
+            "RECORDED CAPTURE 2026-11-12",
             "without MTL",
             "with MTL",
             "run live: cargo xtask dns-demo",

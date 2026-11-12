@@ -204,11 +204,11 @@ dataset size (messages)
 1,000,000
 </text>
 <polyline fill="none" opacity="1" stroke="#000000" stroke-width="1" points="882,500 882,505 "/>
-<circle cx="168" cy="228" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
-<circle cx="525" cy="197" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
+<circle cx="168" cy="232" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
+<circle cx="525" cy="198" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
 <circle cx="882" cy="86" r="5" opacity="1" fill="#1F77B4" stroke="none" stroke-width="1"/>
-<polygon opacity="1" fill="#5A5A5F" points="168,221 162,232 175,232 "/>
-<polygon opacity="1" fill="#5A5A5F" points="525,189 519,200 532,200 "/>
+<polygon opacity="1" fill="#5A5A5F" points="168,225 162,236 175,236 "/>
+<polygon opacity="1" fill="#5A5A5F" points="525,190 519,201 532,201 "/>
 <polygon opacity="1" fill="#5A5A5F" points="882,78 876,89 889,89 "/>
 <rect x="142" y="246" width="53" height="253" opacity="1" fill="#D65E00" stroke="none"/>
 <rect x="498" y="246" width="54" height="253" opacity="1" fill="#D65E00" stroke="none"/>
@@ -222,35 +222,35 @@ dataset size (messages)
 <rect x="142" y="245" width="53" height="0" opacity="1" fill="#9467BD" stroke="none"/>
 <rect x="498" y="204" width="54" height="0" opacity="1" fill="#9467BD" stroke="none"/>
 <rect x="855" y="89" width="53" height="0" opacity="1" fill="#9467BD" stroke="none"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="165" y1="229" x2="171" y2="229"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="165" y1="228" x2="171" y2="228"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="168" y1="229" x2="168" y2="228"/>
-<circle cx="168" cy="228" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="522" y1="197" x2="528" y2="197"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="522" y1="197" x2="528" y2="197"/>
-<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="525" y1="197" x2="525" y2="197"/>
-<circle cx="525" cy="197" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="165" y1="233" x2="171" y2="233"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="165" y1="231" x2="171" y2="231"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="168" y1="233" x2="168" y2="231"/>
+<circle cx="168" cy="232" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="522" y1="198" x2="528" y2="198"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="522" y1="198" x2="528" y2="198"/>
+<line opacity="1" stroke="#1F77B4" stroke-width="1" x1="525" y1="198" x2="525" y2="198"/>
+<circle cx="525" cy="198" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
 <line opacity="1" stroke="#1F77B4" stroke-width="1" x1="879" y1="86" x2="885" y2="86"/>
 <line opacity="1" stroke="#1F77B4" stroke-width="1" x1="879" y1="86" x2="885" y2="86"/>
 <line opacity="1" stroke="#1F77B4" stroke-width="1" x1="882" y1="86" x2="882" y2="86"/>
 <circle cx="882" cy="86" r="3" opacity="1" fill="none" stroke="#1F77B4" stroke-width="1"/>
-<text x="153" y="211" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
-1.90x
+<text x="153" y="215" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
+1.63x
 </text>
-<text x="510" y="180" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
-1.33x
+<text x="510" y="182" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
+1.28x
 </text>
 <text x="867" y="70" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="8.064516129032258" opacity="1" fill="#46464B">
 1.10x
 </text>
-<text x="98" y="211" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
-residual: +1966558 B (+90.3%)
+<text x="98" y="215" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
+residual: +1368542 B (+62.8%)
 </text>
-<text x="447" y="180" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
-residual: +3512174 B (+33.4%)
+<text x="447" y="182" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
+residual: +2983790 B (+28.4%)
 </text>
 <text x="798" y="70" dy="0.76em" text-anchor="start" font-family="sans-serif" font-size="7.258064516129032" opacity="1" fill="#46464B">
-residual: +102788718 B (+10.4%)
+residual: +102202990 B (+10.4%)
 </text>
 <rect x="103" y="34" width="281" height="97" opacity="0.85" fill="#FFFFFF" stroke="none"/>
 <rect x="103" y="34" width="281" height="97" opacity="1" fill="none" stroke="#000000"/>

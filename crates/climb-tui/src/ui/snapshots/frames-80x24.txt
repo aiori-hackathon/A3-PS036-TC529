@@ -12,22 +12,22 @@ size: 80x24
 Cryptographic Ladder Impact Measurement Benchmark
 post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036
 ┌ DNS ─────────┐┌ Wire ────────┐┌ Signing ─────┐┌ Verify ──────┐┌ C vs A ──────┐
-│97.3%         ││95.7%         ││9,433x        ││215.3x        ││9,405x        │
+│97.3%         ││95.7%         ││9,427x        ││77.34x        ││9,434x        │
 │Live C vs A   ││Large C vs B  ││Medium C vs B ││Medium C vs A ││Medium C vs A │
 └──────────────┘└──────────────┘└──────────────┘└──────────────┘└──────────────┘
 
 ┌ Signature context ───────────────────────────────────────────────────────────┐
 │cfg  configuration                sig B   sign µs  verify µs fits 1,232       │
-│E    Ed25519, context              64 B     43.76      90.28       100%       │
-│P    ECDSA P-256, context          64 B    417.87     704.76       100%       │
-│R    RSA-2048, context            256 B   4157.52     499.72       100%       │
-│A    plain SLH-DSA              7,856 B 517519.29    1424.13         0%       │
-│B    MTL non-amortised        8329.53 B 519053.54    1450.71         0%       │
+│E    Ed25519, context              64 B     15.95      28.59       100%       │
+│P    ECDSA P-256, context          64 B    154.10     261.46       100%       │
+│R    RSA-2048, context            256 B   1533.33     198.53       100%       │
+│A    plain SLH-DSA              7,856 B 507973.41     503.30         0%       │
+│B    MTL non-amortised        8329.53 B 507597.49     508.49         0%       │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 12a1d4925af411da
-style-digest light: 42b5d444e1fe75df
-style-digest contrast: 544ab9f82ea78785
+style-digest dark: 13321471703bc13b
+style-digest light: fea0364971df0a64
+style-digest contrast: 3cf765f5e1c8347a
 
 ### Signing
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -35,13 +35,13 @@ style-digest contrast: 544ab9f82ea78785
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Signing ·  total time ───────────────────────────────────────────────────────┐
 │ Small                                                                        │
-│ MTL amortised  █                                      587 ms ±4%             │
-│ No amortisation█████████████                          52 s ±1%               │
+│ MTL amortised  █                                      508 ms ±0%             │
+│ No amortisation█████████████                          50.7 s ±0%             │
 │ OneK                                                                         │
-│ MTL amortised  █                                      520 ms ±0%             │
+│ MTL amortised  █                                      512 ms ±0%             │
 └──────────────────────────────────────────────────────────────────────────────┘
- MTL amortised   587 ms ±4%  measured, 100 messages
- No amortisation 520 ms ±1%  measured, 1 messages
+ MTL amortised   508 ms ±0%  measured, 100 messages
+ No amortisation 507 ms ±0%  measured, 1 messages
 ┌ Amortization ────────────────────────────────────────────────────────────────┐
 │1 s   │•••••••••••••     •                •                                  •│
 │100 ms│             ••••••••••••••••••••••••••••••••••••••••••••••••••••••••••│
@@ -50,13 +50,13 @@ style-digest contrast: 544ab9f82ea78785
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Tables ·  total time─────────────────────────────────────────────────────────┐
 │Size           MTL amortised (ns…s) No amortisation (ns…s) Speed-up (×)       │
-│Small                        587 ms                   52 s        88.7x       │
-│OneK                         520 ms               8.61 min       992.8x       │
+│Small                        508 ms                 50.7 s       99.81x       │
+│OneK                         512 ms               8.55 min       1,002x       │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 882b15feb2cebfe1
-style-digest light: 41178dd5668a66a8
-style-digest contrast: 5f76091fb7b31c71
+style-digest dark: 0020a716b869e852
+style-digest light: 50276fa2b313a41d
+style-digest contrast: 150182350d74f747
 
 ### Verifying
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -64,17 +64,17 @@ style-digest contrast: 5f76091fb7b31c71
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Verifying ·  total time ─────────────────────────────────────────────────────┐
 │ Small                                                                        │
-│ Full ladder  ██████████████                       150 ms ±3%                 │
-│ Without MTL  ██████████████                       149 ms ±4%                 │
-│ Trust-cached █                                    345 µs ±1%                 │
+│ Full ladder  █████████████                        50.1 ms ±0%                │
+│ Without MTL  █████████████                        47.4 ms ±0%                │
+│ Trust-cached █                                    335 µs ±0%                 │
 │ OneK                                                                         │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Tables ·  total time─────────────────────────────────────────────────────────┐
 │Size          Trust-cached (ns…s)   Full ladder (ns…s)   Without MTL (ns…s)   │
-│Small                      345 µs               150 ms               149 ms   │
-│OneK                            —               ≈1.5 s              ≈1.47 s   │
-│Medium                    66.1 ms               14.9 s               14.5 s   │
-│Large                      16.9 s            ≈24.9 min            ≈24.5 min   │
+│Small                      335 µs              50.1 ms              47.4 ms   │
+│OneK                      4.62 ms               526 ms               533 ms   │
+│Medium                    65.1 ms               5.45 s               5.08 s   │
+│Large                      9.12 s            ≈8.74 min            ≈8.42 min   │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Reuse · cold vs warm ────────────────────────────────────────────────────────┐
 │Size           Time r* (reuses)  Bytes r* (reuses) Class                      │
@@ -83,9 +83,9 @@ style-digest contrast: 5f76091fb7b31c71
 │Large                       r=2                r=2 EXTRAPOLATED               │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: f55343b48b459482
-style-digest light: 6f83c41a69b1138e
-style-digest contrast: 811f43ebdf1972a6
+style-digest dark: 831d75ad4d9c7edc
+style-digest light: a5a6ebf80cfc54ea
+style-digest contrast: c0fc9cc2dccdb453
 
 ### Wire
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -122,9 +122,9 @@ style-digest contrast: 94d34e952b5e45b6
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Memory · benchmark process memory ───────────────────────────────────────────┐
 │ Small                                                                        │
-│ Analytical   ░░░░░░░░░░░░░░░░░░░░░░▒                      2.18 MB            │
-│ Measured     ████████████████████████████████████████████ 4.15 MB            │
-│   peak 4.15 MB · ratio 1.90× · resid 1.97 MB (+90.3%) · n=7, IQR 94.2 kB     │
+│ Analytical   ░░░░░░░░░░░░░░░░░░░░░░░░░░▒                  2.18 MB            │
+│ Measured     ████████████████████████████████████████████ 3.55 MB            │
+│   peak 3.55 MB · ratio 1.63× · resid 1.37 MB (+62.8%) · n=7, IQR 81.9 kB     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Reading these numbers ───────────────────────────────────────────────────────┐
 │                                                                              │
@@ -135,15 +135,15 @@ style-digest contrast: 94d34e952b5e45b6
 │  residual = resident median − model                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Resolver cache (separate measurement) ───────────────────────────────────────┐
-│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.29│
+│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.47│
 │MB                                                                            │
-│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.52  │
+│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.18  │
 │MB                                                                            │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 67dcf73ecffebb4c
-style-digest light: fae3eb4de1aba318
-style-digest contrast: e3377ea4b544fe2e
+style-digest dark: 750d0c2eb7bde8fb
+style-digest light: 6a8c7ef3d8d3d145
+style-digest contrast: 8465529e080dd4f3
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -162,7 +162,7 @@ style-digest contrast: e3377ea4b544fe2e
 │ selected leaf 0 · auth path 3 siblings                                       │
 │ condensed signature: 124 B                                                   │
 │ ladder buffer: 68 B                                                          │
-│ ✔ matches libMTL: condensed 124 B, ladder 68 B (live run 2026-10-14)         │
+│ ✔ matches libMTL: condensed 124 B, ladder 68 B (live run 2026-11-12)         │
 │                                                                              │
 │ The big signature is paid once; each message carries only its own short path.│
 │                                                                              │
@@ -170,15 +170,15 @@ style-digest contrast: e3377ea4b544fe2e
 │                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 87be16cf75dda609
-style-digest light: 21975abd27df506d
-style-digest contrast: 806f4927d6fe0c21
+style-digest dark: ed879f44c4c93d72
+style-digest light: ed3e10b5c12508a4
+style-digest contrast: df3559433159abbe
 
 ### Live
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method           │
 └──────────────────────────────────────────────────────────────────────────────┘
-RECORDED CAPTURE 2026-10-12 · commit — [live run]
+RECORDED CAPTURE 2026-11-12 · commit 8638261ce47e [live run]
 www.climb.example. A · without MTL 24,438 B → with MTL 658 B · 97.3% smaller
 ▶ 1/18 · → query · climb.example. SOA · tcp · — · Σ 0 B
 ┌ without MTL · full pass ─────────────────────────────────────────────────────┐
@@ -199,9 +199,9 @@ www.climb.example. A · without MTL 24,438 B → with MTL 658 B · 97.3% smaller
 
 run live: cargo xtask dns-demo  space/backspace step · enter autoplay · t scale
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 90ae314c96efb43b
-style-digest light: f973ecee88477b80
-style-digest contrast: 352897762cfd5748
+style-digest dark: 3be1aedf0cb6d797
+style-digest light: 670116db5929e8c0
+style-digest contrast: f18e0a45a9dadfcd
 
 ### Integrity
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -243,7 +243,7 @@ style-digest contrast: 44b50de0ddd801cd
 │  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Larg│
 │  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                    │
 │  dataset sizes             Small, OneK, Medium, Large                        │
-│  results generated         2026-10-22T15:30:06+05:30                         │
+│  results generated         2026-11-12T18:15:57+05:30                         │
 │  Reproduce every artifact from a clean checkout:                             │
 │    cargo xtask reproduce --report-only                                       │
 │    cargo xtask reproduce --remeasure                                         │
@@ -257,6 +257,6 @@ style-digest contrast: 44b50de0ddd801cd
 │  DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 6bc055fab4ba0c7f
-style-digest light: bf5faf3be4a2c6bc
-style-digest contrast: f17cc72187f688d7
+style-digest dark: 1b11661c8ec0a0cf
+style-digest light: cbcf6b4d504cc2e0
+style-digest contrast: cc216ddcc1a57923

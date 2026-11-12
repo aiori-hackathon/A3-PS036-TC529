@@ -57,7 +57,8 @@ fn committed_stability_section_is_self_consistent() {
 
     for row in &section.runs {
         assert!(
-            row.ratio_name.starts_with("signing_speedup_model_"),
+            row.ratio_name.starts_with("signing_speedup_")
+                || row.ratio_name.starts_with("verifying_speedup_"),
             "unexpected ratio name {}",
             row.ratio_name
         );

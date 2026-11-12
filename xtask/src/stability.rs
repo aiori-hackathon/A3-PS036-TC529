@@ -447,6 +447,7 @@ mod tests {
                 "dns_pipeline",
                 "dns_anatomy",
                 "ladder",
+                "replication",
                 "dns_rtt",
                 "cache_use",
                 "plain",

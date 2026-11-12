@@ -13,8 +13,8 @@ cargo run --release -p climb-tui --no-default-features
 ```
 
 The dashboard opens on the **Overview** tab, which shows the headline table:
-signing speed-up at Medium of 9,405 × for the amortised configuration against
-plain SLH-DSA, verifying speed-up of 215.3 × with a trusted cached ladder, and
+signing speed-up at Medium of 9,434 × for the amortised configuration against
+plain SLH-DSA, verifying speed-up of 77.34 × with a trusted cached ladder, and
 the wire reduction rows. Keys `1` through `9` switch tabs.
 
 ## Stop one — signing a batch with one MTL ladder
@@ -25,7 +25,7 @@ Show the **Ladder** tab and the **Signing** tab.
   buffer is 132 B, three rungs — the structure the whole amortisation rests
   on, parsed back from the library's own serialized bytes.
 - **Signing** shows per-size signing time for the amortised batch against
-  the non-amortised baselines, including the 9,405 × speed-up at Medium.
+  the non-amortised baselines, including the 9,434 × speed-up at Medium.
 
 Live command (slow, runs every benchmark group):
 
@@ -37,7 +37,7 @@ cargo xtask bench-all
 
 Show the **Verifying** tab: verification time per dataset size for the full
 ladder, the non-MTL baseline, and the trusted cached ladder, including the
-215.3 × cached-ladder speed-up at Medium.
+77.34 × cached-ladder speed-up at Medium.
 
 Live command:
 

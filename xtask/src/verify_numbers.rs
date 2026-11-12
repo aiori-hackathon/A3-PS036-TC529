@@ -900,7 +900,7 @@ mod tests {
     fn an_injected_sheet_disagreement_is_caught() {
         let results = sample_results();
         let json = sample_json();
-        let sheet = SHEET.replacen("| 9,405 | × | DERIVED |", "| 1 | × | DERIVED |", 1);
+        let sheet = SHEET.replacen("| 9,434 | × | DERIVED |", "| 1 | × | DERIVED |", 1);
         assert_ne!(sheet, SHEET, "fixture row shape changed");
         let rows = run(&results, &json, &sheet, README, REPORT, false);
         let row = rows
@@ -914,7 +914,7 @@ mod tests {
     fn an_injected_readme_disagreement_is_caught() {
         let results = sample_results();
         let json = sample_json();
-        let readme = README.replacen("| 9,405 × | DERIVED |", "| 1 × | DERIVED |", 1);
+        let readme = README.replacen("| 9,434 × | DERIVED |", "| 1 × | DERIVED |", 1);
         assert_ne!(readme, README, "fixture row shape changed");
         let rows = run(&results, &json, SHEET, &readme, REPORT, false);
         let row = rows

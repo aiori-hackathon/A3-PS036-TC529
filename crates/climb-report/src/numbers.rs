@@ -893,14 +893,14 @@ mod tests {
         assert!((wire.value - 96.5079531568).abs() < 1e-6, "{}", wire.value);
         assert_eq!(metric(&metrics, "wire_a_medium").display, "78,560,000");
         let signing = metric(&metrics, "signing_speedup_medium_c_vs_a");
-        assert!((signing.value - 9405.20631576).abs() < 1e-5);
+        assert!((signing.value - 9434.44263867).abs() < 1e-5);
         let verifying = metric(&metrics, "verifying_speedup_medium_cached_c_vs_a");
-        assert!((verifying.value - 215.311121087).abs() < 1e-5);
+        assert!((verifying.value - 77.339473365).abs() < 1e-5);
         assert_eq!(
             metric(&metrics, "large_memory_median").display,
-            "1,087,139,840"
+            "1,086,554,112"
         );
-        assert!((metric(&metrics, "large_memory_ratio").value - 1.1044228).abs() < 1e-5);
+        assert!((metric(&metrics, "large_memory_ratio").value - 1.1038278).abs() < 1e-5);
         assert_eq!(metric(&metrics, "ladder_buffer_n100").value, 132.0);
     }
 
