@@ -42,6 +42,26 @@ no FFI crate, and asserts the checkout stayed clean. It needs no native prefix a
 Docker, extracts it, then runs the workspace format, build, lint, test, documentation, hygiene, pin
 and reproduction gates in the clone. It is the check to run on mains power.
 
+## One resumable final run
+
+`cargo xtask final-run` runs the whole measurement chain in the order the artifacts depend on: pin
+the environment, measure wire sizes and memory, verify the ladder shape, run the signing,
+verifying, primitives and classical benchmarks, repeat the primitives run for the stability spread,
+optionally capture the DNS pipeline, then consolidate, chart, render, check, refresh the committed
+sample and the documentation, and write the audit pack. Each step prints its expected duration
+before it starts; every outcome is recorded in `target/final-run/state.json` with a progress line in
+`target/final-run/run.log`.
+
+`--resume` restarts at the first step not recorded as complete and discards every later record, so a
+re-measured input can never leave a stale downstream artifact. `--quick` is a reduced smoke run
+(Small and Medium wire and memory measurements, no DNS, no refresh of the committed sample or
+README). `--dry-run` prints the plan without running it.
+
+A full run refuses to start when the CPU governor is not `performance`, when the machine is on
+battery power, or when the pinned core is more than a fifth busy. The smoke and dry-run modes print
+those refusals as advisory warnings instead. `scripts/pin-perf-governor.sh performance` switches the
+governor (cpupower first, then sysfs) and itself refuses to proceed on battery or under load.
+
 ## Reproduction modes
 
 `cargo xtask reproduce` defaults to `--report-only`, which rebuilds the derived chain (consolidate,

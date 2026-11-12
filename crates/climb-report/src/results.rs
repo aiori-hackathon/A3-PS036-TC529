@@ -1789,6 +1789,18 @@ fn plain_timings(records: &[CriterionRecord]) -> Vec<PlainTimingResult> {
         .collect()
 }
 
+/// Read a stability section out of an artifact that is about to be replaced.
+///
+/// Returns `None` when the file is absent, unparseable, or carries no stability
+/// section. A malformed document must not stop a fresh consolidation: the
+/// previous output is not an input the caller supplied.
+fn read_previous_stability(path: &std::path::Path) -> Option<StabilitySection> {
+    let text = std::fs::read_to_string(path).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let section = value.get("derived")?.get("stability")?.clone();
+    serde_json::from_value(section).ok()
+}
+
 /// Three-way comparisons for every size that has a configuration-A timing row.
 /// A row is marked `extrapolated` when any input (A's per-message timing, or B's
 /// per-message cost) was itself not measured for that size.
@@ -2726,6 +2738,14 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &classical,
         derived.udp_fit.as_ref(),
     );
+
+    // Consolidation rebuilds the document from its measurement inputs, but it
+    // cannot regenerate cross-run stability: that section is written by a
+    // separate repeated-run command. Carry a recorded section forward instead
+    // of dropping it from an artifact that already carries one.
+    if let Some(previous) = read_previous_stability(&opts.output_path) {
+        derived.stability = Some(previous);
+    }
 
     let results = ClimbResults {
         version: "1.0".to_string(),
@@ -5448,5 +5468,48 @@ mod tests {
         let comp = &comparisons[0];
         assert!(comp.signing_speedup_c_vs_b.is_some());
         // b/m = 1e9, c/m = 0.01, so speedup ~ 1e11 >> 10500
+    }
+
+    #[test]
+    fn a_previous_stability_section_survives_a_consolidation_input_read() {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-previous-stability-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        ));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        let path = dir.join("results.json");
+
+        assert!(read_previous_stability(&path).is_none(), "absent file");
+
+        std::fs::write(&path, "not json").expect("write");
+        assert!(
+            read_previous_stability(&path).is_none(),
+            "unparseable file is ignored"
+        );
+
+        let document = serde_json::json!({
+            "derived": {
+                "stability": {
+                    "runs": [{
+                        "ratio_name": "signing_speedup_c_vs_a_model_medium",
+                        "median": 12.0,
+                        "min": 11.0,
+                        "max": 13.0,
+                        "cv": 0.05,
+                        "n_runs": 5
+                    }]
+                }
+            }
+        });
+        std::fs::write(&path, serde_json::to_string(&document).expect("serialize")).expect("write");
+        let section = read_previous_stability(&path).expect("section present");
+        assert_eq!(section.runs.len(), 1);
+        assert_eq!(section.runs[0].n_runs, 5);
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

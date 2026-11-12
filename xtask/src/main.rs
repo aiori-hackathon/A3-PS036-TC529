@@ -26,6 +26,7 @@ mod dns_cache;
 mod dns_demo;
 mod dns_rtt;
 mod docs_check;
+mod final_run;
 mod groups;
 mod headline;
 #[cfg(feature = "native")]
@@ -59,6 +60,7 @@ use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
 use docs_check::{cmd_docs_check, cmd_mermaid_lint, DocsCheckArgs, MermaidLintArgs};
+use final_run::FinalRunArgs;
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use headline::{cmd_headline, HeadlineArgs};
 #[cfg(feature = "native")]
@@ -296,6 +298,11 @@ enum Commands {
     /// then consolidates, charts, renders and self-checks the report — so the
     /// artifacts always agree.  Use `--quick` for Small/Medium only.
     Reproduce(ReproduceArgs),
+    /// Run the one resumable final measurement run: pin the environment, measure
+    /// every input, then consolidate, render, check the docs and write the audit
+    /// pack. State is recorded in `target/final-run/state.json`; `--resume`
+    /// continues from the first incomplete step.
+    FinalRun(FinalRunArgs),
     /// Run stability check (repeat signing/verify benches under pinned governor).
     Stability(StabilityArgs),
     /// Recompute every headline number from raw rows and compare every surface.
@@ -451,6 +458,7 @@ fn main() -> Result<()> {
         Commands::Package(args) => cmd_package(args),
         Commands::DistTui(args) => cmd_dist_tui(args),
         Commands::Reproduce(args) => cmd_reproduce(args),
+        Commands::FinalRun(args) => final_run::cmd_final_run(args),
         Commands::Stability(args) => cmd_stability(args),
         Commands::VerifyNumbers(args) => cmd_verify_numbers(args),
         Commands::Headline(args) => cmd_headline(args),
@@ -653,7 +661,7 @@ fn selected_sizes(args: &BenchAllArgs) -> Vec<DatasetSize> {
     sizes
 }
 
-fn resolve_pin_cpu(enabled: bool) -> Option<u32> {
+pub(crate) fn resolve_pin_cpu(enabled: bool) -> Option<u32> {
     if !enabled {
         return None;
     }
@@ -679,7 +687,7 @@ fn binary_on_path(name: &str) -> bool {
     }
 }
 
-fn build_bench_command(
+pub(crate) fn build_bench_command(
     target: &str,
     filter: &str,
     baseline: Option<&str>,

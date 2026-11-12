@@ -196,7 +196,7 @@ fn capture(root: &Path) -> Result<Environment> {
     let cpu = capture_cpu();
     let submodules = capture_submodules(root);
     let docker = capture_docker(root);
-    let benchmark_runtime = capture_benchmark_runtime();
+    let benchmark_runtime = capture_benchmark_runtime(&kernel_release);
 
     Ok(Environment {
         schema_version: SCHEMA_VERSION,
@@ -275,16 +275,14 @@ fn capture_docker(root: &Path) -> DockerInfo {
     }
 }
 
-fn capture_benchmark_runtime() -> BenchmarkRuntime {
+fn capture_benchmark_runtime(kernel_release: &str) -> BenchmarkRuntime {
     let per_cpu = read_governors();
     let (governor, source) = summarize_governors(&per_cpu);
-    let note = Some(format!(
-        "OS={} kernel={} governor={} pin_cpu={}",
-        // We'll extract from the existing system info; for now use a simple note
-        "Arch Linux",
-        "7.2.14-arch1-1",
-        governor,
-        PIN_CPU
+    let note = Some(environment_note(
+        &read_os_name(),
+        kernel_release,
+        &governor,
+        PIN_CPU,
     ));
     BenchmarkRuntime {
         cpu_governor: governor,
@@ -296,6 +294,33 @@ fn capture_benchmark_runtime() -> BenchmarkRuntime {
         current_cpus_allowed: read_cpus_allowed(),
         environment_note: note,
     }
+}
+
+/// Human-readable OS name from `/etc/os-release`, or `unknown`.
+fn read_os_name() -> String {
+    fs::read_to_string("/etc/os-release")
+        .map(|text| os_name_from_release(&text))
+        .unwrap_or_else(|_| "unknown".to_string())
+}
+
+/// Build the note that explains which host produced this fingerprint and why
+/// it is not the host the committed sample came from.
+fn environment_note(os: &str, kernel: &str, governor: &str, pin_cpu: u32) -> String {
+    format!(
+        "OS={os} kernel={kernel} governor={governor} pin_cpu={pin_cpu}; the committed sample \
+         artifacts were recorded in a different environment, so numbers measured here are not \
+         directly comparable to them"
+    )
+}
+
+/// Pull `PRETTY_NAME` out of an `/etc/os-release` body.
+fn os_name_from_release(text: &str) -> String {
+    for line in text.lines() {
+        if let Some(rest) = line.strip_prefix("PRETTY_NAME=") {
+            return rest.trim().trim_matches('"').to_string();
+        }
+    }
+    "unknown".to_string()
 }
 
 /// Read `scaling_governor` for every `cpuN` present, sorted by index.
@@ -699,5 +724,21 @@ core id\t\t: 1
             parse_cpu_model(cpuinfo).as_deref(),
             Some("11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz")
         );
+    }
+
+    #[test]
+    fn os_name_comes_from_os_release() {
+        let release = "NAME=\"Arch Linux\"\nPRETTY_NAME=\"Arch Linux\"\nID=arch\n";
+        assert_eq!(os_name_from_release(release), "Arch Linux");
+        assert_eq!(os_name_from_release("ID=arch\n"), "unknown");
+    }
+
+    #[test]
+    fn environment_note_names_the_host_and_the_earlier_environment() {
+        let note = environment_note("Arch Linux", "7.2.14-arch1-1", "performance", PIN_CPU);
+        assert!(note.contains("OS=Arch Linux"));
+        assert!(note.contains("kernel=7.2.14-arch1-1"));
+        assert!(note.contains("governor=performance"));
+        assert!(note.contains("different environment"));
     }
 }
