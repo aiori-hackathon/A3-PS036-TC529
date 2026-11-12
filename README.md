@@ -2,7 +2,7 @@
 <div align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="docs/media/logo/climb-logo-dark.svg">
-    <img src="docs/media/logo/climb-logo-light.svg" alt="CLIMB — Cryptographic Ladder Impact Measurement Benchmark" width="428">
+    <img src="docs/media/logo/climb-logo-light.svg" alt="CLIMB — Cryptographic Ladder Impact Measurement Benchmark" width="560">
   </picture>
 </div>
 <!-- logo:end -->
