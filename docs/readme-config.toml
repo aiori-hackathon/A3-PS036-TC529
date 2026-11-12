@@ -197,7 +197,7 @@ short = "Level 2"
 [[commit_graph.milestones]]
 date = "2026-11-19"
 label = "Regional, IIEST Shibpur"
-short = "Regional"
+short = "Reg"
 
 [[commit_graph.milestones]]
 date = "2026-12-17"
