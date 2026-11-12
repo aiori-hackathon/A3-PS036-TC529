@@ -5,26 +5,10 @@ use std::time::Duration;
 /// directory laid out like a real run (`<dir>/climb-report/report.html`)
 /// and hand back the results path.
 fn sample_dir(tag: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "climb-tui-integrity-{tag}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
-    let sample = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/sample-output");
+    let root = crate::data::fixtures::temp_root("climb-tui-integrity", tag);
     std::fs::create_dir_all(root.join("climb-report")).expect("temp dir");
-    std::fs::copy(
-        sample.join("climb-results.json"),
-        root.join("climb-results.json"),
-    )
-    .expect("copy sample results");
-    std::fs::copy(
-        sample.join("report.html"),
-        root.join("climb-report/report.html"),
-    )
-    .expect("copy sample report");
+    crate::data::fixtures::copy_fixture("climb-results.json", &root.join("climb-results.json"));
+    crate::data::fixtures::copy_fixture("report.html", &root.join("climb-report/report.html"));
     root
 }
 
@@ -247,13 +231,10 @@ fn filetime_set(path: &Path, when: SystemTime) {
 
 #[test]
 fn absent_report_is_a_warning_state_that_still_lists_every_claim() {
-    let root =
-        std::env::temp_dir().join(format!("climb-tui-integrity-absent-{}", std::process::id()));
+    let root = crate::data::fixtures::temp_root("climb-tui-integrity", "absent");
     let _ = std::fs::remove_dir_all(&root);
     std::fs::create_dir_all(&root).expect("temp dir");
-    let sample = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../docs/sample-output/climb-results.json");
-    std::fs::copy(&sample, root.join("climb-results.json")).expect("copy sample results");
+    crate::data::fixtures::copy_fixture("climb-results.json", &root.join("climb-results.json"));
 
     let state = super::super::load(&root.join("climb-results.json"));
     let super::super::LoadState::Loaded(view) = state else {

@@ -309,6 +309,41 @@ jobs:
         );
     }
 
+    /// The local CI replica must read the workflow, not a copy of it: a step
+    /// added to `ci.yml` has to appear in `scripts/ci-local.sh --list`.
+    #[test]
+    fn ci_local_lists_the_steps_parsed_out_of_the_workflow() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let output = std::process::Command::new("bash")
+            .arg(root.join("scripts/ci-local.sh"))
+            .arg("--list")
+            .current_dir(root)
+            .output()
+            .expect("run scripts/ci-local.sh --list");
+        assert!(
+            output.status.success(),
+            "ci-local --list failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        for step in [
+            "Check committed sample pair",
+            "Test viewer-scope crates",
+            "Lint workflow files",
+        ] {
+            assert!(
+                stdout.contains(step),
+                "ci-local --list misses `{step}`:\n{stdout}"
+            );
+        }
+        assert!(
+            !stdout.contains("Detect docs-only changes"),
+            "the viewer job no longer skips the native job, so the docs-only step must be gone:\n{stdout}"
+        );
+    }
+
     #[test]
     fn the_committed_workflow_set_matches_the_repository() {
         let root = Path::new(env!("CARGO_MANIFEST_DIR"))

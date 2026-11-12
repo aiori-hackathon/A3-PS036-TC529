@@ -39,6 +39,7 @@ mod proc;
 mod readme_badges;
 mod replication;
 mod reproduce;
+mod sample_check;
 mod source_hygiene;
 mod stability;
 mod verify_consolidated;
@@ -74,6 +75,7 @@ use replication::{
     cmd_replicate_compare, cmd_replicate_summary, ReplicateCompareArgs, ReplicateSummaryArgs,
 };
 use reproduce::{cmd_reproduce, ReproduceArgs};
+use sample_check::{cmd_sample_check, SampleCheckArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
@@ -339,6 +341,11 @@ enum Commands {
     /// Lint the GitHub Actions workflows for full-SHA action pins, minimal
     /// permissions, no `pull_request_target` and no secret references.
     Workflows(WorkflowsArgs),
+    /// Prove the committed sample results document and its HTML report
+    /// describe the same claims, then verify the checksum manifest and the
+    /// provenance commit. Native-free, so the viewer CI job can run it before
+    /// the tests.
+    SampleCheck(SampleCheckArgs),
 }
 
 #[derive(Args)]
@@ -468,6 +475,7 @@ fn main() -> Result<()> {
         Commands::MermaidLint(args) => cmd_mermaid_lint(args),
         Commands::LinkCheck(args) => cmd_link_check(args),
         Commands::Workflows(args) => cmd_workflows(args),
+        Commands::SampleCheck(args) => cmd_sample_check(args),
     }
 }
 

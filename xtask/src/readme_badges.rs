@@ -343,6 +343,40 @@ pub(crate) fn claims_count(results_path: &Path) -> Result<ClaimsCount> {
         return Ok(ClaimsCount::Empty);
     }
     let passed = verified_claims(&registry, &raw).len();
+
+    // The badge and the rendered report must agree: a count the report does
+    // not carry is exactly how a stale report silently loses claims. Refuse
+    // to publish that count instead of printing a number the committed page
+    // cannot show.
+    let report_path = results_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("report.html");
+    let html = match std::fs::read_to_string(&report_path) {
+        Ok(html) => html,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            bail!(
+                "{} is missing, so the claims badge cannot prove it carries {passed}/{total}; \
+                 regenerate the pair with scripts/make-sample-output.sh",
+                report_path.display()
+            )
+        }
+        Err(error) => {
+            return Err(anyhow::Error::new(error)
+                .context(format!("failed to read {}", report_path.display())))
+        }
+    };
+    let problems = climb_report::html::check_claims(&html, &parsed);
+    if !problems.is_empty() {
+        bail!(
+            "{} does not carry every claim in {} — refusing to publish a badge the report \
+             does not contain; regenerate the pair with scripts/make-sample-output.sh ({})",
+            report_path.display(),
+            results_path.display(),
+            problems.join("; ")
+        );
+    }
+
     Ok(ClaimsCount::Count { passed, total })
 }
 
@@ -745,11 +779,25 @@ logo = "githubactions"
     "overall_wire_reduction_percent": null,
     "largest_wire_reduction_percent": null,
     "overall_verifying_trust_cached_speedup_avg": null,
-    "headline": null
+    "headline": null,
+    "bound_ok": true
   },
   "warnings": []
 }"##;
         std::fs::write(&path, text).expect("write the results");
+
+        // The badge generator checks the report beside the results, so the
+        // fixture carries a minimal page with the same registry and rendered
+        // strings a real render would embed.
+        let parsed: ClimbResults = serde_json::from_str(text).expect("fixture parses");
+        let claims = climb_report::claims(&parsed).expect("fixture claims build");
+        let payload = serde_json::to_string(&claims).expect("claims serialize");
+        let mut html =
+            format!("<script type=\"application/json\" id=\"climb-claims\">{payload}</script>");
+        for claim in &claims {
+            html.push_str(&claim.formatted);
+        }
+        std::fs::write(dir.join("report.html"), html).expect("write the report");
         path
     }
 
@@ -1189,6 +1237,35 @@ logo = "githubactions"
                 passed: re_resolved,
                 total: registry.len(),
             }
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A report that does not carry every claim must stop the generator: the
+    /// badge may never publish a count the committed page cannot show.
+    #[test]
+    fn the_generator_refuses_a_count_the_report_does_not_carry() {
+        let dir = temp_dir("badge-stale-report");
+        let results = write_results(&dir);
+        let report_path = dir.join("report.html");
+        let html = std::fs::read_to_string(&report_path).expect("read the fixture report");
+        let marker = "<script type=\"application/json\" id=\"climb-claims\">";
+        let start = html.find(marker).expect("marker") + marker.len();
+        let end = start + html[start..].find("</script>").expect("payload end");
+        let mut claims: Vec<climb_report::html::Claim> =
+            serde_json::from_str(&html[start..end]).expect("registry");
+        claims.pop();
+        let payload = serde_json::to_string(&claims).expect("serialize");
+        std::fs::write(
+            &report_path,
+            format!("{}{}{}", &html[..start], payload, &html[end..]),
+        )
+        .expect("write stale report");
+
+        let error = claims_count(&results).expect_err("a stale report must stop the badge");
+        assert!(
+            error.to_string().contains("refusing to publish"),
+            "the error must refuse the badge: {error}"
         );
         let _ = std::fs::remove_dir_all(&dir);
     }

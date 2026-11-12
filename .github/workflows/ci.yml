@@ -19,30 +19,13 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-    outputs:
-      native_needed: ${{ steps.changes.outputs.native_needed }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
-          fetch-depth: 2
-
-      # paths-ignore for the native job: when every touched path is a
-      # documentation file, the viewer job still runs the Mermaid and link
-      # checks while the heavy native job is skipped.
-      - name: Detect docs-only changes
-        id: changes
-        run: |
-          if git rev-parse --verify HEAD~1 >/dev/null 2>&1; then
-            changed="$(git diff --name-only HEAD~1 HEAD)"
-            non_docs="$(printf '%s\n' "$changed" | grep -Ev '^(README\.md|CONTRIBUTING\.md|SECURITY\.md|CITATION\.cff|LICENSE|ENVIRONMENT\.md|docs/.*\.md)$' || true)"
-            if [ -n "$changed" ] && [ -z "$non_docs" ]; then
-              echo "native_needed=false" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          echo "native_needed=true" >> "$GITHUB_OUTPUT"
+          # Full history so the committed sample's provenance commit resolves.
+          fetch-depth: 0
 
       - name: Install Rust toolchain from rust-toolchain.toml
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
@@ -59,13 +42,20 @@ jobs:
 
       - name: Lint viewer-scope crates with clippy
         run: |
-          cargo clippy -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets -- -D warnings
-          cargo clippy -p climb-report --no-default-features -- -D warnings
+          set -o pipefail
+          mkdir -p target/test-logs
+          cargo clippy -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-viewer.log
+          cargo clippy -p climb-report --no-default-features -- -D warnings 2>&1 | tee target/test-logs/clippy-report.log
+
+      - name: Check committed sample pair
+        run: cargo run -p xtask --no-default-features -- sample-check
 
       - name: Test viewer-scope crates
         run: |
-          cargo test -p climb-dns -p climb-analytical -p climb-tui --no-default-features
-          cargo test -p climb-report --no-default-features --lib
+          set -o pipefail
+          mkdir -p target/test-logs
+          cargo test -p climb-dns -p climb-analytical -p climb-tui --no-default-features 2>&1 | tee target/test-logs/viewer-dns-analytical-tui.log
+          cargo test -p climb-report --no-default-features --lib 2>&1 | tee target/test-logs/viewer-report.log
 
       - name: Verify viewer build has no native dependencies
         run: ./scripts/check-viewer-build.sh
@@ -85,10 +75,17 @@ jobs:
       - name: Lint workflow files
         run: cargo run -p xtask --no-default-features -- workflows
 
+      - name: Upload failing viewer logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: viewer-test-logs
+          path: target/test-logs/*.log
+          if-no-files-found: ignore
+
   native:
     name: native (pinned Docker toolchain)
     needs: viewer
-    if: needs.viewer.outputs.native_needed == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -97,6 +94,8 @@ jobs:
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           submodules: true
+          # Full history so the committed sample's provenance commit resolves.
+          fetch-depth: 0
 
       - name: Install Rust toolchain from rust-toolchain.toml
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
@@ -125,7 +124,10 @@ jobs:
         run: cargo build --workspace
 
       - name: Test workspace
-        run: cargo test --workspace
+        run: |
+          set -o pipefail
+          mkdir -p target/test-logs
+          cargo test --workspace 2>&1 | tee target/test-logs/workspace.log
 
       - name: Check documentation against quote sheet and artifacts
         run: cargo run -p xtask -- docs-check
@@ -135,6 +137,14 @@ jobs:
 
       - name: Build audit pack
         run: cargo run -p xtask -- audit-pack --reuse
+
+      - name: Upload failing native logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: native-test-logs
+          path: target/test-logs/*.log
+          if-no-files-found: ignore
 
       - name: Upload audit pack artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

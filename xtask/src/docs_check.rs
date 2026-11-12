@@ -2927,6 +2927,18 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // publishes must still describe the committed file.
     violations.extend(check_sample_checksums(&args.root)?);
 
+    // The committed results document and its report are one artifact pair:
+    // equal claim counts, no drift, matching checksums and a provenance commit
+    // that exists in this history. A stale report otherwise makes every
+    // Integrity-tab consumer list claims as missing.
+    for message in crate::sample_check::violations(&args.root) {
+        violations.push(Violation {
+            file: "docs/sample-output".to_string(),
+            line: 1,
+            message,
+        });
+    }
+
     // Every tracked text file is published; no developer path or personal
     // identity may survive in one.
     violations.extend(check_path_hygiene(&args.root, &tracked)?);

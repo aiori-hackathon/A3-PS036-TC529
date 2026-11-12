@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
@@ -14,9 +14,8 @@ use clap::Parser;
 /// laid out like a real run and load it through the TUI's own loader.
 fn loaded_app(tag: &str, drift: bool) -> (crate::app::App, PathBuf) {
     let root = temp_root(tag);
-    let sample = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/sample-output");
     std::fs::create_dir_all(root.join("climb-report")).expect("temp dir");
-    let results_source = sample.join("climb-results.json");
+    let results_source = crate::data::fixtures::fixture("climb-results.json");
     if drift {
         let mut results: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(&results_source).expect("read sample results"),
@@ -29,14 +28,9 @@ fn loaded_app(tag: &str, drift: bool) -> (crate::app::App, PathBuf) {
         )
         .expect("write drifted results");
     } else {
-        std::fs::copy(&results_source, root.join("climb-results.json"))
-            .expect("copy sample results");
+        crate::data::fixtures::copy_fixture("climb-results.json", &root.join("climb-results.json"));
     }
-    std::fs::copy(
-        sample.join("report.html"),
-        root.join("climb-report/report.html"),
-    )
-    .expect("copy sample report");
+    crate::data::fixtures::copy_fixture("report.html", &root.join("climb-report/report.html"));
 
     let cli = Cli::parse_from(["climb-tui"]);
     let mut app = crate::app::App::from_cli(&cli, ColorDepth::TrueColor);
@@ -47,14 +41,7 @@ fn loaded_app(tag: &str, drift: bool) -> (crate::app::App, PathBuf) {
 }
 
 fn temp_root(tag: &str) -> PathBuf {
-    let root = std::env::temp_dir().join(format!(
-        "climb-tui-integrity-ui-{tag}-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
-    ));
+    let root = crate::data::fixtures::temp_root("climb-tui-integrity-ui", tag);
     let _ = std::fs::remove_dir_all(&root);
     root
 }
@@ -215,9 +202,7 @@ fn ascii_mode_never_emits_non_ascii_glyphs() {
 fn a_results_file_without_a_report_says_so_and_lists_missing_claims() {
     let root = temp_root("absent");
     std::fs::create_dir_all(&root).expect("temp dir");
-    let sample =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/sample-output/climb-results.json");
-    std::fs::copy(&sample, root.join("climb-results.json")).expect("copy sample results");
+    crate::data::fixtures::copy_fixture("climb-results.json", &root.join("climb-results.json"));
     let cli = Cli::parse_from(["climb-tui"]);
     let mut app = crate::app::App::from_cli(&cli, ColorDepth::TrueColor);
     app.results_path = root.join("climb-results.json");

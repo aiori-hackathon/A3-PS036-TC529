@@ -1710,6 +1710,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn generate_charts_writes_seven_svgs_for_synthetic_results() {
         let results = synthetic_results();
         let dir = std::env::temp_dir().join(format!(
@@ -1778,6 +1779,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn generate_charts_handles_empty_results_without_panic() {
         let results = empty_results();
         let dir = std::env::temp_dir().join(format!(
@@ -1796,6 +1798,7 @@ mod tests {
     }
 
     /// A minimal but fully populated [`ClimbResults`] covering every size.
+    #[cfg(feature = "native")]
     fn synthetic_results() -> ClimbResults {
         use crate::results::{
             AnalyticalMemoryModel, BenchmarkResults, DerivedSummary, EnvironmentFingerprint,
@@ -1859,6 +1862,7 @@ mod tests {
     }
 
     /// A [`ClimbResults`] with every collection empty.
+    #[cfg(feature = "native")]
     fn empty_results() -> ClimbResults {
         let mut results = synthetic_results();
         results.benchmark.signing.clear();

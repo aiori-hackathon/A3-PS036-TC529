@@ -8,6 +8,8 @@
 
 mod amortization;
 mod embedded;
+#[cfg(test)]
+pub(crate) mod fixtures;
 mod integrity;
 mod ladder;
 mod live;

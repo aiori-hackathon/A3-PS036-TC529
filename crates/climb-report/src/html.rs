@@ -1967,6 +1967,7 @@ mod tests {
         std::env::temp_dir().join(format!("climb-report-{tag}-{}-{n}", std::process::id()))
     }
 
+    #[cfg(feature = "native")]
     fn render_fixture() -> (ClimbResults, String) {
         let results = synthetic_results();
         let dir = unique_temp_dir("html-test");
@@ -1989,6 +1990,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn render_is_self_contained() {
         let (results, html) = render_fixture();
         assert!(html.starts_with("<!DOCTYPE html>"));
@@ -2015,6 +2017,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn the_report_names_the_reproduction_mode_without_overselling_it() {
         use crate::results::ReproductionMode;
 
@@ -2059,6 +2062,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_passes_on_fresh_report() {
         let (results, html) = render_fixture();
         let failures = check_report(&html, &results);
@@ -2066,6 +2070,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_fails_when_the_results_carry_no_bound_check() {
         let (mut results, html) = render_fixture();
         // The bound was never checked: the document says nothing about it.
@@ -2080,6 +2085,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_value_drift() {
         let (results, html) = render_fixture();
         let mut drifted = synthetic_results();
@@ -2097,6 +2103,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_missing_formatted_string() {
         let (results, html) = render_fixture();
         let claims = claims(&results).expect("claims");
@@ -2115,6 +2122,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_missing_registry() {
         let (results, html) = render_fixture();
         let start = html.find(CLAIMS_MARKER).expect("marker");
@@ -2126,6 +2134,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_missing_chart() {
         let (results, html) = render_fixture();
         let tampered = html.replacen("data:image/svg+xml;base64,", "", 1);
@@ -2138,6 +2147,7 @@ mod tests {
 
     /// Write `html` into a fresh temp directory as `report.html` and hand
     /// back the path; the caller removes the directory when done.
+    #[cfg(feature = "native")]
     fn write_fixture_report(html: &str, tag: &str) -> std::path::PathBuf {
         let dir = unique_temp_dir(tag);
         let _ = std::fs::remove_dir_all(&dir);
@@ -2148,6 +2158,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_file_api_reports_full_agreement_on_a_fresh_report() {
         let (results, html) = render_fixture();
         let path = write_fixture_report(&html, "check-file-ok");
@@ -2169,6 +2180,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_file_api_rows_name_the_drifted_claim_and_carry_both_values() {
         let (results, html) = render_fixture();
         let path = write_fixture_report(&html, "check-file-drift");
@@ -2199,6 +2211,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_file_api_absent_report_is_a_warning_naming_the_path() {
         let (results, _html) = render_fixture();
         let dir = unique_temp_dir("check-file-absent");
@@ -2223,6 +2236,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_file_api_unreadable_report_is_a_hard_error_naming_the_path() {
         let (results, _html) = render_fixture();
         let dir = unique_temp_dir("check-file-unreadable");
@@ -2239,6 +2253,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_rows_flag_registry_only_claims() {
         let (results, html) = render_fixture();
         let mut extra = claims(&results).expect("claims");
@@ -2272,6 +2287,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn hostile_headline_is_escaped_in_body_and_registry() {
         let mut results = synthetic_results();
         results.derived.headline = Some("<script>alert(1)</script>".to_string());
@@ -2295,6 +2311,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn summary_grid_rows_follow_the_size_not_the_declaration_order() {
         let mut results = synthetic_results();
         results.comparisons = ["Small", "OneK", "Medium", "Large"]
@@ -2331,6 +2348,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn summary_grid_missing_comparison_renders_an_em_dash() {
         let mut results = synthetic_results();
         results.comparisons = vec![ConfigComparison {
@@ -2377,6 +2395,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn empty_results_still_render_and_check_clean() {
         let mut results = synthetic_results();
         results.derived = DerivedSummary {
@@ -2464,6 +2483,7 @@ mod tests {
         ));
     }
 
+    #[cfg(feature = "native")]
     fn memory_fixture() -> ClimbResults {
         let mut results = synthetic_results();
         results.memory.measured = vec![MemoryResult {
@@ -2492,6 +2512,7 @@ mod tests {
         results
     }
 
+    #[cfg(feature = "native")]
     fn render_memory_fixture() -> (ClimbResults, String) {
         let results = memory_fixture();
         let dir = unique_temp_dir("html-memory");
@@ -2504,6 +2525,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn memory_claims_are_rendered_in_body_and_check_clean() {
         let (results, html) = render_memory_fixture();
         assert!(html.contains("Memory model vs measurement"));
@@ -2532,6 +2554,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_tampered_memory_residual() {
         let (results, html) = render_memory_fixture();
         let mut tampered = memory_fixture();
@@ -2548,6 +2571,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn ladder_section_renders_the_model_vs_libmtl_table_and_checks_clean() {
         let (results, html) = render_fixture();
         assert!(html.contains("Ladder: model vs libMTL"));
@@ -2587,6 +2611,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn check_detects_tampered_ladder_row() {
         let (results, html) = render_fixture();
         let mut tampered = synthetic_results();
@@ -2603,6 +2628,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn report_without_a_ladder_artifact_renders_no_ladder_section() {
         let mut results = synthetic_results();
         results.ladder = None;
@@ -2622,6 +2648,7 @@ mod tests {
         assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 
+    #[cfg(feature = "native")]
     fn reuse_fixture() -> (ClimbResults, String) {
         let mut results = synthetic_results();
         results.derived.reuse = vec![ReuseResult {
@@ -2657,6 +2684,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn reuse_section_title_cases_the_size_and_registers_matching_claims() {
         let (results, html) = reuse_fixture();
         assert!(
@@ -2686,6 +2714,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn report_without_a_reuse_model_renders_no_reuse_section() {
         let (results, html) = render_fixture();
         assert!(!html.contains("<h2 id=\"reuse-h\">"), "no reuse section");
@@ -2700,6 +2729,7 @@ mod tests {
     /// followed by configurations A/B/C, all cells present except one (a
     /// classical row without a verify measurement renders an em dash, and
     /// registers no claim for that cell).
+    #[cfg(feature = "native")]
     fn context_rows() -> Vec<SignatureContextRow> {
         let row =
             |config: &str, label: &str, family: &str, bytes, sign, verify| SignatureContextRow {
@@ -2766,6 +2796,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn context_section_renders_classical_beside_post_quantum_with_matching_claims() {
         let mut results = synthetic_results();
         results.derived.signature_context = context_rows();
@@ -2826,6 +2857,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn a_superseded_rtt_section_renders_pending_without_the_numbers() {
         use crate::dns_rtt::{DnsRttCell, DnsRttSection, DnsRttStatus};
         let mut results = synthetic_results();
@@ -2864,6 +2896,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn a_report_without_an_rtt_section_renders_pending() {
         let results = synthetic_results();
         assert!(results.dns_rtt.is_none());
@@ -2877,6 +2910,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "native")]
     fn report_without_classical_context_renders_no_context_section() {
         let results = synthetic_results();
         assert!(results.derived.signature_context.is_empty());

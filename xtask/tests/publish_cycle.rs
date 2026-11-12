@@ -203,9 +203,10 @@ fn make_executable(path: &Path) {
     std::fs::set_permissions(path, permissions).expect("make the fixture script executable");
 }
 
-fn publish(fixture: &Fixture, sync_exit: u8) -> Output {
+fn publish_with(fixture: &Fixture, sync_exit: u8, extra: &[&str]) -> Output {
     Command::new("bash")
         .arg(script())
+        .args(extra)
         .current_dir(&fixture.repo)
         .env("CLIMB_SYNC_SCRIPT", &fixture.sync_script)
         .env("CLIMB_XTASK", &fixture.xtask_script)
@@ -214,6 +215,12 @@ fn publish(fixture: &Fixture, sync_exit: u8) -> Output {
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
         .expect("run publish.sh")
+}
+
+/// The publish-flow tests drive the push/sync/graph logic; the local CI run is
+/// covered by its own tests below, so these pass `--skip-ci` to stay focused.
+fn publish(fixture: &Fixture, sync_exit: u8) -> Output {
+    publish_with(fixture, sync_exit, &["--skip-ci"])
 }
 
 fn combined(output: &Output) -> String {
@@ -247,8 +254,8 @@ fn a_full_cycle_commits_the_refresh_and_checks_the_count() {
     );
     let log =
         std::fs::read_to_string(fixture.repo.join("target/publish.log")).expect("the publish log");
-    assert!(log.contains("==> 1/5"), "the log records every step: {log}");
-    assert!(log.contains("==> 5/5"), "the log records every step: {log}");
+    assert!(log.contains("==> 1/6"), "the log records every step: {log}");
+    assert!(log.contains("==> 5/6"), "the log records every step: {log}");
 }
 
 #[test]
@@ -347,5 +354,36 @@ fn publish_refuses_to_reenter_when_the_hook_started_it() {
     assert!(
         !fixture.sync_log.exists(),
         "a re-entrant publish never reaches the sync"
+    );
+}
+
+#[test]
+fn skip_ci_prints_a_loud_warning() {
+    let fixture = fixture("skip-ci", 3);
+    let output = publish_with(&fixture, 0, &["--skip-ci"]);
+    let text = combined(&output);
+    assert!(output.status.success(), "publish succeeded: {text}");
+    assert!(text.contains("WARNING: --skip-ci"), "{text}");
+}
+
+#[test]
+fn a_failing_local_ci_refuses_to_publish() {
+    let fixture = fixture("ci-fail", 3);
+    write(
+        &fixture.repo,
+        "scripts/ci-local.sh",
+        "#!/bin/bash\necho 'local ci failed' >&2\nexit 1\n",
+    );
+    make_executable(&fixture.repo.join("scripts/ci-local.sh"));
+    commit_all(&fixture.repo, "add a failing local ci");
+    git_ok(&fixture.repo, &["push", "--quiet"]);
+
+    let output = publish_with(&fixture, 0, &[]);
+    let text = combined(&output);
+    assert!(!output.status.success(), "{text}");
+    assert!(text.contains("local CI failed"), "{text}");
+    assert!(
+        !fixture.sync_log.exists(),
+        "the sync must not run when local CI fails"
     );
 }

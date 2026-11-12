@@ -3,6 +3,7 @@
 # card and the public repository agree.
 #
 # The flow, in order:
+#   0. run the viewer CI steps in a clean worktree (scripts/ci-local.sh);
 #   1. push the commits the sync will read to the private upstream;
 #   2. run the sync script that publishes a cleaned copy to the public
 #      repository;
@@ -36,6 +37,20 @@ export CLIMB_AUTOPUBLISH_RUNNING=1
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+
+skip_ci=0
+for arg in "$@"; do
+  case "$arg" in
+    --skip-ci) skip_ci=1 ;;
+    -h|--help)
+      printf 'usage: %s [--skip-ci]\n\n' "$0"
+      printf 'Runs scripts/ci-local.sh first, then publishes. --skip-ci bypasses\n'
+      printf 'the local CI run and prints a warning; use it only for an emergency.\n'
+      exit 0
+      ;;
+    *) echo "error: unknown argument: $arg" >&2; exit 2 ;;
+  esac
+done
 mkdir -p target
 
 log_file="target/publish.log"
@@ -88,12 +103,28 @@ if [ -n "${CLIMB_XTASK:-}" ]; then
 fi
 
 echo ""
-echo "==> 1/5 push the private commits the sync will read"
+if [[ "$skip_ci" -eq 1 ]]; then
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+  echo "!! WARNING: --skip-ci was given. The viewer CI steps were NOT run.     !!"
+  echo "!! A failing workflow will reach the public repository and the human   !!"
+  echo "!! must watch the Actions tab. Use this only for an explicit emergency. !!"
+  echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+else
+  echo "==> 0/6 run the viewer CI steps in a clean worktree"
+  if ! bash "$repo_root/scripts/ci-local.sh"; then
+    echo "error: local CI failed; nothing was pushed or published." >&2
+    echo "Fix the failure above, then run this script again." >&2
+    exit 1
+  fi
+fi
+
+echo ""
+echo "==> 1/6 push the private commits the sync will read"
 git push --quiet
 echo "    private upstream is now at $(git rev-parse --short HEAD)"
 
 echo ""
-echo "==> 2/5 publish to the public repository"
+echo "==> 2/6 publish to the public repository"
 echo "    sync: $sync_script"
 if ! "$sync_script"; then
   echo "error: the sync failed, so its publish gate refused or the push failed." >&2
@@ -102,7 +133,7 @@ if ! "$sync_script"; then
 fi
 
 echo ""
-echo "==> 3/5 refresh the card if it is stale"
+echo "==> 3/6 refresh the card if it is stale"
 auto_status=0
 auto_output="$("${xtask_cmd[@]}" commit-graph --auto --source public 2>&1)" || auto_status=$?
 printf '%s\n' "$auto_output"
@@ -110,7 +141,7 @@ printf '%s\n' "$auto_output"
 if [ "$auto_status" -eq 0 ]; then
   echo "    the card already describes the public tip; no refresh commit needed"
   echo ""
-  echo "==> 4/5 skipped: there is no refresh commit to publish"
+  echo "==> 4/6 skipped: there is no refresh commit to publish"
 elif [ "$auto_status" -eq 10 ]; then
   git add -- \
     docs/media/commit-graph.json \
@@ -137,7 +168,7 @@ elif [ "$auto_status" -eq 10 ]; then
   echo "    pushed the refresh commit"
 
   echo ""
-  echo "==> 4/5 publish the refresh commit and require convergence"
+  echo "==> 4/6 publish the refresh commit and require convergence"
   if ! "$sync_script"; then
     echo "error: the second sync failed; the public tip may not carry the new card." >&2
     exit 1
@@ -156,7 +187,7 @@ else
 fi
 
 echo ""
-echo "==> 5/5 compare the card with the public repository"
+echo "==> 5/6 compare the card with the public repository"
 source_ref="$(sed -n 's/^[[:space:]]*source_ref = "\(.*\)"$/\1/p' docs/readme-config.toml | head -n 1)"
 source_cache="$(sed -n 's/^[[:space:]]*source_cache = "\(.*\)"$/\1/p' docs/readme-config.toml | head -n 1)"
 source_ref="${source_ref:-main}"

@@ -19,7 +19,8 @@ than dressed up as enforced.
 | Dataset seeds | constant | `DEFAULT_WIRE_SEED` plus the explicit `seed` argument on each measurement entry point | `climb-bench` unit test `default_seed_matches_wire_seed`; these paths read no OS entropy. |
 | DNS capture fixture | checksum | `docs/sample-output/dns-capture.recorded.json`, source copy under `data/` | `docs/sample-output/SHA256SUMS` is re-hashed by `cargo xtask docs-check`. |
 | Ladder verification fixture | checksum | `docs/sample-output/ladder-verification.recorded.json`, source copy under `data/` | the same manifest check under `cargo xtask docs-check`. |
-| Committed sample artifacts | checksum | `docs/sample-output/SHA256SUMS` | `cargo xtask docs-check` re-hashes every listed file and names a stale digest. |
+| Committed sample artifacts | checksum | `docs/sample-output/SHA256SUMS` | `cargo xtask sample-check` (also called by `docs-check`) re-hashes every listed file and names a stale digest. |
+| Committed sample pair | claim count and provenance | `docs/sample-output/climb-results.json` and `docs/sample-output/report.html` | `cargo xtask sample-check` requires equal claim counts, a clean `report --check`, a matching manifest and a provenance commit that exists in the history. |
 | CPU governor and core pinning | host, time | `benchmark_runtime` in `environment.json` | `cargo xtask pin-env` records the governor per CPU and the `taskset` expression; benchmark runs use that expression. Not re-verified by a gate. |
 | Kernel, CPU and hostname | host | `system` and `cpu` in `environment.json` | `cargo xtask pin-env` records them; the file is regenerated per machine and is not committed. |
 | Clock | time | `timestamp` in `environment.json`; `recorded_at` in the report | `cargo xtask pin-env` records it; every report and the TUI render it. |
@@ -41,6 +42,24 @@ no FFI crate, and asserts the checkout stayed clean. It needs no native prefix a
 `scripts/clean-clone-fresh.sh --full` is the complete path: it builds the pinned native toolchain in
 Docker, extracts it, then runs the workspace format, build, lint, test, documentation, hygiene, pin
 and reproduction gates in the clone. It is the check to run on mains power.
+
+## The committed sample pair and the local CI replica
+
+The committed sample is one artifact pair, not two independent files: the HTML report is always
+rendered from the same consolidated results document that is committed beside it.
+`scripts/make-sample-output.sh` consolidates the inputs, renders the charts and report from that
+exact document, runs `report --check`, and refuses to continue when the claim counts differ. The
+`report.html` links to `climb-results.json` in the same directory, so a reader can inspect both.
+
+`cargo xtask sample-check` repeats the pair checks without native libraries (equal claim counts, no
+drift, matching `SHA256SUMS`, provenance commit present) and runs in the viewer job before the
+tests. The README claims badge is generated from the same pair: `cargo xtask readme-badges` refuses
+to emit a count the report does not carry.
+
+`scripts/ci-local.sh` runs the viewer job's `run:` steps in a clean worktree with no `target/` or
+`.mtl-install/`. It parses the steps out of `.github/workflows/ci.yml` at invocation time, so the
+local rehearsal and the workflow cannot drift apart. `scripts/publish.sh` runs it before pushing;
+`--skip-ci` bypasses it only with a printed warning.
 
 ## One resumable final run
 
