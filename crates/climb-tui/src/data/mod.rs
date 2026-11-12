@@ -176,11 +176,38 @@ impl ResultsView {
             Some(section) if section.display_state() != "measured" => {
                 "RTT: pending (no measured cells)".to_string()
             }
-            Some(section) => format!(
-                "RTT: {} measured cells ({})",
-                section.cells.len(),
-                section.label
-            ),
+            Some(section) => {
+                let at_target = |mode: &str| {
+                    section
+                        .cells
+                        .iter()
+                        .find(|cell| {
+                            cell.server == "nsd"
+                                && cell.mode == mode
+                                && (cell.delay_ms - 50.0).abs() < f64::EPSILON
+                        })
+                        .and_then(|cell| cell.median_rtt_multiple)
+                };
+                match (at_target("plain"), at_target("mtl-condensed")) {
+                    (Some(plain), Some(condensed)) => {
+                        let mut line = format!(
+                            "RTT: NSD plain {}×, condensed {}× at 50 ms",
+                            climb_report::numbers::fmt_ratio(plain),
+                            climb_report::numbers::fmt_ratio(condensed),
+                        );
+                        if section.cells.iter().any(|cell| cell.server == "unbound") {
+                            line.push('\n');
+                            line.push_str("Unbound: full response in both modes (control)");
+                        }
+                        line
+                    }
+                    _ => format!(
+                        "RTT: {} measured cells ({})",
+                        section.cells.len(),
+                        section.label
+                    ),
+                }
+            }
         }
     }
 }
@@ -1356,6 +1383,76 @@ mod tests {
             tcp_response_bytes: 0,
             median_total_ms: 20.1,
             median_rtt_multiple: Some(1.005),
+            queries: Vec::new(),
+        }];
+        view.results.dns_rtt = Some(section);
+        assert_eq!(
+            view.rtt_status_line(),
+            "RTT: 1 measured cells (emulated RTT, local bridge)"
+        );
+    }
+
+    #[test]
+    fn the_rtt_status_line_shows_the_nsd_multiples_and_the_unbound_control() {
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        let mut section = climb_report::DnsRttSection::pending("fixed".to_string());
+        section.status = climb_report::DnsRttStatus::Measured;
+        let cell = |server: &str, mode: &str, multiple: Option<f64>| climb_report::DnsRttCell {
+            server: server.to_string(),
+            mode: mode.to_string(),
+            delay_ms: 50.0,
+            samples: 200,
+            truncated: if mode == "mtl-condensed" { 0 } else { 200 },
+            transport: "udp-then-tcp".to_string(),
+            rrsig_kind: "full".to_string(),
+            median_ms: 200.0,
+            p95_ms: 201.0,
+            mechanism: "tc-netem".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 1,
+            udp_response_bytes: 46,
+            tcp_response_bytes: 24_438,
+            median_total_ms: 200.0,
+            median_rtt_multiple: multiple,
+            queries: Vec::new(),
+        };
+        section.cells = vec![
+            cell("nsd", "plain", Some(4.021126839797944)),
+            cell("nsd", "mtl-condensed", Some(1.009503259556368)),
+            cell("unbound", "plain", Some(3.016519839875)),
+            cell("unbound", "mtl-condensed", Some(3.017)),
+        ];
+        view.results.dns_rtt = Some(section);
+        assert_eq!(
+            view.rtt_status_line(),
+            "RTT: NSD plain 4.021×, condensed 1.01× at 50 ms\n\
+             Unbound: full response in both modes (control)"
+        );
+    }
+
+    #[test]
+    fn the_rtt_status_line_falls_back_when_the_delayed_cells_are_absent() {
+        let mut view = view_with(Vec::new(), Vec::new(), Vec::new(), None, empty_derived());
+        let mut section = climb_report::DnsRttSection::pending("fixed".to_string());
+        section.status = climb_report::DnsRttStatus::Measured;
+        section.label = "emulated RTT, local bridge".to_string();
+        section.cells = vec![climb_report::DnsRttCell {
+            server: "nsd".to_string(),
+            mode: "plain".to_string(),
+            delay_ms: 0.0,
+            samples: 200,
+            truncated: 0,
+            transport: "udp".to_string(),
+            rrsig_kind: "full".to_string(),
+            median_ms: 0.1,
+            p95_ms: 0.2,
+            mechanism: "tc-netem".to_string(),
+            udp_attempts: 1,
+            tcp_attempts: 0,
+            udp_response_bytes: 300,
+            tcp_response_bytes: 0,
+            median_total_ms: 0.1,
+            median_rtt_multiple: None,
             queries: Vec::new(),
         }];
         view.results.dns_rtt = Some(section);

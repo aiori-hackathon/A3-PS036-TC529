@@ -348,6 +348,55 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
         }
     }
 
+    // --- Measured DNS latency at the two delayed levels. -------------------
+    // Only the authoritative NSD cells become headline rows: they are the
+    // plain-versus-condensed comparison the benchmark is about. The Unbound
+    // cells stay in the section as a control because that reference build
+    // served the full RRSIG in both modes.
+    if let Some(section) = results.dns_rtt.as_ref() {
+        if section.display_state() == "measured" {
+            for delay in [50.0_f64, 100.0_f64] {
+                for (mode, baseline, gloss) in [
+                    ("plain", "A", "A (plain SLH-DSA, NSD)"),
+                    ("mtl-condensed", "C", "C (MTL amortised, NSD)"),
+                ] {
+                    let Some((index, cell)) = section.cells.iter().enumerate().find(|(_, cell)| {
+                        cell.server == "nsd"
+                            && cell.mode == mode
+                            && (cell.delay_ms - delay).abs() < f64::EPSILON
+                    }) else {
+                        continue;
+                    };
+                    let Some(multiple) = cell.median_rtt_multiple else {
+                        continue;
+                    };
+                    if !multiple.is_finite() || multiple <= 0.0 {
+                        continue;
+                    }
+                    let label = format!(
+                        "DNS latency, {delay:.0}-millisecond emulated RTT \u{2014} {gloss}"
+                    );
+                    metrics.push(Metric {
+                        id: format!("rtt_nsd_{mode}_{delay:.0}ms"),
+                        label,
+                        unit: "\u{d7}",
+                        class: "MEASURED",
+                        baseline,
+                        value: multiple,
+                        denominator: None,
+                        display: fmt_ratio(multiple),
+                        pointer: format!("/dns_rtt/cells/{index}/median_rtt_multiple"),
+                        denominator_pointer: None,
+                        report_pointer: format!("/dns_rtt/cells/{index}/median_rtt_multiple"),
+                        sheet_label: format!(
+                            "nsd / {mode} / {delay:.0} ms \u{2014} latency multiple"
+                        ),
+                    });
+                }
+            }
+        }
+    }
+
     // --- Wire bytes at the headline size, from the wire report rows. -------
     if let Some(wire) = wire_row(results, HEADLINE_SIZE) {
         let wire_index = results
@@ -855,7 +904,7 @@ pub fn render_headline_block(
 
 /// Scope note under the headline table. No unapproved digits: `1,232` and
 /// `n=5` have no result unit and are not scanned as results.
-pub const SCOPE_SENTENCE: &str = "**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.";
+pub const SCOPE_SENTENCE: &str = "**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. The DNS-latency rows are a `tc netem` delay on the local Docker bridge, not Internet latency, and the Unbound control served the full response in both modes, so its multiple is not a condensed win. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.";
 
 /// Render the README classical-baseline table (without markers).
 pub fn render_classical_block(metrics: &[Metric]) -> String {
@@ -932,6 +981,53 @@ mod tests {
         );
         assert!((metric(&metrics, "large_memory_ratio").value - 1.1038278).abs() < 1e-5);
         assert_eq!(metric(&metrics, "ladder_buffer_n100").value, 132.0);
+    }
+
+    #[test]
+    fn rtt_multiples_become_four_measured_headline_rows() {
+        let results = sample_results();
+        let metrics = headline_metrics(&results);
+        let plain_50 = metric(&metrics, "rtt_nsd_plain_50ms");
+        assert!((plain_50.value - 4.021_126_839_797_944).abs() < 1e-6);
+        assert_eq!(plain_50.unit, "\u{d7}");
+        assert_eq!(plain_50.class, "MEASURED");
+        assert_eq!(plain_50.baseline, "A");
+        assert_eq!(plain_50.display, "4.021");
+        assert!(plain_50.label.contains("50-millisecond emulated RTT"));
+        assert_eq!(
+            plain_50.sheet_label,
+            "nsd / plain / 50 ms \u{2014} latency multiple"
+        );
+        assert_eq!(metric(&metrics, "rtt_nsd_mtl-condensed_50ms").baseline, "C");
+        assert_eq!(metric(&metrics, "rtt_nsd_plain_100ms").baseline, "A");
+        assert_eq!(
+            metric(&metrics, "rtt_nsd_mtl-condensed_100ms").baseline,
+            "C"
+        );
+        assert_eq!(
+            metrics.iter().filter(|m| m.id.starts_with("rtt_")).count(),
+            4,
+            "only the two delayed NSD levels are headline rows"
+        );
+        assert!(
+            !metrics.iter().any(|m| m.id.contains("unbound")),
+            "the Unbound control is not a headline comparison"
+        );
+    }
+
+    #[test]
+    fn rtt_rows_are_skipped_when_a_cell_has_no_multiple() {
+        let mut results = sample_results();
+        if let Some(section) = results.dns_rtt.as_mut() {
+            for cell in &mut section.cells {
+                cell.median_rtt_multiple = None;
+            }
+        }
+        let metrics = headline_metrics(&results);
+        assert!(
+            !metrics.iter().any(|m| m.id.starts_with("rtt_")),
+            "a 0 ms target records no multiple and must not publish one"
+        );
     }
 
     #[test]

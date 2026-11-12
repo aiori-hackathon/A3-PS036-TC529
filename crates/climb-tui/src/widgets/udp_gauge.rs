@@ -163,6 +163,20 @@ impl UdpGauge<'_> {
             .collect()
     }
 
+    /// Push each newline-separated status segment as its own line, so a
+    /// second status (the Unbound control note) is never clipped away.
+    fn push_status_lines(&self, lines: &mut Vec<Line<'static>>) {
+        let Some(status) = self.status_note.as_ref() else {
+            return;
+        };
+        for segment in status.split('\n') {
+            lines.push(Line::from(Span::styled(
+                format!(" {segment}"),
+                Style::new().fg(self.theme.muted),
+            )));
+        }
+    }
+
     /// The body lines within `width` cells: the marker track, the reference
     /// ruler, the source note, then the verdict lines.
     fn lines(&self, width: u16) -> Vec<Line<'static>> {
@@ -171,12 +185,7 @@ impl UdpGauge<'_> {
                 format!(" {}", self.empty_note),
                 Style::new().fg(self.theme.muted),
             ))];
-            if let Some(status) = self.status_note.as_ref() {
-                lines.push(Line::from(Span::styled(
-                    format!(" {status}"),
-                    Style::new().fg(self.theme.muted),
-                )));
-            }
+            self.push_status_lines(&mut lines);
             return lines;
         }
         let track_width = width.max(1);
@@ -210,12 +219,7 @@ impl UdpGauge<'_> {
                 Style::new().fg(self.theme.muted),
             )),
         ];
-        if let Some(status) = self.status_note.as_ref() {
-            lines.push(Line::from(Span::styled(
-                format!(" {status}"),
-                Style::new().fg(self.theme.muted),
-            )));
-        }
+        self.push_status_lines(&mut lines);
         lines.extend(self.verdict_lines());
         lines
     }
@@ -415,6 +419,32 @@ mod tests {
         assert!(
             out.contains("RTT: pending"),
             "quarantine stays visible without markers:\n{out}"
+        );
+    }
+
+    #[test]
+    fn a_multiline_status_note_renders_every_segment_on_its_own_line() {
+        let theme = theme();
+        let glyphs = theme.glyphs();
+        let mut gauge = sample_gauge(&theme, &glyphs);
+        gauge.status_note = Some(
+            "RTT: NSD plain 4.021×, condensed 1.010× at 50 ms\n\
+             Unbound: full response in both modes (control)"
+                .to_string(),
+        );
+        let out = render_text(gauge, 90, 10);
+        let first = out
+            .lines()
+            .position(|line| line.contains("NSD plain 4.021×"))
+            .unwrap_or_else(|| panic!("first status segment missing:\n{out}"));
+        let second = out
+            .lines()
+            .position(|line| line.contains("Unbound: full response in both modes"))
+            .unwrap_or_else(|| panic!("second status segment missing:\n{out}"));
+        assert_eq!(
+            second,
+            first + 1,
+            "each segment must occupy its own row:\n{out}"
         );
     }
 

@@ -106,15 +106,15 @@ style-digest contrast: c0fc9cc2dccdb453
 │   ░ │        │                                                             █ │
 │   512 B      4.1 kB                                                          │
 │ from live capture                                                            │
-│ RTT: 16 measured cells (emulated RTT, local bridge)                          │
+│ RTT: NSD plain 4.021×, condensed 1.01× at 50 ms                              │
+│ Unbound: full response in both modes (control)                               │
 │ █ full signature  24.4 kB · exceeds 4.1 kB (TCP)                             │
 │ ░ condensed proof  658 B · fits within 1.23 kB                               │
-│                                                                              │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 83cb5240f4d74dfb
-style-digest light: e8775eaac0392bcd
-style-digest contrast: 94d34e952b5e45b6
+style-digest dark: 9852989f878401a3
+style-digest light: 1b07b2dcc90a04e2
+style-digest contrast: 1e5b3a868a4b48ab
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -243,7 +243,7 @@ style-digest contrast: 44b50de0ddd801cd
 │  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Larg│
 │  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                    │
 │  dataset sizes             Small, OneK, Medium, Large                        │
-│  results generated         2026-11-12T23:31:56+05:30                         │
+│  results generated         2026-11-13T00:35:23+05:30                         │
 │  Reproduce every artifact from a clean checkout:                             │
 │    cargo xtask reproduce --report-only                                       │
 │    cargo xtask reproduce --remeasure                                         │
@@ -257,6 +257,6 @@ style-digest contrast: 44b50de0ddd801cd
 │  DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: d1f6711a5f8cffb0
-style-digest light: ee201b4ea6c5429d
-style-digest contrast: 3baf2ae79c701ea0
+style-digest dark: e3b5fe376ce8cc3a
+style-digest light: a7395e6d3e9dbf77
+style-digest contrast: da7a58074c4438a6

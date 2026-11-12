@@ -1324,6 +1324,17 @@ fn collect_dns_rtt(
     let cells = array_at(root, path, "/dns_rtt/cells")?
         .map(Vec::as_slice)
         .unwrap_or_default();
+    if cells.iter().any(|cell| {
+        cell.get("server")
+            .and_then(Value::as_str)
+            .is_some_and(|server| server == "unbound")
+    }) {
+        out.notes.push(Note::custom(
+            Section::DnsRtt,
+            "Unbound control: the reference build serves the full RRSIG in both modes, so its \
+             multiple is not a condensed-versus-plain win",
+        ));
+    }
     for (i, cell) in cells.iter().enumerate() {
         let base = format!("/dns_rtt/cells/{i}");
         let Some(server) = opt_str(cell, "/server", path)? else {
@@ -1352,6 +1363,28 @@ fn collect_dns_rtt(
                     &source,
                 ));
             }
+        }
+        if let Some(multiple) = opt_f64(cell, "/median_rtt_multiple", path)? {
+            // Only the authoritative NSD cells form the plain-versus-condensed
+            // comparison; the Unbound control has no baseline.
+            let baseline = match (server.as_str(), mode.as_str()) {
+                ("nsd", "plain") => Baseline::A,
+                ("nsd", "mtl-condensed") => Baseline::C,
+                _ => Baseline::Na,
+            };
+            out.facts.push(fact(
+                Row {
+                    section: Section::DnsRtt,
+                    label: format!("{label} — latency multiple"),
+                    unit: "×".to_string(),
+                    class: Some(EvidenceClass::Measured),
+                    nk: nk.clone(),
+                    baseline,
+                },
+                fmt_ratio(multiple),
+                &format!("{base}/median_rtt_multiple"),
+                &source,
+            ));
         }
         for (field, suffix) in [("samples", "samples"), ("truncated", "truncated")] {
             if let Some(v) = cell.get(field).and_then(Value::as_u64) {
@@ -3754,6 +3787,103 @@ test result: ok. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; fin
                 .any(|fact| fact.label.contains("median") && fact.value == "60.100"),
             "{:?}",
             collected.facts
+        );
+    }
+
+    #[test]
+    fn rtt_multiples_carry_their_baseline_and_the_unbound_control_is_noted() {
+        let value = serde_json::json!({
+            "dns_rtt": {
+                "status": "measured",
+                "label": "emulated RTT, local bridge",
+                "cells": [
+                    {
+                        "server": "nsd",
+                        "mode": "plain",
+                        "delay_ms": 50.0,
+                        "samples": 200,
+                        "median_ms": 201.0,
+                        "p95_ms": 202.0,
+                        "median_rtt_multiple": 4.021
+                    },
+                    {
+                        "server": "nsd",
+                        "mode": "mtl-condensed",
+                        "delay_ms": 50.0,
+                        "samples": 200,
+                        "median_ms": 50.5,
+                        "p95_ms": 51.0,
+                        "median_rtt_multiple": 1.01
+                    },
+                    {
+                        "server": "unbound",
+                        "mode": "plain",
+                        "delay_ms": 50.0,
+                        "samples": 200,
+                        "median_ms": 150.8,
+                        "p95_ms": 151.0,
+                        "median_rtt_multiple": 3.016
+                    }
+                ]
+            }
+        });
+        let mut collected = Collected::default();
+        collect_dns_rtt(&mut collected, Some((Path::new("rtt.json"), &value))).expect("collect");
+
+        let multiples: Vec<_> = collected
+            .facts
+            .iter()
+            .filter(|fact| fact.label.ends_with("latency multiple"))
+            .collect();
+        assert_eq!(multiples.len(), 3, "{:?}", collected.facts);
+        assert_eq!(multiples[0].unit, "×");
+        assert_eq!(multiples[0].baseline, Baseline::A);
+        assert_eq!(multiples[1].baseline, Baseline::C);
+        assert_eq!(multiples[2].baseline, Baseline::Na);
+        assert_eq!(multiples[0].value, "4.021");
+        assert_eq!(multiples[2].pointer, "/dns_rtt/cells/2/median_rtt_multiple");
+        assert!(
+            collected
+                .notes
+                .iter()
+                .any(|note| note.text.starts_with("Unbound control:")),
+            "{:?}",
+            collected.notes
+        );
+    }
+
+    #[test]
+    fn a_cell_without_a_target_has_no_latency_multiple_fact() {
+        let value = serde_json::json!({
+            "dns_rtt": {
+                "status": "measured",
+                "cells": [{
+                    "server": "nsd",
+                    "mode": "plain",
+                    "delay_ms": 0.0,
+                    "samples": 200,
+                    "median_ms": 0.1,
+                    "p95_ms": 0.2,
+                    "median_rtt_multiple": null
+                }]
+            }
+        });
+        let mut collected = Collected::default();
+        collect_dns_rtt(&mut collected, Some((Path::new("rtt.json"), &value))).expect("collect");
+        assert!(
+            !collected
+                .facts
+                .iter()
+                .any(|fact| fact.label.contains("latency multiple")),
+            "{:?}",
+            collected.facts
+        );
+        assert!(
+            !collected
+                .notes
+                .iter()
+                .any(|note| note.text.starts_with("Unbound control:")),
+            "the control note must not appear without an Unbound cell"
         );
     }
 }

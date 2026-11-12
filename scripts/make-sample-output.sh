@@ -186,6 +186,23 @@ fi
 
 normalise_json "$OUT/climb-results.json"
 
+# The per-query RTT records live in a companion beside the consolidated
+# results. A fresh consolidation writes them; when reusing an already-slim
+# results document, fall back to the full harness artifact or the committed
+# companion, and never leave a half pair.
+if [[ ! -f "$OUT/dns-rtt-samples.json" ]]; then
+  if [[ -f "$SRC/dns-rtt.json" ]]; then
+    cp "$SRC/dns-rtt.json" "$OUT/dns-rtt-samples.json"
+  elif [[ -f data/dns-rtt-samples.json ]]; then
+    cp data/dns-rtt-samples.json "$OUT/dns-rtt-samples.json"
+  elif grep -q '"queries"' "$OUT/climb-results.json"; then
+    die "results embed per-query RTT records but no companion exists; re-run consolidation"
+  fi
+fi
+if [[ -f "$OUT/dns-rtt-samples.json" ]]; then
+  normalise_text "$OUT/dns-rtt-samples.json"
+fi
+
 # --- render charts and the report from that exact results file ------------
 # The report is rendered into a `climb-report/` subdirectory and then moved
 # beside the results, so its relative `../climb-results.json` link keeps the
@@ -293,6 +310,10 @@ MANIFEST_FILES=(
   ladder-verification.recorded.json
   dataset-digests.json
 )
+
+if [[ -f "$OUT/dns-rtt-samples.json" ]]; then
+  MANIFEST_FILES+=(dns-rtt-samples.json)
+fi
 
 (
   cd "$OUT"

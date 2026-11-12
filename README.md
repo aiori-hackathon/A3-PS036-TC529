@@ -19,7 +19,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
   <br>
   <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
   <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
-  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 809/809" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=809%2F809&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
+  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 821/821" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=821%2F821&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
   <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/actions" target="_blank" rel="noopener"><img alt="CI — open the GitHub Actions workflows" src="https://img.shields.io/static/v1?label=CI&amp;message=GitHub%20Actions&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=githubactions&amp;logoColor=white"></a>
 </div>
 <!-- badges:end -->
@@ -95,6 +95,10 @@ in this table drifts from the quote sheet.
 | Metric | Value | Evidence class | Baseline | Spread |
 | --- | --- | --- | --- | --- |
 | Live DNS response, `www.climb.example. A` — reduction, condensed vs full | 97.307 % | DERIVED | B | — |
+| DNS latency, 50-millisecond emulated RTT — A (plain SLH-DSA, NSD) | 4.021 × | MEASURED | A | — |
+| DNS latency, 50-millisecond emulated RTT — C (MTL amortised, NSD) | 1.01 × | MEASURED | C | — |
+| DNS latency, 100-millisecond emulated RTT — A (plain SLH-DSA, NSD) | 4.01 × | MEASURED | A | — |
+| DNS latency, 100-millisecond emulated RTT — C (MTL amortised, NSD) | 1.004 × | MEASURED | C | — |
 | Wire reduction, Medium — C vs A | 96.508 % | DERIVED | A | — |
 | Wire bytes, Medium — A (plain SLH-DSA) | 78,560,000 B | MEASURED | A | — |
 | Wire bytes, Medium — B (MTL, no amortisation) | 83,295,296 B | MEASURED | B | — |
@@ -112,7 +116,7 @@ in this table drifts from the quote sheet.
 | Medium — ladder cache bytes (measured) | 16,912 B | MEASURED | n/a | — |
 | Medium — ladder cache bytes (analytical) | 8,120 B | ANALYTICAL | n/a | — |
 
-**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.
+**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. The DNS-latency rows are a `tc netem` delay on the local Docker bridge, not Internet latency, and the Unbound control served the full response in both modes, so its multiple is not a condensed win. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.
 <!-- headline:end -->
 
 Regenerate the sheet after any re-measurement with `cargo xtask deck-facts`;
@@ -532,14 +536,17 @@ or certification is claimed for MTL mode, SLH-DSA or any component here.
   kernel `tc netem` delay on the local Docker bridge (ping-validated at each
   level), a plain answer at the authoritative NSD costs one UDP query plus a
   TCP fallback — about four round trips — while an MTL condensed answer fits
-  one UDP exchange — about one round trip. Through the patched Unbound
-  resolver both modes return the full RRSIG over TCP — about three round
-  trips: this Unbound reference build does not serve condensed proofs to stub
-  clients, so no condensed-vs-plain latency contrast can be claimed through
-  Unbound. Every cell is recorded in the results document
-  (`target/climb-results.json`, `/dns_rtt`); per-cell medians, p95s,
-  truncations and TCP-retry counts are in the deck sheet's "DNS latency
-  (emulated RTT)" section.
+  one UDP exchange — about one round trip. The headline quotes those two
+  multiples at 50-millisecond and 100-millisecond emulated RTT, with plain as
+  baseline A and condensed as baseline C. Through the patched Unbound resolver both modes
+  return the full RRSIG over TCP — about three round trips — so that control
+  stays out of the headline: this Unbound reference build does not serve
+  condensed proofs to stub clients, and no condensed-vs-plain latency contrast
+  can be claimed through it. The results document carries per-cell summaries
+  (`/dns_rtt`); the per-query records behind them live in the sibling
+  `dns-rtt-samples.json`, and the deck sheet's "DNS latency (emulated RTT)"
+  section lists every cell with medians, p95s, truncations and TCP-retry
+  counts.
 
 <!-- footer:begin -->
 

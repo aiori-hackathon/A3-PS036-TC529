@@ -250,6 +250,22 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
             },
         }),
     );
+    // Every measured RTT cell with a delayed target carries its latency
+    // multiple, so the report shows the same figure the headline quotes.
+    if let Some(section) = results.dns_rtt.as_ref() {
+        if section.display_state() == "measured" {
+            for (idx, cell) in section.cells.iter().enumerate() {
+                push_claim(
+                    &mut claims,
+                    &root,
+                    &format!("dns-rtt-{idx}-multiple"),
+                    &format!("/dns_rtt/cells/{idx}/median_rtt_multiple"),
+                    cell.median_rtt_multiple
+                        .map(|multiple| format!("{multiple:.3}\u{d7}")),
+                );
+            }
+        }
+    }
     push_claim(
         &mut claims,
         &root,
@@ -1085,7 +1101,7 @@ fn render_udp_fit_section(results: &ClimbResults, claims: &[Claim]) -> String {
 /// `RTT: pending`: the numbers behind an invalid harness never reach the
 /// report. The measured branch is kept for the replacement harness; it is not
 /// reached by the committed artifact.
-fn render_dns_rtt_section(results: &ClimbResults) -> String {
+fn render_dns_rtt_section(results: &ClimbResults, claims: &[Claim]) -> String {
     let Some(section) = results.dns_rtt.as_ref() else {
         return "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\"><strong>RTT: pending.</strong> No emulated-RTT measurement is recorded in this artifact.</p>\n</section>\n".to_string();
     };
@@ -1100,9 +1116,13 @@ fn render_dns_rtt_section(results: &ClimbResults) -> String {
         return "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\"><strong>RTT: pending.</strong> No measured emulated-RTT cells are recorded in this artifact.</p>\n</section>\n".to_string();
     }
     let mut rows = String::new();
-    for cell in &section.cells {
+    for (idx, cell) in section.cells.iter().enumerate() {
+        let multiple = claims
+            .iter()
+            .find(|claim| claim.id == format!("dns-rtt-{idx}-multiple"))
+            .map_or("\u{2014}".to_string(), |claim| claim.formatted.clone());
         rows.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{:.0}</td><td>{}</td><td>{:.3}</td><td>{:.3}</td><td>{}</td><td>{}</td></tr>\n",
+            "<tr><td>{}</td><td>{}</td><td>{:.0}</td><td>{}</td><td>{:.3}</td><td>{:.3}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
             escape_html(&cell.server),
             escape_html(&cell.mode),
             cell.delay_ms,
@@ -1111,10 +1131,11 @@ fn render_dns_rtt_section(results: &ClimbResults) -> String {
             cell.p95_ms,
             cell.udp_attempts,
             cell.tcp_attempts,
+            escape_html(&multiple),
         ));
     }
     format!(
-        "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\">{}. Every value is read from the results artifact; the delay is a kernel `tc netem` delay on a local bridge, never Internet latency.</p>\n<table class=\"memtable\">\n<thead><tr><th>Server</th><th>Mode</th><th>Target RTT (ms)</th><th>Samples</th><th>Median (ms)</th><th>p95 (ms)</th><th>UDP attempts</th><th>TCP attempts</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
+        "<section aria-labelledby=\"dns-rtt-h\">\n<h2 id=\"dns-rtt-h\">DNS latency (emulated RTT)</h2>\n<p class=\"note\">{}. Every value is read from the results artifact; the delay is a kernel `tc netem` delay on a local bridge, never Internet latency. Through the reference Unbound the full RRSIG is served in both modes, so that control has no condensed-versus-plain latency contrast.</p>\n<table class=\"memtable\">\n<thead><tr><th>Server</th><th>Mode</th><th>Target RTT (ms)</th><th>Samples</th><th>Median (ms)</th><th>p95 (ms)</th><th>UDP attempts</th><th>TCP attempts</th><th>\u{d7} target RTT</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n",
         escape_html(&section.label)
     )
 }
@@ -1393,7 +1414,7 @@ pub fn render_html(
     let ladder_html = render_ladder_section(results, &claims);
     let reuse_html = render_reuse_section(results, &claims);
     let udp_fit_html = render_udp_fit_section(results, &claims);
-    let dns_rtt_html = render_dns_rtt_section(results);
+    let dns_rtt_html = render_dns_rtt_section(results, &claims);
     let resolver_cache_html = render_resolver_cache_section(results, &claims);
     let reproduction_mode = results.reproduction_mode.label();
     let reproduction_note = match results.reproduction_mode {
@@ -2950,6 +2971,76 @@ mod tests {
         assert!(html.contains("RTT: pending"), "pending marker missing");
         assert!(html.contains("superseded"), "quarantine reason missing");
         assert!(!html.contains("200.99"), "invalid latency leaked");
+    }
+
+    #[test]
+    #[cfg(feature = "native")]
+    fn a_measured_rtt_section_renders_each_latency_multiple() {
+        use crate::dns_rtt::{DnsRttCell, DnsRttSection, DnsRttStatus};
+        let mut results = synthetic_results();
+        let mut section = DnsRttSection::pending("fixed".to_string());
+        section.status = DnsRttStatus::Measured;
+        section.cells = vec![
+            DnsRttCell {
+                server: "nsd".to_string(),
+                mode: "plain".to_string(),
+                delay_ms: 0.0,
+                samples: 200,
+                truncated: 200,
+                transport: "udp-then-tcp".to_string(),
+                rrsig_kind: "full".to_string(),
+                median_ms: 0.1,
+                p95_ms: 0.2,
+                mechanism: "tc-netem".to_string(),
+                udp_attempts: 1,
+                tcp_attempts: 1,
+                udp_response_bytes: 46,
+                tcp_response_bytes: 24_438,
+                median_total_ms: 0.1,
+                median_rtt_multiple: None,
+                queries: Vec::new(),
+            },
+            DnsRttCell {
+                server: "nsd".to_string(),
+                mode: "plain".to_string(),
+                delay_ms: 50.0,
+                samples: 200,
+                truncated: 200,
+                transport: "udp-then-tcp".to_string(),
+                rrsig_kind: "full".to_string(),
+                median_ms: 201.0,
+                p95_ms: 202.0,
+                mechanism: "tc-netem".to_string(),
+                udp_attempts: 1,
+                tcp_attempts: 1,
+                udp_response_bytes: 46,
+                tcp_response_bytes: 24_438,
+                median_total_ms: 201.0,
+                median_rtt_multiple: Some(4.021),
+                queries: Vec::new(),
+            },
+        ];
+        results.dns_rtt = Some(section);
+        let dir = unique_temp_dir("html-rtt-measured");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("mkdir");
+        crate::charts::generate_charts(&results, &dir).expect("charts");
+        let html = render_html(&results, &dir, "../climb-results.json").expect("render");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            html.contains("4.021\u{d7}"),
+            "multiple missing from the table"
+        );
+        assert!(
+            html.contains("\u{d7} target RTT"),
+            "multiple column missing"
+        );
+        assert!(
+            html.contains("full RRSIG is served in both modes"),
+            "the Unbound control note is missing"
+        );
+        assert_eq!(check_claims(&html, &results), Vec::<String>::new());
+        assert_eq!(check_report(&html, &results), Vec::<String>::new());
     }
 
     #[test]

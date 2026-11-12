@@ -486,6 +486,8 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 > kernel netem: half the target RTT on client egress and half on the queried server's egress, filtered to the client address
 
+> Unbound control: the reference build serves the full RRSIG in both modes, so its multiple is not a condensed-versus-plain win
+
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | nsd / plain / 0 ms — median | 0.096 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/0/median_ms | target/climb-results.json |
@@ -506,50 +508,62 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | unbound / mtl-condensed / 0 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/3/truncated | target/climb-results.json |
 | nsd / plain / 20 ms — median | 81.018 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/4/median_ms | target/climb-results.json |
 | nsd / plain / 20 ms — p95 | 81.442 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/4/p95_ms | target/climb-results.json |
+| nsd / plain / 20 ms — latency multiple | 4.051 | × | MEASURED | n = 200 | A | /dns_rtt/cells/4/median_rtt_multiple | target/climb-results.json |
 | nsd / plain / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/4/samples | target/climb-results.json |
 | nsd / plain / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/4/truncated | target/climb-results.json |
 | nsd / mtl-condensed / 20 ms — median | 20.470 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/5/median_ms | target/climb-results.json |
 | nsd / mtl-condensed / 20 ms — p95 | 20.658 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/5/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 20 ms — latency multiple | 1.024 | × | MEASURED | n = 200 | C | /dns_rtt/cells/5/median_rtt_multiple | target/climb-results.json |
 | nsd / mtl-condensed / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/5/samples | target/climb-results.json |
 | nsd / mtl-condensed / 20 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/5/truncated | target/climb-results.json |
 | unbound / plain / 20 ms — median | 60.799 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/6/median_ms | target/climb-results.json |
 | unbound / plain / 20 ms — p95 | 61.141 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/6/p95_ms | target/climb-results.json |
+| unbound / plain / 20 ms — latency multiple | 3.04 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/6/median_rtt_multiple | target/climb-results.json |
 | unbound / plain / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/6/samples | target/climb-results.json |
 | unbound / plain / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/6/truncated | target/climb-results.json |
 | unbound / mtl-condensed / 20 ms — median | 60.843 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/7/median_ms | target/climb-results.json |
 | unbound / mtl-condensed / 20 ms — p95 | 61.141 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/7/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 20 ms — latency multiple | 3.042 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/7/median_rtt_multiple | target/climb-results.json |
 | unbound / mtl-condensed / 20 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/7/samples | target/climb-results.json |
 | unbound / mtl-condensed / 20 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/7/truncated | target/climb-results.json |
 | nsd / plain / 50 ms — median | 201.056 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/8/median_ms | target/climb-results.json |
 | nsd / plain / 50 ms — p95 | 201.417 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/8/p95_ms | target/climb-results.json |
+| nsd / plain / 50 ms — latency multiple | 4.021 | × | MEASURED | n = 200 | A | /dns_rtt/cells/8/median_rtt_multiple | target/climb-results.json |
 | nsd / plain / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/8/samples | target/climb-results.json |
 | nsd / plain / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/8/truncated | target/climb-results.json |
 | nsd / mtl-condensed / 50 ms — median | 50.475 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/9/median_ms | target/climb-results.json |
 | nsd / mtl-condensed / 50 ms — p95 | 50.718 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/9/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 50 ms — latency multiple | 1.01 | × | MEASURED | n = 200 | C | /dns_rtt/cells/9/median_rtt_multiple | target/climb-results.json |
 | nsd / mtl-condensed / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/9/samples | target/climb-results.json |
 | nsd / mtl-condensed / 50 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/9/truncated | target/climb-results.json |
 | unbound / plain / 50 ms — median | 150.826 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/10/median_ms | target/climb-results.json |
 | unbound / plain / 50 ms — p95 | 151.166 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/10/p95_ms | target/climb-results.json |
+| unbound / plain / 50 ms — latency multiple | 3.017 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/10/median_rtt_multiple | target/climb-results.json |
 | unbound / plain / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/10/samples | target/climb-results.json |
 | unbound / plain / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/10/truncated | target/climb-results.json |
 | unbound / mtl-condensed / 50 ms — median | 150.772 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/11/median_ms | target/climb-results.json |
 | unbound / mtl-condensed / 50 ms — p95 | 151.061 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/11/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 50 ms — latency multiple | 3.015 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/11/median_rtt_multiple | target/climb-results.json |
 | unbound / mtl-condensed / 50 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/11/samples | target/climb-results.json |
 | unbound / mtl-condensed / 50 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/11/truncated | target/climb-results.json |
 | nsd / plain / 100 ms — median | 401.021 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/12/median_ms | target/climb-results.json |
 | nsd / plain / 100 ms — p95 | 401.483 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/12/p95_ms | target/climb-results.json |
+| nsd / plain / 100 ms — latency multiple | 4.01 | × | MEASURED | n = 200 | A | /dns_rtt/cells/12/median_rtt_multiple | target/climb-results.json |
 | nsd / plain / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/12/samples | target/climb-results.json |
 | nsd / plain / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/12/truncated | target/climb-results.json |
 | nsd / mtl-condensed / 100 ms — median | 100.416 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/13/median_ms | target/climb-results.json |
 | nsd / mtl-condensed / 100 ms — p95 | 100.819 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/13/p95_ms | target/climb-results.json |
+| nsd / mtl-condensed / 100 ms — latency multiple | 1.004 | × | MEASURED | n = 200 | C | /dns_rtt/cells/13/median_rtt_multiple | target/climb-results.json |
 | nsd / mtl-condensed / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/13/samples | target/climb-results.json |
 | nsd / mtl-condensed / 100 ms — truncated | 0 | n | MEASURED | — | n/a | /dns_rtt/cells/13/truncated | target/climb-results.json |
 | unbound / plain / 100 ms — median | 300.777 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/14/median_ms | target/climb-results.json |
 | unbound / plain / 100 ms — p95 | 301.223 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/14/p95_ms | target/climb-results.json |
+| unbound / plain / 100 ms — latency multiple | 3.008 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/14/median_rtt_multiple | target/climb-results.json |
 | unbound / plain / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/14/samples | target/climb-results.json |
 | unbound / plain / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/14/truncated | target/climb-results.json |
 | unbound / mtl-condensed / 100 ms — median | 300.774 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/15/median_ms | target/climb-results.json |
 | unbound / mtl-condensed / 100 ms — p95 | 301.320 | ms | MEASURED | n = 200 | n/a | /dns_rtt/cells/15/p95_ms | target/climb-results.json |
+| unbound / mtl-condensed / 100 ms — latency multiple | 3.008 | × | MEASURED | n = 200 | n/a | /dns_rtt/cells/15/median_rtt_multiple | target/climb-results.json |
 | unbound / mtl-condensed / 100 ms — samples | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/samples | target/climb-results.json |
 | unbound / mtl-condensed / 100 ms — truncated | 200 | n | MEASURED | — | n/a | /dns_rtt/cells/15/truncated | target/climb-results.json |
 
@@ -596,13 +610,13 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | e3829d6f44fa0938911aa8f18f8258fd17ecdfec | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | 468f4cff20eeef34df462aa7799572f9a13c7057 | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1441 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1461 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
@@ -611,7 +625,7 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Footer
 
-- Rows rendered: 505 (from 665 collected facts; 160 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 295, ANALYTICAL: 77, EXTRAPOLATED: 24, DERIVED: 108; UNCLASSIFIED: 1.
+- Rows rendered: 517 (from 677 collected facts; 160 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 307, ANALYTICAL: 77, EXTRAPOLATED: 24, DERIVED: 108; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

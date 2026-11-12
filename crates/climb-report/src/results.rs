@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::cache::{
     CacheAnalyticalRow, CacheArtifact, CacheResults, CacheRun, LadderAnalyticalRow, LadderRun,
 };
-use crate::dns_rtt::DnsRttSection;
+use crate::dns_rtt::{DnsRttSamples, DnsRttSection};
 use crate::error::ReportError;
 use crate::ladder::{LadderSection, LadderSource, LadderVerification};
 use crate::memory::{parse_memory_artifact, MemoryArtifact};
@@ -2359,6 +2359,26 @@ fn load_dns_rtt_section(live: &Path, fixture: &Path) -> Result<Option<DnsRttSect
     read_json(path)
 }
 
+/// Where the per-query RTT records live beside a consolidated results
+/// document.
+///
+/// The companion is a sibling by construction, so a results file can always
+/// name the document that carries the records behind its summaries without a
+/// second path argument to every caller.
+pub fn dns_rtt_samples_path(results_path: &Path) -> PathBuf {
+    results_path.with_file_name("dns-rtt-samples.json")
+}
+
+/// Write the companion document beside the results file it belongs to.
+fn write_dns_rtt_samples(results_path: &Path, samples: &DnsRttSamples) -> Result<(), ReportError> {
+    let path = dns_rtt_samples_path(results_path);
+    let json = serde_json::to_string_pretty(samples).map_err(|e| ReportError::JsonDecode {
+        path: path.clone(),
+        source: e,
+    })?;
+    fs::write(&path, json).map_err(|e| ReportError::Io { path, source: e })
+}
+
 fn load_cache_use_section(
     live: &Path,
     fixture: &Path,
@@ -2705,7 +2725,12 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
         &opts.replication_summary_path,
         &opts.replication_fixture_path,
     )?;
-    let dns_rtt = load_dns_rtt_section(&opts.dns_rtt_path, &opts.dns_rtt_fixture_path)?;
+    let mut dns_rtt = load_dns_rtt_section(&opts.dns_rtt_path, &opts.dns_rtt_fixture_path)?;
+    if let Some(section) = dns_rtt.as_mut() {
+        if let Some(samples) = section.take_samples() {
+            write_dns_rtt_samples(&opts.output_path, &samples)?;
+        }
+    }
     let mut cache_use = load_cache_use_section(&opts.cache_use_path, &opts.cache_use_fixture_path)?;
     if let Some(ref mut section) = cache_use {
         section.analytical = build_cache_analytical(&section.measured, &wire_size);
@@ -3195,6 +3220,94 @@ mod tests {
             first, second,
             "consolidation must not embed a clock or cwd when both are injected"
         );
+    }
+
+    #[test]
+    fn consolidation_writes_the_rtt_samples_beside_the_results() {
+        let root = temp_root("rtt-samples");
+        fs::create_dir_all(root.join("criterion")).expect("criterion dir");
+        let mut section = DnsRttSection::pending("2026-11-12T00:00:00+05:30".to_string());
+        section.status = crate::dns_rtt::DnsRttStatus::Measured;
+        let mut measured =
+            serde_json::from_value::<crate::dns_rtt::DnsRttCell>(serde_json::json!({
+                "server": "nsd",
+                "mode": "plain",
+                "delay_ms": 50.0,
+                "samples": 1,
+                "truncated": 1,
+                "transport": "udp-then-tcp",
+                "rrsig_kind": "full",
+                "median_ms": 201.0,
+                "p95_ms": 201.0,
+                "mechanism": "tc-netem",
+                "udp_attempts": 1,
+                "tcp_attempts": 1,
+                "udp_response_bytes": 46,
+                "tcp_response_bytes": 24438,
+                "median_total_ms": 201.0,
+                "median_rtt_multiple": 4.02
+            }))
+            .expect("cell fixture");
+        measured.queries = vec![crate::dns_rtt::DnsRttQuerySample {
+            udp_attempts: 1,
+            tcp_attempts: 1,
+            udp_response_bytes: 46,
+            tcp_response_bytes: 24_438,
+            total_ms: 201.0,
+            rtt_multiple: Some(4.02),
+        }];
+        section.cells = vec![measured];
+        let rtt_path = root.join("dns-rtt.json");
+        fs::write(
+            &rtt_path,
+            serde_json::to_string_pretty(&section).expect("section serializes"),
+        )
+        .expect("write rtt fixture");
+
+        let results = consolidate_results(ConsolidateOptions {
+            force: true,
+            criterion_dir: root.join("criterion"),
+            wire_report_path: None,
+            memory_report_path: None,
+            dns_capture_path: root.join("no-capture.json"),
+            dns_fixture_path: root.join("no-fixture.json"),
+            ladder_verification_path: root.join("no-live.json"),
+            ladder_fixture_path: root.join("no-fixture.json"),
+            replication_summary_path: root.join("no-replication-summary.json"),
+            replication_fixture_path: root.join("no-replication-fixture.json"),
+            dns_rtt_path: rtt_path,
+            dns_rtt_fixture_path: root.join("no-dns-rtt-fixture.json"),
+            cache_use_path: root.join("no-cache-use.json"),
+            cache_use_fixture_path: root.join("no-cache-use-fixture.json"),
+            environment_path: root.join("no-env.json"),
+            baseline: "new".to_string(),
+            rtt_ms: None,
+            classical_signatures_path: root.join("no-classical-signatures.json"),
+            output_path: root.join("out.json"),
+            reproduction_mode: ReproductionMode::Unknown,
+            generated_at: Some("2026-01-01T00:00:00Z".to_string()),
+            workspace_root: Some(root.clone()),
+        })
+        .expect("consolidation succeeds");
+
+        let embedded = results.dns_rtt.expect("RTT section carried forward");
+        assert_eq!(
+            embedded.schema_version,
+            crate::dns_rtt::DNS_RTT_SCHEMA_VERSION
+        );
+        assert!(
+            embedded.cells[0].queries.is_empty(),
+            "the results section keeps summaries only"
+        );
+        assert_eq!(embedded.cells[0].median_ms, 201.0);
+
+        let samples_path = super::dns_rtt_samples_path(&root.join("out.json"));
+        assert_eq!(samples_path, root.join("dns-rtt-samples.json"));
+        let text = fs::read_to_string(&samples_path).expect("companion document written");
+        let samples: crate::dns_rtt::DnsRttSamples =
+            serde_json::from_str(&text).expect("companion parses");
+        assert_eq!(samples.total_queries(), 1);
+        assert_eq!(samples.cells[0].queries.len(), 1);
     }
 
     #[test]

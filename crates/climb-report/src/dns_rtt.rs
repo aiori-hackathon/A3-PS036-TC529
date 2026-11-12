@@ -12,7 +12,12 @@ use serde::{Deserialize, Serialize};
 use crate::results::EvidenceClass;
 
 /// Schema version written into the RTT artifact.
-pub const DNS_RTT_SCHEMA_VERSION: u32 = 1;
+///
+/// Version 2 moves the per-query records to a companion samples document so
+/// the consolidated results artifact stays small; a cell serializes without a
+/// `queries` key when neither the measurement harness nor a legacy artifact
+/// supplied any records.
+pub const DNS_RTT_SCHEMA_VERSION: u32 = 2;
 
 /// Fixed evidence label for every surface that quotes this section.
 pub const DNS_RTT_LABEL: &str = "emulated RTT, local bridge";
@@ -152,9 +157,54 @@ pub struct DnsRttCell {
     #[serde(default)]
     pub median_rtt_multiple: Option<f64>,
     /// Per-query records, empty on artifacts written before the probe
-    /// instrumented packet counts.
-    #[serde(default)]
+    /// instrumented packet counts and omitted from a consolidated artifact
+    /// whose raw records live in [`DnsRttSamples`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub queries: Vec<DnsRttQuerySample>,
+}
+
+/// Companion document holding the per-query records that consolidation moves
+/// out of the results artifact.
+///
+/// The summaries stay on [`DnsRttCell`] in both documents: the capability to
+/// recompute every published median from the raw rows is what makes the split
+/// safe, and [`DnsRttSection::take_samples`] guarantees the two views describe
+/// the same cells.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct DnsRttSamples {
+    /// Artifact schema version, the same as the section that was split.
+    pub schema_version: u32,
+    /// Fixed evidence label; always [`DNS_RTT_LABEL`].
+    pub label: String,
+    /// When the measurement was recorded.
+    pub recorded_at: String,
+    /// Commit SHA at recording time, when resolvable.
+    #[serde(default)]
+    pub git_commit: Option<String>,
+    /// Human description of how the delay was applied.
+    pub netem: String,
+    /// Zone queried.
+    pub zone: String,
+    /// Query name and type.
+    pub query: String,
+    /// Cells with their per-query records retained.
+    pub cells: Vec<DnsRttCell>,
+}
+
+impl DnsRttSamples {
+    /// Total per-query records across every cell.
+    pub fn total_queries(&self) -> usize {
+        self.cells.iter().map(|cell| cell.queries.len()).sum()
+    }
+
+    /// The cell for one (server, mode, delay) combination.
+    pub fn cell(&self, server: &str, mode: &str, delay_ms: f64) -> Option<&DnsRttCell> {
+        self.cells.iter().find(|cell| {
+            cell.server == server
+                && cell.mode == mode
+                && (cell.delay_ms - delay_ms).abs() < f64::EPSILON
+        })
+    }
 }
 
 /// Measured RTT section embedded in the consolidated results artifact.
@@ -261,6 +311,33 @@ impl DnsRttSection {
                 && cell.mode == mode
                 && (cell.delay_ms - delay_ms).abs() < f64::EPSILON
         })
+    }
+
+    /// Move the per-query records out of this section and into a companion
+    /// document, leaving the section with summaries only.
+    ///
+    /// Returns `None` when no cell carries a record: a legacy or superseded
+    /// artifact has nothing to split, and writing an empty companion would
+    /// pretend otherwise. The section's schema version is updated either way.
+    pub fn take_samples(&mut self) -> Option<DnsRttSamples> {
+        self.schema_version = DNS_RTT_SCHEMA_VERSION;
+        if !self.cells.iter().any(|cell| !cell.queries.is_empty()) {
+            return None;
+        }
+        let samples = DnsRttSamples {
+            schema_version: DNS_RTT_SCHEMA_VERSION,
+            label: self.label.clone(),
+            recorded_at: self.recorded_at.clone(),
+            git_commit: self.git_commit.clone(),
+            netem: self.netem.clone(),
+            zone: self.zone.clone(),
+            query: self.query.clone(),
+            cells: self.cells.clone(),
+        };
+        for cell in &mut self.cells {
+            cell.queries.clear();
+        }
+        Some(samples)
     }
 }
 
@@ -406,5 +483,108 @@ mod tests {
         assert_eq!(cell.median_total_ms, 0.0);
         assert!(cell.median_rtt_multiple.is_none());
         assert!(cell.queries.is_empty());
+    }
+
+    #[test]
+    fn splitting_a_section_moves_every_query_to_the_samples_document() {
+        let mut section = DnsRttSection::pending("2026-11-12T00:00:00+05:30".to_string());
+        section.status = DnsRttStatus::Measured;
+        section.git_commit = Some("abc123".to_string());
+        let mut measured = cell(200);
+        measured.queries = vec![
+            DnsRttQuerySample {
+                udp_attempts: 1,
+                tcp_attempts: 1,
+                udp_response_bytes: 46,
+                tcp_response_bytes: 24_438,
+                total_ms: 1.5,
+                rtt_multiple: Some(0.075),
+            };
+            200
+        ];
+        section.cells = vec![measured];
+
+        let samples = section.take_samples().expect("records moved");
+        assert_eq!(samples.schema_version, DNS_RTT_SCHEMA_VERSION);
+        assert_eq!(samples.total_queries(), 200);
+        assert_eq!(samples.git_commit.as_deref(), Some("abc123"));
+        assert_eq!(samples.cells[0].median_ms, section.cells[0].median_ms);
+        assert_eq!(samples.cells[0].queries.len(), 200);
+        assert!(
+            section.cells[0].queries.is_empty(),
+            "the results section keeps summaries only"
+        );
+        assert_eq!(section.schema_version, DNS_RTT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_slimmed_section_serializes_without_a_queries_key() {
+        let mut section = DnsRttSection::pending("fixed".to_string());
+        section.status = DnsRttStatus::Measured;
+        section.cells = vec![cell(200)];
+        let value = serde_json::to_value(&section).expect("serializes");
+        let cell = value
+            .pointer("/cells/0")
+            .and_then(serde_json::Value::as_object)
+            .expect("cell object");
+        assert!(
+            !cell.contains_key("queries"),
+            "an empty query vector must not appear in the consolidated artifact"
+        );
+    }
+
+    #[test]
+    fn a_section_without_queries_has_nothing_to_split() {
+        let mut section = DnsRttSection::pending("fixed".to_string());
+        section.cells = vec![cell(200)];
+        assert!(section.take_samples().is_none());
+        assert_eq!(section.schema_version, DNS_RTT_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_superseded_artifact_with_queries_still_parses_and_keeps_them() {
+        let json = r#"{
+            "schema_version": 1,
+            "status": "measured",
+            "superseded": "harness invalid",
+            "mode": "full",
+            "recorded_at": "fixed",
+            "git_commit": null,
+            "hostname": "host",
+            "uname": "linux",
+            "label": "emulated RTT, local bridge",
+            "netem": "old harness",
+            "zone": "climb.example.",
+            "query": "www.climb.example. A",
+            "cells": [{
+                "server": "nsd",
+                "mode": "plain",
+                "delay_ms": 100.0,
+                "samples": 1,
+                "truncated": 1,
+                "transport": "udp-then-tcp",
+                "rrsig_kind": "full",
+                "median_ms": 200.99,
+                "p95_ms": 203.0,
+                "mechanism": "userspace-sleep",
+                "queries": [{
+                    "udp_attempts": 1,
+                    "tcp_attempts": 1,
+                    "udp_response_bytes": 46,
+                    "tcp_response_bytes": 24438,
+                    "total_ms": 200.99,
+                    "rtt_multiple": 2.0099
+                }]
+            }],
+            "min_samples_per_cell": 200,
+            "class": "measured",
+            "warnings": []
+        }"#;
+        let mut section: DnsRttSection =
+            serde_json::from_str(json).expect("legacy artifact parses");
+        assert_eq!(section.cells[0].queries.len(), 1);
+        let samples = section.take_samples().expect("the legacy record is split");
+        assert_eq!(samples.total_queries(), 1);
+        assert!(section.is_quarantined());
     }
 }

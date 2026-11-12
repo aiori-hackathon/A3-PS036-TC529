@@ -15,8 +15,10 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use serde_json::Value;
 
+use climb_report::dns_rtt::{DnsRttCell, DnsRttSamples};
 use climb_report::numbers::{classical_metrics, headline_metrics, spread, Metric, SPREAD_RATIOS};
-use climb_report::ClimbResults;
+use climb_report::results::dns_rtt_samples_path;
+use climb_report::{ClimbResults, DNS_RTT_SCHEMA_VERSION};
 use climb_tui::data::{HeadlineSurface, ReportHealth, ResultsView};
 
 use crate::docs_check::{parse_quote_sheet, FactRow};
@@ -47,6 +49,10 @@ pub(crate) struct VerifyNumbersArgs {
     /// Committed record of deterministic dataset digests.
     #[arg(long, default_value = "docs/sample-output/dataset-digests.json")]
     dataset_digests: PathBuf,
+    /// Per-query RTT companion document. Defaults to `dns-rtt-samples.json`
+    /// beside the results artifact.
+    #[arg(long)]
+    rtt_samples: Option<PathBuf>,
     /// Recompute the million-message digest too (slow; off by default).
     #[arg(long)]
     deep_digests: bool,
@@ -66,6 +72,7 @@ impl VerifyNumbersArgs {
             readme: PathBuf::from("README.md"),
             report: PathBuf::from("docs/sample-output/report.html"),
             dataset_digests: PathBuf::from("docs/sample-output/dataset-digests.json"),
+            rtt_samples: None,
             deep_digests: false,
             require_spread,
         }
@@ -663,6 +670,257 @@ fn check_rtt_pending(results_json: &Value, sheet: &str) -> Result<()> {
     Ok(())
 }
 
+/// Nearest-rank percentile over a sorted sample, matching the measurement
+/// probe's own percentile rule.
+fn nearest_rank_sorted(sorted: &[f64], fraction: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let last = sorted.len() - 1;
+    let index = (fraction * last as f64).round() as usize;
+    sorted[index.min(last)]
+}
+
+/// A sorted copy of an unsorted sample.
+fn sorted(values: impl IntoIterator<Item = f64>) -> Vec<f64> {
+    let mut values: Vec<f64> = values.into_iter().collect();
+    values.sort_by(f64::total_cmp);
+    values
+}
+
+/// The probe's median rule for integer packet counters: the element at
+/// `len / 2` of the sorted sample.
+fn median_int(values: impl IntoIterator<Item = u64>) -> u64 {
+    let mut values: Vec<u64> = values.into_iter().collect();
+    values.sort_unstable();
+    if values.is_empty() {
+        return 0;
+    }
+    values[values.len() / 2]
+}
+
+/// Compare one published cell summary with the one recomputed from its raw
+/// rows.
+fn check_rtt_cell_summary(
+    index: usize,
+    cell: &DnsRttCell,
+    raw: &DnsRttCell,
+    path: &std::path::Path,
+) -> Result<()> {
+    let where_ = format!(
+        "{}: /dns_rtt/cells/{index} ({} / {} / {:.0} ms)",
+        path.display(),
+        cell.server,
+        cell.mode,
+        cell.delay_ms
+    );
+    let totals = sorted(raw.queries.iter().map(|query| query.total_ms));
+    let median = nearest_rank_sorted(&totals, 0.5);
+    let p95 = nearest_rank_sorted(&totals, 0.95);
+    let expected_multiple = if raw.queries.iter().any(|query| query.rtt_multiple.is_some()) {
+        Some(nearest_rank_sorted(
+            &sorted(raw.queries.iter().filter_map(|query| query.rtt_multiple)),
+            0.5,
+        ))
+    } else {
+        None
+    };
+
+    if raw.queries.len() as u64 != cell.samples {
+        bail!(
+            "{where_}: {count} raw rows but `samples` is {samples}",
+            count = raw.queries.len(),
+            samples = cell.samples
+        );
+    }
+    let truncated = raw
+        .queries
+        .iter()
+        .filter(|query| query.tcp_attempts > 0)
+        .count() as u64;
+    if truncated != cell.truncated {
+        bail!(
+            "{where_}: {truncated} truncated raw rows but `truncated` is {}",
+            cell.truncated
+        );
+    }
+    if !approx(median, cell.median_ms) {
+        bail!("{where_}: median {median} != published {}", cell.median_ms);
+    }
+    if !approx(median, cell.median_total_ms) {
+        bail!(
+            "{where_}: median total {median} != published {}",
+            cell.median_total_ms
+        );
+    }
+    if !approx(p95, cell.p95_ms) {
+        bail!("{where_}: p95 {p95} != published {}", cell.p95_ms);
+    }
+    match (cell.median_rtt_multiple, expected_multiple) {
+        (None, None) => {}
+        (Some(published), Some(recomputed)) if approx(published, recomputed) => {}
+        (published, recomputed) => {
+            bail!("{where_}: latency multiple {recomputed:?} != published {published:?}")
+        }
+    }
+    let udp_attempts = median_int(
+        raw.queries
+            .iter()
+            .map(|query| u64::from(query.udp_attempts)),
+    );
+    if udp_attempts != u64::from(cell.udp_attempts) {
+        bail!(
+            "{where_}: median UDP attempts {udp_attempts} != published {}",
+            cell.udp_attempts
+        );
+    }
+    let tcp_attempts = median_int(
+        raw.queries
+            .iter()
+            .map(|query| u64::from(query.tcp_attempts)),
+    );
+    if tcp_attempts != u64::from(cell.tcp_attempts) {
+        bail!(
+            "{where_}: median TCP attempts {tcp_attempts} != published {}",
+            cell.tcp_attempts
+        );
+    }
+    let udp_bytes = median_int(raw.queries.iter().map(|query| query.udp_response_bytes));
+    if udp_bytes != cell.udp_response_bytes {
+        bail!(
+            "{where_}: median UDP response bytes {udp_bytes} != published {}",
+            cell.udp_response_bytes
+        );
+    }
+    let tcp_bytes = median_int(raw.queries.iter().map(|query| query.tcp_response_bytes));
+    if tcp_bytes != cell.tcp_response_bytes {
+        bail!(
+            "{where_}: median TCP response bytes {tcp_bytes} != published {}",
+            cell.tcp_response_bytes
+        );
+    }
+    Ok(())
+}
+
+/// Recompute every published RTT cell summary from the companion document's
+/// raw per-query rows.
+///
+/// The results document must not embed the records: a non-empty `queries`
+/// array is a hard error, because it means the split never ran and the
+/// published artifact carries a second copy of the measurement. An absent
+/// companion is a warning, but a present-but-unparseable or inconsistent
+/// document is a hard error naming the path.
+fn check_dns_rtt_samples(args: &VerifyNumbersArgs, results_json: &Value) -> Result<()> {
+    let results_path = args.root.join(&args.results);
+    let embedded = results_json
+        .pointer("/dns_rtt/cells")
+        .and_then(Value::as_array)
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    for (index, cell) in embedded.iter().enumerate() {
+        let count = cell
+            .get("queries")
+            .and_then(Value::as_array)
+            .map_or(0, Vec::len);
+        if count > 0 {
+            bail!(
+                "{} embeds {count} per-query records at /dns_rtt/cells/{index}; the results \
+                 document must carry summaries only — regenerate it with `cargo xtask consolidate`",
+                results_path.display()
+            );
+        }
+    }
+    if embedded.is_empty() {
+        return Ok(());
+    }
+    let path = match args.rtt_samples.as_deref() {
+        Some(override_path) => args.root.join(override_path),
+        None => args.root.join(dns_rtt_samples_path(&args.results)),
+    };
+    if !path.exists() {
+        println!(
+            "verify-numbers: no RTT sample document at {} \u{2014} skipping raw-record recomputation",
+            path.display()
+        );
+        return Ok(());
+    }
+    let text = std::fs::read_to_string(&path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    let samples: DnsRttSamples = serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse {}", path.display()))?;
+    if samples.schema_version != DNS_RTT_SCHEMA_VERSION {
+        bail!(
+            "{} has schema {} but this build writes {DNS_RTT_SCHEMA_VERSION}",
+            path.display(),
+            samples.schema_version
+        );
+    }
+    if samples.total_queries() == 0 {
+        bail!(
+            "{} carries no per-query records; regenerate it with `cargo xtask consolidate`",
+            path.display()
+        );
+    }
+    if samples.cells.len() != embedded.len() {
+        bail!(
+            "{} has {} cells but the results document has {}",
+            path.display(),
+            samples.cells.len(),
+            embedded.len()
+        );
+    }
+    if let Some(section) = results_json.pointer("/dns_rtt") {
+        for (field, published) in [
+            ("label", samples.label.as_str()),
+            ("recorded_at", samples.recorded_at.as_str()),
+            ("netem", samples.netem.as_str()),
+            ("zone", samples.zone.as_str()),
+            ("query", samples.query.as_str()),
+        ] {
+            let found = section.get(field).and_then(Value::as_str).unwrap_or("");
+            if found != published {
+                bail!(
+                    "{} describes a different run: `{field}` is `{published}` but the results \
+                     document has `{found}`",
+                    path.display()
+                );
+            }
+        }
+    }
+    let parsed: Vec<DnsRttCell> = embedded
+        .iter()
+        .enumerate()
+        .map(|(index, cell)| {
+            serde_json::from_value(cell.clone()).with_context(|| {
+                format!(
+                    "{}: failed to parse /dns_rtt/cells/{index} from {}",
+                    path.display(),
+                    results_path.display()
+                )
+            })
+        })
+        .collect::<Result<_>>()?;
+    for (index, cell) in parsed.iter().enumerate() {
+        let Some(raw) = samples.cell(&cell.server, &cell.mode, cell.delay_ms) else {
+            bail!(
+                "{} has no raw rows for {} / {} / {:.0} ms",
+                path.display(),
+                cell.server,
+                cell.mode,
+                cell.delay_ms
+            );
+        };
+        check_rtt_cell_summary(index, cell, raw, &path)?;
+    }
+    println!(
+        "verify-numbers: {} RTT cell summaries recomputed from {} raw queries in {}",
+        parsed.len(),
+        samples.total_queries(),
+        path.display()
+    );
+    Ok(())
+}
+
 fn read_inputs(args: &VerifyNumbersArgs) -> Result<(ClimbResults, Value, String, String)> {
     let results_path = args.root.join(&args.results);
     let results_text = std::fs::read_to_string(&results_path)
@@ -689,6 +947,7 @@ fn read_report(args: &VerifyNumbersArgs) -> Result<String> {
 pub(crate) fn cmd_verify_numbers(args: VerifyNumbersArgs) -> Result<()> {
     let (results, results_json, sheet, readme) = read_inputs(&args)?;
     check_rtt_pending(&results_json, &sheet)?;
+    check_dns_rtt_samples(&args, &results_json)?;
     let report = read_report(&args)?;
     let facts = parse_quote_sheet(&sheet);
     if facts.is_empty() {
@@ -1020,6 +1279,7 @@ mod tests {
             readme: PathBuf::new(),
             report: PathBuf::new(),
             dataset_digests: path.clone(),
+            rtt_samples: None,
             deep_digests: false,
             require_spread: false,
         };
@@ -1070,5 +1330,143 @@ mod tests {
         let error = check_rtt_pending(&absent, "no marker here").expect_err("must fail");
         assert!(format!("{error:#}").contains("RTT: pending"), "{error:#}");
         check_rtt_pending(&absent, "> RTT: pending (no measurement)").expect("marker present");
+    }
+
+    /// A five-query cell whose summaries follow the probe's percentile and
+    /// median-int rules.
+    fn raw_rtt_cell() -> Value {
+        serde_json::json!({
+            "server": "nsd",
+            "mode": "plain",
+            "delay_ms": 50.0,
+            "samples": 5,
+            "truncated": 3,
+            "transport": "udp-then-tcp",
+            "rrsig_kind": "full",
+            "median_ms": 30.0,
+            "p95_ms": 50.0,
+            "mechanism": "tc-netem",
+            "udp_attempts": 1,
+            "tcp_attempts": 1,
+            "udp_response_bytes": 46,
+            "tcp_response_bytes": 100,
+            "median_total_ms": 30.0,
+            "median_rtt_multiple": 3.0,
+            "queries": [
+                {"udp_attempts": 1, "tcp_attempts": 0, "udp_response_bytes": 46, "tcp_response_bytes": 100, "total_ms": 10.0, "rtt_multiple": 1.0},
+                {"udp_attempts": 1, "tcp_attempts": 0, "udp_response_bytes": 46, "tcp_response_bytes": 100, "total_ms": 20.0, "rtt_multiple": 2.0},
+                {"udp_attempts": 1, "tcp_attempts": 1, "udp_response_bytes": 46, "tcp_response_bytes": 100, "total_ms": 30.0, "rtt_multiple": 3.0},
+                {"udp_attempts": 1, "tcp_attempts": 1, "udp_response_bytes": 46, "tcp_response_bytes": 101, "total_ms": 40.0, "rtt_multiple": 4.0},
+                {"udp_attempts": 1, "tcp_attempts": 1, "udp_response_bytes": 47, "tcp_response_bytes": 102, "total_ms": 50.0, "rtt_multiple": 5.0}
+            ]
+        })
+    }
+
+    fn rtt_pair(tag: &str) -> (PathBuf, VerifyNumbersArgs, Value) {
+        let dir =
+            std::env::temp_dir().join(format!("climb-verify-numbers-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut embedded_cell = raw_rtt_cell();
+        embedded_cell.as_object_mut().unwrap().remove("queries");
+        let section = serde_json::json!({
+            "schema_version": DNS_RTT_SCHEMA_VERSION,
+            "status": "measured",
+            "label": "emulated RTT, local bridge",
+            "recorded_at": "fixed",
+            "netem": "tc netem on the local bridge",
+            "zone": "climb.example.",
+            "query": "www.climb.example. A",
+            "cells": [embedded_cell]
+        });
+        let samples = serde_json::json!({
+            "schema_version": DNS_RTT_SCHEMA_VERSION,
+            "label": "emulated RTT, local bridge",
+            "recorded_at": "fixed",
+            "git_commit": null,
+            "netem": "tc netem on the local bridge",
+            "zone": "climb.example.",
+            "query": "www.climb.example. A",
+            "cells": [raw_rtt_cell()]
+        });
+        std::fs::write(
+            dir.join("climb-results.json"),
+            serde_json::to_string_pretty(&serde_json::json!({ "dns_rtt": section })).unwrap(),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("dns-rtt-samples.json"),
+            serde_json::to_string_pretty(&samples).unwrap(),
+        )
+        .unwrap();
+        let args = VerifyNumbersArgs {
+            root: dir.clone(),
+            results: PathBuf::from("climb-results.json"),
+            sheet: PathBuf::new(),
+            readme: PathBuf::new(),
+            report: PathBuf::new(),
+            dataset_digests: PathBuf::new(),
+            rtt_samples: None,
+            deep_digests: false,
+            require_spread: false,
+        };
+        let results_json = serde_json::json!({ "dns_rtt": section });
+        (dir, args, results_json)
+    }
+
+    #[test]
+    fn rtt_samples_recompute_every_published_cell_summary() {
+        let (dir, args, results_json) = rtt_pair("rtt-ok");
+        check_dns_rtt_samples(&args, &results_json).expect("every summary recomputes");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_results_document_that_embeds_raw_queries_is_rejected() {
+        let (dir, args, mut results_json) = rtt_pair("rtt-embedded");
+        let queries = raw_rtt_cell()
+            .get("queries")
+            .cloned()
+            .expect("fixture queries");
+        results_json["dns_rtt"]["cells"][0]["queries"] = queries;
+        let error =
+            check_dns_rtt_samples(&args, &results_json).expect_err("embedded records must fail");
+        let text = format!("{error:#}");
+        assert!(text.contains("embeds 5 per-query records"), "{text}");
+        assert!(text.contains("cargo xtask consolidate"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_malformed_rtt_sample_document_names_the_path() {
+        let (dir, args, results_json) = rtt_pair("rtt-malformed");
+        let path = dir.join("dns-rtt-samples.json");
+        std::fs::write(&path, "{ not json").unwrap();
+        let error = check_dns_rtt_samples(&args, &results_json).expect_err("must fail");
+        assert!(
+            format!("{error:#}").contains(&path.display().to_string()),
+            "{error:#}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cell_summary_that_disagrees_with_its_raw_rows_names_the_cell() {
+        let (dir, args, mut results_json) = rtt_pair("rtt-mismatch");
+        results_json["dns_rtt"]["cells"][0]["median_ms"] = Value::from(31.0);
+        let error =
+            check_dns_rtt_samples(&args, &results_json).expect_err("a changed summary must fail");
+        let text = format!("{error:#}");
+        assert!(text.contains("/dns_rtt/cells/0"), "{text}");
+        assert!(text.contains("median"), "{text}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_absent_rtt_sample_document_is_only_a_warning() {
+        let (dir, args, results_json) = rtt_pair("rtt-absent");
+        std::fs::remove_file(dir.join("dns-rtt-samples.json")).unwrap();
+        check_dns_rtt_samples(&args, &results_json).expect("absent companion is a warning");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

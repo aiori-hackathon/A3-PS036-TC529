@@ -28,7 +28,7 @@ use crate::dns_demo::{
 };
 
 /// Schema version for the dns-rtt artifact.
-pub const DNS_RTT_SCHEMA_VERSION: u32 = 1;
+pub const DNS_RTT_SCHEMA_VERSION: u32 = 2;
 
 /// Evidence label applied to every RTT cell and surface.
 pub const DNS_RTT_LABEL: &str = "emulated RTT, local bridge";
