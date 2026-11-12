@@ -146,38 +146,60 @@ while serving a workload, not how much RAM the benchmark process itself uses.
 Measured. NSD-MTL and Unbound-MTL run on the internal Docker bridge. A fast
 client (a single UDP socket, `R` sequential queries — never one `dig` process
 per name) loads `R` distinct signed RRsets into Unbound's cache for each of
-two configurations:
+two configurations, and the resolver is restarted between runs so each run
+measures cold loading of the same `R` names:
 
-* `plain` — every response carries a full signature, nothing shared;
-* `mtl-condensed` — every response carries a condensed proof and one signed
-  ladder is shared across the whole batch.
+* `plain` — the zone's records answered with full signatures;
+* `mtl-condensed` — the same MTL-signed zone, queried with the batch SigTag.
+  The reference Unbound build does not serve condensed responses: it ignores
+  the SigTag and returns the full response the signed zone stores, so its
+  answer cache is identical to `plain` **by construction**, not by a
+  measurement accident. Every measured answer-cache row therefore says
+  "MTL-signed zone, reference Unbound (serves full responses)". The label
+  "MTL-condensed" is reserved for the analytical prediction of responses this
+  build does not serve.
 
-Between every run the resolver cache is flushed (Unbound restarted) so each
-run measures cold loading of the same `R` names. After loading, Unbound's own
-accounting is read with `unbound-control stats_noreset` — `mem.cache.rrset`,
-`mem.cache.message`, `rrset.cache.count`, `msg.cache.count` — and the
-container's resident memory is sampled before and after. `R` takes the
-blueprint Small (100) and Medium (10,000) sizes; each cell is repeated at
-least five times. Evidence class: `MEASURED`. Label: "resolver cache use,
-local Docker bridge".
+After loading, Unbound's own accounting is read with `unbound-control
+stats_noreset` — `mem.cache.rrset`, `mem.cache.message`, `mem.cache.ladder`,
+`rrset.cache.count`, `msg.cache.count` — and the container's resident memory is
+sampled before and after. `R` takes the blueprint Small (100) and Medium
+(10,000) sizes; each cell is repeated at least five times. Evidence class:
+`MEASURED`. Label: "resolver cache use, local Docker bridge".
 
-Analytical. The predicted cache bytes are `R × mean response wire size`,
-plus the shared ladder bytes once for `mtl-condensed` (zero for `plain`). The
-mean response size comes from the wire-size measurement (full signature total
-divided by message count for `plain`; amortised total minus the ladder, divided
-by message count, for `mtl-condensed`), and the ladder size comes from the
-ladder-verification measurement. No constant is fitted to the measurement; the
-inputs are themselves measurements. The measured / analytical ratio is
-reported on every surface, exactly as the Memory tab does for benchmark-process
-memory.
+The ladder cache. `mem.cache.ladder` is the one MTL-specific cache statistic
+this build exposes. The patched Unbound populates it in the validator when it
+verifies a full MTL signature, so the ladder measurement uses a
+measurement-only config that validates the MTL-signed zone against the zone's
+own KSK (generated under `target/`; the committed pipeline config is not
+rewritten). The harness reads `mem.cache.ladder` before pass 1, after loading
+`R` names, and after a second pass over the same names. Pass 1 grows the cache
+by the stored ladder; pass 2 must not grow it again, because one signed zone
+is one MTL batch with one ladder. The patched build has no ladder entry-count
+line beside `mem.cache.ladder` (the other `*.cache.count` lines cover the
+message, rrset, infra and key caches only), so the distinct-ladder count is
+recorded from the zone's signing structure rather than inferred from a byte
+delta.
+
+Analytical. The predicted answer-cache bytes are `R × mean response wire
+size`, plus the shared ladder bytes once for `mtl-condensed` (zero for
+`plain`). The mean response size comes from the wire-size measurement (full
+signature total divided by message count for `plain`; amortised total minus the
+ladder, divided by message count, for `mtl-condensed`). For the ladder cache the
+prediction is `distinct ladders × signed-ladder length`, where the length is
+read from the zone's own SOA RRSIG and the distinct-ladder count from the
+batch structure. No constant is fitted to the measurement; the inputs are
+themselves measurements. Both measured / analytical ratios are reported, and
+the answer-cache ratio stays in the report rather than the headline: it compares
+full responses with a condensed prediction, so it is a construction difference,
+not model error.
 
 Honest limits. One resolver only, local bridge only (no Internet deployment).
 Unbound's accounting includes its own cache-structure overhead (a cold cache
-already reports nonzero `mem.cache.rrset`/`mem.cache.message`), so measured
-bytes are not expected to equal the analytical wire-bytes prediction; the
-ratio states the gap honestly rather than forcing agreement. Entry counts
-(`rrset.cache.count`, `msg.cache.count`) are reported where the resolver build
-exposes them.
+already reports nonzero `mem.cache.rrset`/`mem.cache.message`/`mem.cache.ladder`),
+so measured bytes are not expected to equal the analytical wire-bytes
+prediction; the ratio states the gap honestly rather than forcing agreement.
+Entry counts (`rrset.cache.count`, `msg.cache.count`) are reported where the
+resolver build exposes them; no ladder entry count is invented.
 
 ## Evidence classes
 

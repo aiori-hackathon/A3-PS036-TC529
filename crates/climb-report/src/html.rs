@@ -499,6 +499,8 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
 
     // Resolver cache: measured and analytical values in separate claims, so
     // the report body can show both without merging their evidence classes.
+    // The ladder cache has its own claims; it is the MTL-specific structure
+    // and is never folded into the answer-cache rows.
     if let Some(cache) = results.cache_use.as_ref() {
         for (idx, row) in cache.analytical.iter().enumerate() {
             let base = format!("/cache_use/analytical/{idx}");
@@ -522,6 +524,37 @@ pub fn claims(results: &ClimbResults) -> Result<Vec<Claim>, ReportError> {
                 &format!("cache-{idx}-ratio"),
                 &format!("{base}/measured_over_analytical"),
                 Some(format!("{:.3}\u{d7}", row.measured_over_analytical)),
+            );
+        }
+        for (idx, row) in cache.ladder_analytical.iter().enumerate() {
+            let base = format!("/cache_use/ladder_analytical/{idx}");
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-cache-{idx}-measured"),
+                &format!("{base}/measured_bytes"),
+                Some(row.measured_bytes.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-cache-{idx}-analytical"),
+                &format!("{base}/analytical_bytes"),
+                Some(row.analytical_bytes.to_string()),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-cache-{idx}-ratio"),
+                &format!("{base}/measured_over_analytical"),
+                Some(format!("{:.3}\u{d7}", row.measured_over_analytical)),
+            );
+            push_claim(
+                &mut claims,
+                &root,
+                &format!("ladder-cache-{idx}-second-pass"),
+                &format!("{base}/second_pass_growth_bytes"),
+                Some(row.second_pass_growth_bytes.to_string()),
             );
         }
     }
@@ -1093,14 +1126,16 @@ fn render_dns_rtt_section(results: &ClimbResults) -> String {
 /// contains each registered cache value verbatim. Returns an empty string when
 /// the artifact carries no cache section.
 fn render_resolver_cache_section(results: &ClimbResults, claims: &[Claim]) -> String {
+    use crate::cache::{measured_config_label, ANSWER_CACHE_IDENTICAL_NOTE};
+
     let Some(cache) = results.cache_use.as_ref() else {
         return String::new();
     };
-    if cache.analytical.is_empty() {
+    if cache.analytical.is_empty() && cache.ladder_analytical.is_empty() {
         return String::new();
     }
-    let cell = |idx: usize, suffix: &str| -> String {
-        let id = format!("cache-{idx}-{suffix}");
+    let cell = |prefix: &str, idx: usize, suffix: &str| -> String {
+        let id = format!("{prefix}-{idx}-{suffix}");
         claims
             .iter()
             .find(|c| c.id == id)
@@ -1110,15 +1145,37 @@ fn render_resolver_cache_section(results: &ClimbResults, claims: &[Claim]) -> St
     for (idx, row) in cache.analytical.iter().enumerate() {
         rows.push_str(&format!(
             "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
-            escape_html(&row.config),
+            escape_html(&measured_config_label(&row.config)),
             row.r,
-            escape_html(&cell(idx, "measured")),
-            escape_html(&cell(idx, "analytical")),
-            escape_html(&cell(idx, "ratio")),
+            escape_html(&cell("cache", idx, "measured")),
+            escape_html(&cell("cache", idx, "analytical")),
+            escape_html(&cell("cache", idx, "ratio")),
         ));
     }
+    let mut ladder_rows = String::new();
+    for (idx, row) in cache.ladder_analytical.iter().enumerate() {
+        let ratio = if row.analytical_bytes == 0 {
+            "\u{2014}".to_string()
+        } else {
+            cell("ladder-cache", idx, "ratio")
+        };
+        ladder_rows.push_str(&format!(
+            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&crate::results::size_display(&row.size)),
+            row.r,
+            row.distinct_ladders,
+            escape_html(&cell("ladder-cache", idx, "measured")),
+            escape_html(&cell("ladder-cache", idx, "analytical")),
+            escape_html(&ratio),
+        ));
+    }
+    if ladder_rows.is_empty() {
+        ladder_rows
+            .push_str("<tr><td colspan=\"6\">No ladder-cache rows in this artifact.</td></tr>\n");
+    }
+    let identity_note = escape_html(ANSWER_CACHE_IDENTICAL_NOTE);
     format!(
-        "<section aria-labelledby=\"resolver-cache-h\">\n<h2 id=\"resolver-cache-h\">Resolver cache use: measured and analytical</h2>\n<p class=\"note\">Measured = Unbound&rsquo;s own accounting (<code>mem.cache.rrset</code> plus <code>mem.cache.message</code> after loading r distinct signed RRsets) together with the resolver container&rsquo;s resident memory before and after loading; evidence class MEASURED. Analytical = the closed-form prediction from the response wire sizes plus one shared ladder per batch; evidence class ANALYTICAL, never fitted to the measurement. The ratio is DERIVED and is reported, not used to tune the model. Limits: one local resolver on an internal bridge, Unbound&rsquo;s own overhead included, and a cold cache that is not byte-empty on start.</p>\n<table class=\"memtable\">\n<thead><tr><th>Configuration</th><th>r (distinct RRsets)</th><th>Measured cache bytes</th><th>Analytical cache bytes</th><th>Measured / analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n</section>\n"
+        "<section aria-labelledby=\"resolver-cache-h\">\n<h2 id=\"resolver-cache-h\">Resolver cache use: measured and analytical</h2>\n<p class=\"note\">Measured = Unbound&rsquo;s own accounting (<code>mem.cache.rrset</code> plus <code>mem.cache.message</code> after loading r distinct signed RRsets) together with the resolver container&rsquo;s resident memory before and after loading; evidence class MEASURED. Analytical = the closed-form prediction for condensed responses from the response wire sizes plus one shared ladder per batch; evidence class ANALYTICAL, never fitted to the measurement. {identity_note} The measured / analytical ratio is therefore not a model error: it compares what the reference resolver actually served with a prediction for responses it does not serve, and it stays in this report rather than the headline. Analytical limits: one local resolver on an internal bridge, Unbound&rsquo;s own overhead included, and a cold cache that is not byte-empty on start.</p>\n<table class=\"memtable\">\n<thead><tr><th>Measured answer cache</th><th>r (distinct RRsets)</th><th>Measured cache bytes</th><th>Analytical cache bytes (condensed prediction)</th><th>Measured / analytical</th></tr></thead>\n<tbody>\n{rows}</tbody>\n</table>\n<h3>Ladder cache: the MTL-specific structure</h3>\n<p class=\"note\"><code>mem.cache.ladder</code> is the one MTL-specific cache statistic the reference build exposes; the patched Unbound populates it when its validator verifies a signed ladder. There is no ladder entry-count line in <code>unbound-control stats_noreset</code>, so the number of distinct ladders (+1 per signed batch) is recorded from the zone&rsquo;s signing structure instead of being inferred from a byte delta. Measured = the median growth when r names are loaded from the MTL-signed zone; the second pass over the same zone must not grow it again. Analytical = the recorded signed-ladder length &times; the distinct ladders in the zone, never fitted.</p>\n<table class=\"memtable\">\n<thead><tr><th>Size</th><th>r</th><th>Distinct ladders</th><th>Ladder cache measured</th><th>Ladder cache analytical</th><th>Measured / analytical</th></tr></thead>\n<tbody>\n{ladder_rows}</tbody>\n</table>\n</section>\n"
     )
 }
 

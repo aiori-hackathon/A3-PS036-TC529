@@ -26,12 +26,13 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 
 use crate::dns_demo::{
-    check_docker, check_images, compose_cmd, git_head, hostname, run_cmd_inherit, run_in_signer,
-    uname, wait_for_nsd_ready, workspace_root, ALGORITHM, SIGTAG_SCRIPT, UNBOUND_IP,
+    check_docker, check_images, compose_cmd, compose_cmd_with_extra, git_head, hostname,
+    run_cmd_inherit, run_in_signer, uname, wait_for_nsd_ready, workspace_root, ALGORITHM,
+    SIGTAG_SCRIPT, UNBOUND_IP,
 };
 use crate::SizeArg;
 
-use climb_report::cache::{parse_unbound_stats, CacheArtifact, CacheRun, UnboundStats};
+use climb_report::cache::{parse_unbound_stats, CacheArtifact, CacheRun, LadderRun, UnboundStats};
 use climb_report::{CACHE_USE_CLASS, CACHE_USE_METHOD, CACHE_USE_SCHEMA_VERSION};
 
 /// Container name of the recursive resolver whose cache is measured.
@@ -45,6 +46,11 @@ const UNBOUND_CONF: &str = "/etc/unbound/unbound.conf";
 /// Cache-loading probe script, run on the host against the resolver's bridge
 /// address.
 const CACHE_PROBE_SCRIPT: &str = "scripts/mtl_dns_cache_probe.py";
+/// Flag that makes the SigTag helper print the signed-ladder length instead of
+/// the SigTag.
+const LADDER_LENGTH_FLAG: &str = "--ladder-length";
+/// Config path inside the Unbound container.
+const UNBOUND_CONF_IN_CONTAINER: &str = "/etc/unbound/unbound.conf";
 
 /// RAII guard: tears down the DNS pipeline on drop.
 struct PipelineGuard {
@@ -131,6 +137,7 @@ pub(crate) fn cmd_dns_cache(args: DnsCacheArgs) -> Result<()> {
     let mode = if args.quick { "quick" } else { "full" };
     let repeats = if args.quick { 3 } else { args.repeats };
     let mut runs: Vec<CacheRun> = Vec::new();
+    let mut ladder_runs: Vec<LadderRun> = Vec::new();
     let mut warnings: Vec<String> = Vec::new();
 
     // ── Sign or reuse the zone(s) ─────────────────────────────────────
@@ -211,6 +218,18 @@ pub(crate) fn cmd_dns_cache(args: DnsCacheArgs) -> Result<()> {
 
         drop(guard); // explicit compose down before the next size
         eprintln!("  {size}: pipeline torn down");
+
+        // ── Ladder cache, the MTL-specific structure ─────────────────
+        // The answer-cache cells above use the resolver exactly as the demo
+        // pipeline configures it (iterator only), so they cache the full
+        // responses the signed zone stores. The ladder cache is populated by
+        // the validator when it verifies an MTL signature, so this measurement
+        // uses a measurement-only config that enables validation for the
+        // zone's own trust anchor. It is generated under target/; the
+        // committed pipeline config is untouched.
+        let ladder = measure_ladder_cache(&root, size, r, repeats, &staged_zone, &mut warnings)?;
+        ladder_runs.extend(ladder);
+        eprintln!("  {size}: ladder-cache measurement complete");
     }
 
     // ── Write the artifact ────────────────────────────────────────────
@@ -233,6 +252,7 @@ pub(crate) fn cmd_dns_cache(args: DnsCacheArgs) -> Result<()> {
         configs: vec!["plain".to_string(), "mtl-condensed".to_string()],
         repeats,
         runs,
+        ladder_runs,
         warnings,
     };
 
@@ -363,6 +383,205 @@ fn write_unsigned_zone(path: &Path, size: SizeArg, r: usize) -> Result<()> {
     fs::write(path, content).with_context(|| format!("failed to write {}", path.display()))?;
     eprintln!("  {} unsigned zone: {} names", size_label(size), r);
     Ok(())
+}
+
+/// Measure the MTL ladder cache: flush the resolver, load `r` names from the
+/// MTL-signed zone (pass 1), then load the same names again (pass 2).
+///
+/// The ladder cache is populated by Unbound's validator when it verifies the
+/// full MTL signature carried by the first response; after that the resolver
+/// advertises the cached ladder's SigTag, so later responses are condensed and
+/// reuse the same cache entry. A second pass over the same zone must therefore
+/// not grow the cache: growth on pass 2 would mean the "one ladder per batch"
+/// assumption is wrong, and it is recorded rather than hidden.
+fn measure_ladder_cache(
+    root: &Path,
+    size: SizeArg,
+    r: usize,
+    repeats: u64,
+    staged_zone: &Path,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<LadderRun>> {
+    let scratch = root.join("target").join("dns-cache");
+    fs::create_dir_all(&scratch).context("failed to create scratch directory")?;
+    let signed_ladder_bytes = signed_ladder_len(root, staged_zone)?;
+    let compose_override = write_ladder_config(root, &scratch, staged_zone)?;
+
+    let guard = PipelineGuard::new(root.to_path_buf());
+    {
+        let mut cmd = compose_cmd_with_extra(
+            root,
+            &[compose_override.as_path()],
+            &["up", "-d", "nsd", "unbound"],
+        );
+        cmd.env("CLIMB_ZONE_DIR", &scratch);
+        run_cmd_inherit(cmd)?;
+    }
+    wait_for_nsd_ready(root)?;
+    eprintln!("  {size}: validation-enabled pipeline ready for the ladder cache");
+
+    let mut runs = Vec::new();
+    for repeat in 0..repeats {
+        flush_unbound_cache(root)?;
+        let before = read_unbound_stats()?;
+        let first = load_names(UNBOUND_IP, r, None)?;
+        let after_first = read_unbound_stats()?;
+        let second = load_names(UNBOUND_IP, r, None)?;
+        let after_second = read_unbound_stats()?;
+
+        if after_first.ladder_cache_bytes < before.ladder_cache_bytes {
+            warnings.push(format!(
+                "{size} ladder repeat {repeat}: mem.cache.ladder shrank ({} -> {} B)",
+                before.ladder_cache_bytes, after_first.ladder_cache_bytes
+            ));
+        }
+        let second_pass_growth = after_second
+            .ladder_cache_bytes
+            .saturating_sub(after_first.ladder_cache_bytes);
+        if second_pass_growth != 0 {
+            warnings.push(format!(
+                "{size} ladder repeat {repeat}: a second pass over the same zone grew \
+                 mem.cache.ladder by {second_pass_growth} B instead of reusing the cached ladder"
+            ));
+        }
+
+        eprintln!(
+            "    ladder repeat {repeat}/{repeats}: mem.cache.ladder {} → {} → {} B \
+             (pass1 {} queries, pass2 {} queries, signed ladder {} B)",
+            before.ladder_cache_bytes,
+            after_first.ladder_cache_bytes,
+            after_second.ladder_cache_bytes,
+            first
+                .get("count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+            second
+                .get("count")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0),
+            signed_ladder_bytes,
+        );
+
+        runs.push(LadderRun {
+            size: size_label(size).to_string(),
+            r,
+            repeat,
+            signed_ladder_bytes,
+            distinct_ladders: 1,
+            ladder_cache_bytes_before: before.ladder_cache_bytes,
+            ladder_cache_bytes_after_first_pass: after_first.ladder_cache_bytes,
+            ladder_cache_bytes_after_second_pass: after_second.ladder_cache_bytes,
+            before,
+            after_first_pass: after_first,
+            after_second_pass: after_second,
+            ladder_entry_count_exposed: false,
+        });
+    }
+    drop(guard);
+    Ok(runs)
+}
+
+/// Write a measurement-only Unbound config that validates the signed zone, and
+/// the Compose overlay that mounts it.
+///
+/// It is the committed pipeline config with two deliberate changes: validation
+/// is enabled (`validator iterator`) and the trust anchor is the zone's own KSK,
+/// read from the signed zone. Nothing is hardcoded and the committed config is
+/// not rewritten for a one-off measurement.
+fn write_ladder_config(root: &Path, scratch: &Path, signed_zone: &Path) -> Result<PathBuf> {
+    let base = fs::read_to_string(root.join("docker/configs/unbound.conf"))
+        .context("failed to read the pipeline Unbound config")?;
+    let zone = fs::read_to_string(signed_zone)
+        .with_context(|| format!("failed to read {}", signed_zone.display()))?;
+    let text = ladder_config_text(&base, &zone)?;
+
+    let config_path = scratch.join("unbound-ladder.conf");
+    fs::write(&config_path, text)
+        .with_context(|| format!("failed to write {}", config_path.display()))?;
+
+    let overlay = scratch.join("compose-ladder.yml");
+    let overlay_text = format!(
+        "services:\n  unbound:\n    volumes:\n      - \"{}:{}:ro\"\n",
+        config_path.display(),
+        UNBOUND_CONF_IN_CONTAINER
+    );
+    fs::write(&overlay, overlay_text)
+        .with_context(|| format!("failed to write {}", overlay.display()))?;
+    Ok(overlay)
+}
+
+/// Rewrite the committed pipeline config into the measurement config.
+///
+/// Pure so a test can prove the two changes: the module list gains the
+/// validator and the `domain-insecure` exclusion is removed.
+fn ladder_config_text(base: &str, zone: &str) -> Result<String> {
+    let anchor = trust_anchor_from_zone(zone)?;
+    let mut text = String::new();
+    for line in base.lines() {
+        let trimmed = line.trim_start();
+        if trimmed.starts_with("module-config:") {
+            text.push_str("    module-config: \"validator iterator\"\n");
+        } else if trimmed.starts_with("domain-insecure:") {
+            // Validation is the point of this config, so the zone must not be
+            // excluded from it.
+            continue;
+        } else {
+            text.push_str(line);
+            text.push('\n');
+        }
+    }
+    text.push_str(&format!("\nserver:\n    trust-anchor: \"{anchor}\"\n"));
+    Ok(text)
+}
+
+/// Read the zone's KSK line and return it as an Unbound `trust-anchor` value.
+fn trust_anchor_from_zone(zone: &str) -> Result<String> {
+    for raw in zone.lines() {
+        let line = raw.split(';').next().unwrap_or("").trim();
+        let fields: Vec<&str> = line.split_whitespace().collect();
+        let Some(key_index) = fields.iter().position(|field| *field == "DNSKEY") else {
+            continue;
+        };
+        if fields.get(key_index + 1) != Some(&"257") {
+            continue;
+        }
+        let owner = fields.first().context("DNSKEY line has no owner")?;
+        let ttl = fields.get(1).context("DNSKEY line has no TTL")?;
+        let protocol = fields
+            .get(key_index + 2)
+            .context("DNSKEY line has no protocol field")?;
+        let algorithm = fields
+            .get(key_index + 3)
+            .context("DNSKEY line has no algorithm field")?;
+        let key = fields
+            .get(key_index + 4)
+            .context("DNSKEY line has no key material")?;
+        return Ok(format!(
+            "{owner} {ttl} IN DNSKEY 257 {protocol} {algorithm} {key}"
+        ));
+    }
+    bail!("signed zone carries no DNSKEY 257 record to use as a trust anchor")
+}
+
+/// Read the signed-ladder length from the zone's own SOA RRSIG, in bytes.
+fn signed_ladder_len(root: &Path, signed_zone: &Path) -> Result<u64> {
+    let output = Command::new("python3")
+        .arg(SIGTAG_SCRIPT)
+        .arg(LADDER_LENGTH_FLAG)
+        .arg(signed_zone)
+        .current_dir(root)
+        .output()
+        .context("failed to run the ladder-length helper")?;
+    if !output.status.success() {
+        bail!(
+            "ladder-length helper failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse::<u64>()
+        .context("ladder-length helper did not print a byte count")
 }
 
 /// Compute the MTL SigTag (SHAKE-128 hash of the signed ladder) for the zone.
@@ -565,5 +784,32 @@ mod tests {
     fn default_sizes_are_small_and_medium() {
         let sizes = selected_sizes(&[SizeArg::Small, SizeArg::Medium], false);
         assert_eq!(sizes, vec![SizeArg::Small, SizeArg::Medium]);
+    }
+
+    #[test]
+    fn trust_anchor_is_read_from_the_zone_ksk() {
+        let zone = "climb.example.\t3600\tIN\tDNSKEY\t256 3 130 AAAA ;{id = 1 (zsk)}\n\
+                    climb.example.\t3600\tIN\tDNSKEY\t257 3 130 BBBB ;{id = 2 (ksk)}\n";
+        assert_eq!(
+            trust_anchor_from_zone(zone).expect("anchor"),
+            "climb.example. 3600 IN DNSKEY 257 3 130 BBBB"
+        );
+    }
+
+    #[test]
+    fn a_zone_without_a_ksk_is_a_hard_error() {
+        let zone = "climb.example.\t3600\tIN\tDNSKEY\t256 3 130 AAAA\n";
+        assert!(trust_anchor_from_zone(zone).is_err());
+    }
+
+    #[test]
+    fn the_measurement_config_enables_the_validator_and_drops_the_exclusion() {
+        let base = "server:\n    module-config: \"iterator\"\n    domain-insecure: \"climb.example.\"\n    verbosity: 2\n";
+        let zone = "climb.example.\t3600\tIN\tDNSKEY\t257 3 130 BBBB ;{id = 2 (ksk)}\n";
+        let text = ladder_config_text(base, zone).expect("measurement config");
+        assert!(text.contains("module-config: \"validator iterator\""));
+        assert!(!text.contains("domain-insecure"));
+        assert!(text.contains("verbosity: 2"));
+        assert!(text.contains("trust-anchor: \"climb.example. 3600 IN DNSKEY 257 3 130 BBBB\""));
     }
 }

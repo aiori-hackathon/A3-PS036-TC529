@@ -4,7 +4,9 @@ use std::time::{Duration, SystemTime};
 
 use serde::{Deserialize, Serialize};
 
-use crate::cache::{CacheAnalyticalRow, CacheArtifact, CacheResults, CacheRun};
+use crate::cache::{
+    CacheAnalyticalRow, CacheArtifact, CacheResults, CacheRun, LadderAnalyticalRow, LadderRun,
+};
 use crate::dns_rtt::DnsRttSection;
 use crate::error::ReportError;
 use crate::ladder::{LadderSection, LadderSource, LadderVerification};
@@ -2375,6 +2377,8 @@ fn load_cache_use_section(
         method: artifact.method,
         measured: artifact.runs,
         analytical: Vec::new(),
+        ladder: artifact.ladder_runs,
+        ladder_analytical: Vec::new(),
     }))
 }
 
@@ -2444,6 +2448,67 @@ fn build_cache_analytical(
             config,
             r,
             measured_bytes,
+            analytical_bytes,
+            measured_over_analytical,
+        });
+    }
+    rows
+}
+
+/// Pair the raw ladder-cache runs with the closed-form prediction
+/// `distinct_ladders × signed_ladder_bytes`, one row per dataset size.
+///
+/// The measured bytes are the median first-pass growth (`after − before`) of
+/// the raw runs; the second-pass growth is reported separately so a non-zero
+/// value (a ladder stored again on a hit) is visible rather than averaged away.
+fn build_ladder_analytical(runs: &[LadderRun]) -> Vec<LadderAnalyticalRow> {
+    use std::collections::BTreeMap;
+    let mut by_cell: BTreeMap<(String, usize), Vec<&LadderRun>> = BTreeMap::new();
+    for run in runs {
+        by_cell
+            .entry((run.size.clone(), run.r))
+            .or_default()
+            .push(run);
+    }
+    let mut rows = Vec::new();
+    for ((size, r), mut cell) in by_cell {
+        cell.sort_by_key(|run| run.repeat);
+        let Some(first) = cell.first() else {
+            continue;
+        };
+        let distinct_ladders = first.distinct_ladders;
+        let signed_ladder_bytes = first.signed_ladder_bytes;
+        let growth: Vec<u64> = cell
+            .iter()
+            .map(|run| {
+                run.ladder_cache_bytes_after_first_pass
+                    .saturating_sub(run.ladder_cache_bytes_before)
+            })
+            .collect();
+        let second_pass_growth: Vec<u64> = cell
+            .iter()
+            .map(|run| {
+                run.ladder_cache_bytes_after_second_pass
+                    .saturating_sub(run.ladder_cache_bytes_after_first_pass)
+            })
+            .collect();
+        let measured_bytes = median_u64(growth);
+        let second_pass_growth_bytes = median_u64(second_pass_growth);
+        let analytical_bytes =
+            climb_analytical::ladder_cache_bytes(distinct_ladders, signed_ladder_bytes)
+                .predicted_cache_bytes;
+        let measured_over_analytical = if analytical_bytes > 0 {
+            measured_bytes as f64 / analytical_bytes as f64
+        } else {
+            0.0
+        };
+        rows.push(LadderAnalyticalRow {
+            size,
+            r,
+            distinct_ladders,
+            signed_ladder_bytes,
+            measured_bytes,
+            second_pass_growth_bytes,
             analytical_bytes,
             measured_over_analytical,
         });
@@ -2644,6 +2709,7 @@ pub fn consolidate_results(opts: ConsolidateOptions) -> Result<ClimbResults, Rep
     let mut cache_use = load_cache_use_section(&opts.cache_use_path, &opts.cache_use_fixture_path)?;
     if let Some(ref mut section) = cache_use {
         section.analytical = build_cache_analytical(&section.measured, &wire_size);
+        section.ladder_analytical = build_ladder_analytical(&section.ladder);
     }
 
     let plain = plain_timings(&plain_records);
@@ -5511,5 +5577,104 @@ mod tests {
         assert_eq!(section.runs[0].n_runs, 5);
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn ladder_run(
+        size: &str,
+        repeat: u64,
+        before: u64,
+        after_first: u64,
+        after_second: u64,
+    ) -> LadderRun {
+        use crate::cache::UnboundStats;
+        LadderRun {
+            size: size.to_string(),
+            r: 100,
+            repeat,
+            signed_ladder_bytes: 8_056,
+            distinct_ladders: 1,
+            ladder_cache_bytes_before: before,
+            ladder_cache_bytes_after_first_pass: after_first,
+            ladder_cache_bytes_after_second_pass: after_second,
+            before: UnboundStats {
+                rrset_cache_bytes: before,
+                rrset_cache_entries: 0,
+                message_cache_bytes: before,
+                message_cache_entries: 0,
+                ladder_cache_bytes: before,
+            },
+            after_first_pass: UnboundStats {
+                rrset_cache_bytes: after_first,
+                rrset_cache_entries: 0,
+                message_cache_bytes: after_first,
+                message_cache_entries: 0,
+                ladder_cache_bytes: after_first,
+            },
+            after_second_pass: UnboundStats {
+                rrset_cache_bytes: after_second,
+                rrset_cache_entries: 0,
+                message_cache_bytes: after_second,
+                message_cache_entries: 0,
+                ladder_cache_bytes: after_second,
+            },
+            ladder_entry_count_exposed: false,
+        }
+    }
+
+    #[test]
+    fn ladder_analytical_is_the_recorded_length_times_the_distinct_ladders() {
+        let rows = build_ladder_analytical(&[ladder_run("small", 0, 66_104, 82_952, 82_952)]);
+        assert_eq!(rows.len(), 1);
+        let row = &rows[0];
+        assert_eq!(row.measured_bytes, 16_848);
+        assert_eq!(row.second_pass_growth_bytes, 0);
+        assert_eq!(row.analytical_bytes, 8_056);
+        assert!((row.measured_over_analytical - 16_848.0 / 8_056.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn ladder_analytical_medians_repeats_and_reports_a_second_pass_that_grows() {
+        let rows = build_ladder_analytical(&[
+            ladder_run("medium", 0, 66_104, 83_080, 83_080),
+            ladder_run("medium", 1, 66_104, 83_080, 83_208),
+        ]);
+        let row = rows.first().expect("one row");
+        assert_eq!(row.measured_bytes, 16_976);
+        assert_eq!(
+            row.second_pass_growth_bytes, 64,
+            "a ladder stored again on a hit must be visible, not averaged away"
+        );
+    }
+
+    #[test]
+    fn ladder_analytical_is_empty_without_ladder_runs() {
+        assert!(build_ladder_analytical(&[]).is_empty());
+    }
+
+    #[test]
+    fn a_cache_artifact_without_ladder_runs_still_loads_its_older_schema() {
+        // Schema v1 artifacts predate the ladder measurement. They must keep
+        // parsing (the new fields default to empty) rather than becoming a
+        // hard error for every consumer.
+        let legacy = serde_json::json!({
+            "schema_version": 1,
+            "mode": "full",
+            "recorded_at": "0",
+            "git_commit": null,
+            "hostname": "host",
+            "uname": "Linux",
+            "label": "resolver cache use, local Docker bridge",
+            "class": "MEASURED",
+            "method": "unbound-control stats_noreset + container RSS",
+            "resolver": "unbound",
+            "r_values": [100],
+            "configs": ["plain", "mtl-condensed"],
+            "repeats": 1,
+            "runs": [],
+            "warnings": []
+        });
+        let artifact: crate::cache::CacheArtifact =
+            serde_json::from_value(legacy).expect("older artifact parses");
+        assert!(artifact.ladder_runs.is_empty());
     }
 }

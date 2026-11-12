@@ -555,20 +555,30 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Resolver cache
 
+> The answer cache is identical by construction: the reference Unbound build does not serve condensed responses, so both configurations cache the full responses the signed zone stores.
+
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Small — resolver cache bytes, MTL-condensed (measured) | 921471 | B | MEASURED | n = 100 | n/a | /cache_use/analytical/0/measured_bytes | target/climb-results.json |
+| Small — resolver cache bytes, MTL-signed zone, reference Unbound (serves full responses) (measured) | 921471 | B | MEASURED | n = 100 | n/a | /cache_use/analytical/0/measured_bytes | target/climb-results.json |
 | Small — resolver cache bytes, MTL-condensed (analytical) | 24392 | B | ANALYTICAL | n = 100 | n/a | /cache_use/analytical/0/analytical_bytes | target/climb-results.json |
-| Small — resolver cache measured / analytical, MTL-condensed | 37.78 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/0/measured_over_analytical | target/climb-results.json |
+| Small — answer cache measured (serves full responses) / analytical (MTL-condensed) | 37.78 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/0/measured_over_analytical | target/climb-results.json |
 | Small — resolver cache bytes, plain (measured) | 921471 | B | MEASURED | n = 100 | n/a | /cache_use/analytical/1/measured_bytes | target/climb-results.json |
 | Small — resolver cache bytes, plain (analytical) | 815600 | B | ANALYTICAL | n = 100 | n/a | /cache_use/analytical/1/analytical_bytes | target/climb-results.json |
-| Small — resolver cache measured / analytical, plain | 1.13 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/1/measured_over_analytical | target/climb-results.json |
-| Medium — resolver cache bytes, MTL-condensed (measured) | 8429932 | B | MEASURED | n = 10000 | n/a | /cache_use/analytical/2/measured_bytes | target/climb-results.json |
+| Small — answer cache measured (serves full responses) / analytical (plain) | 1.13 | × | DERIVED | n = 100 | n/a | /cache_use/analytical/1/measured_over_analytical | target/climb-results.json |
+| Medium — resolver cache bytes, MTL-signed zone, reference Unbound (serves full responses) (measured) | 8429932 | B | MEASURED | n = 10000 | n/a | /cache_use/analytical/2/measured_bytes | target/climb-results.json |
 | Medium — resolver cache bytes, MTL-condensed (analytical) | 2738056 | B | ANALYTICAL | n = 10000 | n/a | /cache_use/analytical/2/analytical_bytes | target/climb-results.json |
-| Medium — resolver cache measured / analytical, MTL-condensed | 3.079 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/2/measured_over_analytical | target/climb-results.json |
+| Medium — answer cache measured (serves full responses) / analytical (MTL-condensed) | 3.079 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/2/measured_over_analytical | target/climb-results.json |
 | Medium — resolver cache bytes, plain (measured) | 8429932 | B | MEASURED | n = 10000 | n/a | /cache_use/analytical/3/measured_bytes | target/climb-results.json |
 | Medium — resolver cache bytes, plain (analytical) | 83290000 | B | ANALYTICAL | n = 10000 | n/a | /cache_use/analytical/3/analytical_bytes | target/climb-results.json |
-| Medium — resolver cache measured / analytical, plain | 0.1012 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/3/measured_over_analytical | target/climb-results.json |
+| Medium — answer cache measured (serves full responses) / analytical (plain) | 0.1012 | × | DERIVED | n = 10000 | n/a | /cache_use/analytical/3/measured_over_analytical | target/climb-results.json |
+| Medium — ladder cache bytes (measured) | 16912 | B | MEASURED | n = 10000 | n/a | /cache_use/ladder_analytical/0/measured_bytes | target/climb-results.json |
+| Medium — ladder cache bytes (analytical) | 8120 | B | ANALYTICAL | n = 10000 | n/a | /cache_use/ladder_analytical/0/analytical_bytes | target/climb-results.json |
+| Medium — ladder cache measured / analytical | 2.083 | × | DERIVED | n = 10000 | n/a | /cache_use/ladder_analytical/0/measured_over_analytical | target/climb-results.json |
+| Medium — ladder cache growth on a second pass | 0 | B | MEASURED | n = 10000 | n/a | /cache_use/ladder_analytical/0/second_pass_growth_bytes | target/climb-results.json |
+| Small — ladder cache bytes (measured) | 16848 | B | MEASURED | n = 100 | n/a | /cache_use/ladder_analytical/1/measured_bytes | target/climb-results.json |
+| Small — ladder cache bytes (analytical) | 8056 | B | ANALYTICAL | n = 100 | n/a | /cache_use/ladder_analytical/1/analytical_bytes | target/climb-results.json |
+| Small — ladder cache measured / analytical | 2.091 | × | DERIVED | n = 100 | n/a | /cache_use/ladder_analytical/1/measured_over_analytical | target/climb-results.json |
+| Small — ladder cache growth on a second pass | 0 | B | MEASURED | n = 100 | n/a | /cache_use/ladder_analytical/1/second_pass_growth_bytes | target/climb-results.json |
 
 ## Environment
 
@@ -586,13 +596,13 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 0ca25cd6758bc77a63b87d4d2b64754d6a8b223d | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | e3829d6f44fa0938911aa8f18f8258fd17ecdfec | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 1420 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1441 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 | Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
@@ -601,7 +611,7 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 ## Footer
 
-- Rows rendered: 497 (from 657 collected facts; 160 duplicate copies merged).
-- Evidence classes (rendered rows): MEASURED: 291, ANALYTICAL: 75, EXTRAPOLATED: 24, DERIVED: 106; UNCLASSIFIED: 1.
+- Rows rendered: 505 (from 665 collected facts; 160 duplicate copies merged).
+- Evidence classes (rendered rows): MEASURED: 295, ANALYTICAL: 77, EXTRAPOLATED: 24, DERIVED: 108; UNCLASSIFIED: 1.
 - UNCLASSIFIED rows: Repository — commit SHA.
 - Inconsistencies: none.

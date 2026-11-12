@@ -322,20 +322,30 @@ fn stop_with_compose_install() -> ! {
 }
 
 pub(crate) fn compose_cmd(root: &Path, args: &[&str]) -> Command {
+    compose_cmd_with_extra(root, &[], args)
+}
+
+/// Like [`compose_cmd`], but adds extra Compose overlay files after the
+/// canonical pipeline file. A caller that needs to mount a measurement-only
+/// configuration writes the overlay under `target/` and passes it here; the
+/// committed Compose file is never rewritten for a one-off measurement.
+pub(crate) fn compose_cmd_with_extra(root: &Path, extra: &[&Path], args: &[&str]) -> Command {
     let binary = compose_binary();
     let c = if binary == "docker" {
         let mut cmd = Command::new("docker");
-        cmd.args(["compose", "-f"])
-            .arg(root.join(COMPOSE_FILE))
-            .args(args)
-            .current_dir(root);
+        cmd.args(["compose", "-f"]).arg(root.join(COMPOSE_FILE));
+        for file in extra {
+            cmd.arg("-f").arg(file);
+        }
+        cmd.args(args).current_dir(root);
         cmd
     } else {
         let mut cmd = Command::new(&binary);
-        cmd.args(["-f"])
-            .arg(root.join(COMPOSE_FILE))
-            .args(args)
-            .current_dir(root);
+        cmd.args(["-f"]).arg(root.join(COMPOSE_FILE));
+        for file in extra {
+            cmd.arg("-f").arg(file);
+        }
+        cmd.args(args).current_dir(root);
         cmd
     };
     c

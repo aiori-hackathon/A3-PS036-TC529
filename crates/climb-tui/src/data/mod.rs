@@ -14,7 +14,7 @@ mod integrity;
 mod ladder;
 mod live;
 mod memory;
-pub(crate) use memory::ResolverCacheRow;
+pub(crate) use memory::{LadderCacheRow, ResolverCacheRow};
 mod method;
 mod overview;
 mod reuse;

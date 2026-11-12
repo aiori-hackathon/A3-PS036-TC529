@@ -121,10 +121,6 @@ style-digest contrast: 94d34e952b5e45b6
 │Overview│Signing│Verifying│Wire│Memory│Ladder│Live│Integrity│Method           │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Memory · benchmark process memory ───────────────────────────────────────────┐
-│ Small                                                                        │
-│ Analytical   ░░░░░░░░░░░░░░░░░░░░░░░░░░▒                  2.18 MB            │
-│ Measured     ████████████████████████████████████████████ 3.55 MB            │
-│   peak 3.55 MB · ratio 1.63× · resid 1.37 MB (+62.8%) · n=7, IQR 81.9 kB     │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Reading these numbers ───────────────────────────────────────────────────────┐
 │                                                                              │
@@ -135,15 +131,19 @@ style-digest contrast: 94d34e952b5e45b6
 │  residual = resident median − model                                          │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ Resolver cache (separate measurement) ───────────────────────────────────────┐
-│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.47│
+│  Small   MTL zone/full measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.25│
 │MB                                                                            │
-│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.18  │
+│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.34  │
+│MB                                                                            │
+│  Medium  MTL zone/full measured 8.43 MB  analytical 2.74 MB  3.08×  RSS +12.6│
+│MB                                                                            │
+│  Medium  plain         measured 8.43 MB  analytical 83.3 MB  0.10×  RSS +12.8│
 │MB                                                                            │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 750d0c2eb7bde8fb
-style-digest light: 6a8c7ef3d8d3d145
-style-digest contrast: 8465529e080dd4f3
+style-digest dark: c37f08af26c49b1a
+style-digest light: 73df1e7b27e44b3c
+style-digest contrast: 8070932b9dcd4448
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -243,7 +243,7 @@ style-digest contrast: 44b50de0ddd801cd
 │  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Larg│
 │  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                    │
 │  dataset sizes             Small, OneK, Medium, Large                        │
-│  results generated         2026-11-12T18:15:57+05:30                         │
+│  results generated         2026-11-12T23:31:56+05:30                         │
 │  Reproduce every artifact from a clean checkout:                             │
 │    cargo xtask reproduce --report-only                                       │
 │    cargo xtask reproduce --remeasure                                         │
@@ -257,6 +257,6 @@ style-digest contrast: 44b50de0ddd801cd
 │  DNSSEC signing (SLH-DSA). Three configurations are compared throughout; the │
 └──────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [e… · ? help
-style-digest dark: 1b11661c8ec0a0cf
-style-digest light: cbcf6b4d504cc2e0
-style-digest contrast: cc216ddcc1a57923
+style-digest dark: d1f6711a5f8cffb0
+style-digest light: ee201b4ea6c5429d
+style-digest contrast: 3baf2ae79c701ea0

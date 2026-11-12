@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "mode": "quick",
   "recorded_at": "0",
   "git_commit": null,
@@ -69,6 +69,72 @@
         "message_cache_entries": 100,
         "ladder_cache_bytes": 66104
       }
+    }
+  ],
+  "ladder_runs": [
+    {
+      "size": "small",
+      "r": 100,
+      "repeat": 0,
+      "signed_ladder_bytes": 8056,
+      "distinct_ladders": 1,
+      "ladder_cache_bytes_before": 66104,
+      "ladder_cache_bytes_after_first_pass": 82952,
+      "ladder_cache_bytes_after_second_pass": 82952,
+      "before": {
+        "rrset_cache_bytes": 66104,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 66104,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      },
+      "after_first_pass": {
+        "rrset_cache_bytes": 141457,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97857,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 82952
+      },
+      "after_second_pass": {
+        "rrset_cache_bytes": 141457,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97857,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 82952
+      },
+      "ladder_entry_count_exposed": false
+    },
+    {
+      "size": "small",
+      "r": 100,
+      "repeat": 1,
+      "signed_ladder_bytes": 8056,
+      "distinct_ladders": 1,
+      "ladder_cache_bytes_before": 66104,
+      "ladder_cache_bytes_after_first_pass": 82952,
+      "ladder_cache_bytes_after_second_pass": 82952,
+      "before": {
+        "rrset_cache_bytes": 66104,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 66104,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 66104
+      },
+      "after_first_pass": {
+        "rrset_cache_bytes": 141457,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97857,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 82952
+      },
+      "after_second_pass": {
+        "rrset_cache_bytes": 141457,
+        "rrset_cache_entries": 102,
+        "message_cache_bytes": 97857,
+        "message_cache_entries": 100,
+        "ladder_cache_bytes": 82952
+      },
+      "ladder_entry_count_exposed": false
     }
   ],
   "warnings": []

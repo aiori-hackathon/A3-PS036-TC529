@@ -128,6 +128,37 @@ pub fn resolver_cache_bytes_from_wire(
     ))
 }
 
+/// The result of modelling the MTL ladder cache.
+///
+/// A ladder is stored once per distinct signed batch, not once per response.
+/// The prediction is therefore `distinct_ladders × signed_ladder_bytes`, with
+/// both inputs measured: the ladder length is read from the signed zone's own
+/// RRSIG and the batch count from the zone's signing structure. No cache
+/// overhead term is fitted, so the measured/analytical ratio is expected to be
+/// greater than one and is reported rather than tuned away.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LadderCacheEstimate {
+    /// Number of distinct ladders in the zone.
+    pub distinct_ladders: u64,
+    /// Signed-ladder length in bytes.
+    pub signed_ladder_bytes: u64,
+    /// Predicted ladder-cache bytes.
+    pub predicted_cache_bytes: u64,
+}
+
+/// Predict the ladder-cache bytes for `distinct_ladders` signed ladders.
+///
+/// Neither input is fitted to the cache measurement: the ladder length is read
+/// from the signed zone and the distinct-ladder count from the batch structure.
+#[must_use]
+pub fn ladder_cache_bytes(distinct_ladders: u64, signed_ladder_bytes: u64) -> LadderCacheEstimate {
+    LadderCacheEstimate {
+        distinct_ladders,
+        signed_ladder_bytes,
+        predicted_cache_bytes: distinct_ladders.saturating_mul(signed_ladder_bytes),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -208,5 +239,25 @@ mod tests {
     fn labels_are_stable() {
         assert_eq!(CacheConfig::Plain.label(), "plain");
         assert_eq!(CacheConfig::MtlCondensed.label(), "mtl-condensed");
+    }
+
+    #[test]
+    fn ladder_cache_counts_each_distinct_ladder_once() {
+        let est = ladder_cache_bytes(1, 8_056);
+        assert_eq!(est.distinct_ladders, 1);
+        assert_eq!(est.signed_ladder_bytes, 8_056);
+        assert_eq!(est.predicted_cache_bytes, 8_056);
+    }
+
+    #[test]
+    fn ladder_cache_scales_with_the_batch_count() {
+        let est = ladder_cache_bytes(3, 8_120);
+        assert_eq!(est.predicted_cache_bytes, 24_360);
+    }
+
+    #[test]
+    fn ladder_cache_saturates_rather_than_overflows() {
+        let est = ladder_cache_bytes(u64::MAX, u64::MAX);
+        assert_eq!(est.predicted_cache_bytes, u64::MAX);
     }
 }

@@ -19,7 +19,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
   <br>
   <a href="https://www.rust-lang.org/" target="_blank" rel="noopener"><img alt="Built with Rust" src="https://img.shields.io/static/v1?label=built%20with&amp;message=Rust&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=rust&amp;logoColor=white"></a>
   <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" target="_blank" rel="noopener"><img alt="YouTube introduction video — watch the team introduction" src="https://img.shields.io/static/v1?label=intro%20video&amp;message=YouTube&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=youtube&amp;logoColor=white"></a>
-  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 801/801" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=801%2F801&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
+  <a href="docs/deck-facts.md" target="_blank" rel="noopener"><img alt="Claims verified: 809/809" src="https://img.shields.io/static/v1?label=claims%20verified&amp;message=809%2F809&amp;color=FF5400&amp;labelColor=07080A&amp;style=for-the-badge"></a>
   <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/actions" target="_blank" rel="noopener"><img alt="CI — open the GitHub Actions workflows" src="https://img.shields.io/static/v1?label=CI&amp;message=GitHub%20Actions&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=githubactions&amp;logoColor=white"></a>
 </div>
 <!-- badges:end -->
@@ -108,8 +108,9 @@ in this table drifts from the quote sheet.
 | Large memory (measured / analytical ratio) | 1.104 × | DERIVED | n/a | — |
 | Ladder buffer at N=100 (Small dataset), 3 rungs | 132 B | MEASURED | n/a | — |
 | Medium — resolver cache bytes, plain (measured) | 8,429,932 B | MEASURED | n/a | — |
-| Medium — resolver cache bytes, MTL-condensed (measured) | 8,429,932 B | MEASURED | n/a | — |
-| Medium — resolver cache measured / analytical, MTL-condensed | 3.079 × | DERIVED | n/a | — |
+| Medium — resolver cache bytes, MTL-signed zone, reference Unbound (serves full responses) (measured) | 8,429,932 B | MEASURED | n/a | — |
+| Medium — ladder cache bytes (measured) | 16,912 B | MEASURED | n/a | — |
+| Medium — ladder cache bytes (analytical) | 8,120 B | ANALYTICAL | n/a | — |
 
 **Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.
 <!-- headline:end -->

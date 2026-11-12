@@ -291,6 +291,32 @@ fn median_cache_rrset_bytes(
     }
 }
 
+/// Median first-pass ladder-cache growth from the raw runs for one dataset
+/// size, or `None` when the artifact carries no ladder runs for it.
+fn median_ladder_growth(cache: &crate::cache::CacheResults, r: usize) -> Option<u64> {
+    let mut values: Vec<u64> = cache
+        .ladder
+        .iter()
+        .filter(|run| run.r == r)
+        .map(|run| {
+            run.ladder_cache_bytes_after_first_pass
+                .saturating_sub(run.ladder_cache_bytes_before)
+        })
+        .collect();
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_unstable();
+    let mid = values.len() / 2;
+    if values.len().is_multiple_of(2) {
+        let a = values.get(mid - 1).copied().unwrap_or(0);
+        let b = values.get(mid).copied().unwrap_or(0);
+        Some((a + b) / 2)
+    } else {
+        values.get(mid).copied()
+    }
+}
+
 pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
     let mut metrics = Vec::new();
 
@@ -590,7 +616,9 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
 
     // --- Resolver cache use at the headline size. ----------------------
     // The pointer indexes into the `cache_use.analytical` array, located by
-    // (`message_count`, configuration) rather than by position.
+    // (`message_count`, configuration) rather than by position. The measured
+    // row is labelled for what the reference resolver served (full responses);
+    // the condensed label is reserved for the analytical prediction.
     if let Some(cache) = results.cache_use.as_ref() {
         let medium_messages = results
             .wire_size
@@ -599,91 +627,93 @@ pub fn headline_metrics(results: &ClimbResults) -> Vec<Metric> {
             .map(|w| w.message_count)
             .unwrap_or(0);
         if medium_messages > 0 {
-            for (config, _baseline, id, _label, config_label) in [
-                (
-                    "plain",
-                    "A",
-                    "cache_rrset_bytes_medium_plain",
-                    "Resolver cache, Medium rrset bytes — plain",
-                    "plain",
-                ),
-                (
-                    "mtl-condensed",
-                    "C",
-                    "cache_rrset_bytes_medium_mtl",
-                    "Resolver cache, Medium rrset bytes — MTL-condensed",
-                    "MTL-condensed",
-                ),
+            for (config, id) in [
+                ("plain", "cache_rrset_bytes_medium_plain"),
+                ("mtl-condensed", "cache_rrset_bytes_medium_mtl"),
             ] {
                 if let Some(index) = cache
                     .analytical
                     .iter()
                     .position(|r| r.r == medium_messages && r.config == config)
                 {
-                    if cache.analytical.get(index).is_some() {
-                        if let Some(measured_bytes) =
-                            median_cache_rrset_bytes(cache, medium_messages, config)
-                        {
-                            metrics.push(Metric {
-                                id: id.to_string(),
-                                label: format!(
-                                    "Medium — resolver cache bytes, {config_label} (measured)"
-                                ),
-                                unit: "B",
-                                class: "MEASURED",
-                                baseline: "n/a",
-                                value: measured_bytes as f64,
-                                denominator: None,
-                                display: fmt_count(measured_bytes as f64),
-                                pointer: format!("/cache_use/analytical/{index}/measured_bytes"),
-                                denominator_pointer: None,
-                                report_pointer: format!(
-                                    "/cache_use/analytical/{index}/measured_bytes"
-                                ),
-                                sheet_label: format!(
-                                    "Medium — resolver cache bytes, {config_label} (measured)"
-                                ),
-                            });
-                        }
+                    if let Some(measured_bytes) =
+                        median_cache_rrset_bytes(cache, medium_messages, config)
+                    {
+                        let label = crate::cache::measured_config_label(config);
+                        metrics.push(Metric {
+                            id: id.to_string(),
+                            label: format!("Medium — resolver cache bytes, {label} (measured)"),
+                            unit: "B",
+                            class: "MEASURED",
+                            baseline: "n/a",
+                            value: measured_bytes as f64,
+                            denominator: None,
+                            display: fmt_count(measured_bytes as f64),
+                            pointer: format!("/cache_use/analytical/{index}/measured_bytes"),
+                            denominator_pointer: None,
+                            report_pointer: format!("/cache_use/analytical/{index}/measured_bytes"),
+                            sheet_label: format!(
+                                "Medium — resolver cache bytes, {label} (measured)"
+                            ),
+                        });
                     }
                 }
             }
-            if let Some(index) = cache
-                .analytical
+        }
+
+        // --- The MTL-specific ladder cache, measured and analytical. ---
+        // These two rows replace the old measured/analytical ratio in the
+        // headline: the ratio compared full responses against a condensed
+        // prediction, so it read as model error rather than as the
+        // construction difference it is. The ratio stays in the report.
+        if let Some(index) = cache
+            .ladder_analytical
+            .iter()
+            .position(|row| row.r == medium_messages)
+        {
+            let measured = median_ladder_growth(cache, medium_messages);
+            let analytical = cache
+                .ladder
                 .iter()
-                .position(|r| r.r == medium_messages && r.config == "mtl-condensed")
-            {
-                if let Some(row) = cache.analytical.get(index) {
-                    if row.analytical_bytes > 0 {
-                        if let Some(measured_bytes) =
-                            median_cache_rrset_bytes(cache, medium_messages, "mtl-condensed")
-                        {
-                            let ratio = measured_bytes as f64 / row.analytical_bytes as f64;
-                            metrics.push(Metric {
-                                id: "cache_ratio_medium_mtl".to_string(),
-                                label:
-                                    "Medium — resolver cache measured / analytical, MTL-condensed"
-                                        .to_string(),
-                                unit: "\u{d7}",
-                                class: "DERIVED",
-                                value: ratio,
-                                denominator: None,
-                                display: fmt_ratio(ratio),
-                                pointer: format!(
-                                    "/cache_use/analytical/{index}/measured_over_analytical"
-                                ),
-                                denominator_pointer: None,
-                                report_pointer: format!(
-                                    "/cache_use/analytical/{index}/measured_over_analytical"
-                                ),
-                                sheet_label:
-                                    "Medium — resolver cache measured / analytical, MTL-condensed"
-                                        .to_string(),
-                                baseline: "n/a",
-                            });
-                        }
-                    }
-                }
+                .find(|run| run.r == medium_messages)
+                .map(|run| {
+                    climb_analytical::ladder_cache_bytes(
+                        run.distinct_ladders,
+                        run.signed_ladder_bytes,
+                    )
+                    .predicted_cache_bytes
+                });
+            if let (Some(measured), Some(analytical)) = (measured, analytical) {
+                metrics.push(Metric {
+                    id: "cache_ladder_bytes_medium_measured".to_string(),
+                    label: "Medium — ladder cache bytes (measured)".to_string(),
+                    unit: "B",
+                    class: "MEASURED",
+                    baseline: "n/a",
+                    value: measured as f64,
+                    denominator: None,
+                    display: fmt_count(measured as f64),
+                    pointer: format!("/cache_use/ladder_analytical/{index}/measured_bytes"),
+                    denominator_pointer: None,
+                    report_pointer: format!("/cache_use/ladder_analytical/{index}/measured_bytes"),
+                    sheet_label: "Medium — ladder cache bytes (measured)".to_string(),
+                });
+                metrics.push(Metric {
+                    id: "cache_ladder_bytes_medium_analytical".to_string(),
+                    label: "Medium — ladder cache bytes (analytical)".to_string(),
+                    unit: "B",
+                    class: "ANALYTICAL",
+                    baseline: "n/a",
+                    value: analytical as f64,
+                    denominator: None,
+                    display: fmt_count(analytical as f64),
+                    pointer: format!("/cache_use/ladder_analytical/{index}/analytical_bytes"),
+                    denominator_pointer: None,
+                    report_pointer: format!(
+                        "/cache_use/ladder_analytical/{index}/analytical_bytes"
+                    ),
+                    sheet_label: "Medium — ladder cache bytes (analytical)".to_string(),
+                });
             }
         }
     }
@@ -922,18 +952,12 @@ mod tests {
             .iter()
             .position(|r| r.r == medium && r.config == "mtl-condensed")
             .expect("committed sample carries a Medium MTL-condensed row");
-        // Tamper with the stored median and ratio: the metric must be
-        // recomputed from the raw per-run rows, not read from these cells.
+        // Tamper with the stored median: the metric must be recomputed from
+        // the raw per-run rows, not read from this cell.
         if let Some(row) = cache.analytical.get_mut(index) {
             row.measured_bytes = 1;
             row.measured_over_analytical = 1.0;
         }
-        let analytical_bytes = cache
-            .analytical
-            .get(index)
-            .map(|row| row.analytical_bytes)
-            .unwrap_or(0);
-        assert!(analytical_bytes > 0);
 
         let metrics = headline_metrics(&results);
         let bytes = metric(&metrics, "cache_rrset_bytes_medium_mtl");
@@ -941,9 +965,58 @@ mod tests {
             bytes.value, 8_429_932.0,
             "the median of the raw runs wins over the tampered cell"
         );
-        let ratio = metric(&metrics, "cache_ratio_medium_mtl");
-        assert!((ratio.value - 8_429_932.0 / analytical_bytes as f64).abs() < 1e-9);
-        assert_ne!(ratio.value, 1.0);
+        assert!(
+            bytes
+                .label
+                .contains("MTL-signed zone, reference Unbound (serves full responses)"),
+            "{}",
+            bytes.label
+        );
+    }
+
+    #[test]
+    fn ladder_cache_metrics_recompute_from_raw_runs_and_are_separate() {
+        let mut results = sample_results();
+        let medium = results
+            .wire_size
+            .iter()
+            .find(|w| w.size.eq_ignore_ascii_case("Medium"))
+            .expect("committed sample carries a Medium wire row")
+            .message_count;
+        let cache = results
+            .cache_use
+            .as_mut()
+            .expect("committed sample carries cache use");
+        let index = cache
+            .ladder_analytical
+            .iter()
+            .position(|row| row.r == medium)
+            .expect("committed sample carries a Medium ladder row");
+        let (measured, analytical) = cache
+            .ladder_analytical
+            .get(index)
+            .map(|row| (row.measured_bytes, row.analytical_bytes))
+            .expect("row");
+        assert!(measured > analytical, "cache overhead shows in the ratio");
+        // Tamper with both stored cells: the metrics must come from the raw
+        // ladder runs and the recorded ladder length.
+        if let Some(row) = cache.ladder_analytical.get_mut(index) {
+            row.measured_bytes = 1;
+            row.analytical_bytes = 1;
+        }
+        let metrics = headline_metrics(&results);
+        assert_eq!(
+            metric(&metrics, "cache_ladder_bytes_medium_measured").value,
+            measured as f64
+        );
+        assert_eq!(
+            metric(&metrics, "cache_ladder_bytes_medium_analytical").value,
+            analytical as f64
+        );
+        assert!(
+            !metrics.iter().any(|m| m.id == "cache_ratio_medium_mtl"),
+            "the answer-cache ratio is not a headline row"
+        );
     }
 
     #[test]

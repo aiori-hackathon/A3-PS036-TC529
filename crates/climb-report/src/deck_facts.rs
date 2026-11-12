@@ -1478,6 +1478,10 @@ fn collect_resolver_cache(
     out: &mut Collected,
     results: Option<(&Path, &Value)>,
 ) -> Result<(), ReportError> {
+    use crate::cache::{
+        analytical_config_label, measured_config_label, ANSWER_CACHE_IDENTICAL_NOTE,
+    };
+
     let Some((path, root)) = results else {
         return Ok(());
     };
@@ -1490,24 +1494,28 @@ fn collect_resolver_cache(
         ));
         return Ok(());
     };
+    out.notes.push(Note::custom(
+        Section::ResolverCache,
+        ANSWER_CACHE_IDENTICAL_NOTE,
+    ));
 
     for (i, row) in rows.iter().enumerate() {
         let base = format!("/cache_use/analytical/{i}");
         let config = opt_str(row, "/config", path)?.unwrap_or_default();
         let r = opt_u64(row, "/r", path)?.unwrap_or(0);
         let size = cache_size_label(root, path, r)?.unwrap_or_else(|| format!("R = {r}"));
-        let config_label = match config.as_str() {
-            "mtl-condensed" => "MTL-condensed",
-            "plain" => "plain",
-            other => other,
-        };
+        let measured_label = measured_config_label(&config);
+        let analytical_label = analytical_config_label(&config);
+        let ratio_label = format!(
+            "{size} — answer cache measured (serves full responses) / analytical ({analytical_label})"
+        );
         let nk = (r > 0).then(|| format!("n = {r}"));
 
         if let Some(v) = opt_u64(row, "/measured_bytes", path)? {
             out.facts.push(fact(
                 Row {
                     section: Section::ResolverCache,
-                    label: format!("{size} — resolver cache bytes, {config_label} (measured)"),
+                    label: format!("{size} — resolver cache bytes, {measured_label} (measured)"),
                     unit: "B".to_string(),
                     class: Some(EvidenceClass::Measured),
                     nk: nk.clone(),
@@ -1522,7 +1530,9 @@ fn collect_resolver_cache(
             out.facts.push(fact(
                 Row {
                     section: Section::ResolverCache,
-                    label: format!("{size} — resolver cache bytes, {config_label} (analytical)"),
+                    label: format!(
+                        "{size} — resolver cache bytes, {analytical_label} (analytical)"
+                    ),
                     unit: "B".to_string(),
                     class: Some(EvidenceClass::Analytical),
                     nk: nk.clone(),
@@ -1537,7 +1547,7 @@ fn collect_resolver_cache(
             out.facts.push(fact(
                 Row {
                     section: Section::ResolverCache,
-                    label: format!("{size} — resolver cache measured / analytical, {config_label}"),
+                    label: ratio_label,
                     unit: "×".to_string(),
                     class: Some(EvidenceClass::Derived),
                     nk,
@@ -1545,6 +1555,83 @@ fn collect_resolver_cache(
                 },
                 fmt_ratio(v),
                 &format!("{base}/measured_over_analytical"),
+                &source,
+            ));
+        }
+    }
+
+    // ── The MTL-specific ladder cache, kept on its own rows ──────────
+    let Some(ladder_rows) = array_at(root, path, "/cache_use/ladder_analytical")? else {
+        out.notes.push(Note::custom(
+            Section::ResolverCache,
+            "no ladder-cache rows in the consolidated results; rerun \
+             `cargo xtask dns-cache` with a build that reports mem.cache.ladder",
+        ));
+        return Ok(());
+    };
+    for (i, row) in ladder_rows.iter().enumerate() {
+        let base = format!("/cache_use/ladder_analytical/{i}");
+        let r = opt_u64(row, "/r", path)?.unwrap_or(0);
+        let size = cache_size_label(root, path, r)?.unwrap_or_else(|| format!("R = {r}"));
+        let nk = (r > 0).then(|| format!("n = {r}"));
+
+        if let Some(v) = opt_u64(row, "/measured_bytes", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — ladder cache bytes (measured)"),
+                    unit: "B".to_string(),
+                    class: Some(EvidenceClass::Measured),
+                    nk: nk.clone(),
+                    baseline: Baseline::Na,
+                },
+                fmt_bytes(v),
+                &format!("{base}/measured_bytes"),
+                &source,
+            ));
+        }
+        if let Some(v) = opt_u64(row, "/analytical_bytes", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — ladder cache bytes (analytical)"),
+                    unit: "B".to_string(),
+                    class: Some(EvidenceClass::Analytical),
+                    nk: nk.clone(),
+                    baseline: Baseline::Na,
+                },
+                fmt_bytes(v),
+                &format!("{base}/analytical_bytes"),
+                &source,
+            ));
+        }
+        if let Some(v) = opt_f64(row, "/measured_over_analytical", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — ladder cache measured / analytical"),
+                    unit: "×".to_string(),
+                    class: Some(EvidenceClass::Derived),
+                    nk: nk.clone(),
+                    baseline: Baseline::Na,
+                },
+                fmt_ratio(v),
+                &format!("{base}/measured_over_analytical"),
+                &source,
+            ));
+        }
+        if let Some(v) = opt_u64(row, "/second_pass_growth_bytes", path)? {
+            out.facts.push(fact(
+                Row {
+                    section: Section::ResolverCache,
+                    label: format!("{size} — ladder cache growth on a second pass"),
+                    unit: "B".to_string(),
+                    class: Some(EvidenceClass::Measured),
+                    nk,
+                    baseline: Baseline::Na,
+                },
+                fmt_bytes(v),
+                &format!("{base}/second_pass_growth_bytes"),
                 &source,
             ));
         }

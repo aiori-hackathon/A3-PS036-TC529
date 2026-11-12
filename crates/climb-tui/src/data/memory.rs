@@ -150,6 +150,38 @@ impl ResultsView {
             .collect()
     }
 
+    /// Ladder-cache rows for the Memory tab. The ladder cache is the
+    /// MTL-specific structure, so it gets its own rows instead of being folded
+    /// into the answer-cache cells. Each row pairs the measured growth when the
+    /// zone's names entered the cache with the `distinct ladders × recorded
+    /// signed-ladder length` prediction, and records whether a second pass grew
+    /// the cache again.
+    pub fn ladder_cache_rows(&self) -> Vec<LadderCacheRow> {
+        let Some(cache) = self.results.cache_use.as_ref() else {
+            return Vec::new();
+        };
+        cache
+            .ladder_analytical
+            .iter()
+            .map(|row| LadderCacheRow {
+                size: self
+                    .results
+                    .wire_size
+                    .iter()
+                    .find(|wire| wire.message_count == row.r)
+                    .map(|wire| size_display(&wire.size))
+                    .unwrap_or_else(|| format!("r={}", row.r)),
+                r: row.r,
+                distinct_ladders: row.distinct_ladders,
+                signed_ladder_bytes: row.signed_ladder_bytes,
+                measured_bytes: row.measured_bytes,
+                analytical_bytes: row.analytical_bytes,
+                ratio: row.measured_over_analytical,
+                second_pass_growth_bytes: row.second_pass_growth_bytes,
+            })
+            .collect()
+    }
+
     /// Whether the artifact carries a resolver-cache section to render.
     pub fn has_resolver_cache(&self) -> bool {
         self.results
@@ -178,6 +210,28 @@ pub struct ResolverCacheRow {
     pub ratio: f64,
     /// Median container resident growth over the runs for this cell.
     pub rss_delta_bytes: u64,
+}
+
+/// One ladder-cache cell for the Memory tab: the MTL-specific cache measured
+/// against the recorded signed-ladder length times the distinct ladders.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LadderCacheRow {
+    /// Dataset label the RRset count maps to (`Small`, `Medium`, or `r=<n>`).
+    pub size: String,
+    /// Number of distinct RRset owner names loaded.
+    pub r: usize,
+    /// Distinct ladders in the signed zone (one MTL batch).
+    pub distinct_ladders: u64,
+    /// Signed-ladder length read from the zone's SOA RRSIG.
+    pub signed_ladder_bytes: u64,
+    /// Measured first-pass growth (median over the runs).
+    pub measured_bytes: u64,
+    /// `distinct_ladders × signed_ladder_bytes`.
+    pub analytical_bytes: u64,
+    /// `measured_bytes / analytical_bytes`, or `0.0` when no prediction.
+    pub ratio: f64,
+    /// Median second-pass growth (must be zero: one ladder per batch).
+    pub second_pass_growth_bytes: u64,
 }
 
 #[cfg(test)]
@@ -270,6 +324,8 @@ mod tests {
                     },
                 })
                 .collect(),
+            ladder: Vec::new(),
+            ladder_analytical: Vec::new(),
         }
     }
 
@@ -331,5 +387,53 @@ mod tests {
             assert!(row.rss_delta_bytes > 0);
             assert!(row.ratio > 0.0);
         }
+    }
+
+    #[test]
+    fn committed_sample_ladder_cache_section_survives_the_tui_view() {
+        let results: climb_report::ClimbResults = serde_json::from_str(include_str!(
+            "../../../../docs/sample-output/climb-results.json"
+        ))
+        .expect("committed sample parses");
+        let view = ResultsView::new(results, None, crate::data::ReportHealth::Agree);
+        let rows = view.ladder_cache_rows();
+        assert_eq!(rows.len(), 2, "one ladder row per measured size");
+        for row in &rows {
+            assert!(matches!(row.size.as_str(), "Small" | "Medium"));
+            assert_eq!(row.distinct_ladders, 1, "one MTL batch per signed zone");
+            assert!(row.signed_ladder_bytes > 0);
+            assert!(row.measured_bytes > row.analytical_bytes);
+            assert_eq!(row.second_pass_growth_bytes, 0, "one ladder per batch");
+            assert!(row.ratio > 1.0);
+        }
+    }
+
+    #[test]
+    fn ladder_cache_rows_are_empty_without_the_section() {
+        let view = view_with_memory(Vec::new());
+        assert!(view.ladder_cache_rows().is_empty());
+    }
+
+    #[test]
+    fn ladder_cache_rows_keep_measured_and_analytical_separate() {
+        let mut cache = cache_section(Vec::new(), Vec::new());
+        cache
+            .ladder_analytical
+            .push(climb_report::cache::LadderAnalyticalRow {
+                size: "small".to_string(),
+                r: 10_000,
+                distinct_ladders: 1,
+                signed_ladder_bytes: 8_056,
+                measured_bytes: 16_848,
+                second_pass_growth_bytes: 0,
+                analytical_bytes: 8_056,
+                measured_over_analytical: 16_848.0 / 8_056.0,
+            });
+        let view = view_with_cache(cache);
+        let rows = view.ladder_cache_rows();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].measured_bytes, 16_848);
+        assert_eq!(rows[0].analytical_bytes, 8_056);
+        assert!(rows[0].ratio > 2.0);
     }
 }

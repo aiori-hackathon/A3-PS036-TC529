@@ -128,13 +128,17 @@ def main() -> int:
             udp_response = send_udp(query, args.server, args.port, args.timeout)
             udb_len = len(udp_response)
             response = udp_response
+            # One entry per query, so the per-query table below stays aligned
+            # whether or not this particular response needed the TCP fallback.
+            tcp_len = 0
             if is_truncated(udp_response):
                 truncated += 1
                 tcp_queries += 1
                 tcp_response = send_tcp(query, args.server, args.port, args.timeout)
                 response = tcp_response
-                tcp_bytes.append(len(tcp_response))
+                tcp_len = len(tcp_response)
             udp_bytes.append(udb_len)
+            tcp_bytes.append(tcp_len)
             response_bytes = len(response)
             rrsig = first_rrsig(response)
             latencies.append((time.perf_counter() - query_start) * 1000.0)

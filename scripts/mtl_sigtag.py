@@ -155,11 +155,27 @@ def sigtag_for_rrsig_base64(b64: str) -> str:
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) not in (2, 3):
-        print(f"usage: {argv[0]} <signed-zone-file> [owner]", file=sys.stderr)
+    want_ladder_length = len(argv) >= 2 and argv[1] == "--ladder-length"
+    if want_ladder_length:
+        rest = argv[2:]
+        if len(rest) not in (1, 2):
+            print(
+                f"usage: {argv[0]} --ladder-length <signed-zone-file> [owner]",
+                file=sys.stderr,
+            )
+            return 2
+        path = rest[0]
+        owner = rest[1] if len(rest) == 2 else None
+    elif len(argv) in (2, 3):
+        path = argv[1]
+        owner = argv[2] if len(argv) == 3 else None
+    else:
+        print(
+            f"usage: {argv[0]} <signed-zone-file> [owner]\n"
+            f"       {argv[0]} --ladder-length <signed-zone-file> [owner]",
+            file=sys.stderr,
+        )
         return 2
-    path = argv[1]
-    owner = argv[2] if len(argv) == 3 else None
     try:
         with open(path, "r", encoding="utf-8") as handle:
             zone_text = handle.read()
@@ -168,8 +184,12 @@ def main(argv: list[str]) -> int:
         return 1
     try:
         b64 = find_rrsig_base64(zone_text, "SOA", owner)
+        if want_ladder_length:
+            signature = base64.b64decode(b64, validate=True)
+            print(len(extract_signed_ladder(signature)))
+            return 0
         tag = sigtag_for_rrsig_base64(b64)
-    except SigTagError as exc:
+    except (SigTagError, binascii.Error, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     print(tag)

@@ -12,7 +12,7 @@ use ratatui::Frame;
 
 use climb_report::charts::fmt_bytes;
 
-use crate::data::{ResolverCacheRow, ResultsView};
+use crate::data::{LadderCacheRow, ResolverCacheRow, ResultsView};
 use crate::theme::{Glyphs, Theme};
 use crate::widgets::stacked_bars::{SegmentStyle, StackGroup, StackedBars};
 
@@ -38,15 +38,18 @@ pub fn render_memory(
     let stacks = view.memory_stacks();
     let has_harness = view.memory_has_harness();
     let cache_rows = view.resolver_cache_rows();
-    if cache_rows.is_empty() {
+    let ladder_rows = view.ladder_cache_rows();
+    if cache_rows.is_empty() && ladder_rows.is_empty() {
         render_panels(frame, area, &stacks, has_harness, theme, glyphs);
         return;
     }
-    let cache_height = (cache_rows.len() as u16 + 2).min(area.height / 2).max(5);
+    let cache_height = (cache_rows.len() as u16 + ladder_rows.len() as u16 + 4)
+        .min(area.height / 2)
+        .max(5);
     let [benchmark_area, cache_area] =
         Layout::vertical([Constraint::Min(0), Constraint::Length(cache_height)]).areas(area);
     render_panels(frame, benchmark_area, &stacks, has_harness, theme, glyphs);
-    render_cache_panel(frame, cache_area, &cache_rows, theme, glyphs);
+    render_cache_panel(frame, cache_area, &cache_rows, &ladder_rows, theme, glyphs);
 }
 
 /// Place the bars and the explainer: side by side when wide, stacked when narrow.
@@ -114,10 +117,11 @@ fn render_cache_panel(
     frame: &mut Frame,
     area: Rect,
     rows: &[ResolverCacheRow],
+    ladder_rows: &[LadderCacheRow],
     theme: &Theme,
     glyphs: &Glyphs,
 ) {
-    let paragraph = Paragraph::new(cache_lines(rows, theme))
+    let paragraph = Paragraph::new(cache_lines(rows, ladder_rows, theme))
         .block(
             Block::bordered()
                 .border_set(glyphs.border)
@@ -131,14 +135,26 @@ fn render_cache_panel(
     frame.render_widget(paragraph, area);
 }
 
-fn cache_lines(rows: &[ResolverCacheRow], theme: &Theme) -> Vec<Line<'static>> {
+/// Short cell label for a measured answer-cache row.
+///
+/// The reference resolver serves the full responses the signed zone stores, so
+/// a short honest label is used in the narrow table; the footnote beneath the
+/// panel spells the full description out. No measured row says "condensed".
+fn measured_row_label(config: &str) -> &'static str {
+    match config {
+        "mtl-condensed" => "MTL zone/full",
+        _ => "plain",
+    }
+}
+
+fn cache_lines(
+    rows: &[ResolverCacheRow],
+    ladder_rows: &[LadderCacheRow],
+    theme: &Theme,
+) -> Vec<Line<'static>> {
     let mut lines = Vec::new();
     for row in rows {
-        let config = if row.config == "mtl-condensed" {
-            "MTL-condensed"
-        } else {
-            "plain"
-        };
+        let config = measured_row_label(&row.config);
         let ratio = if row.analytical_bytes == 0 {
             "no prediction".to_string()
         } else {
@@ -164,6 +180,49 @@ fn cache_lines(rows: &[ResolverCacheRow], theme: &Theme) -> Vec<Line<'static>> {
                 Style::new().fg(theme.muted),
             ),
         ]));
+    }
+    if !rows.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  measured rows serve full responses: the answer cache is identical by construction",
+            Style::new().fg(theme.muted),
+        )));
+    }
+    for row in ladder_rows {
+        let ratio = if row.analytical_bytes == 0 {
+            "no prediction".to_string()
+        } else {
+            format!("{:.2}\u{00d7}", row.ratio)
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                format!("  {:<7} {:<14}", row.size, "ladder"),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled("measured ", theme.measured),
+            Span::styled(
+                fmt_bytes(row.measured_bytes as f64),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled("  analytical ", theme.extrapolated),
+            Span::styled(
+                fmt_bytes(row.analytical_bytes as f64),
+                Style::new().fg(theme.fg),
+            ),
+            Span::styled(
+                format!(
+                    "  {ratio}  {} ladder(s), pass2 +{}",
+                    row.distinct_ladders,
+                    fmt_bytes(row.second_pass_growth_bytes as f64)
+                ),
+                Style::new().fg(theme.muted),
+            ),
+        ]));
+    }
+    if !ladder_rows.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  ladder cache = mem.cache.ladder, the MTL-specific cache; one ladder per batch",
+            Style::new().fg(theme.muted),
+        )));
     }
     lines.push(Line::from(Span::styled(
         "  Unbound accounting + container RSS; one local resolver, not the benchmark process",
@@ -335,6 +394,8 @@ mod tests {
                 analytical_bytes: 815_600,
                 measured_over_analytical: 1.1298,
             }],
+            ladder: Vec::new(),
+            ladder_analytical: Vec::new(),
         };
         crate::data::test_support::view_with_cache_section(
             vec![crate::data::test_support::wire_row("small", 100, 90.0)],
@@ -354,7 +415,7 @@ mod tests {
             ratio: 1.1298,
             rss_delta_bytes: 500_000,
         }];
-        let text: String = cache_lines(&rows, &theme)
+        let text: String = cache_lines(&rows, &[], &theme)
             .iter()
             .map(|line| {
                 line.spans
@@ -369,6 +430,69 @@ mod tests {
         assert!(text.contains("analytical 816 kB"), "{text}");
         assert!(text.contains("1.13\u{00d7}"), "{text}");
         assert!(text.contains("RSS +500 kB"), "{text}");
+    }
+
+    #[test]
+    fn measured_answer_cache_rows_never_say_condensed() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        let rows = vec![ResolverCacheRow {
+            size: "Medium".to_string(),
+            config: "mtl-condensed".to_string(),
+            r: 10_000,
+            measured_bytes: 8_429_932,
+            analytical_bytes: 2_738_056,
+            ratio: 3.0788,
+            rss_delta_bytes: 12_000_000,
+        }];
+        let text: String = cache_lines(&rows, &[], &theme)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("MTL zone/full"), "{text}");
+        assert!(
+            !text.contains("MTL-condensed"),
+            "a measured row must not claim a condensed measurement:\n{text}"
+        );
+        assert!(
+            text.contains("identical by construction"),
+            "the panel explains why both measured cells are equal:\n{text}"
+        );
+    }
+
+    #[test]
+    fn the_panel_renders_the_ladder_cache_rows_separately() {
+        let theme = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, false);
+        let ladder = vec![LadderCacheRow {
+            size: "Small".to_string(),
+            r: 100,
+            distinct_ladders: 1,
+            signed_ladder_bytes: 8_056,
+            measured_bytes: 16_848,
+            analytical_bytes: 8_056,
+            ratio: 16_848.0 / 8_056.0,
+            second_pass_growth_bytes: 0,
+        }];
+        let text: String = cache_lines(&[], &ladder, &theme)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(text.contains("ladder"), "{text}");
+        assert!(text.contains("measured 16.8 kB"), "{text}");
+        assert!(text.contains("analytical 8.06 kB"), "{text}");
+        assert!(text.contains("pass2 +0 B"), "{text}");
+        assert!(text.contains("one ladder per batch"), "{text}");
     }
 
     #[test]

@@ -309,21 +309,21 @@ style-digest contrast: f46d4458d94377a5
 │                                                                                                                          ││                                                                          │
 │                                                                                                                          ││                                                                          │
 │                                                                                                                          ││                                                                          │
-│                                                                                                                          ││                                                                          │
-│                                                                                                                          ││                                                                          │
-│                                                                                                                          ││                                                                          │
-│                                                                                                                          ││                                                                          │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘└──────────────────────────────────────────────────────────────────────────┘
 ┌ Resolver cache (separate measurement) ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│  Small   MTL-condensed measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.47 MB                                                                                                                     │
-│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.18 MB                                                                                                                       │
-│  Medium  MTL-condensed measured 8.43 MB  analytical 2.74 MB  3.08×  RSS +12.7 MB                                                                                                                     │
-│  Medium  plain         measured 8.43 MB  analytical 83.3 MB  0.10×  RSS +12.7 MB                                                                                                                     │
+│  Small   MTL zone/full measured 921 kB  analytical 24.4 kB  37.78×  RSS +1.25 MB                                                                                                                     │
+│  Small   plain         measured 921 kB  analytical 816 kB  1.13×  RSS +1.34 MB                                                                                                                       │
+│  Medium  MTL zone/full measured 8.43 MB  analytical 2.74 MB  3.08×  RSS +12.6 MB                                                                                                                     │
+│  Medium  plain         measured 8.43 MB  analytical 83.3 MB  0.10×  RSS +12.8 MB                                                                                                                     │
+│  measured rows serve full responses: the answer cache is identical by construction                                                                                                                   │
+│  Medium  ladder        measured 16.9 kB  analytical 8.12 kB  2.08×  1 ladder(s), pass2 +0 B                                                                                                          │
+│  Small   ladder        measured 16.8 kB  analytical 8.06 kB  2.09×  1 ladder(s), pass2 +0 B                                                                                                          │
+│  ladder cache = mem.cache.ladder, the MTL-specific cache; one ladder per batch                                                                                                                       │
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
-style-digest dark: 8c0b05d3e44d35f8
-style-digest light: bfcc4761a322dc51
-style-digest contrast: 6b53724cc2fc9da1
+style-digest dark: 0904436943d4e559
+style-digest light: 001ccf092ee42d18
+style-digest contrast: fd74cd5f762478b4
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -531,7 +531,7 @@ style-digest contrast: 4683f841073c652e
 │  Evidence classes            ││  The benchmark matrix runs three evaluated dataset sizes (Small, Medium, Large) plus one intermediate validation size used only to validate the extrapolation identit│
 │  Environment and pinning     ││  algorithm                 SLH-DSA-SHA2-128s-MTL-SHA2-128                                                                                                            │
 │  Sampling and extrapolation  ││  dataset sizes             Small, OneK, Medium, Large                                                                                                                │
-│  Known limits                ││  results generated         2026-11-12T18:15:57+05:30                                                                                                                 │
+│  Known limits                ││  results generated         2026-11-12T23:31:56+05:30                                                                                                                 │
 │  Accessibility               ││  Reproduce every artifact from a clean checkout:                                                                                                                     │
 │                              ││    cargo xtask reproduce --report-only                                                                                                                               │
 │                              ││    cargo xtask reproduce --remeasure                                                                                                                                 │
@@ -581,6 +581,6 @@ style-digest contrast: 4683f841073c652e
 │                              ││How the signing benchmark realises each setting                                                                                                                       │
 └──────────────────────────────┘└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  ⠋ theme: <theme> (truecolor) ascii: off mode: live tour: off source: [explicit] target/climb-results.json · ? help
-style-digest dark: c22dafc45c8a1c88
-style-digest light: b00670869128c3c4
-style-digest contrast: 9577d5d8317dba0a
+style-digest dark: 4dffd1199e652c09
+style-digest light: b0983c799bca560b
+style-digest contrast: 2882eb413d106b1d

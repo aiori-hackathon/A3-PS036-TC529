@@ -44,6 +44,19 @@ and the *Gap closed by* column names the deliverable that will close it.
 | expected outcome — prototype demonstration with a pseudocode snippet to the mentor | partial | the mentor demonstration session, which happens outside the repository | `docs/PSEUDOCODE.md` | `cargo xtask docs-check` | — | Method |
 <!-- compliance:end -->
 
+## Cache accounting: what the two measured targets are
+
+The cache rows carry two distinct measurements. The **answer cache**
+(`mem.cache.rrset`, `mem.cache.message`) is measured on the reference Unbound
+build, which ignores the SigTag and serves the full responses the signed zone
+stores; the measured MTL cell is therefore labelled "MTL-signed zone, reference
+Unbound (serves full responses)" and the answer cache is identical between the
+two measured configurations by construction. The **ladder cache**
+(`mem.cache.ladder`) is the MTL-specific structure the patched resolver fills
+when its validator verifies a signed ladder; its measured and analytical rows
+live under `/cache_use/ladder_analytical` and never absorb the answer-cache
+rows. Both targets carry `MEASURED` and `ANALYTICAL` rows separately.
+
 ## Hosting reply under "no Internet deployment"
 
 AIORI's written reply of 2026-11-10 (from the AIORI-3 hackathon organisers)
