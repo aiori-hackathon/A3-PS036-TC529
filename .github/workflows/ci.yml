@@ -27,7 +27,7 @@ jobs:
           # Full history so the committed sample's provenance commit resolves.
           fetch-depth: 0
 
-        -name: Fetch remote branches and tags
+      - name: Fetch remote branches and tags
         run: git fetch origin +refs/heads/*:refs/remotes/origin/*
 
       - name: Install Rust toolchain from rust-toolchain.toml
