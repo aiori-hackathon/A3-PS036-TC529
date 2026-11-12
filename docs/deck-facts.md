@@ -473,11 +473,11 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Host 3d03dfa01f4d — CPU | 11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz | — | DERIVED | — | n/a | /replication/hosts/0/cpu_model | target/climb-results.json |
-| Host 3d03dfa01f4d — governor | powersave | — | DERIVED | — | n/a | /replication/hosts/0/cpu_governor | target/climb-results.json |
-| Host 3d03dfa01f4d — kernel | 7.2.14-arch1-1 | — | DERIVED | — | n/a | /replication/hosts/0/kernel_release | target/climb-results.json |
-| Host 3d03dfa01f4d — rustc | rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2) | — | DERIVED | — | n/a | /replication/hosts/0/rustc_version | target/climb-results.json |
-| Host 3d03dfa01f4d — headline ratios | 12 | n | DERIVED | — | n/a | /replication/hosts/0/ratios | target/climb-results.json |
+| Host efe1a17f1912 — CPU | 11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz | — | DERIVED | — | n/a | /replication/hosts/0/cpu_model | target/climb-results.json |
+| Host efe1a17f1912 — governor | performance | — | DERIVED | — | n/a | /replication/hosts/0/cpu_governor | target/climb-results.json |
+| Host efe1a17f1912 — kernel | 7.2.14-arch1-1 | — | DERIVED | — | n/a | /replication/hosts/0/kernel_release | target/climb-results.json |
+| Host efe1a17f1912 — rustc | rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2) | — | DERIVED | — | n/a | /replication/hosts/0/rustc_version | target/climb-results.json |
+| Host efe1a17f1912 — headline ratios | 13 | n | DERIVED | — | n/a | /replication/hosts/0/ratios | target/climb-results.json |
 | Replication — declared tolerance | 10 | % | DERIVED | — | n/a | /replication/tolerance_percent | target/climb-results.json |
 
 ## DNS latency (emulated RTT)
@@ -586,16 +586,16 @@ what it is compared against (baseline). Nothing here is typed in by hand.
 | Environment — pinned CPU | 2 | — | MEASURED | — | n/a | /benchmark_runtime/pin_cpu + /environment/benchmark_runtime/pin_cpu | environment.json + target/climb-results.json |
 | Submodule third_party/MTL — commit SHA | 53ce25dcc35c15e051c5263e41aaeaede18a8aa7 | — | MEASURED | — | n/a | /submodules/0/sha + /environment/submodules/0/sha | environment.json + target/climb-results.json |
 | Submodule third_party/liboqs — commit SHA | 5a1a854b0dc9f2141bdc771c555ee60c37950183 | — | MEASURED | — | n/a | /submodules/1/sha + /environment/submodules/1/sha | environment.json + target/climb-results.json |
-| Repository — commit SHA | 8638261ce47e649e892b5e839b410c765a5adf7b | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
+| Repository — commit SHA | 0ca25cd6758bc77a63b87d4d2b64754d6a8b223d | — | UNCLASSIFIED | — | n/a | n/a | git rev-parse HEAD |
 
 ## Quality
 
 | Label | Value | Unit | Evidence class | n / k | Baseline | JSON pointer | Source |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Workspace tests — passed | 427 | — | MEASURED | n = 21 | n/a | n/a | cargo test --workspace |
-| Workspace tests — failed | 1 | — | MEASURED | n = 21 | n/a | n/a | cargo test --workspace |
-| Workspace tests — ignored | 3 | — | MEASURED | n = 21 | n/a | n/a | cargo test --workspace |
-| Workspace test targets (summary lines) | 21 | — | MEASURED | n = 21 | n/a | n/a | cargo test --workspace |
+| Workspace tests — passed | 1420 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — failed | 0 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace tests — ignored | 3 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
+| Workspace test targets (summary lines) | 49 | — | MEASURED | n = 49 | n/a | n/a | cargo test --workspace |
 
 ---
 

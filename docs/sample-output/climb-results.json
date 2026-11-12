@@ -1,6 +1,6 @@
 {
   "version": "1.0",
-  "generated_at": "2026-11-12T18:15:57+05:30",
+  "generated_at": "2026-11-12T22:25:40+05:30",
   "workspace_root": "<repo>",
   "benchmark": {
     "signing": [
@@ -636,22 +636,23 @@
   "replication": {
     "schema_version": 1,
     "status": "pending",
-    "generated_at": "2026-11-12T18:15:55+05:30",
+    "generated_at": "2026-11-12T21:41:46+05:30",
     "hosts": [
       {
-        "host_hash": "3d03dfa01f4d",
+        "host_hash": "efe1a17f1912",
         "results_path": "target/climb-results.json",
         "cpu_model": "11th Gen Intel(R) Core(TM) i3-1115G4 @ 3.00GHz",
-        "cpu_governor": "powersave",
+        "cpu_governor": "performance",
         "kernel_release": "7.2.14-arch1-1",
         "rustc_version": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2)",
         "logical_cpus": 4,
-        "generated_at": "2026-11-12T13:51:50+05:30",
+        "generated_at": "2026-11-12T18:15:57+05:30",
         "sizes": [
           "small",
-          "medium"
+          "medium",
+          "large"
         ],
-        "ratios": 12
+        "ratios": 13
       }
     ],
     "ratios": [],
@@ -28948,6 +28949,6 @@
     "bound_ok": true,
     "baseline_ok": true
   },
-  "reproduction_mode": "remeasure",
+  "reproduction_mode": "report-only",
   "warnings": []
 }
