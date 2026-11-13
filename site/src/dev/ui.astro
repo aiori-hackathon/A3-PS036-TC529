@@ -6,6 +6,11 @@ import SectionIndex from '../components/SectionIndex.astro';
 import Chip from '../components/Chip.astro';
 import Button from '../components/Button.astro';
 import TileCta from '../components/TileCta.astro';
+import Reveal from '../components/Reveal.astro';
+import Counter from '../components/Counter.astro';
+import Marquee from '../components/Marquee.astro';
+import ScrollProgress from '../components/ScrollProgress.astro';
+import Preloader from '../components/Preloader.astro';
 
 const variants = ['ink', 'paper'] as const;
 const corners = ['tl', 'tr', 'bl', 'br'] as const;
@@ -29,8 +34,11 @@ const cardNote =
   title="Surface gallery — CLIMB (development)"
   description="Development-only gallery of the notched cards, ripple surfaces, section labels, evidence chips, buttons and tiles."
 >
+  <ScrollProgress />
+  <Preloader />
+
   <div class="mx-auto max-w-6xl space-y-20 px-4 py-12 sm:px-6">
-    <header class="space-y-4">
+    <header class="space-y-4" data-hero>
       <SectionIndex index="03.00" label="Surface gallery" />
       <h1 class="text-5xl leading-none text-paper">Surface gallery</h1>
       <p class="max-w-2xl text-muted">
@@ -191,6 +199,89 @@ const cardNote =
           Re-run the check
         </TileCta>
       </div>
+    </section>
+
+    <section aria-labelledby="reveal-heading" class="space-y-6">
+      <SectionIndex index="03.06" label="Reveals" />
+      <h2 id="reveal-heading" class="text-3xl text-paper">
+        Reveals
+      </h2>
+      <p class="max-w-2xl text-muted">
+        Each block is already in its final state in the server HTML. When motion is allowed it
+        starts 16 pixels low and fades up over 500 milliseconds, once, and stays put when it is
+        scrolled past again.
+      </p>
+
+      <div class="grid gap-4 lg:grid-cols-3">
+        {[1, 2, 3].map((number) => (
+          <Reveal class="rounded-panel border border-boundary bg-raised p-6">
+            <h3 class="text-xl text-paper">Reveal block {number}</h3>
+            <p class="mt-2 text-sm text-muted">
+              The copy is readable before the script runs; the client only arms the hidden state
+              when the device allows motion.
+            </p>
+          </Reveal>
+        ))}
+      </div>
+
+      <ul class="space-y-2">
+        {['Small', 'Medium', 'Large'].map((size) => (
+          <Reveal as="li" class="rounded-control border border-slate px-4 py-2 text-sm">
+            Batched list row: {size} dataset
+          </Reveal>
+        ))}
+      </ul>
+    </section>
+
+    <section aria-labelledby="counter-heading" class="space-y-6">
+      <SectionIndex index="03.07" label="Counters" />
+      <h2 id="counter-heading" class="text-3xl text-paper">
+        Counters
+      </h2>
+      <p class="max-w-2xl text-muted">
+        A counter counts up to a fact from the generated register. The recorded display value is in
+        the server HTML, so there is no zero before hydration and no gap without JavaScript. Under
+        reduced motion every figure is simply its final value.
+      </p>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        {['F-wire-medium-c', 'F-sign-medium-c-vs-a', 'F-wire-medium-c-vs-a', 'F-claims-count'].map(
+          (id) => (
+            <div class="rounded-panel border border-boundary bg-raised p-6 text-2xl">
+              <Counter id={id} />
+            </div>
+          ),
+        )}
+      </div>
+    </section>
+
+    <section aria-labelledby="marquee-heading" class="space-y-6">
+      <SectionIndex index="03.08" label="Marquee" />
+      <h2 id="marquee-heading" class="text-3xl text-paper">
+        Marquee
+      </h2>
+      <p class="max-w-2xl text-muted">
+        The marquee is pure CSS. Its second group is a copy for a seamless loop and is hidden from
+        assistive technology. Hovering or focusing the strip pauses it, and reduced motion shows a
+        wrapped list instead.
+      </p>
+      <Marquee
+        items={['Merkle Tree Ladder', 'SLH-DSA', 'DNSSEC', 'Measured, not claimed.']}
+        label="Motion gallery topics"
+      />
+    </section>
+
+    <section aria-labelledby="preloader-heading" class="space-y-6">
+      <SectionIndex index="03.09" label="Preloader and progress" />
+      <h2 id="preloader-heading" class="text-3xl text-paper">
+        Preloader and progress
+      </h2>
+      <p class="max-w-2xl text-muted">
+        On a first visit the counter runs from 000 to 100 while the face families and the hero chunk
+        settle, and it is capped at 1.2 seconds. A repeat visit in the same session skips it, and
+        reduced motion never shows it. The orange line at the top of the viewport is the document
+        position.
+      </p>
     </section>
   </div>
 </BaseLayout>

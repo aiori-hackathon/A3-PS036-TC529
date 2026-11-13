@@ -45,18 +45,38 @@ other route has none. If a second flourish appears anywhere, rule 5 fails.
 
 ## 4. Motion
 
-Two animations are in scope, and no others:
+These animations are in scope, and no others. Each one states its job:
 
-- **The value change.** When the dashboard's dataset switch re-renders a
-  figure, the bar or numeral moves to the new value over a short, single
-  transition, so the reader sees *what changed*. Reduced motion: the value
-  swaps with no transition.
+- **The value change.** When a fact enters the viewport, its numeral counts up
+  to the recorded value so the reader sees the size of the number rather than
+  a value that silently replaced another. The last frame is always the text
+  the server rendered. Reduced motion: the value is final with no count.
+- **The reveal.** A block that enters the viewport fades up once so a long
+  page reads in sequence instead of arriving as one slab. It is never a gate:
+  the server HTML is complete and visible, and the hidden start state is armed
+  only after the device check. Reduced motion: the block is shown immediately.
+- **The load counter.** On a first visit the preloader counts to 100 while the
+  faces and the hero image settle. It is capped below 1.5 seconds, has a CSS
+  and no-script failsafe, is skipped on a repeat visit in the same session, and
+  never receives pointer events. Reduced motion: it is never shown.
+- **The scroll progress line.** A two-pixel orange line shows how much of the
+  document remains. It is decorative position feedback, hidden from assistive
+  technology. Reduced motion: it still updates, without a transition.
+- **The marquee.** A single strip of topic labels loops to show that the list
+  continues. The duplicate group is hidden from assistive technology and the
+  strip pauses on hover or keyboard focus. Reduced motion: the items wrap as a
+  static list.
 - **The copy confirmation.** The verify and reproduce routes confirm a copied
   command with a short state change on the button. Reduced motion: the label
   changes with no transition.
+- **Smooth scrolling.** Wheel scrolling is eased on a fine pointer so long
+  documents keep their place. It is disabled on touch devices, where the
+  platform's own scrolling is better, and under reduced motion. No scroll
+  handler reads layout: every scroll-driven write touches only a transform.
 
-Both jobs are "explain" or "confirm". No animation runs on load, none is
-decorative, and none blocks the reader from content.
+Every job is "explain", "guide" or "confirm". Nothing is decorative, and no
+animation blocks the reader from content: the preloader's hard limit is a
+release, not a delay.
 
 ## 5. How a reviewer checks a screen
 

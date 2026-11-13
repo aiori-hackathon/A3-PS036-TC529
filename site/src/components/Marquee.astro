@@ -1,0 +1,100 @@
+---
+/**
+ * A CSS-only marquee. There is no script: the duplicate group is present for
+ * a seamless loop, is hidden from assistive technology, and is removed from
+ * the layout when reduced motion is requested. Hover or keyboard focus pauses
+ * the animation so a reader can finish a line.
+ */
+interface Props {
+  items: string[];
+  duration?: number;
+  label?: string;
+}
+
+const { items, duration = 28, label = 'Project highlights' } = Astro.props;
+---
+
+<div
+  class="marquee"
+  data-marquee
+  role="group"
+  aria-label={label}
+  style={`--marquee-duration: ${duration}s;`}
+>
+  <div class="marquee__track" data-marquee-track>
+    <div class="marquee__group">
+      {items.map((item) => (
+        <span class="marquee__item">{item}</span>
+      ))}
+    </div>
+    <div class="marquee__group" aria-hidden="true" data-marquee-clone>
+      {items.map((item) => (
+        <span class="marquee__item">{item}</span>
+      ))}
+    </div>
+  </div>
+</div>
+
+<style>
+  .marquee {
+    overflow: hidden;
+    border-block: 1px solid var(--color-slate);
+    padding-block: 0.875rem;
+  }
+
+  .marquee__track {
+    display: flex;
+    width: max-content;
+    animation: climb-marquee var(--marquee-duration, 28s) linear infinite;
+    will-change: transform;
+  }
+
+  .marquee:hover .marquee__track,
+  .marquee:focus-within .marquee__track {
+    animation-play-state: paused;
+  }
+
+  .marquee__group {
+    display: flex;
+    gap: 2.5rem;
+    padding-inline-end: 2.5rem;
+  }
+
+  .marquee__item {
+    flex: none;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.16em;
+    color: var(--color-muted);
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  @keyframes climb-marquee {
+    to {
+      transform: translate3d(-50%, 0, 0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .marquee {
+      overflow: visible;
+    }
+
+    .marquee__track {
+      flex-wrap: wrap;
+      width: auto;
+      animation: none;
+      transform: none;
+      will-change: auto;
+    }
+
+    .marquee__group {
+      flex-wrap: wrap;
+    }
+
+    .marquee [data-marquee-clone] {
+      display: none;
+    }
+  }
+</style>

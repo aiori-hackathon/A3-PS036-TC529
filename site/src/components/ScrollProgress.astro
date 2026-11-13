@@ -1,0 +1,39 @@
+---
+/**
+ * A two-pixel orange reading-progress line at the top of the viewport.
+ *
+ * The bar is decorative: the document position is already available to
+ * assistive technology, so the element is hidden from the accessibility tree.
+ * The script only writes a transform, never reading layout inside a handler.
+ */
+---
+
+<div class="scroll-progress" data-scroll-progress aria-hidden="true">
+  <span class="scroll-progress__bar" data-scroll-progress-bar></span>
+</div>
+
+<style>
+  .scroll-progress {
+    position: fixed;
+    inset: 0 0 auto;
+    z-index: 60;
+    height: 2px;
+    pointer-events: none;
+  }
+
+  .scroll-progress__bar {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background-color: var(--color-orange);
+    transform: scaleX(0);
+    transform-origin: 0 50%;
+    will-change: transform;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .scroll-progress__bar {
+      will-change: auto;
+    }
+  }
+</style>

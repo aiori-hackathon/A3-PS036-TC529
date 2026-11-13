@@ -1,0 +1,37 @@
+---
+/**
+ * A fact that counts up to its recorded value.
+ *
+ * `Fact` renders the final value into the server HTML, so the figure is
+ * present before any script runs and a reader without JavaScript sees the
+ * recorded number, not a zero. The motion script reads the final text from
+ * the data attribute and always lands on it exactly.
+ */
+import Fact from './Fact.astro';
+import { getFact } from '../lib/facts';
+
+interface Props {
+  id: string;
+}
+
+const fact = getFact(Astro.props.id);
+const animatable =
+  typeof fact.raw === 'number' &&
+  (fact.kind === 'ratio' ||
+    fact.kind === 'percent' ||
+    fact.kind === 'count' ||
+    fact.kind === 'count_of');
+---
+
+<span
+  class="counter"
+  data-counter
+  data-counter-id={fact.id}
+  data-counter-kind={fact.kind}
+  data-counter-to={animatable ? String(fact.raw) : undefined}
+  data-counter-denominator={fact.denominator ?? undefined}
+  data-counter-final={fact.display}
+  data-counter-state="server"
+>
+  <Fact id={fact.id} />
+</span>

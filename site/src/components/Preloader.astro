@@ -1,0 +1,105 @@
+---
+/**
+ * The first-load counter.
+ *
+ * It waits for the two face families and for the hero chunk, counts from 000
+ * to 100, and is capped at 1.2 seconds. The overlay is skipped under reduced
+ * motion and on a repeat visit in the same session. A CSS failsafe hides it at
+ * 1.5 seconds even if the script never runs its last frame, and a no-script
+ * fallback hides it too, so it can never become a permanent curtain.
+ *
+ * This component also starts the shared motion lifecycle; a page includes the
+ * preloader once and every other primitive is found by the same scan.
+ */
+interface Props {
+  label?: string;
+}
+
+const { label = 'Loading the evidence' } = Astro.props;
+---
+
+<div class="preloader" data-preloader data-preloader-state="pending" aria-hidden="true">
+  <div class="preloader__inner">
+    <span class="preloader__count" data-preloader-count>
+      000
+    </span>
+    <span class="preloader__label">{label}</span>
+  </div>
+</div>
+
+<noscript>
+  <style>
+    [data-preloader] {
+      display: none !important;
+    }
+  </style>
+</noscript>
+
+<script>
+  import { initMotion } from '../lib/motion';
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => initMotion(), { once: true });
+  } else {
+    initMotion();
+  }
+</script>
+
+<style>
+  .preloader {
+    position: fixed;
+    inset: 0;
+    z-index: 70;
+    display: grid;
+    place-items: center;
+    background-color: var(--color-ink);
+    color: var(--color-paper);
+    pointer-events: none;
+  }
+
+  .preloader__inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .preloader__count {
+    font-family: var(--font-mono);
+    font-size: clamp(3rem, 12vw, 7rem);
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    letter-spacing: 0.08em;
+    color: var(--color-orange);
+  }
+
+  .preloader__label {
+    font-size: var(--text-xs);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  .preloader[data-preloader-state='pending'],
+  .preloader[data-preloader-state='running'] {
+    animation: climb-preloader-failsafe 0ms linear 1500ms forwards;
+  }
+
+  .preloader[data-preloader-state='done'],
+  .preloader[data-preloader-state='skipped'] {
+    display: none;
+  }
+
+  @keyframes climb-preloader-failsafe {
+    to {
+      opacity: 0;
+      visibility: hidden;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .preloader {
+      display: none;
+    }
+  }
+</style>

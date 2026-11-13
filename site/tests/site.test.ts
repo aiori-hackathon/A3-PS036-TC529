@@ -11,7 +11,16 @@ import {
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { gzipSync } from 'node:zlib';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
+
+vi.mock('gsap/gsap-core', () => ({
+  gsap: { registerPlugin: vi.fn(), set: vi.fn(), to: vi.fn() },
+}));
+vi.mock('gsap/CSSPlugin', () => ({ CSSPlugin: {} }));
+vi.mock('gsap/ScrollTrigger', () => ({
+  ScrollTrigger: { batch: vi.fn(), create: vi.fn(), refresh: vi.fn() },
+}));
 
 import {
   UnknownFactError,
@@ -21,6 +30,14 @@ import {
   formatRatio,
   getFact,
 } from '../src/lib/facts';
+import {
+  MOTION_BUDGET_BYTES,
+  PRELOADER_HARD_LIMIT,
+  PRELOADER_MAX,
+  counterFrame,
+  counterValue,
+  progressScale,
+} from '../src/lib/motion';
 import { collectSources, findTypedNumbers } from '../src/lib/guard';
 import { centreOf, rippleGeometry } from '../src/lib/ripple';
 import { contrastRatio, palette, usedPairs } from '../src/lib/tokens';
@@ -295,6 +312,128 @@ describe('generated site data', () => {
     expect(provenance.date).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(provenance.submodules.length).toBeGreaterThan(0);
     expect(provenance.host_fingerprint_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('motion core', () => {
+  const motionSource = readFileSync(join(siteRoot, 'src/lib/motion.ts'), 'utf8');
+
+  it('eases a counter between its ends and clamps overshoot', () => {
+    expect(counterValue(0, 100, 0)).toBe(0);
+    expect(counterValue(0, 100, 1)).toBe(100);
+    expect(counterValue(0, 100, 0.5)).toBeCloseTo(87.5, 6);
+    expect(counterValue(10, 20, -3)).toBe(10);
+    expect(counterValue(10, 20, 4)).toBe(20);
+  });
+
+  it('formats an intermediate frame with the final text conventions', () => {
+    expect(counterFrame(2743352, '2,743,352')).toBe('2,743,352');
+    expect(counterFrame(1234.5, '2,743,352')).toBe('1,235');
+    expect(counterFrame(852, '852 of 852')).toBe('852 of 852');
+    expect(counterFrame(950, '≈992.4')).toBe('≈950.0');
+  });
+
+  it('clamps a scroll progress value and rejects a non-finite one', () => {
+    expect(progressScale(-1)).toBe(0);
+    expect(progressScale(0.42)).toBe(0.42);
+    expect(progressScale(2)).toBe(1);
+    expect(progressScale(Number.NaN)).toBe(0);
+  });
+
+  it('caps the preloader below its CSS hard limit', () => {
+    expect(PRELOADER_MAX).toBeLessThanOrEqual(PRELOADER_HARD_LIMIT);
+    expect(PRELOADER_HARD_LIMIT).toBe(1500);
+    const preloader = readFileSync(join(siteRoot, 'src/components/Preloader.astro'), 'utf8');
+    expect(preloader).toContain('1500ms');
+    expect(preloader).toMatch(/prefers-reduced-motion: reduce/);
+  });
+
+  it('keeps one frame loop and no scroll listener or layout read', () => {
+    expect(motionSource.match(/requestAnimationFrame\(/g)).toHaveLength(3);
+    expect(motionSource).toContain('visibilitychange');
+    expect(motionSource).toContain('passive: true');
+    expect(motionSource).not.toContain("addEventListener('scroll'");
+    expect(motionSource).not.toContain('getBoundingClientRect');
+  });
+
+  it('loads the optional plugins outside the static chunk', () => {
+    expect(motionSource).toContain("await import('lenis')");
+    expect(motionSource).toContain("import('./hero')");
+    expect(motionSource).toContain("import('gsap/CSSPlugin')");
+    expect(motionSource).not.toMatch(/from ['"]lenis['"]/);
+    expect(motionSource).not.toMatch(/from ['"]\.\/hero['"]/);
+    expect(motionSource).not.toMatch(/from ['"]gsap\/CSSPlugin['"]/);
+  });
+
+  it('keeps the static motion core under its gzipped byte budget', async () => {
+    const { build } = await import('vite');
+    const built = (await build({
+      root: siteRoot,
+      logLevel: 'silent',
+      build: {
+        write: false,
+        minify: 'oxc',
+        reportCompressedSize: false,
+        lib: {
+          entry: join(siteRoot, 'src/lib/motion.ts'),
+          formats: ['es'],
+          fileName: 'motion',
+        },
+      },
+    })) as unknown as
+      | { output: { type: string; fileName: string; code?: string; isEntry?: boolean }[] }
+      | { output: { type: string; fileName: string; code?: string; isEntry?: boolean }[] }[];
+
+    const outputs = (Array.isArray(built) ? built : [built]).flatMap((result) => result.output);
+    const chunks = outputs.filter(
+      (
+        output,
+      ): output is {
+        type: 'chunk';
+        fileName: string;
+        code: string;
+        isEntry: boolean;
+        imports: string[];
+      } => output.type === 'chunk' && typeof output.code === 'string',
+    );
+    const entries = chunks.filter((chunk) => chunk.isEntry);
+    expect(entries).toHaveLength(1);
+    const entry = entries[0];
+    if (entry === undefined) {
+      throw new Error('the motion build produced no entry chunk');
+    }
+
+    // Follow the entry's static imports: a shared chunk is still downloaded
+    // before the first frame and therefore counts against the budget.
+    const byName = new Map(chunks.map((chunk) => [chunk.fileName, chunk]));
+    const staticFiles = new Set<string>();
+    const queue = [entry.fileName];
+    while (queue.length > 0) {
+      const name = queue.pop();
+      if (name === undefined || staticFiles.has(name)) {
+        continue;
+      }
+      const chunk = byName.get(name);
+      if (chunk === undefined) {
+        continue;
+      }
+      staticFiles.add(name);
+      queue.push(...chunk.imports);
+    }
+
+    let staticBytes = 0;
+    for (const chunk of chunks) {
+      const gzip = gzipSync(Buffer.from(chunk.code)).length;
+      const isStatic = staticFiles.has(chunk.fileName);
+      staticBytes += isStatic ? gzip : 0;
+      console.log(
+        `${chunk.fileName}: ${chunk.code.length} B raw, ${gzip} B gzip, ${
+          isStatic ? 'static' : 'lazy'
+        }`,
+      );
+    }
+    console.log(`static motion core: ${staticBytes} B gzip (budget ${MOTION_BUDGET_BYTES} B)`);
+    expect(staticBytes).toBeLessThanOrEqual(MOTION_BUDGET_BYTES);
   });
 });
 
