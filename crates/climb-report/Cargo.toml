@@ -10,6 +10,10 @@ rust-version.workspace = true
 
 description = "Criterion output parsing, plain-text summaries (Batch 2), and chart/report generation (Batch 5)"
 
+[[bin]]
+name = "climb-site-data"
+path = "src/bin/climb-site-data.rs"
+
 [features]
 default = ["native"]
 # Native chart rendering (plotters) plus the native measurement crate it

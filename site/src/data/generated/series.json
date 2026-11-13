@@ -1,0 +1,190 @@
+{
+  "content_sha256": "ab38ea358741181908ec6a5e2c546569dc5657501d023cdc3818dd3e5eaa4452",
+  "memory": [
+    {
+      "analytical_total_bytes": 2178594,
+      "measured_analytical_total_ratio": 1.6281767047921734,
+      "measured_mean_bytes": 3547136,
+      "messages": 100,
+      "samples": 7,
+      "size": "small"
+    },
+    {
+      "analytical_total_bytes": 10520722,
+      "measured_analytical_total_ratio": 1.2836107635958824,
+      "measured_mean_bytes": 13504512,
+      "messages": 10000,
+      "samples": 7,
+      "size": "medium"
+    },
+    {
+      "analytical_total_bytes": 984351122,
+      "measured_analytical_total_ratio": 1.1038277782346044,
+      "measured_mean_bytes": 1086554112,
+      "messages": 1000000,
+      "samples": 7,
+      "size": "large"
+    }
+  ],
+  "schema_version": 1,
+  "signing": [
+    {
+      "condition": "With MTL",
+      "mean_ns": 507911176.97,
+      "messages": 100,
+      "per_message_ns": 5079111.7697,
+      "size": "Small"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 506963433.77,
+      "messages": 1,
+      "per_message_ns": 506963433.77,
+      "size": "Small"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 511693509.24,
+      "messages": 1000,
+      "per_message_ns": 511693.50924,
+      "size": "OneK"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 512923036.13,
+      "messages": 1,
+      "per_message_ns": 512923036.13,
+      "size": "OneK"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 538424397.28,
+      "messages": 10000,
+      "per_message_ns": 53842.439728,
+      "size": "Medium"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 507597493.75,
+      "messages": 1,
+      "per_message_ns": 507597493.75,
+      "size": "Medium"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 4209821131.73,
+      "messages": 1000000,
+      "per_message_ns": 4209.82113173,
+      "size": "Large"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 507433718.94,
+      "messages": 1,
+      "per_message_ns": 507433718.94,
+      "size": "Large"
+    }
+  ],
+  "source": "docs/sample-output/climb-results.json",
+  "verifying": [
+    {
+      "condition": "MTL (trust cached)",
+      "mean_ns": 334872.43761814304,
+      "messages": 100,
+      "per_message_ns": 3348.72437618143,
+      "size": "Small"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 50098474.55,
+      "messages": 100,
+      "per_message_ns": 500984.7455,
+      "size": "Small"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 47429738.205,
+      "messages": 100,
+      "per_message_ns": 474297.38205,
+      "size": "Small"
+    },
+    {
+      "condition": "MTL (trust cached)",
+      "mean_ns": 4623309.420909091,
+      "messages": 1000,
+      "per_message_ns": 4623.3094209090905,
+      "size": "OneK"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 526433678.1,
+      "messages": 1000,
+      "per_message_ns": 526433.6781,
+      "size": "OneK"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 533285661.7,
+      "messages": 1000,
+      "per_message_ns": 533285.6616999999,
+      "size": "OneK"
+    },
+    {
+      "condition": "MTL (trust cached)",
+      "mean_ns": 65076714.47,
+      "messages": 10000,
+      "per_message_ns": 6507.671447,
+      "size": "Medium"
+    },
+    {
+      "condition": "With MTL",
+      "mean_ns": 5449392109.0,
+      "messages": 10000,
+      "per_message_ns": 544939.2109,
+      "size": "Medium"
+    },
+    {
+      "condition": "Without MTL",
+      "mean_ns": 5084873282.1,
+      "messages": 10000,
+      "per_message_ns": 508487.32821000007,
+      "size": "Medium"
+    },
+    {
+      "condition": "MTL (trust cached)",
+      "mean_ns": 9118334608.51,
+      "messages": 1000000,
+      "per_message_ns": 9118.33460851,
+      "size": "Large"
+    }
+  ],
+  "wire": [
+    {
+      "messages": 100,
+      "plain_bytes": 785600,
+      "reduction_c_vs_a_percent": 96.89103869653768,
+      "reduction_c_vs_b_percent": 97.0055122898562,
+      "size": "small",
+      "with_mtl_bytes": 24424,
+      "without_mtl_bytes": 815632
+    },
+    {
+      "messages": 10000,
+      "plain_bytes": 78560000,
+      "reduction_c_vs_a_percent": 96.5079531568228,
+      "reduction_c_vs_b_percent": 96.70647427677068,
+      "size": "medium",
+      "with_mtl_bytes": 2743352,
+      "without_mtl_bytes": 83295296
+    },
+    {
+      "messages": 1000000,
+      "plain_bytes": 7856000000,
+      "reduction_c_vs_a_percent": 95.32754796334012,
+      "reduction_c_vs_b_percent": 95.67497054980068,
+      "size": "large",
+      "with_mtl_bytes": 367067832,
+      "without_mtl_bytes": 8487059712
+    }
+  ]
+}

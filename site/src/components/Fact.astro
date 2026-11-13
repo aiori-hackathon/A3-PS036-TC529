@@ -1,0 +1,38 @@
+---
+/**
+ * The only renderer of a benchmark number.
+ *
+ * A page passes a fact id; the component reads the display value, unit,
+ * evidence class and baseline from the generated register. `getFact` throws
+ * during `astro build` when the id is unknown, so a missing fact cannot
+ * silently render an empty figure. A unit and baseline are shown beside every
+ * value so a number never appears without its evidence.
+ */
+import { getFact } from '../lib/facts';
+
+interface Props {
+  id: string;
+}
+
+const fact = getFact(Astro.props.id);
+const classLabel = fact.class.charAt(0).toUpperCase() + fact.class.slice(1);
+const provenance = fact.class === 'constant' || fact.class === 'generated';
+const colour = provenance ? 'var(--color-muted)' : `var(--color-${fact.class})`;
+---
+
+<span
+  class="fact inline-flex flex-wrap items-baseline gap-x-1.5"
+  data-fact-id={fact.id}
+  data-fact-class={fact.class}
+>
+  <span class="fact-value font-mono text-text">{fact.display}</span>
+  {fact.unit !== '—' && fact.unit !== '' ? (
+    <span class="fact-unit text-sm text-muted">{fact.unit}</span>
+  ) : null}
+  <span class="chip" style={`color: ${colour};`}>
+    {classLabel}
+  </span>
+  {fact.baseline !== 'n/a' ? (
+    <span class="fact-baseline text-sm text-muted">vs {fact.baseline}</span>
+  ) : null}
+</span>

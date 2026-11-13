@@ -1,0 +1,916 @@
+{
+  "algorithm": "SLH-DSA-SHA2-128s-MTL-SHA2-128",
+  "content_sha256": "13cabf74954208ad0e3663aecbc197c160b893705b2210c7618b7c23c1e30e80",
+  "hash_size": 16,
+  "recorded_at": "2026-11-12T14:21:27+05:30",
+  "schema_version": 1,
+  "source": "docs/sample-output/ladder-verification.recorded.json",
+  "trees": [
+    {
+      "condensed_max": 124,
+      "condensed_min": 124,
+      "condensed_total": 992,
+      "ladder_bytes": 68,
+      "leaf_count": 8,
+      "leaves": [
+        {
+          "auth_path": [
+            {
+              "index": 1,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 0
+        },
+        {
+          "auth_path": [
+            {
+              "index": 0,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 1
+        },
+        {
+          "auth_path": [
+            {
+              "index": 3,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 2
+        },
+        {
+          "auth_path": [
+            {
+              "index": 2,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 3
+        },
+        {
+          "auth_path": [
+            {
+              "index": 5,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 3,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 4
+        },
+        {
+          "auth_path": [
+            {
+              "index": 4,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 3,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 5
+        },
+        {
+          "auth_path": [
+            {
+              "index": 7,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 2,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 6
+        },
+        {
+          "auth_path": [
+            {
+              "index": 6,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 2,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 124,
+          "index": 7
+        }
+      ],
+      "levels": 3,
+      "model_ladder_bytes": 68,
+      "nodes": [
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 0,
+          "level": 0
+        },
+        {
+          "first_leaf": 1,
+          "index": 1,
+          "last_leaf": 1,
+          "level": 0
+        },
+        {
+          "first_leaf": 2,
+          "index": 2,
+          "last_leaf": 2,
+          "level": 0
+        },
+        {
+          "first_leaf": 3,
+          "index": 3,
+          "last_leaf": 3,
+          "level": 0
+        },
+        {
+          "first_leaf": 4,
+          "index": 4,
+          "last_leaf": 4,
+          "level": 0
+        },
+        {
+          "first_leaf": 5,
+          "index": 5,
+          "last_leaf": 5,
+          "level": 0
+        },
+        {
+          "first_leaf": 6,
+          "index": 6,
+          "last_leaf": 6,
+          "level": 0
+        },
+        {
+          "first_leaf": 7,
+          "index": 7,
+          "last_leaf": 7,
+          "level": 0
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 1,
+          "level": 1
+        },
+        {
+          "first_leaf": 2,
+          "index": 1,
+          "last_leaf": 3,
+          "level": 1
+        },
+        {
+          "first_leaf": 4,
+          "index": 2,
+          "last_leaf": 5,
+          "level": 1
+        },
+        {
+          "first_leaf": 6,
+          "index": 3,
+          "last_leaf": 7,
+          "level": 1
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 3,
+          "level": 2
+        },
+        {
+          "first_leaf": 4,
+          "index": 1,
+          "last_leaf": 7,
+          "level": 2
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 7,
+          "level": 3
+        }
+      ],
+      "plain_signature_bytes": 7856,
+      "rung_count": 1,
+      "rungs": [
+        {
+          "left": 0,
+          "right": 7,
+          "size": 8
+        }
+      ],
+      "signed_ladder_bytes": 7928
+    },
+    {
+      "condensed_max": 140,
+      "condensed_min": 140,
+      "condensed_total": 2240,
+      "ladder_bytes": 68,
+      "leaf_count": 16,
+      "leaves": [
+        {
+          "auth_path": [
+            {
+              "index": 1,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 0
+        },
+        {
+          "auth_path": [
+            {
+              "index": 0,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 1
+        },
+        {
+          "auth_path": [
+            {
+              "index": 3,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 2
+        },
+        {
+          "auth_path": [
+            {
+              "index": 2,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 3
+        },
+        {
+          "auth_path": [
+            {
+              "index": 5,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 3,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 4
+        },
+        {
+          "auth_path": [
+            {
+              "index": 4,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 3,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 5
+        },
+        {
+          "auth_path": [
+            {
+              "index": 7,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 2,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 6
+        },
+        {
+          "auth_path": [
+            {
+              "index": 6,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 2,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 1,
+              "level": 3,
+              "side": "right"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 7
+        },
+        {
+          "auth_path": [
+            {
+              "index": 9,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 5,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 3,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 8
+        },
+        {
+          "auth_path": [
+            {
+              "index": 8,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 5,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 3,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 9
+        },
+        {
+          "auth_path": [
+            {
+              "index": 11,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 4,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 3,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 10
+        },
+        {
+          "auth_path": [
+            {
+              "index": 10,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 4,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 3,
+              "level": 2,
+              "side": "right"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 11
+        },
+        {
+          "auth_path": [
+            {
+              "index": 13,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 7,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 2,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 12
+        },
+        {
+          "auth_path": [
+            {
+              "index": 12,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 7,
+              "level": 1,
+              "side": "right"
+            },
+            {
+              "index": 2,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 13
+        },
+        {
+          "auth_path": [
+            {
+              "index": 15,
+              "level": 0,
+              "side": "right"
+            },
+            {
+              "index": 6,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 2,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 14
+        },
+        {
+          "auth_path": [
+            {
+              "index": 14,
+              "level": 0,
+              "side": "left"
+            },
+            {
+              "index": 6,
+              "level": 1,
+              "side": "left"
+            },
+            {
+              "index": 2,
+              "level": 2,
+              "side": "left"
+            },
+            {
+              "index": 0,
+              "level": 3,
+              "side": "left"
+            }
+          ],
+          "condensed_bytes": 140,
+          "index": 15
+        }
+      ],
+      "levels": 4,
+      "model_ladder_bytes": 68,
+      "nodes": [
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 0,
+          "level": 0
+        },
+        {
+          "first_leaf": 1,
+          "index": 1,
+          "last_leaf": 1,
+          "level": 0
+        },
+        {
+          "first_leaf": 2,
+          "index": 2,
+          "last_leaf": 2,
+          "level": 0
+        },
+        {
+          "first_leaf": 3,
+          "index": 3,
+          "last_leaf": 3,
+          "level": 0
+        },
+        {
+          "first_leaf": 4,
+          "index": 4,
+          "last_leaf": 4,
+          "level": 0
+        },
+        {
+          "first_leaf": 5,
+          "index": 5,
+          "last_leaf": 5,
+          "level": 0
+        },
+        {
+          "first_leaf": 6,
+          "index": 6,
+          "last_leaf": 6,
+          "level": 0
+        },
+        {
+          "first_leaf": 7,
+          "index": 7,
+          "last_leaf": 7,
+          "level": 0
+        },
+        {
+          "first_leaf": 8,
+          "index": 8,
+          "last_leaf": 8,
+          "level": 0
+        },
+        {
+          "first_leaf": 9,
+          "index": 9,
+          "last_leaf": 9,
+          "level": 0
+        },
+        {
+          "first_leaf": 10,
+          "index": 10,
+          "last_leaf": 10,
+          "level": 0
+        },
+        {
+          "first_leaf": 11,
+          "index": 11,
+          "last_leaf": 11,
+          "level": 0
+        },
+        {
+          "first_leaf": 12,
+          "index": 12,
+          "last_leaf": 12,
+          "level": 0
+        },
+        {
+          "first_leaf": 13,
+          "index": 13,
+          "last_leaf": 13,
+          "level": 0
+        },
+        {
+          "first_leaf": 14,
+          "index": 14,
+          "last_leaf": 14,
+          "level": 0
+        },
+        {
+          "first_leaf": 15,
+          "index": 15,
+          "last_leaf": 15,
+          "level": 0
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 1,
+          "level": 1
+        },
+        {
+          "first_leaf": 2,
+          "index": 1,
+          "last_leaf": 3,
+          "level": 1
+        },
+        {
+          "first_leaf": 4,
+          "index": 2,
+          "last_leaf": 5,
+          "level": 1
+        },
+        {
+          "first_leaf": 6,
+          "index": 3,
+          "last_leaf": 7,
+          "level": 1
+        },
+        {
+          "first_leaf": 8,
+          "index": 4,
+          "last_leaf": 9,
+          "level": 1
+        },
+        {
+          "first_leaf": 10,
+          "index": 5,
+          "last_leaf": 11,
+          "level": 1
+        },
+        {
+          "first_leaf": 12,
+          "index": 6,
+          "last_leaf": 13,
+          "level": 1
+        },
+        {
+          "first_leaf": 14,
+          "index": 7,
+          "last_leaf": 15,
+          "level": 1
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 3,
+          "level": 2
+        },
+        {
+          "first_leaf": 4,
+          "index": 1,
+          "last_leaf": 7,
+          "level": 2
+        },
+        {
+          "first_leaf": 8,
+          "index": 2,
+          "last_leaf": 11,
+          "level": 2
+        },
+        {
+          "first_leaf": 12,
+          "index": 3,
+          "last_leaf": 15,
+          "level": 2
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 7,
+          "level": 3
+        },
+        {
+          "first_leaf": 8,
+          "index": 1,
+          "last_leaf": 15,
+          "level": 3
+        },
+        {
+          "first_leaf": 0,
+          "index": 0,
+          "last_leaf": 15,
+          "level": 4
+        }
+      ],
+      "plain_signature_bytes": 7856,
+      "rung_count": 1,
+      "rungs": [
+        {
+          "left": 0,
+          "right": 15,
+          "size": 16
+        }
+      ],
+      "signed_ladder_bytes": 7928
+    }
+  ]
+}

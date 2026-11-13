@@ -40,6 +40,7 @@ mod readme_badges;
 mod replication;
 mod reproduce;
 mod sample_check;
+mod site_data;
 mod source_hygiene;
 mod stability;
 #[cfg(feature = "native")]
@@ -78,6 +79,7 @@ use replication::{
 };
 use reproduce::{cmd_reproduce, ReproduceArgs};
 use sample_check::{cmd_sample_check, SampleCheckArgs};
+use site_data::{cmd_site_check, cmd_site_data, SiteArgs};
 use source_hygiene::SourceHygieneArgs;
 use stability::{cmd_stability, StabilityArgs};
 #[cfg(feature = "native")]
@@ -369,6 +371,12 @@ enum Commands {
     /// provenance commit. Native-free, so the viewer CI job can run it before
     /// the tests.
     SampleCheck(SampleCheckArgs),
+    /// Regenerate the website's build-time data documents from the recorded
+    /// artifacts: facts, claims, provenance, series, ladder and commits.
+    SiteData(SiteArgs),
+    /// Fail when the generated site data is stale, or when a page types a
+    /// benchmark number instead of reading a fact id.
+    SiteCheck(SiteArgs),
 }
 
 #[derive(Args)]
@@ -500,6 +508,8 @@ fn main() -> Result<()> {
         Commands::LinkCheck(args) => cmd_link_check(args),
         Commands::Workflows(args) => cmd_workflows(args),
         Commands::SampleCheck(args) => cmd_sample_check(args),
+        Commands::SiteData(args) => cmd_site_data(args),
+        Commands::SiteCheck(args) => cmd_site_check(args),
     }
 }
 
@@ -1011,6 +1021,22 @@ mod tests {
                 assert_eq!(args.quote_sheet, PathBuf::from("docs/deck-facts.md"));
             }
             _ => panic!("expected the docs-check subcommand"),
+        }
+    }
+
+    #[test]
+    fn site_commands_default_to_the_repository_and_generated_directory() {
+        for command in ["site-data", "site-check"] {
+            let cli = Cli::try_parse_from(["xtask", command]).expect("site command parses");
+            let args = match cli.command {
+                Commands::SiteData(args) | Commands::SiteCheck(args) => args,
+                _ => panic!("expected a site subcommand"),
+            };
+            assert_eq!(args.root, PathBuf::from("."));
+            assert_eq!(
+                args.out,
+                PathBuf::from(climb_report::site_data::DEFAULT_OUT_DIR)
+            );
         }
     }
 

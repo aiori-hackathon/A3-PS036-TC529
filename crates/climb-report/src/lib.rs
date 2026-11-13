@@ -23,6 +23,7 @@ pub mod record;
 pub mod render;
 pub mod replication;
 pub mod results;
+pub mod site_data;
 pub mod summary;
 pub mod sweep;
 

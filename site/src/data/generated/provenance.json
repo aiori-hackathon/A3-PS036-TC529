@@ -1,0 +1,20 @@
+{
+  "commit": "fea347548a3f182bb2392c6c3ecdcebed275f882",
+  "commit_short": "fea347548a3f",
+  "content_sha256": "5fa5f7bec959be0bfbe4b6ccbf18094bd827605cd59418f00a7ddb8ce1f04ac5",
+  "date": "2026-11-13T01:31:52+05:30",
+  "host_fingerprint_sha256": "05fee01e0e97ec43dcda9d1a71ba6f01d1488064221438fe328fb841faf70043",
+  "rustc": "rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2)",
+  "schema_version": 1,
+  "source": "docs/sample-output/PROVENANCE.txt",
+  "submodules": [
+    {
+      "path": "third_party/MTL",
+      "sha": "53ce25dcc35c15e051c5263e41aaeaede18a8aa7"
+    },
+    {
+      "path": "third_party/liboqs",
+      "sha": "5a1a854b0dc9f2141bdc771c555ee60c37950183"
+    }
+  ]
+}
