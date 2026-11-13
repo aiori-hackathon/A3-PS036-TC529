@@ -1,0 +1,202 @@
+---
+interface Props {
+  variant?: 'ink' | 'paper';
+  corner?: 'tl' | 'tr' | 'bl' | 'br';
+  size?: 'sm' | 'md' | 'lg';
+  class?: string;
+}
+
+const { variant = 'ink', corner = 'tr', size = 'md', class: className = '' } = Astro.props;
+---
+
+<article
+  class:list={[
+    'notch-card',
+    `notch-card--${variant}`,
+    `notch-card--${corner}`,
+    `notch-card--${size}`,
+    className,
+  ]}
+  data-variant={variant}
+  data-corner={corner}
+  data-size={size}
+  data-notch
+>
+  <span class="notch-card__line" aria-hidden="true"></span>
+  <span class="notch-card__surface" aria-hidden="true"></span>
+  <span class="notch-card__dot" aria-hidden="true"></span>
+  <div class="notch-card__content" data-notch-content>
+    <slot />
+  </div>
+</article>
+
+<style>
+  /*
+   * The fill and its hairline are separate, unclipped-by-the-card layers. The
+   * card itself is never clipped, so a focus ring stays rectangular and a
+   * reader can still select the copy. The notch is cut from the layers only.
+   */
+  .notch-card {
+    --notch-w: 72px;
+    --notch-h: 18px;
+    --notch-slant: 16px;
+    --notch-dot: 10px;
+    position: relative;
+    isolation: isolate;
+    display: flex;
+    flex-direction: column;
+    min-height: 10rem;
+    padding: calc(var(--notch-h) + 1.25rem) 1.5rem;
+    color: var(--color-text);
+    background: none;
+  }
+
+  .notch-card--sm {
+    --notch-w: 48px;
+    --notch-h: 14px;
+    --notch-slant: 10px;
+    --notch-dot: 8px;
+    min-height: 8rem;
+    padding: calc(var(--notch-h) + 0.9rem) 1rem;
+  }
+
+  .notch-card--lg {
+    --notch-w: 96px;
+    --notch-h: 22px;
+    --notch-slant: 22px;
+    --notch-dot: 12px;
+    min-height: 12rem;
+    padding: calc(var(--notch-h) + 1.5rem) 2rem;
+  }
+
+  .notch-card--paper {
+    color: var(--color-ink);
+  }
+
+  .notch-card__line,
+  .notch-card__surface {
+    position: absolute;
+    inset: 0;
+    clip-path: var(--notch-clip);
+  }
+
+  .notch-card__line {
+    background-color: var(--color-boundary);
+  }
+
+  .notch-card__surface {
+    background-color: var(--color-raised);
+    transition: background-color 180ms ease;
+  }
+
+  .notch-card--ink .notch-card__surface {
+    inset: 1px;
+  }
+
+  .notch-card--paper .notch-card__surface {
+    background-color: var(--color-paper);
+  }
+
+  .notch-card--paper:hover .notch-card__surface {
+    background-color: color-mix(in srgb, var(--color-paper) 88%, white);
+  }
+
+  .notch-card--ink:hover .notch-card__surface {
+    background-color: color-mix(in srgb, var(--color-raised) 88%, white);
+  }
+
+  .notch-card__dot {
+    position: absolute;
+    z-index: 2;
+    width: var(--notch-dot);
+    height: var(--notch-dot);
+    border-radius: 999px;
+    background-color: var(--color-teal);
+  }
+
+  .notch-card--paper .notch-card__dot {
+    background-color: var(--color-paper);
+  }
+
+  .notch-card__content {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 0.5rem;
+    min-width: 0;
+  }
+
+  .notch-card--tl {
+    --notch-clip: polygon(
+      var(--notch-w) 0,
+      100% 0,
+      100% 100%,
+      0 100%,
+      0 var(--notch-h),
+      calc(var(--notch-w) - var(--notch-slant)) var(--notch-h)
+    );
+  }
+
+  .notch-card--tr {
+    --notch-clip: polygon(
+      0 0,
+      calc(100% - var(--notch-w)) 0,
+      calc(100% - var(--notch-w) + var(--notch-slant)) var(--notch-h),
+      100% var(--notch-h),
+      100% 100%,
+      0 100%
+    );
+  }
+
+  .notch-card--bl {
+    --notch-clip: polygon(
+      0 0,
+      100% 0,
+      100% 100%,
+      var(--notch-w) 100%,
+      calc(var(--notch-w) - var(--notch-slant)) calc(100% - var(--notch-h)),
+      0 calc(100% - var(--notch-h))
+    );
+  }
+
+  .notch-card--br {
+    --notch-clip: polygon(
+      0 0,
+      100% 0,
+      100% calc(100% - var(--notch-h)),
+      calc(100% - var(--notch-w) + var(--notch-slant)) calc(100% - var(--notch-h)),
+      calc(100% - var(--notch-w)) 100%,
+      0 100%
+    );
+  }
+
+  .notch-card--tl .notch-card__dot {
+    top: 3px;
+    left: 20px;
+  }
+
+  .notch-card--tr .notch-card__dot {
+    top: 3px;
+    right: 20px;
+  }
+
+  .notch-card--bl .notch-card__dot {
+    bottom: 3px;
+    left: 20px;
+  }
+
+  .notch-card--br .notch-card__dot {
+    right: 20px;
+    bottom: 3px;
+  }
+
+  /*
+   * The global focus ring is teal; on the cream card it drops below the
+   * boundary floor, so the ink ring is used there instead.
+   */
+  .notch-card--paper :global(:focus-visible) {
+    outline-color: var(--color-ink);
+  }
+</style>

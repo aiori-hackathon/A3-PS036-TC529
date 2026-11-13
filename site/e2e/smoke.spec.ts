@@ -10,7 +10,9 @@ test('the home route renders the headline and the primary action', async ({ page
   await expect(page.getByRole('link', { name: 'Skip to content' })).toHaveCount(1);
 });
 
-test('the development token route is not served by the production build', async ({ page }) => {
-  const response = await page.goto('/_dev/tokens');
-  expect(response?.status()).toBe(404);
+test('the development routes are not served by the production build', async ({ page }) => {
+  for (const route of ['/_dev/tokens', '/_dev/ui']) {
+    const response = await page.goto(route);
+    expect(response?.status(), route).toBe(404);
+  }
 });

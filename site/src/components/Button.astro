@@ -1,0 +1,76 @@
+---
+interface Props {
+  href?: string;
+  type?: 'button' | 'submit' | 'reset';
+  disabled?: boolean;
+  class?: string;
+}
+
+const { href, type = 'button', disabled = false, class: className = '' } = Astro.props;
+
+const Tag = href === undefined ? 'button' : 'a';
+const external = href !== undefined && /^https?:\/\//.test(href);
+---
+
+<Tag
+  class:list={['button-cta', className]}
+  href={href}
+  type={href === undefined ? type : undefined}
+  disabled={href === undefined ? disabled : undefined}
+  rel={external ? 'noreferrer' : undefined}
+>
+  <span class="button-cta__label">
+    <slot />
+  </span>
+  <svg
+    class="button-cta__arrow"
+    aria-hidden="true"
+    viewBox="0 0 16 16"
+    width="16"
+    height="16"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+  >
+    <path d="M2 8h11M9 4l4 4-4 4"></path>
+  </svg>
+</Tag>
+
+<style>
+  .button-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border: 0;
+    border-radius: var(--radius-control);
+    background-color: var(--color-orange);
+    color: var(--color-ink);
+    padding: 0.75rem 1.25rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    font-weight: 500;
+    line-height: 1.5rem;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .button-cta:hover {
+    background-color: color-mix(in srgb, var(--color-orange) 88%, white);
+  }
+
+  .button-cta:disabled {
+    cursor: not-allowed;
+    background-color: var(--color-raised);
+    color: var(--color-muted);
+  }
+
+  .button-cta__arrow {
+    flex: none;
+    transition: transform 160ms ease;
+  }
+
+  .button-cta:hover .button-cta__arrow,
+  .button-cta:focus-visible .button-cta__arrow {
+    transform: translateX(3px);
+  }
+</style>

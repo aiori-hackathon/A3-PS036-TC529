@@ -201,7 +201,10 @@ const isCurrent = (href: string) => (href === '/' ? path === '/' : path.startsWi
             benchmark itself is not deployed on the Internet; the DNS testbed runs locally.
           </p>
           <p>
-            <a class="text-orange hover:text-paper" href={`${repository}/blob/main/LICENSE`}>
+            <a
+              class="text-orange underline underline-offset-2 hover:text-paper"
+              href={`${repository}/blob/main/LICENSE`}
+            >
               MIT licence
             </a>
             . Results are empirical measurements; nothing here is a formal verification or a

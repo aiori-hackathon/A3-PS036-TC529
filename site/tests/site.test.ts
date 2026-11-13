@@ -22,6 +22,7 @@ import {
   getFact,
 } from '../src/lib/facts';
 import { collectSources, findTypedNumbers } from '../src/lib/guard';
+import { centreOf, rippleGeometry } from '../src/lib/ripple';
 import { contrastRatio, palette, usedPairs } from '../src/lib/tokens';
 
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
@@ -96,6 +97,30 @@ describe('tokens', () => {
       0,
     );
     expect(total).toBeLessThanOrEqual(120 * 1024);
+  });
+});
+
+describe('ripple geometry', () => {
+  it('anchors the ring at the pointer', () => {
+    const geometry = rippleGeometry(400, 240, 120, 60);
+    expect(geometry.left).toBe(120);
+    expect(geometry.top).toBe(60);
+  });
+
+  it('reaches the farthest corner once the ring has grown by its scale', () => {
+    const geometry = rippleGeometry(320, 480, 0, 0);
+    const finalRadius = (geometry.diameter / 2) * 1.8;
+    expect(finalRadius).toBeCloseTo(Math.hypot(320, 480), 6);
+  });
+
+  it('uses the same diameter for points mirrored across the centre', () => {
+    const near = rippleGeometry(500, 300, 40, 260);
+    const far = rippleGeometry(500, 300, 460, 40);
+    expect(near.diameter).toBeCloseTo(far.diameter, 6);
+  });
+
+  it('returns the exact centre of a surface', () => {
+    expect(centreOf(640, 360)).toEqual({ x: 320, y: 180 });
   });
 });
 

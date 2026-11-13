@@ -1,0 +1,25 @@
+---
+interface Props {
+  tone?: 'ink' | 'paper';
+  class?: string;
+}
+
+const { tone = 'ink', class: className = '' } = Astro.props;
+---
+
+<div class:list={['ripple-surface', className]} data-ripple-surface data-tone={tone}>
+  <span class="ripple-layer" data-ripple-layer aria-hidden="true"></span>
+  <div class="ripple-content">
+    <slot />
+  </div>
+</div>
+
+<script>
+  import { installAllRipples } from '../lib/ripple';
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => installAllRipples());
+  } else {
+    installAllRipples();
+  }
+</script>

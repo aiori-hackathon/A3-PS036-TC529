@@ -1,0 +1,74 @@
+---
+type Evidence = 'measured' | 'derived' | 'analytical' | 'extrapolated';
+
+interface Props {
+  evidence: Evidence;
+  label?: string;
+  class?: string;
+}
+
+const labels: Record<Evidence, string> = {
+  measured: 'Measured',
+  derived: 'Derived',
+  analytical: 'Analytical',
+  extrapolated: 'Extrapolated',
+};
+
+const { evidence, label, class: className = '' } = Astro.props;
+const text = label ?? labels[evidence];
+---
+
+<span class:list={['chip', `chip--${evidence}`, className]} data-evidence={evidence}>
+  <span class="chip__mark" aria-hidden="true"></span>
+  {evidence === 'extrapolated' ? <span aria-hidden="true">≈ </span> : null}
+  {text}
+</span>
+
+<style>
+  /*
+   * Colour is the third channel, never the only one: every chip carries its
+   * written class, and each class has its own mark shape. The extrapolated
+   * chip is dashed and prefixed with an approximation sign.
+   */
+  .chip--measured {
+    color: var(--color-measured);
+  }
+
+  .chip--derived {
+    color: var(--color-derived);
+  }
+
+  .chip--analytical {
+    color: var(--color-analytical);
+  }
+
+  .chip--extrapolated {
+    color: var(--color-extrapolated);
+    border-style: dashed;
+  }
+
+  .chip__mark {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .chip--measured .chip__mark {
+    background-color: currentColor;
+  }
+
+  .chip--derived .chip__mark {
+    background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+  }
+
+  .chip--analytical .chip__mark {
+    background-color: transparent;
+  }
+
+  .chip--extrapolated .chip__mark {
+    border-style: dotted;
+    border-width: 2px;
+  }
+</style>

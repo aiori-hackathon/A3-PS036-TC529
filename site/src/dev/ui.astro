@@ -1,0 +1,196 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import NotchCard from '../components/NotchCard.astro';
+import RippleSurface from '../components/RippleSurface.astro';
+import SectionIndex from '../components/SectionIndex.astro';
+import Chip from '../components/Chip.astro';
+import Button from '../components/Button.astro';
+import TileCta from '../components/TileCta.astro';
+
+const variants = ['ink', 'paper'] as const;
+const corners = ['tl', 'tr', 'bl', 'br'] as const;
+const sizes = ['sm', 'md', 'lg'] as const;
+const evidence = ['measured', 'derived', 'analytical', 'extrapolated'] as const;
+
+const cornerNames = {
+  tl: 'top left',
+  tr: 'top right',
+  bl: 'bottom left',
+  br: 'bottom right',
+};
+const sizeNames = { sm: 'small', md: 'medium', lg: 'large' };
+const variantNames = { ink: 'ink', paper: 'paper' };
+
+const cardNote =
+  'The notch cuts the decoration, never the copy. Select this sentence to confirm the text is still selectable, and tab to the link to see the rectangular focus ring.';
+---
+
+<BaseLayout
+  title="Surface gallery — CLIMB (development)"
+  description="Development-only gallery of the notched cards, ripple surfaces, section labels, evidence chips, buttons and tiles."
+>
+  <div class="mx-auto max-w-6xl space-y-20 px-4 py-12 sm:px-6">
+    <header class="space-y-4">
+      <SectionIndex index="03.00" label="Surface gallery" />
+      <h1 class="text-5xl leading-none text-paper">Surface gallery</h1>
+      <p class="max-w-2xl text-muted">
+        Every surface primitive in one route, shown in each variant and state. This page is injected
+        only while the development server runs; it is not part of a production build.
+      </p>
+    </header>
+
+    <section aria-labelledby="notch-heading" class="space-y-6">
+      <SectionIndex index="03.01" label="Notched cards" />
+      <h2 id="notch-heading" class="text-3xl text-paper">
+        Notched cards
+      </h2>
+      <p class="max-w-2xl text-muted">
+        Two variants, four notch corners and three sizes. The fill and its hairline are separate
+        layers, so the card is never clipped: the focus ring stays rectangular and the text stays
+        selectable.
+      </p>
+
+      <NotchCard variant="paper" corner="tr" size="lg">
+        <h3 class="text-2xl">Focus and selection</h3>
+        <p class="text-sm">{cardNote}</p>
+        <p class="text-sm">
+          <a
+            class="underline decoration-2 underline-offset-4"
+            href="#notch-heading"
+            data-focus-check
+          >
+            Focus this link with the keyboard
+          </a>
+        </p>
+      </NotchCard>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {variants.flatMap((variant) =>
+          corners.map((corner) => (
+            <NotchCard variant={variant} corner={corner} size="md">
+              <h3 class="text-xl">
+                {variantNames[variant]}, {cornerNames[corner]}, medium
+              </h3>
+              <p class="text-sm">{cardNote}</p>
+            </NotchCard>
+          )),
+        )}
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {variants.flatMap((variant) =>
+          sizes.map((size) => (
+            <NotchCard variant={variant} corner="tr" size={size}>
+              <h3 class="text-lg">
+                {variantNames[variant]}, {sizeNames[size]}
+              </h3>
+              <p class="text-sm">One size step, same notch, no clipped copy.</p>
+            </NotchCard>
+          )),
+        )}
+      </div>
+    </section>
+
+    <section aria-labelledby="ripple-heading" class="space-y-6">
+      <SectionIndex index="03.02" label="Ripple surfaces" />
+      <h2 id="ripple-heading" class="text-3xl text-paper">
+        Ripple surfaces
+      </h2>
+      <p class="max-w-2xl text-muted">
+        Press anywhere to watch a ring expand from the pointer: teal at 25 percent on ink, orange on
+        paper. Enter or Space on the button produces a centred ring. With reduced motion the ring
+        becomes a short background flash. The effect is decorative and never receives the pointer.
+      </p>
+
+      <div class="grid gap-4 lg:grid-cols-2">
+        <RippleSurface tone="ink" class="rounded-panel border border-boundary bg-raised p-6">
+          <h3 class="text-2xl text-paper">Ink surface</h3>
+          <p class="mt-2 text-sm text-muted">
+            Press this panel, or focus the button and press Enter.
+          </p>
+          <button
+            type="button"
+            class="mt-4 rounded-control border border-boundary px-4 py-2 text-sm text-text"
+            data-ripple-trigger
+          >
+            Fire a centred ripple
+          </button>
+        </RippleSurface>
+
+        <RippleSurface tone="paper" class="rounded-panel bg-paper p-6 text-ink">
+          <h3 class="text-2xl">Paper surface</h3>
+          <p class="mt-2 text-sm">Press this panel, or focus the button and press Space.</p>
+          <button
+            type="button"
+            class="mt-4 rounded-control border border-ink px-4 py-2 text-sm"
+            data-ripple-trigger
+          >
+            Fire a centred ripple
+          </button>
+        </RippleSurface>
+      </div>
+    </section>
+
+    <section aria-labelledby="index-heading" class="space-y-6">
+      <SectionIndex index="03.03" label="Section index" />
+      <h2 id="index-heading" class="text-3xl text-paper">
+        Section index
+      </h2>
+      <p class="max-w-2xl text-muted">
+        The numbered label that opens a section. The slash is decorative; the number and the label
+        are read as written.
+      </p>
+      <div class="flex flex-wrap gap-8">
+        <SectionIndex index="01.00" label="Home" />
+        <SectionIndex index="03.01" label="Notched cards" />
+        <SectionIndex index="12.04" label="Evidence" />
+      </div>
+    </section>
+
+    <section aria-labelledby="chip-heading" class="space-y-6">
+      <SectionIndex index="03.04" label="Evidence chips" />
+      <h2 id="chip-heading" class="text-3xl text-paper">
+        Evidence chips
+      </h2>
+      <p class="max-w-2xl text-muted">
+        Each class has a colour, a written label and a mark shape. The extrapolated chip is dashed
+        and carries an approximation sign, so it is still distinguishable without colour vision.
+      </p>
+      <ul class="flex flex-wrap gap-4">
+        {evidence.map((name) => (
+          <li>
+            <Chip evidence={name} />
+          </li>
+        ))}
+      </ul>
+    </section>
+
+    <section aria-labelledby="button-heading" class="space-y-6">
+      <SectionIndex index="03.05" label="Buttons and tiles" />
+      <h2 id="button-heading" class="text-3xl text-paper">
+        Buttons and tiles
+      </h2>
+      <p class="max-w-2xl text-muted">
+        The orange fill carries ink text and a small arrow that moves on hover or focus. The tile is
+        the same idea at grid size. Both keep the global focus ring.
+      </p>
+      <div class="flex flex-wrap items-center gap-4">
+        <Button href="#button-heading">Open the method</Button>
+        <Button>Confirm</Button>
+        <Button disabled>Unavailable</Button>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <TileCta href="#notch-heading" eyebrow="Evidence">
+          Read the dashboard
+        </TileCta>
+        <TileCta href="#ripple-heading" eyebrow="Method">
+          Check the limits
+        </TileCta>
+        <TileCta href="#chip-heading" eyebrow="Verify">
+          Re-run the check
+        </TileCta>
+      </div>
+    </section>
+  </div>
+</BaseLayout>

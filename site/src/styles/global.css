@@ -75,6 +75,62 @@
     border-radius: var(--radius-panel);
     background-color: var(--color-raised);
   }
+
+  /*
+   * The ripple layer is a dynamically-created node, so its rules live in this
+   * global stylesheet rather than a component's scoped block. The ring is an
+   * outline, not a wash: it never sits over a value long enough to change its
+   * contrast, and `pointer-events: none` keeps the surface interactive.
+   */
+  .ripple-surface {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .ripple-layer {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    overflow: clip;
+    pointer-events: none;
+  }
+
+  .ripple-surface[data-tone='ink'] {
+    --ripple-colour: color-mix(in srgb, var(--color-teal) 25%, transparent);
+  }
+
+  .ripple-surface[data-tone='paper'] {
+    --ripple-colour: color-mix(in srgb, var(--color-orange) 25%, transparent);
+  }
+
+  .ripple-ring {
+    position: absolute;
+    width: var(--ripple-diameter);
+    height: var(--ripple-diameter);
+    border: 2px solid var(--ripple-colour);
+    border-radius: 999px;
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.12);
+    animation: climb-ripple 600ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+  }
+
+  .ripple-flash {
+    position: absolute;
+    inset: 0;
+    background: var(--ripple-colour);
+  }
+}
+
+@keyframes climb-ripple {
+  from {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(0.12);
+  }
+
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(1.8);
+  }
 }
 
 /*

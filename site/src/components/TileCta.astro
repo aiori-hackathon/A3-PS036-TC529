@@ -1,0 +1,80 @@
+---
+interface Props {
+  href: string;
+  eyebrow?: string;
+  class?: string;
+}
+
+const { href, eyebrow, class: className = '' } = Astro.props;
+---
+
+<a class:list={['tile-cta', className]} href={href}>
+  <span class="tile-cta__top">
+    {eyebrow !== undefined ? <span class="tile-cta__eyebrow">{eyebrow}</span> : null}
+    <span class="tile-cta__label">
+      <slot />
+    </span>
+  </span>
+  <svg
+    class="tile-cta__arrow"
+    aria-hidden="true"
+    viewBox="0 0 16 16"
+    width="20"
+    height="20"
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.5"
+  >
+    <path d="M2 8h11M9 4l4 4-4 4"></path>
+  </svg>
+</a>
+
+<style>
+  .tile-cta {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 2rem;
+    min-height: 12rem;
+    padding: 1.5rem;
+    border-radius: var(--radius-panel);
+    background-color: var(--color-orange);
+    color: var(--color-ink);
+    text-decoration: none;
+  }
+
+  .tile-cta:hover {
+    background-color: color-mix(in srgb, var(--color-orange) 88%, white);
+  }
+
+  .tile-cta__top {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .tile-cta__eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.25rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+
+  .tile-cta__label {
+    font-family: var(--font-display);
+    font-size: var(--text-3xl);
+    line-height: 2.375rem;
+  }
+
+  .tile-cta__arrow {
+    align-self: flex-end;
+    flex: none;
+    transition: transform 160ms ease;
+  }
+
+  .tile-cta:hover .tile-cta__arrow,
+  .tile-cta:focus-visible .tile-cta__arrow {
+    transform: translateX(4px);
+  }
+</style>

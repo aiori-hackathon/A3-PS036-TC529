@@ -18,6 +18,10 @@ const devRoutes = {
         pattern: '/_dev/tokens',
         entrypoint: './src/dev/tokens.astro',
       });
+      injectRoute({
+        pattern: '/_dev/ui',
+        entrypoint: './src/dev/ui.astro',
+      });
     },
   },
 };
