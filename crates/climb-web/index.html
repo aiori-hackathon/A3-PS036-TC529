@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <link rel="icon" href="data:," />
+    <title>CLIMB — dashboard</title>
+    <style>
+      :root {
+        --ink: #07080a;
+        --paper: #f2ede4;
+        --orange: #ff5400;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--ink);
+        color: var(--paper);
+        overflow: hidden;
+      }
+      #grid {
+        position: fixed;
+        inset: 0;
+        background: var(--ink);
+      }
+      #grid canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+        touch-action: none;
+      }
+      #grid:focus-visible {
+        outline: 2px solid var(--orange);
+        outline-offset: -2px;
+      }
+      .boot {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font: 14px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--paper);
+      }
+      .boot[hidden] {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="grid" tabindex="0" aria-label="CLIMB dashboard"></div>
+    <p class="boot" id="boot">Loading the recorded run…</p>
+    <script>
+      // The module removes this line once the first frame is scheduled. If the
+      // module fails to load, the message stays and names the likely cause.
+      window.addEventListener("error", function (event) {
+        var boot = document.getElementById("boot");
+        if (boot) {
+          boot.textContent =
+            "The dashboard module failed to load: " + (event.message || "see the console");
+        }
+      });
+    </script>
+    <link data-trunk rel="rust" data-wasm-opt="z" />
+  </body>
+</html>

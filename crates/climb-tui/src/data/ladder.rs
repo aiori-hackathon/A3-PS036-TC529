@@ -158,13 +158,23 @@ pub fn load_ladder_auto_with(
         other => return other,
     }
     match embedded_bytes {
-        Some(bytes) => load_ladder_embedded(bytes),
+        Some(bytes) => load_ladder_embedded_bytes(bytes),
         None => LadderLoadState::Absent,
     }
 }
 
-/// Parse the compiled-in ladder-verification fixture.
-fn load_ladder_embedded(bytes: &[u8]) -> LadderLoadState {
+/// Parse the compiled-in recording without consulting the filesystem.
+///
+/// The browser build has no artifact files; it shows the same recording the
+/// binary carries, labelled as embedded so the status bar never claims a file
+/// was read.
+#[must_use]
+pub fn load_ladder_embedded() -> LadderLoadState {
+    load_ladder_embedded_bytes(crate::data::embedded::LADDER_VERIFICATION)
+}
+
+/// Parse a compiled-in ladder-verification fixture.
+fn load_ladder_embedded_bytes(bytes: &[u8]) -> LadderLoadState {
     match serde_json::from_slice::<LadderVerification>(bytes) {
         Ok(document) => LadderLoadState::Loaded {
             document: Box::new(document),

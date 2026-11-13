@@ -15,7 +15,10 @@
 //! [`Clock`] — [`Clock::System`] in a live run, [`Clock::Fake`] in tests and
 //! evidence dumps, so every timing behaviour is testable without sleeping.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Instant;
 
 use crate::app::Tab;
 
@@ -121,23 +124,37 @@ pub fn script_duration() -> Duration {
 
 /// The tour's time source.
 ///
-/// A live run uses [`Clock::System`], anchored when the dashboard starts.
-/// Tests and evidence dumps use [`Clock::Fake`]: its time only moves when the
-/// test moves it, so tour timing is exercised deterministically and without
-/// sleeps.
+/// A native live run uses [`Clock::System`], a browser run [`Clock::Web`], both
+/// anchored when the dashboard starts. Tests and evidence dumps use
+/// [`Clock::Fake`]: its time only moves when the test moves it, so tour timing
+/// is exercised deterministically and without sleeps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Clock {
-    /// Wall-clock time since the anchor instant.
+    /// Wall-clock time since the anchor instant, on a host with a process clock.
+    #[cfg(not(target_arch = "wasm32"))]
     System(Instant),
+    /// Browser time since the anchor, read through `performance.now()`.
+    ///
+    /// `std::time::Instant` is unimplemented on wasm32-unknown-unknown; the
+    /// web variant is the same idea with the platform's clock.
+    #[cfg(target_arch = "wasm32")]
+    Web(web_time::Instant),
     /// A fixed timestamp, advanced by hand.
     Fake(Duration),
 }
 
 impl Clock {
-    /// A wall-clock source anchored at construction.
+    /// A wall-clock source anchored at construction, from the platform clock.
     #[must_use]
     pub fn system() -> Self {
-        Clock::System(Instant::now())
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Clock::System(Instant::now())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            Clock::Web(web_time::Instant::now())
+        }
     }
 
     /// A fake source starting at zero.
@@ -150,7 +167,10 @@ impl Clock {
     #[must_use]
     pub fn now(&self) -> Duration {
         match self {
+            #[cfg(not(target_arch = "wasm32"))]
             Clock::System(start) => start.elapsed(),
+            #[cfg(target_arch = "wasm32")]
+            Clock::Web(start) => start.elapsed(),
             Clock::Fake(elapsed) => *elapsed,
         }
     }

@@ -4,11 +4,20 @@
 //! by `r` runs on a worker thread so the dashboard keeps drawing, and its
 //! outcome arrives as [`crate::event::Event::Reloaded`].
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
+
+#[cfg(feature = "terminal")]
+use std::path::PathBuf;
+#[cfg(feature = "terminal")]
 use std::sync::mpsc::SyncSender;
+#[cfg(feature = "terminal")]
 use std::thread::{self, JoinHandle};
 
-use crate::data::{load_ladder_auto, load_live_auto, load_results_auto, LoadedArtifacts};
+use crate::data::{
+    load_ladder_auto, load_ladder_embedded, load_live_auto, load_live_embedded, load_results_auto,
+    load_results_embedded, LoadedArtifacts,
+};
+#[cfg(feature = "terminal")]
 use crate::event::Event;
 
 /// Read every artifact the dashboard consumes, in one consistent snapshot.
@@ -25,8 +34,23 @@ pub fn load_all(explicit: Option<&Path>) -> LoadedArtifacts {
     }
 }
 
+/// Read every artifact from the copies compiled into the binary.
+///
+/// The browser build has no filesystem and, until a fetch succeeds, no network
+/// document either; this is the same loader the native binary uses as its last
+/// resort, minus the path probes. Nothing here opens a file.
+#[must_use]
+pub fn load_all_embedded() -> LoadedArtifacts {
+    LoadedArtifacts {
+        results: load_results_embedded(),
+        ladder: load_ladder_embedded(),
+        live: load_live_embedded(),
+    }
+}
+
 /// Spawn a background reload. The returned handle is only useful to tests and
 /// to a caller that wants to join before exiting; the event loop does not.
+#[cfg(feature = "terminal")]
 pub fn spawn_reload(explicit: Option<PathBuf>, sender: SyncSender<Event>) -> JoinHandle<()> {
     thread::spawn(move || {
         let loaded = load_all(explicit.as_deref());
@@ -37,9 +61,32 @@ pub fn spawn_reload(explicit: Option<PathBuf>, sender: SyncSender<Event>) -> Joi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{LadderLoadState, LiveLoadState, LoadState};
+    use crate::data::{LadderLoadState, LadderSource, LiveLoadState, LiveSource, LoadState};
 
-    fn sample_results() -> PathBuf {
+    #[test]
+    fn the_embedded_load_needs_no_filesystem_and_labels_its_sources() {
+        let loaded = load_all_embedded();
+        assert!(
+            matches!(loaded.results.1, LoadState::Loaded(_)),
+            "the compiled-in results must parse: {:?}",
+            loaded.results.1
+        );
+        assert_eq!(
+            loaded.results.0.origin(),
+            crate::data::ArtifactOrigin::Embedded,
+            "the results source must say embedded"
+        );
+        assert_eq!(loaded.ladder.source(), Some(LadderSource::Embedded));
+        assert!(
+            matches!(
+                loaded.live.view().map(|view| *view.source()),
+                Some(LiveSource::Embedded)
+            ),
+            "the capture must be the compiled-in recording"
+        );
+    }
+
+    fn sample_results() -> std::path::PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/sample-output/climb-results.json")
     }
 
@@ -61,6 +108,7 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "terminal")]
     #[test]
     fn spawn_reload_returns_immediately_and_delivers_its_result() {
         let (sender, receiver) = std::sync::mpsc::sync_channel(1);

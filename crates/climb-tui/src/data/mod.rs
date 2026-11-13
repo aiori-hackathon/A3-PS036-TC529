@@ -28,12 +28,13 @@ pub use integrity::{
 };
 pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, load_ladder_auto_from,
-    load_ladder_auto_with, BadgeKind, LadderBadge, LadderLoadState, LadderSource,
+    load_ladder_auto_with, load_ladder_embedded, BadgeKind, LadderBadge, LadderLoadState,
+    LadderSource,
 };
 pub use live::{
     bar_cells, flag_text, load_live, load_live_auto, load_live_auto_from, load_live_auto_with,
-    Direction, HeadlineLanes, Lane, LaneStep, LiveLoadState, LiveSource, LiveStep, LiveView,
-    LIVE_CAPTURE_PATH, RECORDED_CAPTURE_PATH,
+    load_live_embedded, Direction, HeadlineLanes, Lane, LaneStep, LiveLoadState, LiveSource,
+    LiveStep, LiveView, LIVE_CAPTURE_PATH, RECORDED_CAPTURE_PATH,
 };
 pub use method::{
     ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
@@ -304,6 +305,23 @@ pub fn load_results_auto(explicit: Option<&Path>) -> (ArtifactSource, LoadState)
         Path::new(TARGET_RESULTS_PATH),
         Path::new(SAMPLE_RESULTS_PATH),
         embedded::RESULTS,
+    )
+}
+
+/// Parse the compiled-in consolidated results without consulting the filesystem.
+///
+/// This is the browser build's whole load path until it can fetch a document:
+/// no `std::fs`, no path resolution, and the source label says `embedded` so a
+/// reader is never told a file was read when none was.
+#[must_use]
+pub fn load_results_embedded() -> (ArtifactSource, LoadState) {
+    (
+        ArtifactSource::embedded(),
+        load_bytes(
+            embedded::RESULTS,
+            embedded::RESULTS_NAME,
+            ArtifactOrigin::Embedded,
+        ),
     )
 }
 

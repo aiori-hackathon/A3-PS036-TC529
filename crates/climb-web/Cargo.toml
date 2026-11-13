@@ -1,0 +1,53 @@
+[package]
+name = "climb-web"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+description = "The CLIMB dashboard in a browser tab, rendered by ratzilla"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The same model, widgets and key table the terminal binary uses. The native
+# measurement stack and crossterm are both off: the browser has neither.
+climb-tui = { path = "../climb-tui", default-features = false }
+# Ratatui web backends (WebGL2, Canvas 2D, DOM) and the requestAnimationFrame
+# draw loop. Pinned exactly; 0.3.1 is the current stable release.
+ratzilla = "=0.3.1"
+# The same ratatui the dashboard already uses; ratzilla implements its backend
+# traits for this version.
+ratatui.workspace = true
+wasm-bindgen = "=0.2.129"
+# Browser monotonic time: std::time::Instant is unimplemented here.
+web-time = "1.1.0"
+console_error_panic_hook = "0.1.7"
+
+# The keyboard listener and the fallback diagnostics talk to the DOM directly.
+# These compile on the host too, which keeps `cargo test --workspace` able to
+# build this crate; only `start()` needs a browser.
+[dependencies.web-sys]
+version = "=0.3.106"
+features = [
+    "console",
+    "Document",
+    "DomRect",
+    "Element",
+    "Event",
+    "EventTarget",
+    "HtmlCanvasElement",
+    "HtmlElement",
+    "KeyboardEvent",
+    "Location",
+    "Window",
+]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+# ratatui-core's layout cache uses critical-section on targets without native
+# atomics; the std implementation provides the two link symbols it needs.
+critical-section = { version = "1.2", features = ["std"] }

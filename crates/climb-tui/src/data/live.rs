@@ -144,20 +144,34 @@ pub fn load_live_auto_with(
         other => return other,
     }
     match embedded_bytes {
-        Some(bytes) => match serde_json::from_slice::<DnsCapture>(bytes) {
-            Ok(capture) => {
-                LiveLoadState::Loaded(Box::new(LiveView::new(capture, LiveSource::Embedded)))
-            }
-            Err(error) => LiveLoadState::Invalid {
-                path: PathBuf::from(format!(
-                    "<embedded {}>",
-                    crate::data::embedded::DNS_CAPTURE_NAME
-                )),
-                error: error.to_string(),
-            },
-        },
+        Some(bytes) => load_live_embedded_bytes(bytes),
         None => LiveLoadState::Missing {
             path: live.to_path_buf(),
+        },
+    }
+}
+
+/// Parse the compiled-in capture without consulting the filesystem.
+///
+/// The browser build has no artifact files; it replays the same recording the
+/// binary carries, labelled as embedded.
+#[must_use]
+pub fn load_live_embedded() -> LiveLoadState {
+    load_live_embedded_bytes(crate::data::embedded::DNS_CAPTURE)
+}
+
+/// Parse a compiled-in DNS capture.
+fn load_live_embedded_bytes(bytes: &[u8]) -> LiveLoadState {
+    match serde_json::from_slice::<DnsCapture>(bytes) {
+        Ok(capture) => {
+            LiveLoadState::Loaded(Box::new(LiveView::new(capture, LiveSource::Embedded)))
+        }
+        Err(error) => LiveLoadState::Invalid {
+            path: PathBuf::from(format!(
+                "<embedded {}>",
+                crate::data::embedded::DNS_CAPTURE_NAME
+            )),
+            error: error.to_string(),
         },
     }
 }

@@ -1,2 +1,8 @@
 [alias]
 xtask = "run --bin xtask --"
+
+# Browser builds need getrandom's JavaScript backend. The `wasm_js` crate
+# feature selects the implementation and this cfg gates it in; both are
+# required by getrandom 0.4 on wasm32-unknown-unknown.
+[target.wasm32-unknown-unknown]
+rustflags = ['--cfg', 'getrandom_backend="wasm_js"']

@@ -9,13 +9,12 @@
 
 use std::path::PathBuf;
 
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-
 use crate::cli::Cli;
 use crate::data::{
     ArtifactSource, LadderLoadState, LiveLoadState, LoadState, LoadedArtifacts, MethodView,
     ValueMode,
 };
+pub use crate::keymap::{map_key, map_key_tour, Key, KeyCode, KeyModifiers};
 use crate::theme::{ColorDepth, Theme, ThemeId};
 use crate::tour::{Clock, Press, TourRunner};
 use crate::widgets::ladder_view::{
@@ -528,6 +527,17 @@ impl App {
         self.tour.is_some()
     }
 
+    /// Start the guided tour from an entry point that has no command line.
+    ///
+    /// The browser has no `--tour` flag; a page can start the same scripted
+    /// walk-through through this method. `speed` is clamped by
+    /// [`TourRunner::new`] exactly as the CLI value is.
+    pub fn start_tour(&mut self, speed: f64) {
+        self.tour = Some(TourRunner::new(speed));
+        self.apply_tour_step();
+        self.dirty = true;
+    }
+
     /// Replace the guided-tour runner (`None` leaves the tour off); used by
     /// evidence tools that drive the tour from a fake clock.
     pub fn set_tour(&mut self, runner: Option<TourRunner>) {
@@ -708,55 +718,6 @@ impl App {
         self.reloading = false;
         self.status = Some(status);
         self.dirty = true;
-    }
-}
-
-/// Map a key press to an [`Action`]. This is the single source of key bindings.
-pub fn map_key(key: KeyEvent) -> Option<Action> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    match key.code {
-        KeyCode::Char('c') if ctrl => Some(Action::Quit),
-        KeyCode::Char('q') | KeyCode::Esc => Some(Action::Quit),
-        KeyCode::Tab => Some(Action::NextTab),
-        KeyCode::BackTab => Some(Action::PrevTab),
-        KeyCode::Char(c @ '1'..='9') => Some(Action::SelectTab(c as usize - '1' as usize)),
-        KeyCode::Char('?') => Some(Action::ToggleHelp),
-        KeyCode::Char('T') => Some(Action::CycleTheme),
-        KeyCode::Char('a') => Some(Action::ToggleAscii),
-        KeyCode::Char('r') => Some(Action::Reload),
-        KeyCode::Left => Some(Action::PrevSize),
-        KeyCode::Right => Some(Action::NextSize),
-        KeyCode::Up => Some(Action::LadderUp),
-        KeyCode::Down => Some(Action::LadderDown),
-        KeyCode::Char(' ') => Some(Action::ToggleBanner),
-        KeyCode::Enter => Some(Action::ToggleAutoplay),
-        KeyCode::Backspace => Some(Action::LivePrevStep),
-        KeyCode::Char('t') => Some(Action::ToggleScale),
-        KeyCode::Char('v') => Some(Action::ToggleValueMode),
-        KeyCode::Char('b') => Some(Action::CycleBaseline),
-        _ => None,
-    }
-}
-
-/// Map a key press while the guided tour is running.
-///
-/// Only the tour's own controls pass: `p` pause/resume, `n` next step, `Esc`
-/// leave the tour, plus `q`/Ctrl-C to quit the dashboard and the theme/ascii
-/// and help toggles. Every other binding is swallowed so a recording cannot
-/// be knocked off the script mid-step, and the tour re-pins its tab on every
-/// tick regardless.
-pub fn map_key_tour(key: KeyEvent) -> Option<Action> {
-    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-    match key.code {
-        KeyCode::Char('c') if ctrl => Some(Action::Quit),
-        KeyCode::Char('q') => Some(Action::Quit),
-        KeyCode::Esc => Some(Action::QuitTour),
-        KeyCode::Char('p') => Some(Action::TourPause),
-        KeyCode::Char('n') => Some(Action::TourNext),
-        KeyCode::Char('T') => Some(Action::CycleTheme),
-        KeyCode::Char('a') => Some(Action::ToggleAscii),
-        KeyCode::Char('?') => Some(Action::ToggleHelp),
-        _ => None,
     }
 }
 
@@ -1054,25 +1015,13 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_exotic_keys_are_ignored() {
-        use KeyCode::*;
-        let none = KeyModifiers::NONE;
-        for key in [
-            KeyEvent::new(Char('z'), none),
-            KeyEvent::new(Char('0'), none),
-            KeyEvent::new(F(1), none),
-            KeyEvent::new(F(12), none),
-            KeyEvent::new(Insert, none),
-            KeyEvent::new(Delete, none),
-            KeyEvent::new(Home, none),
-            KeyEvent::new(End, none),
-            KeyEvent::new(PageUp, none),
-            KeyEvent::new(PageDown, none),
-            KeyEvent::new(Null, none),
-            KeyEvent::new(Media(crossterm::event::MediaKeyCode::Play), none),
-        ] {
-            assert_eq!(map_key(key), None, "{key:?} must be ignored");
-        }
+    fn a_web_entry_point_can_start_the_tour_without_a_command_line() {
+        let mut app = test_app();
+        assert!(!app.tour_active());
+        app.start_tour(1.0);
+        assert!(app.tour_active(), "the runner is installed");
+        assert_eq!(app.tab, Tab::Overview, "the tour pins its first step");
+        assert_eq!(app.tour().expect("runner").index(), 0);
     }
 
     #[test]
@@ -1112,50 +1061,6 @@ mod tests {
             },
         ] {
             assert_eq!(app.update(action), None);
-        }
-    }
-
-    #[test]
-    fn map_key_table() {
-        use KeyCode::*;
-        let none = KeyModifiers::NONE;
-        let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 27] = [
-            (KeyEvent::new(Tab, none), Some(Action::NextTab)),
-            (KeyEvent::new(BackTab, none), Some(Action::PrevTab)),
-            (KeyEvent::new(Char('1'), none), Some(Action::SelectTab(0))),
-            (KeyEvent::new(Char('9'), none), Some(Action::SelectTab(8))),
-            (KeyEvent::new(Char('5'), none), Some(Action::SelectTab(4))),
-            (KeyEvent::new(Char('?'), none), Some(Action::ToggleHelp)),
-            (KeyEvent::new(Char('T'), none), Some(Action::CycleTheme)),
-            (KeyEvent::new(Char('a'), none), Some(Action::ToggleAscii)),
-            (KeyEvent::new(Char('r'), none), Some(Action::Reload)),
-            (KeyEvent::new(Left, none), Some(Action::PrevSize)),
-            (KeyEvent::new(Right, none), Some(Action::NextSize)),
-            (KeyEvent::new(Up, none), Some(Action::LadderUp)),
-            (KeyEvent::new(Down, none), Some(Action::LadderDown)),
-            (KeyEvent::new(Char(' '), none), Some(Action::ToggleBanner)),
-            (KeyEvent::new(Enter, none), Some(Action::ToggleAutoplay)),
-            (KeyEvent::new(Backspace, none), Some(Action::LivePrevStep)),
-            (KeyEvent::new(Char('t'), none), Some(Action::ToggleScale)),
-            (
-                KeyEvent::new(Char('v'), none),
-                Some(Action::ToggleValueMode),
-            ),
-            (KeyEvent::new(Char('q'), none), Some(Action::Quit)),
-            (KeyEvent::new(Esc, none), Some(Action::Quit)),
-            (KeyEvent::new(Char('c'), ctrl), Some(Action::Quit)),
-            (KeyEvent::new(Char('0'), none), None),
-            (KeyEvent::new(Char('c'), none), None),
-            (KeyEvent::new(Char('x'), none), None),
-            (KeyEvent::new(Char('z'), none), None),
-            // `p` and `n` are the guided tour's keys; outside the tour they
-            // are unbound (`map_key_tour` binds them).
-            (KeyEvent::new(Char('p'), none), None),
-            (KeyEvent::new(Char('n'), none), None),
-        ];
-        for (key, expected) in cases {
-            assert_eq!(map_key(key), expected, "wrong mapping for {key:?}");
         }
     }
 
@@ -1546,38 +1451,5 @@ mod tests {
             3,
             "each n is one step, no dwell spent"
         );
-    }
-
-    #[test]
-    fn map_key_tour_scopes_the_keys_while_the_tour_runs() {
-        use crossterm::event::KeyModifiers;
-        use KeyCode::*;
-        let none = KeyModifiers::NONE;
-        let ctrl = KeyModifiers::CONTROL;
-        let cases: [(KeyEvent, Option<Action>); 14] = [
-            (KeyEvent::new(Char('p'), none), Some(Action::TourPause)),
-            (KeyEvent::new(Char('n'), none), Some(Action::TourNext)),
-            (KeyEvent::new(Esc, none), Some(Action::QuitTour)),
-            (KeyEvent::new(Char('q'), none), Some(Action::Quit)),
-            (KeyEvent::new(Char('c'), ctrl), Some(Action::Quit)),
-            (KeyEvent::new(Char('T'), none), Some(Action::CycleTheme)),
-            (KeyEvent::new(Char('a'), none), Some(Action::ToggleAscii)),
-            (KeyEvent::new(Char('?'), none), Some(Action::ToggleHelp)),
-            // Everything else is swallowed mid-tour: a recording must not be
-            // knocked off the script.
-            (KeyEvent::new(Tab, none), None),
-            (KeyEvent::new(Char('1'), none), None),
-            (KeyEvent::new(Char(' '), none), None),
-            (KeyEvent::new(Char('r'), none), None),
-            (KeyEvent::new(Up, none), None),
-            (KeyEvent::new(Char('t'), none), None),
-        ];
-        for (key, expected) in cases {
-            assert_eq!(
-                map_key_tour(key),
-                expected,
-                "wrong tour mapping for {key:?}"
-            );
-        }
     }
 }

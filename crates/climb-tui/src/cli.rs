@@ -86,6 +86,15 @@ pub struct Cli {
 }
 
 impl Cli {
+    /// The defaults a front end without a command line uses.
+    ///
+    /// The browser has no `argv`; parsing an empty command line gives exactly
+    /// the same defaults the terminal gets, so the two front ends cannot drift
+    /// on theme, results path or tour speed.
+    #[must_use]
+    pub fn viewer() -> Self {
+        Self::parse_from(["climb-tui"])
+    }
     /// Parse the process arguments and record whether the results path was
     /// explicit, so the loader can tell "the user asked for this file" from
     /// "the default target path".
@@ -192,6 +201,17 @@ mod tests {
                 "--tour-speed {bad} must be rejected by the 0.5..=2.0 range"
             );
         }
+    }
+
+    #[test]
+    fn the_viewer_defaults_match_the_terminal_defaults() {
+        let viewer = Cli::viewer();
+        let parsed = Cli::parse_from(["climb-tui"]);
+        assert_eq!(viewer.results, parsed.results);
+        assert_eq!(viewer.theme, parsed.theme);
+        assert!(!viewer.tour && !viewer.ascii && !viewer.check);
+        assert_eq!(viewer.tour_speed, 1.0);
+        assert!(!viewer.results_explicit);
     }
 
     #[test]

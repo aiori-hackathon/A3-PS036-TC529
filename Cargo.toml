@@ -7,6 +7,7 @@ members = [
     "crates/climb-analytical",
     "crates/climb-report",
     "crates/climb-tui",
+    "crates/climb-web",
     "crates/climb-bench",
     "xtask",
 ]
@@ -35,10 +36,12 @@ hickory-proto = "0.26"
 rand = "0.10"
 rand_chacha = "0.10"
 sysinfo = "0.33"
-# Batch 6 demo layer (climb-tui). ratatui's default `crossterm` backend resolves to
-# crossterm 0.29 (via ratatui-crossterm's default `crossterm_0_29` feature), so the direct
-# crossterm dependency is pinned to the same minor to keep a single copy in the graph.
-ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+# Batch 6 demo layer (climb-tui). The terminal feature enables ratatui's `crossterm`
+# backend, which resolves to crossterm 0.29 (via ratatui-crossterm's default
+# `crossterm_0_29` feature), so the direct crossterm dependency is pinned to the same minor
+# to keep a single copy in the graph. The backend is opt-in: the browser build uses
+# ratzilla's backends and must not compile crossterm at all.
+ratatui = { version = "0.30", default-features = false, features = ["underline-color"] }
 crossterm = "0.29"
 tracing-appender = "0.2"
 plotters = { version = "0.3", default-features = false, features = [

@@ -21,9 +21,12 @@
 pub mod app;
 pub mod cli;
 pub mod data;
+#[cfg(feature = "terminal")]
 pub mod event;
+pub mod keymap;
 pub mod paths;
 pub mod runtime;
+#[cfg(feature = "terminal")]
 pub mod terminal;
 pub mod theme;
 pub mod tour;
@@ -32,7 +35,10 @@ pub mod widgets;
 
 pub use app::{map_key, map_key_tour, Action, App, Effect, StatusLine, StatusTone, Tab};
 pub use cli::Cli;
+#[cfg(feature = "terminal")]
 pub use event::{Event, EventHandler, WorkerMsg};
+pub use keymap::{key_from_web, map_web_key, Key, KeyCode, KeyModifiers};
+#[cfg(feature = "terminal")]
 pub use terminal::{install_panic_hook, TerminalGuard};
 pub use theme::{ColorDepth, Glyphs, Theme, ThemeId};
 pub use tour::{Clock, Press, TourRunner, TourStep};

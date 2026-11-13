@@ -1,7 +1,8 @@
-//! A threaded event pump.
+//! A threaded event pump for the terminal front end.
 //!
 //! Deliberately *not* async: a crossterm input thread polls with a timeout, a second
 //! thread emits a fixed-rate [`Event::Tick`], and both feed one `std::sync::mpsc` channel.
+//! The browser runtime drives the same model without threads or crossterm.
 //! [`EventHandler::sender`] hands workers a cloneable `Sender<Event>` to report progress
 //! as [`Event::Worker`] messages. Dropping the handler signals both threads and joins
 //! them, so shutdown is deterministic.
@@ -12,9 +13,10 @@ use std::sync::Arc;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use crossterm::event::{self as crossterm_event, Event as CrosstermEvent, KeyEvent};
+use crossterm::event::{self as crossterm_event, Event as CrosstermEvent};
 
 use crate::data::LoadedArtifacts;
+use crate::keymap::Key;
 
 /// Upper bound on queued events. A paste flood or a stuck worker can fill this,
 /// and the input thread then drops new events instead of growing memory without
@@ -43,7 +45,7 @@ pub enum WorkerMsg {
 /// Everything the application loop reacts to.
 #[derive(Debug)]
 pub enum Event {
-    Key(KeyEvent),
+    Key(Key),
     Resize(u16, u16),
     Tick,
     Worker(WorkerMsg),
@@ -57,7 +59,7 @@ pub enum Event {
 /// paste feature, and forwarding them would only add queue pressure.
 fn translate(event: CrosstermEvent) -> Option<Event> {
     match event {
-        CrosstermEvent::Key(key) => Some(Event::Key(key)),
+        CrosstermEvent::Key(key) => Some(Event::Key(Key::from(key))),
         CrosstermEvent::Resize(width, height) => Some(Event::Resize(width, height)),
         _ => None,
     }
@@ -265,10 +267,10 @@ mod tests {
 
     #[test]
     fn mouse_paste_and_focus_events_are_ignored() {
-        use crossterm::event::{KeyCode, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+        use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
         assert!(matches!(
-            translate(CrosstermEvent::Key(KeyEvent::new(
-                KeyCode::Char('q'),
+            translate(CrosstermEvent::Key(crossterm::event::KeyEvent::new(
+                crossterm::event::KeyCode::Char('q'),
                 KeyModifiers::NONE
             ))),
             Some(Event::Key(_))
@@ -291,11 +293,11 @@ mod tests {
 
     #[test]
     fn a_burst_of_held_keys_and_resizes_is_coalesced() {
-        use crossterm::event::{KeyCode, KeyModifiers};
-        let held = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        use crate::keymap::KeyCode;
+        let held = Event::Key(Key::plain(KeyCode::Char('x')));
         let mut burst = vec![
-            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
-            Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE)),
+            Event::Key(Key::plain(KeyCode::Char('x'))),
+            Event::Key(Key::plain(KeyCode::Char('x'))),
             Event::Resize(100, 30),
             Event::Resize(120, 40),
             Event::Resize(90, 25),

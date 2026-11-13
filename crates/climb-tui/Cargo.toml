@@ -13,13 +13,32 @@ description = "Ratatui live-run dashboard for benchmark visualization (Batch 6)"
 [[bin]]
 name = "climb-tui"
 path = "src/main.rs"
+required-features = ["terminal"]
 
 [features]
-default = ["native"]
+default = ["native", "terminal"]
 # Link the native measurement stack through `climb-report`. The dashboard
 # itself only reads artifacts, so a viewer-only build turns this off and needs
 # no libMTL/liboqs/OpenSSL prefix.
 native = ["climb-report/native"]
+# The interactive terminal front end: crossterm's backend and event pump,
+# raw-mode restoration and signal handlers. A browser build turns this off.
+terminal = [
+    "dep:crossterm",
+    "ratatui/crossterm",
+    "dep:signal-hook",
+    "dep:tracing-appender",
+    "dep:tracing-subscriber",
+]
+
+# The dependency tree reaches getrandom through the dataset generator. A
+# browser build has no OS entropy source, so it needs the JavaScript backend
+# (crypto.getRandomValues) selected when the target is wasm32.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.4.3", features = ["wasm_js"] }
+# The browser has no std::time::Instant; this is the same monotonic clock over
+# performance.now(), so the tour's injectable clock keeps working unchanged.
+web-time = "1.1.0"
 
 [dependencies]
 anyhow.workspace = true
@@ -27,15 +46,15 @@ clap.workspace = true
 climb-analytical = { path = "../climb-analytical" }
 climb-report = { path = "../climb-report", default-features = false }
 ratatui.workspace = true
-crossterm.workspace = true
+crossterm = { workspace = true, optional = true }
 # SIGINT/SIGTERM/SIGHUP handlers restore raw mode and the alternate screen.
-signal-hook = "0.3"
+signal-hook = { version = "0.3", optional = true }
 serde_json.workspace = true
 sha2.workspace = true
 tracing.workspace = true
-tracing-appender.workspace = true
+tracing-appender = { workspace = true, optional = true }
 # env-filter so log verbosity is filterable via RUST_LOG.
-tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-subscriber = { workspace = true, features = ["env-filter"], optional = true }
 
 [dev-dependencies]
 tempfile = "3"

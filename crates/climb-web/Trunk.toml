@@ -1,0 +1,11 @@
+[build]
+target = "index.html"
+dist = "dist"
+# The WebAssembly module is published as a static asset; there is no server
+# process, no proxy and no environment variable it can read at runtime.
+filehash = true
+
+[serve]
+address = "127.0.0.1"
+port = 8080
+open = false

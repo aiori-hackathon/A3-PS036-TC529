@@ -28,6 +28,9 @@ docker-compose.override.yml
 # Release bundles (cargo xtask package)
 /dist/
 
+# Browser bundle output (trunk build)
+/crates/climb-web/dist/
+
 # Local Python environment for the media asset script
 scripts/logo/.venv/
 __pycache__/
