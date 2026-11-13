@@ -28,6 +28,7 @@ post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036
 style-digest dark: 13321471703bc13b
 style-digest light: fea0364971df0a64
 style-digest contrast: 3cf765f5e1c8347a
+style-digest brand: 532b2a623ac8f4b8
 
 ### Signing
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -57,6 +58,7 @@ style-digest contrast: 3cf765f5e1c8347a
 style-digest dark: 0020a716b869e852
 style-digest light: 50276fa2b313a41d
 style-digest contrast: 150182350d74f747
+style-digest brand: 1e63d4da1c75d880
 
 ### Verifying
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -86,6 +88,7 @@ style-digest contrast: 150182350d74f747
 style-digest dark: 831d75ad4d9c7edc
 style-digest light: a5a6ebf80cfc54ea
 style-digest contrast: c0fc9cc2dccdb453
+style-digest brand: 2daf6ac0cdbcae4a
 
 ### Wire
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -115,6 +118,7 @@ style-digest contrast: c0fc9cc2dccdb453
 style-digest dark: 918e1bfb0d60a2d1
 style-digest light: 06e39d9c131c3a8c
 style-digest contrast: 6a35219a6cce56f2
+style-digest brand: c3b044c7d514a200
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -144,6 +148,7 @@ style-digest contrast: 6a35219a6cce56f2
 style-digest dark: c37f08af26c49b1a
 style-digest light: 73df1e7b27e44b3c
 style-digest contrast: 8070932b9dcd4448
+style-digest brand: 11c91f866e72f480
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -173,6 +178,7 @@ style-digest contrast: 8070932b9dcd4448
 style-digest dark: ed879f44c4c93d72
 style-digest light: ed3e10b5c12508a4
 style-digest contrast: df3559433159abbe
+style-digest brand: b2bbb23f0f2802ef
 
 ### Live
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -202,6 +208,7 @@ run live: cargo xtask dns-demo  space/backspace step · enter autoplay · t scal
 style-digest dark: 3be1aedf0cb6d797
 style-digest light: 670116db5929e8c0
 style-digest contrast: f18e0a45a9dadfcd
+style-digest brand: 759e43120b1a05e9
 
 ### Integrity
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -231,6 +238,7 @@ style-digest contrast: f18e0a45a9dadfcd
 style-digest dark: 49b8bfb4ffb44dac
 style-digest light: 3a58db86e8640cc1
 style-digest contrast: 44b50de0ddd801cd
+style-digest brand: c3e9f684965a01b3
 
 ### Method
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────┐
@@ -260,3 +268,4 @@ style-digest contrast: 44b50de0ddd801cd
 style-digest dark: 44cf8906606e8f64
 style-digest light: 5409822fa8233ed1
 style-digest contrast: 29ce2bffdb2407c4
+style-digest brand: 9abc7b469fb5c025

@@ -34,6 +34,7 @@ post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036
 style-digest dark: e99d2594a324b3e9
 style-digest light: 20617a7b6216c37d
 style-digest contrast: 6310eda0ed2440c4
+style-digest brand: ed79a5fd32b79b9c
 
 ### Signing
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -69,6 +70,7 @@ style-digest contrast: 6310eda0ed2440c4
 style-digest dark: a1bc58c709e5d343
 style-digest light: eee351e78425b9aa
 style-digest contrast: b18b7e13a74f2b26
+style-digest brand: 3ad917702bc872b9
 
 ### Verifying
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -104,6 +106,7 @@ style-digest contrast: b18b7e13a74f2b26
 style-digest dark: 6e5308ff5ee8c60c
 style-digest light: e0a7878ff3ab82fe
 style-digest contrast: 019071a5fb13fabe
+style-digest brand: 4867dcb423831ac6
 
 ### Wire
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -139,6 +142,7 @@ style-digest contrast: 019071a5fb13fabe
 style-digest dark: 24d3e7fb4d7d7541
 style-digest light: 41aa85510ac16b78
 style-digest contrast: d5ba15e8deb25bfb
+style-digest brand: c870bf5d42e347e3
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -174,6 +178,7 @@ style-digest contrast: d5ba15e8deb25bfb
 style-digest dark: 0014f363d64f3b19
 style-digest light: e26b2d0655a88641
 style-digest contrast: 72d16c2c2f5ce805
+style-digest brand: 3b3f5d8a71b40c4a
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -209,6 +214,7 @@ style-digest contrast: 72d16c2c2f5ce805
 style-digest dark: 8ed5c3f934796fc4
 style-digest light: c825395b84052449
 style-digest contrast: 506b75515ef45c89
+style-digest brand: 670ed3b20569612e
 
 ### Live
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -244,6 +250,7 @@ run live: cargo xtask dns-demo  space/backspace step · enter autoplay · t scal
 style-digest dark: f443e228571122c4
 style-digest light: 144ac7bbff5aee42
 style-digest contrast: f995dbb2e6fe0e2f
+style-digest brand: 427c8fa7b472580f
 
 ### Integrity
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -279,6 +286,7 @@ style-digest contrast: f995dbb2e6fe0e2f
 style-digest dark: 23b3bc13cf5d3075
 style-digest light: d8161a7aba7569b6
 style-digest contrast: b35475deae8cb4da
+style-digest brand: 4495570b01eacc46
 
 ### Method
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────┐
@@ -314,3 +322,4 @@ style-digest contrast: b35475deae8cb4da
 style-digest dark: d6a8bbc9e6e973e6
 style-digest light: 437ce5e9aecbcf16
 style-digest contrast: 88bb8eeeb3280c20
+style-digest brand: 3f2cee9222bbc9c3

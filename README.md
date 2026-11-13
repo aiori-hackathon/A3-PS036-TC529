@@ -293,7 +293,7 @@ extrapolated values are also marked with `≈`.
 | `t` | Live: switch between logarithmic and linear byte scale |
 | `p` / `n` / `Esc` | Guided tour: pause, next step, quit |
 | `r` | Reload the results from disk (on Integrity this also re-runs the claim check) |
-| `T` | Cycle the theme: dark, light, contrast |
+| `T` | Cycle the theme: dark, light, contrast, brand |
 | `a` | Toggle ASCII glyphs, for terminals with poor fonts |
 | `?` | Show or hide the help overlay |
 | `q` / `Esc` / `Ctrl-C` | Quit |

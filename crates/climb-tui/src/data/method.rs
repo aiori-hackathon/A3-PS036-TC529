@@ -501,7 +501,7 @@ fn accessibility_section() -> MethodSection {
              glyph marker in addition to its colour, and the measured / extrapolated / \
              analytical legend is spelled out in words in the help overlay (press ?).",
         ),
-        MethodLine::field("themes", "T cycles dark -> light -> contrast"),
+        MethodLine::field("themes", "T cycles dark -> light -> contrast -> brand"),
         MethodLine::field("glyphs", "a toggles ASCII-only output"),
         MethodLine::field("colour", "NO_COLOR=1 forces monochrome"),
         MethodLine::note(

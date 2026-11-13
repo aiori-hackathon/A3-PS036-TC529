@@ -220,6 +220,7 @@ mod tests {
             ("dark", ThemeId::Dark),
             ("light", ThemeId::Light),
             ("contrast", ThemeId::Contrast),
+            ("brand", ThemeId::Brand),
         ] {
             let cli = Cli::parse_from(["climb-tui", "--theme", arg]);
             assert_eq!(cli.theme, expected);

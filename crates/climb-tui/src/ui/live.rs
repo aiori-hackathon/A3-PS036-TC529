@@ -174,7 +174,7 @@ fn now_playing_line(
     Line::from(vec![
         Span::styled(
             glyphs.pointer.to_string(),
-            Style::new().fg(theme.accent).add_modifier(Modifier::BOLD),
+            Style::new().fg(theme.now).add_modifier(Modifier::BOLD),
         ),
         Span::styled(
             format!(" {}", ellipsize(&text, budget, ascii)),

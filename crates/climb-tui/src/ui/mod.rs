@@ -384,7 +384,7 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
         entry("Tab / Shift-Tab", "next / previous tab"),
         entry("1 … 9", "jump to a tab by number"),
         entry("?", "toggle this help overlay"),
-        entry("T", "cycle theme: dark → light → contrast"),
+        entry("T", "cycle theme: dark → light → contrast → brand"),
         entry("a", "toggle ASCII glyphs"),
         entry("r", "reload results from disk"),
         entry("← / →", "select dataset size"),
@@ -405,7 +405,8 @@ fn render_help(frame: &mut Frame, area: Rect, theme: &Theme, glyphs: &Glyphs) {
             Span::raw("  legend: "),
             Span::styled("measured ", theme.measured),
             Span::styled("extrapolated ", theme.extrapolated),
-            Span::styled("analytical", theme.analytical),
+            Span::styled("analytical ", theme.analytical),
+            Span::styled("derived", theme.derived),
         ]),
         Line::from(""),
         Line::from(Span::styled(
@@ -854,19 +855,52 @@ mod tests {
         }
     }
 
+    /// The brand theme is checked at exactly the two sizes the site embeds:
+    /// 80x24 (the minimum supported terminal) and 120x40 (the window shown on
+    /// `/tui`). The committed frame files carry the full text plus one style
+    /// digest per theme, so this test reads the brand digest back out of the
+    /// same artifact the general snapshot test writes.
+    #[test]
+    fn the_brand_theme_matches_its_snapshot_at_80x24_and_120x40() {
+        for (width, height) in [(80u16, 24u16), (120u16, 40u16)] {
+            let path = snapshot_path(width, height);
+            let committed = std::fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!(
+                    "missing snapshot {} ({error}); run with CLIMB_UPDATE_SNAPSHOTS=1",
+                    path.display()
+                )
+            });
+            for tab in Tab::ALL {
+                let (_, digest) = tab_frame(ThemeId::Brand, tab, width, height);
+                let line = format!("style-digest brand: {digest:016x}");
+                assert!(
+                    committed.contains(&line),
+                    "{} at {width}x{height} has no committed brand snapshot ({line}):\n{}",
+                    tab.title(),
+                    path.display()
+                );
+            }
+        }
+    }
+
     #[test]
     fn no_tab_renders_a_non_ascii_glyph_in_ascii_mode() {
         let mut app = sample_app();
         app.ascii = true;
-        for tab in Tab::ALL {
-            app.tab = tab;
-            for (width, height) in SNAPSHOT_SIZES {
-                let out = render_to_string(&app, width, height);
-                assert!(
-                    out.is_ascii(),
-                    "{} at {width}x{height} contains a non-ASCII glyph in ASCII mode:\n{out}",
-                    tab.title()
-                );
+        // ASCII mode is a property of the glyph set, not the palette: every
+        // theme, brand included, must render the same ASCII-only frames.
+        for theme in ThemeId::ALL {
+            app.theme = theme;
+            for tab in Tab::ALL {
+                app.tab = tab;
+                for (width, height) in SNAPSHOT_SIZES {
+                    let out = render_to_string(&app, width, height);
+                    assert!(
+                        out.is_ascii(),
+                        "{} at {width}x{height} contains a non-ASCII glyph in {theme:?} ASCII mode:\n{out}",
+                        tab.title()
+                    );
+                }
             }
         }
     }

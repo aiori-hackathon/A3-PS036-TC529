@@ -44,6 +44,7 @@ post-quantum DNSSEC signing with/without MTL amortization · AIORI-3 PS-036
 style-digest dark: 964dded44972d11f
 style-digest light: ba5aaea2950be5f7
 style-digest contrast: 26a8c16eb68ed380
+style-digest brand: 866922f13fc716e8
 
 ### Signing
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -89,6 +90,7 @@ style-digest contrast: 26a8c16eb68ed380
 style-digest dark: 6988a33e826d8c6b
 style-digest light: a0b364f3086521ef
 style-digest contrast: 66a89437b44d8145
+style-digest brand: 527696e0cc1e62cd
 
 ### Verifying
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -134,6 +136,7 @@ style-digest contrast: 66a89437b44d8145
 style-digest dark: 17451344207dfee0
 style-digest light: 21d8ad6c90fcee56
 style-digest contrast: 7af2b6a02847a73a
+style-digest brand: 3e731426090bc2ad
 
 ### Wire
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -179,6 +182,7 @@ share fitting 1232 B · analytical · cross-check exact at 0 B
 style-digest dark: 489204d7cdc56dd5
 style-digest light: b3a32bb5ed60d9bc
 style-digest contrast: 6f7cb865ad751604
+style-digest brand: aff422ce38d6feb7
 
 ### Memory
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -224,6 +228,7 @@ style-digest contrast: 6f7cb865ad751604
 style-digest dark: 81eefce80e81f637
 style-digest light: 0f9d59e0f7e3c976
 style-digest contrast: 7b1ff04ee72c9131
+style-digest brand: 090bba23a2bbdaa6
 
 ### Ladder
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -269,6 +274,7 @@ style-digest contrast: 7b1ff04ee72c9131
 style-digest dark: 04bb22f2df5e6dd3
 style-digest light: a8b4b21c3d458d2b
 style-digest contrast: 031aebd03bfa211d
+style-digest brand: a57c8ec48886bd03
 
 ### Live
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -314,6 +320,7 @@ run live: cargo xtask dns-demo  space/backspace step · enter autoplay · t scal
 style-digest dark: b12a7ac99122105a
 style-digest light: 44894b72a2190669
 style-digest contrast: 6a071d8151cf6dae
+style-digest brand: 8cc9fcf344bbdff6
 
 ### Integrity
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -359,6 +366,7 @@ style-digest contrast: 6a071d8151cf6dae
 style-digest dark: f83998e9a2046faa
 style-digest light: 8c8881f6657d2430
 style-digest contrast: 170e87e90cc32c5e
+style-digest brand: 0126c8896c326d70
 
 ### Method
 ┌ CLIMB ───────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -404,3 +412,4 @@ style-digest contrast: 170e87e90cc32c5e
 style-digest dark: e34f710e0b0232e8
 style-digest light: e998d48a783c2495
 style-digest contrast: 53673dd5923571e2
+style-digest brand: 8e55f1690ba43fbf

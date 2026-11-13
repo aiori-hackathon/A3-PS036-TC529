@@ -14,11 +14,20 @@ pub enum ThemeId {
     Light,
     /// Maximum-contrast palette.
     Contrast,
+    /// The site's own palette: ink, paper, orange, teal and red, with the
+    /// four evidence classes in their published colours. Designed for
+    /// truecolour terminals; lower depths fall back through the same mapper.
+    Brand,
 }
 
 impl ThemeId {
     /// Every theme, in cycle order.
-    pub const ALL: [ThemeId; 3] = [ThemeId::Dark, ThemeId::Light, ThemeId::Contrast];
+    pub const ALL: [ThemeId; 4] = [
+        ThemeId::Dark,
+        ThemeId::Light,
+        ThemeId::Contrast,
+        ThemeId::Brand,
+    ];
 
     /// The next theme in the cycle, wrapping at the end.
     pub fn next(self) -> ThemeId {
@@ -34,6 +43,7 @@ impl ThemeId {
             ThemeId::Dark => 0,
             ThemeId::Light => 1,
             ThemeId::Contrast => 2,
+            ThemeId::Brand => 3,
         }
     }
 
@@ -43,6 +53,7 @@ impl ThemeId {
             ThemeId::Dark => "dark",
             ThemeId::Light => "light",
             ThemeId::Contrast => "contrast",
+            ThemeId::Brand => "brand",
         }
     }
 }
@@ -368,6 +379,17 @@ struct Palette {
     bad: Rgb,
     muted: Rgb,
     border: Rgb,
+    /// The selected leaf's authentication path.
+    path: Rgb,
+    /// Sibling hashes on that path; may differ from `path` where the theme
+    /// wants the two roles readable separately.
+    sibling: Rgb,
+    /// The live replay cursor, i.e. the step being shown "now".
+    now: Rgb,
+    measured: Rgb,
+    extrapolated: Rgb,
+    analytical: Rgb,
+    derived: Rgb,
 }
 
 impl ThemeId {
@@ -383,6 +405,13 @@ impl ThemeId {
                 bad: (224, 108, 117),
                 muted: (128, 128, 128),
                 border: (86, 86, 86),
+                path: (86, 182, 194),
+                sibling: (229, 192, 123),
+                now: (86, 182, 194),
+                measured: (86, 182, 194),
+                extrapolated: (229, 192, 123),
+                analytical: (197, 134, 192),
+                derived: (197, 134, 192),
             },
             ThemeId::Light => Palette {
                 fg: (24, 24, 24),
@@ -394,6 +423,13 @@ impl ThemeId {
                 bad: (180, 30, 30),
                 muted: (110, 110, 110),
                 border: (70, 70, 70),
+                path: (14, 90, 140),
+                sibling: (170, 110, 0),
+                now: (14, 90, 140),
+                measured: (14, 90, 140),
+                extrapolated: (170, 110, 0),
+                analytical: (130, 60, 130),
+                derived: (130, 60, 130),
             },
             ThemeId::Contrast => Palette {
                 fg: (255, 255, 255),
@@ -405,6 +441,36 @@ impl ThemeId {
                 bad: (255, 0, 0),
                 muted: (200, 200, 200),
                 border: (255, 255, 255),
+                path: (0, 255, 255),
+                sibling: (255, 255, 0),
+                now: (0, 255, 255),
+                measured: (0, 255, 255),
+                extrapolated: (255, 255, 0),
+                analytical: (255, 255, 0),
+                derived: (255, 255, 0),
+            },
+            // The site's palette v2. Ink is the background, paper the text,
+            // orange primary data, teal the "now" cursor and verified state,
+            // red reserved for authentication paths and failures. Evidence
+            // classes use the published measured/derived/analytical/
+            // extrapolated colours rather than the generic accent roles.
+            ThemeId::Brand => Palette {
+                fg: (0xf2, 0xed, 0xe4),
+                bg: (0x07, 0x08, 0x0a),
+                accent: (0xff, 0x54, 0x00),
+                accent2: (0x5c, 0xc8, 0xc2),
+                ok: (0x5c, 0xc8, 0xc2),
+                warn: (0xf5, 0xd5, 0x47),
+                bad: (0xff, 0x1a, 0x1a),
+                muted: (0x9a, 0xa3, 0xad),
+                border: (0x3a, 0x4a, 0x66),
+                path: (0xff, 0x1a, 0x1a),
+                sibling: (0xff, 0x1a, 0x1a),
+                now: (0x5c, 0xc8, 0xc2),
+                measured: (0x3d, 0xdc, 0x97),
+                extrapolated: (0xf5, 0xd5, 0x47),
+                analytical: (0xb7, 0x9c, 0xff),
+                derived: (0x6e, 0xa8, 0xff),
             },
         }
     }
@@ -426,12 +492,20 @@ pub struct Theme {
     pub bad: Color,
     pub muted: Color,
     pub border: Color,
+    /// Colour of the selected leaf's authentication path.
+    pub path: Color,
+    /// Colour of the sibling hashes on that path.
+    pub sibling: Color,
+    /// Colour of the live replay cursor.
+    pub now: Color,
     /// Style for directly measured values.
     pub measured: Style,
     /// Style for values derived by extrapolation.
     pub extrapolated: Style,
     /// Style for closed-form analytical values.
     pub analytical: Style,
+    /// Style for values computed as a ratio or summary of other values.
+    pub derived: Style,
 }
 
 impl Theme {
@@ -454,17 +528,30 @@ impl Theme {
         let accent2 = role(palette.accent2, 3.0);
         let warn = role(palette.warn, 3.0);
 
-        let (measured, extrapolated, analytical) = if depth == ColorDepth::Mono {
+        // Each evidence class keeps the contrast floor the generic roles had:
+        // measured is a primary accent, the other three are secondary marks.
+        // Colour is never the only signal, so mono still gets a modifier per
+        // class, and the fourth class gets its own modifier rather than
+        // collapsing onto analytical's.
+        let (measured, extrapolated, analytical, derived) = if depth == ColorDepth::Mono {
             (
                 Style::new().add_modifier(Modifier::BOLD),
                 Style::new().add_modifier(Modifier::DIM),
                 Style::new().add_modifier(Modifier::REVERSED),
+                Style::new().add_modifier(Modifier::UNDERLINED),
             )
         } else {
             (
-                Style::new().fg(accent).add_modifier(Modifier::BOLD),
-                Style::new().fg(warn).add_modifier(Modifier::DIM),
-                Style::new().fg(accent2).add_modifier(Modifier::ITALIC),
+                Style::new()
+                    .fg(role(palette.measured, 4.5))
+                    .add_modifier(Modifier::BOLD),
+                Style::new()
+                    .fg(role(palette.extrapolated, 3.0))
+                    .add_modifier(Modifier::DIM),
+                Style::new()
+                    .fg(role(palette.analytical, 3.0))
+                    .add_modifier(Modifier::ITALIC),
+                Style::new().fg(role(palette.derived, 3.0)),
             )
         };
 
@@ -481,9 +568,13 @@ impl Theme {
             bad: role(palette.bad, 3.0),
             muted: role(palette.muted, 3.0),
             border: role(palette.border, 2.0),
+            path: role(palette.path, 4.5),
+            sibling: role(palette.sibling, 3.0),
+            now: role(palette.now, 4.5),
             measured,
             extrapolated,
             analytical,
+            derived,
         }
     }
 
@@ -708,12 +799,14 @@ mod tests {
     }
 
     #[test]
-    fn mono_theme_uses_modifiers_for_the_three_styles() {
+    fn mono_theme_uses_a_distinct_modifier_for_every_evidence_class() {
         let theme = Theme::new(ThemeId::Dark, ColorDepth::Mono, false);
         assert_eq!(theme.fg, Color::Reset);
         assert!(theme.measured.add_modifier.contains(Modifier::BOLD));
         assert!(theme.extrapolated.add_modifier.contains(Modifier::DIM));
         assert!(theme.analytical.add_modifier.contains(Modifier::REVERSED));
+        assert!(theme.derived.add_modifier.contains(Modifier::UNDERLINED));
+        assert_ne!(theme.analytical, theme.derived);
     }
 
     #[test]
@@ -737,7 +830,8 @@ mod tests {
     fn theme_ids_cycle_and_wrap() {
         assert_eq!(ThemeId::Dark.next(), ThemeId::Light);
         assert_eq!(ThemeId::Light.next(), ThemeId::Contrast);
-        assert_eq!(ThemeId::Contrast.next(), ThemeId::Dark);
+        assert_eq!(ThemeId::Contrast.next(), ThemeId::Brand);
+        assert_eq!(ThemeId::Brand.next(), ThemeId::Dark);
     }
 
     #[test]
@@ -745,6 +839,7 @@ mod tests {
         assert_eq!(ThemeId::Dark.to_string(), "dark");
         assert_eq!(ThemeId::Light.to_string(), "light");
         assert_eq!(ThemeId::Contrast.to_string(), "contrast");
+        assert_eq!(ThemeId::Brand.to_string(), "brand");
     }
 
     #[test]
@@ -823,7 +918,13 @@ mod tests {
         // `TERM=xterm` resolves to the sixteen-colour palette. The mapper must
         // still keep each semantic role readable against the resolved
         // background, and must not collapse every role onto one colour.
-        for id in ThemeId::ALL {
+        //
+        // Brand is a truecolour palette: the sixteen-colour set has one
+        // saturated red, so its orange accent and red authentication path
+        // necessarily land on the same palette entry. Its lower-depth
+        // behaviour is covered by `brand_survives_the_two_colour_depths`,
+        // which asks only for legibility there rather than distinct hues.
+        for id in ThemeId::ALL.into_iter().filter(|id| *id != ThemeId::Brand) {
             let theme = Theme::new(id, ColorDepth::Ansi16, false);
             let ratios = theme.contrast_pairs();
             assert!(!ratios.is_empty(), "{id:?} lost every colour");
@@ -841,6 +942,171 @@ mod tests {
             assert_ne!(theme.accent, theme.bad, "{id:?} collapses accent into bad");
             assert_ne!(theme.ok, theme.bad, "{id:?} collapses ok into bad");
         }
+    }
+
+    #[test]
+    fn brand_palette_is_the_published_site_palette() {
+        let theme = Theme::new(ThemeId::Brand, ColorDepth::TrueColor, false);
+        assert_eq!(theme.bg, Color::Rgb(0x07, 0x08, 0x0a), "ink background");
+        assert_eq!(theme.fg, Color::Rgb(0xf2, 0xed, 0xe4), "paper text");
+        assert_eq!(theme.accent, Color::Rgb(0xff, 0x54, 0x00), "orange data");
+        assert_eq!(theme.accent2, Color::Rgb(0x5c, 0xc8, 0xc2), "teal accent");
+        assert_eq!(theme.ok, Color::Rgb(0x5c, 0xc8, 0xc2), "teal verified");
+        assert_eq!(theme.now, theme.accent2, "teal marks the live cursor");
+        assert_eq!(theme.bad, Color::Rgb(0xff, 0x1a, 0x1a), "red failures");
+        assert_eq!(theme.muted, Color::Rgb(0x9a, 0xa3, 0xad));
+        assert_eq!(theme.border, Color::Rgb(0x3a, 0x4a, 0x66));
+    }
+
+    #[test]
+    fn brand_evidence_classes_keep_the_site_colours() {
+        let theme = Theme::new(ThemeId::Brand, ColorDepth::TrueColor, false);
+        let fg = |style: Style| style.fg;
+        assert_eq!(fg(theme.measured), Some(Color::Rgb(0x3d, 0xdc, 0x97)));
+        assert_eq!(fg(theme.derived), Some(Color::Rgb(0x6e, 0xa8, 0xff)));
+        assert_eq!(fg(theme.analytical), Some(Color::Rgb(0xb7, 0x9c, 0xff)));
+        assert_eq!(fg(theme.extrapolated), Some(Color::Rgb(0xf5, 0xd5, 0x47)));
+        let classes = [
+            theme.measured,
+            theme.derived,
+            theme.analytical,
+            theme.extrapolated,
+        ];
+        for (index, left) in classes.iter().enumerate() {
+            for right in &classes[index + 1..] {
+                assert_ne!(left.fg, right.fg, "every evidence class has its own hue");
+            }
+        }
+    }
+
+    #[test]
+    fn brand_red_is_reserved_for_authentication_paths_and_failures() {
+        let theme = Theme::new(ThemeId::Brand, ColorDepth::TrueColor, false);
+        let red = Color::Rgb(0xff, 0x1a, 0x1a);
+        assert_eq!(theme.bad, red, "failures are red");
+        assert_eq!(theme.path, red, "the authentication path is red");
+        assert_eq!(theme.sibling, red, "path siblings are red");
+        // No other semantic role may borrow the alert colour.
+        for (role, colour) in [
+            ("fg", theme.fg),
+            ("accent", theme.accent),
+            ("accent2", theme.accent2),
+            ("ok", theme.ok),
+            ("warn", theme.warn),
+            ("muted", theme.muted),
+            ("border", theme.border),
+            ("now", theme.now),
+        ] {
+            assert_ne!(colour, red, "{role} must not use the red alert colour");
+        }
+        for (role, style) in [
+            ("measured", theme.measured),
+            ("derived", theme.derived),
+            ("analytical", theme.analytical),
+            ("extrapolated", theme.extrapolated),
+        ] {
+            assert_ne!(
+                style.fg,
+                Some(red),
+                "{role} evidence colour must not be the alert red"
+            );
+        }
+    }
+
+    #[test]
+    fn brand_contrast_is_computed_from_the_resolved_colours() {
+        let theme = Theme::new(ThemeId::Brand, ColorDepth::TrueColor, false);
+        // The expected ratios are WCAG 2.x values recomputed from the exact
+        // sRGB tokens above, so a palette edit that dims a role fails here.
+        let ratios = [
+            ("fg", theme.fg, 17.182, 7.0),
+            ("accent", theme.accent, 6.221, 4.5),
+            ("accent2", theme.accent2, 10.014, 3.0),
+            ("ok", theme.ok, 10.014, 3.0),
+            ("bad", theme.bad, 5.166, 3.0),
+            ("warn", theme.warn, 13.825, 3.0),
+            ("muted", theme.muted, 7.839, 3.0),
+            ("border", theme.border, 2.243, 2.0),
+            ("path", theme.path, 5.166, 4.5),
+            ("sibling", theme.sibling, 5.166, 3.0),
+            ("now", theme.now, 10.014, 4.5),
+        ];
+        for (role, colour, expected, floor) in ratios {
+            let ratio = theme
+                .contrast(colour, theme.bg)
+                .unwrap_or_else(|| panic!("brand {role} did not resolve"));
+            assert!(
+                (ratio - expected).abs() < 0.01,
+                "brand {role} is {ratio:.3}:1, expected {expected:.3}:1"
+            );
+            assert!(
+                ratio >= floor,
+                "brand {role} is {ratio:.2}:1, below the {floor:.1} floor"
+            );
+        }
+        for (role, style, expected) in [
+            ("measured", theme.measured, 11.337),
+            ("derived", theme.derived, 8.308),
+            ("analytical", theme.analytical, 8.790),
+            ("extrapolated", theme.extrapolated, 13.825),
+        ] {
+            let colour = style
+                .fg
+                .unwrap_or_else(|| panic!("brand {role} has no colour"));
+            let ratio = theme
+                .contrast(colour, theme.bg)
+                .unwrap_or_else(|| panic!("brand {role} did not resolve"));
+            assert!(
+                (ratio - expected).abs() < 0.01,
+                "brand {role} is {ratio:.3}:1, expected {expected:.3}:1"
+            );
+            assert!(ratio >= 3.0, "brand {role} is below the 3.0 floor");
+        }
+    }
+
+    #[test]
+    fn brand_survives_the_two_lower_colour_depths() {
+        // Brand is designed for truecolour, but a user may still select it on
+        // a 256- or 16-colour terminal. Every semantic role must remain
+        // legible even where the coarse palette cannot keep the hues apart.
+        for depth in [ColorDepth::Ansi256, ColorDepth::Ansi16] {
+            let theme = Theme::new(ThemeId::Brand, depth, false);
+            assert_ne!(
+                theme.fg, theme.bg,
+                "{depth:?} maps text onto the background"
+            );
+            for (role, colour) in [
+                ("fg", theme.fg),
+                ("accent", theme.accent),
+                ("accent2", theme.accent2),
+                ("ok", theme.ok),
+                ("warn", theme.warn),
+                ("bad", theme.bad),
+                ("muted", theme.muted),
+                ("border", theme.border),
+                ("path", theme.path),
+                ("sibling", theme.sibling),
+                ("now", theme.now),
+            ] {
+                let ratio = theme
+                    .contrast(colour, theme.bg)
+                    .unwrap_or_else(|| panic!("brand {role} lost its colour at {depth:?}"));
+                assert!(
+                    ratio >= 2.0,
+                    "brand {role} is {ratio:.2}:1 at {depth:?}, below the legibility floor"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn brand_keeps_the_ascii_glyph_set() {
+        let brand = Theme::new(ThemeId::Brand, ColorDepth::TrueColor, true);
+        let dark = Theme::new(ThemeId::Dark, ColorDepth::TrueColor, true);
+        assert_eq!(brand.glyphs().bar_filled, '#');
+        assert_eq!(brand.glyphs().rung, '=');
+        assert_eq!(brand.glyphs().border.top_left, "+");
+        assert_eq!(brand.glyphs().spinner, dark.glyphs().spinner);
     }
 
     #[test]

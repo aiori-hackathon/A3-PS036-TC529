@@ -313,9 +313,9 @@ impl LadderView<'_> {
             ),
             NodeRole::Sibling => (
                 '#',
-                Style::new().fg(theme.warn).add_modifier(Modifier::BOLD),
+                Style::new().fg(theme.sibling).add_modifier(Modifier::BOLD),
             ),
-            NodeRole::OnPath => ('*', Style::new().fg(theme.accent)),
+            NodeRole::OnPath => ('*', Style::new().fg(theme.path)),
             NodeRole::Leaf if is_leaf => ('•', Style::new().fg(theme.fg)),
             _ => ('○', Style::new().fg(theme.fg)),
         }
@@ -343,7 +343,7 @@ impl LadderView<'_> {
             let from = project(child.x, child.y, tree);
             let to = project(parent.x, parent.y, tree);
             let style = match role {
-                EdgeRole::Path => Style::new().fg(self.theme.accent),
+                EdgeRole::Path => Style::new().fg(self.theme.path),
                 EdgeRole::Rung => Style::new().fg(self.theme.accent2),
                 EdgeRole::Plain => Style::new().fg(self.theme.muted),
             };

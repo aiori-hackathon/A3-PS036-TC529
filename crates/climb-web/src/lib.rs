@@ -39,6 +39,11 @@ const MAX_CATCH_UP_TICKS: u32 = 4;
 /// white between the page and the terminal grid.
 const INK: Color = Color::Rgb(7, 8, 10);
 
+/// The browser opens on the site's own palette. The terminal keeps its own
+/// default; only this front end changes, because the page around the canvas
+/// is already ink and paper.
+const DEFAULT_THEME: climb_tui::theme::ThemeId = climb_tui::theme::ThemeId::Brand;
+
 /// The three documents the static site publishes beside the page. The paths
 /// are absolute so the same module works at `/tui` and at any nested route.
 const RESULTS_PATH: &str = climb_tui::data::SITE_RESULTS_PATH;
@@ -54,8 +59,7 @@ pub fn start() -> Result<(), JsValue> {
 }
 
 fn run() -> Result<(), String> {
-    let cli = Cli::viewer();
-    let mut app = App::from_cli(&cli, climb_tui::theme::ColorDepth::TrueColor);
+    let mut app = configured_app();
     app.apply_reload(runtime::load_all_embedded());
     if tour_requested() {
         app.start_tour(1.0);
@@ -100,6 +104,16 @@ fn run() -> Result<(), String> {
     ))
     .map_err(|error| format!("no rendering backend could be created: {error}"))?;
     drive(backend, state)
+}
+
+/// The model every browser session starts with: the terminal's viewer
+/// defaults plus the site palette. Factored out so a host test can prove the
+/// browser path selects brand while the terminal default stays dark.
+fn configured_app() -> App {
+    let cli = Cli::viewer();
+    let mut app = App::from_cli(&cli, climb_tui::theme::ColorDepth::TrueColor);
+    app.theme = DEFAULT_THEME;
+    app
 }
 
 /// The bytes the site origin served, kept so a reload does not silently
@@ -343,6 +357,17 @@ mod tests {
         for path in [RESULTS_PATH, LADDER_PATH, CAPTURE_PATH] {
             assert!(path.starts_with("/data/"), "{path} is origin-absolute");
         }
+    }
+
+    #[test]
+    fn the_browser_opens_on_the_brand_theme_while_the_terminal_keeps_its_default() {
+        assert_eq!(configured_app().theme, climb_tui::theme::ThemeId::Brand);
+        let terminal = App::from_cli(&Cli::viewer(), ColorDepth::TrueColor);
+        assert_eq!(
+            terminal.theme,
+            climb_tui::theme::ThemeId::Dark,
+            "changing the browser default must not change the terminal default"
+        );
     }
 
     #[test]

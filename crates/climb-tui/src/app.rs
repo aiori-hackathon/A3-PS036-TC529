@@ -899,6 +899,8 @@ mod tests {
         app.update(Action::CycleTheme);
         assert_eq!(app.theme, ThemeId::Contrast);
         app.update(Action::CycleTheme);
+        assert_eq!(app.theme, ThemeId::Brand);
+        app.update(Action::CycleTheme);
         assert_eq!(app.theme, ThemeId::Dark);
     }
 

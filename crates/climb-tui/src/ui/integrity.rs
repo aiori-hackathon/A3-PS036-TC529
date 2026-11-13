@@ -477,7 +477,7 @@ fn legend_lines(compact: bool, theme: &Theme) -> Vec<Line<'static>> {
             Span::styled(separator, plain),
             Span::styled("ANALYTICAL", theme.analytical),
             Span::styled(separator, plain),
-            Span::styled("DERIVED", Style::new().fg(theme.accent2)),
+            Span::styled("DERIVED", theme.derived),
         ])];
     }
     vec![
@@ -494,7 +494,7 @@ fn legend_lines(compact: bool, theme: &Theme) -> Vec<Line<'static>> {
             Span::styled("closed-form model", plain),
         ]),
         Line::from(vec![
-            Span::styled("  DERIVED ", Style::new().fg(theme.accent2)),
+            Span::styled("  DERIVED ", theme.derived),
             Span::styled("ratio or summary", plain),
         ]),
     ]
