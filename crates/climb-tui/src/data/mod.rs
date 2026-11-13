@@ -7,7 +7,7 @@
 //! appears as a literal anywhere in this crate.
 
 mod amortization;
-mod embedded;
+pub(crate) mod embedded;
 #[cfg(test)]
 pub(crate) mod fixtures;
 mod integrity;
@@ -28,13 +28,13 @@ pub use integrity::{
 };
 pub use ladder::{
     badge as ladder_badge, load_ladder, load_ladder_auto, load_ladder_auto_from,
-    load_ladder_auto_with, load_ladder_embedded, BadgeKind, LadderBadge, LadderLoadState,
-    LadderSource,
+    load_ladder_auto_with, load_ladder_embedded, load_ladder_site, BadgeKind, LadderBadge,
+    LadderLoadState, LadderSource, SITE_LADDER_PATH,
 };
 pub use live::{
     bar_cells, flag_text, load_live, load_live_auto, load_live_auto_from, load_live_auto_with,
-    load_live_embedded, Direction, HeadlineLanes, Lane, LaneStep, LiveLoadState, LiveSource,
-    LiveStep, LiveView, LIVE_CAPTURE_PATH, RECORDED_CAPTURE_PATH,
+    load_live_embedded, load_live_site, Direction, HeadlineLanes, Lane, LaneStep, LiveLoadState,
+    LiveSource, LiveStep, LiveView, LIVE_CAPTURE_PATH, RECORDED_CAPTURE_PATH, SITE_CAPTURE_PATH,
 };
 pub use method::{
     ArtifactRead, BaselineDocument, BaselineSource, EnvironmentRow, MethodLine, MethodSection,
@@ -222,6 +222,8 @@ pub enum ArtifactOrigin {
     Target,
     /// The committed sample under `docs/sample-output/`.
     Sample,
+    /// Fetched from the site origin (`/data/…`) by the browser build.
+    Site,
     /// Compiled into the binary.
     Embedded,
 }
@@ -234,6 +236,7 @@ impl ArtifactOrigin {
             ArtifactOrigin::Explicit => "explicit",
             ArtifactOrigin::Target => "target",
             ArtifactOrigin::Sample => "sample",
+            ArtifactOrigin::Site => "site",
             ArtifactOrigin::Embedded => "embedded",
         }
     }
@@ -265,6 +268,15 @@ impl ArtifactSource {
         }
     }
 
+    /// A document fetched from the site origin, named by its request path.
+    #[must_use]
+    pub fn site(path: impl Into<PathBuf>) -> Self {
+        Self {
+            origin: ArtifactOrigin::Site,
+            path: Some(path.into()),
+        }
+    }
+
     /// Where the artifact came from.
     #[must_use]
     pub fn origin(&self) -> ArtifactOrigin {
@@ -278,9 +290,16 @@ impl ArtifactSource {
     }
 
     /// One-line label: the origin tag plus the path, or the embedded name.
+    ///
+    /// A site path is a request URL, not a filesystem path, so it is printed
+    /// as written; shortening it to a repository-relative suffix would name a
+    /// file that does not exist.
     #[must_use]
     pub fn label(&self) -> String {
         match &self.path {
+            Some(path) if self.origin == ArtifactOrigin::Site => {
+                format!("[site] {}", path.display())
+            }
             Some(path) => format!("[{}] {}", self.origin.label(), crate::paths::display(path)),
             None => format!("[embedded] <built-in {}>", embedded::RESULTS_NAME),
         }
@@ -291,6 +310,8 @@ impl ArtifactSource {
 pub const TARGET_RESULTS_PATH: &str = "target/climb-results.json";
 /// The committed results sample.
 pub const SAMPLE_RESULTS_PATH: &str = "docs/sample-output/climb-results.json";
+/// The same document as published by the website and fetched by the browser.
+pub const SITE_RESULTS_PATH: &str = "/data/climb-results.json";
 
 /// Resolve and load the consolidated results without requiring a checkout.
 ///
@@ -322,6 +343,19 @@ pub fn load_results_embedded() -> (ArtifactSource, LoadState) {
             embedded::RESULTS_NAME,
             ArtifactOrigin::Embedded,
         ),
+    )
+}
+
+/// Parse a results document fetched from the site origin.
+///
+/// The bytes go through [`load_bytes`], the same parser and integrity check the
+/// file-backed and compiled-in paths use. The source label names the request
+/// path, so the status bar never reports fetched data as embedded.
+#[must_use]
+pub fn load_results_site(bytes: &[u8]) -> (ArtifactSource, LoadState) {
+    (
+        ArtifactSource::site(SITE_RESULTS_PATH),
+        load_bytes(bytes, SITE_RESULTS_PATH, ArtifactOrigin::Site),
     )
 }
 
@@ -394,11 +428,18 @@ fn load_present(path: &Path, source: ArtifactSource) -> Option<(ArtifactSource, 
 
 /// Parse an in-memory artifact; a failure names the source it came from.
 fn load_bytes(bytes: &[u8], name: &str, origin: ArtifactOrigin) -> LoadState {
+    // A site document is named by the URL it was requested from; an embedded
+    // one has no path, so it is named by a bracketed tag instead.
+    let invalid_path = if origin == ArtifactOrigin::Site {
+        PathBuf::from(name)
+    } else {
+        PathBuf::from(format!("<{} {name}>", origin.label()))
+    };
     let results: ClimbResults = match serde_json::from_slice(bytes) {
         Ok(results) => results,
         Err(error) => {
             return LoadState::Invalid {
-                path: PathBuf::from(format!("<{} {name}>", origin.label())),
+                path: invalid_path,
                 error: error.to_string(),
             };
         }
@@ -990,6 +1031,23 @@ mod tests {
             other => panic!("expected Invalid naming the embedded source, got {other:?}"),
         }
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn site_results_parse_through_the_same_loader_and_keep_their_url() {
+        let (source, state) = load_results_site(embedded::RESULTS);
+        assert_eq!(source.origin(), ArtifactOrigin::Site);
+        assert_eq!(source.label(), "[site] /data/climb-results.json");
+        assert!(state.is_loaded(), "the fetched document parses: {state:?}");
+
+        let (source, state) = load_results_site(b"{ not json");
+        assert_eq!(source.origin(), ArtifactOrigin::Site);
+        match state {
+            LoadState::Invalid { path, .. } => {
+                assert_eq!(path, PathBuf::from(SITE_RESULTS_PATH));
+            }
+            other => panic!("a present-but-invalid fetch must be a hard error, got {other:?}"),
+        }
     }
 
     #[test]

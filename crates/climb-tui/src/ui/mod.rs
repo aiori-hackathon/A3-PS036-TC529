@@ -22,7 +22,7 @@ use ratatui::widgets::{Block, Clear, Paragraph, Tabs, Wrap};
 use ratatui::Frame;
 
 use crate::app::{App, Tab};
-use crate::data::LoadState;
+use crate::data::{ArtifactOrigin, LadderSource, LiveSource, LoadState};
 use crate::theme::{Glyphs, Theme};
 
 /// The minimum terminal size the dashboard is designed for.
@@ -280,6 +280,31 @@ fn render_load_error(
     frame.render_widget(body, area);
 }
 
+/// The persistent source tail: one artifact normally, all three when any of
+/// them came from the site origin.
+///
+/// The terminal reads files from one checkout, so the results path is enough.
+/// A browser fetches three documents independently and any one of them can
+/// fall back to the compiled-in copy; naming all three is the only way the bar
+/// can say which source was actually used. Native frames (no site source) keep
+/// the single-line form unchanged.
+fn source_tail(app: &App) -> String {
+    let ladder = app.ladder().source();
+    let capture = app.live().view().map(|view| *view.source());
+    let any_site = app.source.origin() == ArtifactOrigin::Site
+        || matches!(ladder, Some(LadderSource::Site))
+        || matches!(capture, Some(LiveSource::Site));
+    if !any_site {
+        return format!("source: {}", app.source.label());
+    }
+    format!(
+        "source: {} · ladder {} · capture {}",
+        app.source.label(),
+        ladder.map_or("absent", LadderSource::label),
+        capture.map_or("absent", LiveSource::label),
+    )
+}
+
 fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs: &Glyphs) {
     let spinner = glyphs
         .spinner
@@ -316,11 +341,8 @@ fn render_status(frame: &mut Frame, area: Rect, app: &App, theme: &Theme, glyphs
             (text, colour)
         }
         None => {
-            let text = crate::widgets::ellipsize(
-                &format!("source: {}", app.source.label()),
-                tail_budget,
-                theme.ascii,
-            );
+            let tail = source_tail(app);
+            let text = crate::widgets::ellipsize(&tail, tail_budget, theme.ascii);
             (text, theme.muted)
         }
     };
@@ -618,6 +640,42 @@ mod tests {
             .draw(|frame| render(frame, app))
             .expect("rendering never fails on TestBackend");
         buffer_to_string(terminal.backend().buffer())
+    }
+
+    fn sample_bytes(name: &str) -> Vec<u8> {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../docs/sample-output")
+            .join(name);
+        std::fs::read(&path).unwrap_or_else(|error| panic!("reading {}: {error}", path.display()))
+    }
+
+    #[test]
+    fn a_site_load_names_all_three_sources_in_the_status_bar() {
+        let results = sample_bytes("climb-results.json");
+        let ladder = sample_bytes("ladder-verification.recorded.json");
+        let mut app = app_with(false, ThemeId::Dark, false);
+        // The capture fetch failed, so only the results and ladder are site
+        // documents; the bar must still say which copy supplied the capture.
+        app.apply_reload(crate::runtime::load_all_site(
+            Some(&results),
+            Some(&ladder),
+            None,
+        ));
+        app.set_status(None);
+        let frame = render_to_string(&app, 200, 60);
+        let status = frame.lines().last().unwrap_or_default();
+        assert!(
+            status.contains("[site] /data/climb-results.json"),
+            "the results source is named: {status:?}"
+        );
+        assert!(
+            status.contains("ladder site"),
+            "the ladder source is named: {status:?}"
+        );
+        assert!(
+            status.contains("capture embedded"),
+            "the fallback is named, not hidden: {status:?}"
+        );
     }
 
     /// A stable digest of every cell's symbol and style. Text snapshots alone

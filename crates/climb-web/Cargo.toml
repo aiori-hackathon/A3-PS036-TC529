@@ -24,6 +24,10 @@ ratzilla = "=0.3.1"
 # traits for this version.
 ratatui.workspace = true
 wasm-bindgen = "=0.2.129"
+# Runs the one data-fetch future on the page. Released with wasm-bindgen
+# 0.2.129 (2026-09-25, MIT OR Apache-2.0); it is already in the graph through
+# ratzilla, so this adds no new transitive crate.
+wasm-bindgen-futures = "=0.4.79"
 # Browser monotonic time: std::time::Instant is unimplemented here.
 web-time = "1.1.0"
 console_error_panic_hook = "0.1.7"
@@ -44,10 +48,17 @@ features = [
     "HtmlElement",
     "KeyboardEvent",
     "Location",
+    "Response",
     "Window",
 ]
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 # ratatui-core's layout cache uses critical-section on targets without native
 # atomics; the std implementation provides the two link symbols it needs.
+critical-section = { version = "1.2", features = ["std"] }
+
+[dev-dependencies]
+# The integration test links the same ratatui layout cache the wasm module
+# does. On a host target the std implementation must be selected explicitly,
+# or the test binary fails to resolve the two critical-section symbols.
 critical-section = { version = "1.2", features = ["std"] }

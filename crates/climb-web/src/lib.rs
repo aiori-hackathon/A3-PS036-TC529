@@ -15,6 +15,7 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use climb_tui::app::{Action, App, Effect, StatusLine};
+use climb_tui::data::LoadedArtifacts;
 use climb_tui::{runtime, ui, Cli};
 use ratatui::prelude::Backend;
 use ratatui::style::Color;
@@ -25,6 +26,7 @@ use ratzilla::backend::webgl2::{FontAtlasConfig, WebGl2Backend, WebGl2BackendOpt
 use ratzilla::{WebEventHandler, WebRenderer};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::{spawn_local, JsFuture};
 use web_time::Instant;
 
 /// The dashboard's tick rate, matching the terminal's 30 Hz loop.
@@ -36,6 +38,12 @@ const MAX_CATCH_UP_TICKS: u32 = 4;
 /// The palette's ink, used as the canvas letterbox so a resize never flashes
 /// white between the page and the terminal grid.
 const INK: Color = Color::Rgb(7, 8, 10);
+
+/// The three documents the static site publishes beside the page. The paths
+/// are absolute so the same module works at `/tui` and at any nested route.
+const RESULTS_PATH: &str = climb_tui::data::SITE_RESULTS_PATH;
+const LADDER_PATH: &str = climb_tui::data::SITE_LADDER_PATH;
+const CAPTURE_PATH: &str = climb_tui::data::SITE_CAPTURE_PATH;
 
 /// Start the dashboard. `trunk` calls this through the generated module
 /// initialiser; a panic is reported in the browser console with a stack.
@@ -56,6 +64,10 @@ fn run() -> Result<(), String> {
     let state = Rc::new(RefCell::new(WebState::new(app)));
     attach_keyboard(Rc::clone(&state))?;
     hide_boot();
+    // The first frame is already drawable from the compiled-in recordings.
+    // The fetch then replaces them with the site's copies and names the
+    // source in the status bar; a failed fetch leaves the embedded copy.
+    start_data_fetch(Rc::clone(&state));
 
     match WebGl2Backend::new_with_options(
         WebGl2BackendOptions::new()
@@ -90,11 +102,35 @@ fn run() -> Result<(), String> {
     drive(backend, state)
 }
 
+/// The bytes the site origin served, kept so a reload does not silently
+/// degrade to the embedded copies.
+#[derive(Debug, Default)]
+struct FetchedData {
+    results: Option<Vec<u8>>,
+    ladder: Option<Vec<u8>>,
+    capture: Option<Vec<u8>>,
+}
+
+impl FetchedData {
+    /// Parse the fetched documents, using the embedded copy for any fetch that
+    /// did not deliver bytes.
+    fn artifacts(&self) -> LoadedArtifacts {
+        runtime::load_all_site(
+            self.results.as_deref(),
+            self.ladder.as_deref(),
+            self.capture.as_deref(),
+        )
+    }
+}
+
 /// The model plus the two pieces of web-only state the model must not own.
 struct WebState {
     app: App,
     /// When the last 30 Hz tick was delivered.
     last_tick: Instant,
+    /// The last successful fetch. `None` until the fetch settles (or forever
+    /// when every request failed).
+    fetched: Option<FetchedData>,
 }
 
 impl WebState {
@@ -102,6 +138,16 @@ impl WebState {
         Self {
             app,
             last_tick: Instant::now(),
+            fetched: None,
+        }
+    }
+
+    /// The load path for the current session: the site's documents when the
+    /// fetch delivered them, otherwise the compiled-in recordings.
+    fn load(&self) -> LoadedArtifacts {
+        match &self.fetched {
+            Some(fetched) => fetched.artifacts(),
+            None => runtime::load_all_embedded(),
         }
     }
 
@@ -126,8 +172,9 @@ impl WebState {
     /// Apply one action and run the side effect the model asked for.
     ///
     /// The native runtime performs a reload on a worker thread. There is one
-    /// thread here, so a reload re-reads the compiled-in recordings; fetching
-    /// from the site origin is the data layer's job, not the model's.
+    /// thread here, so a reload re-parses the bytes this session already has:
+    /// the site's documents when the fetch succeeded, the compiled-in
+    /// recordings otherwise.
     fn apply(&mut self, action: Action) {
         let Some(effect) = self.app.update(action) else {
             return;
@@ -136,7 +183,10 @@ impl WebState {
             Effect::Quit => self
                 .app
                 .set_status(Some(StatusLine::info("close the tab to leave"))),
-            Effect::LoadResults(_) => self.app.apply_reload(runtime::load_all_embedded()),
+            Effect::LoadResults(_) => {
+                let loaded = self.load();
+                self.app.apply_reload(loaded);
+            }
         }
     }
 }
@@ -158,6 +208,57 @@ where
         ui::render(frame, &state.app);
     });
     Ok(())
+}
+
+/// Fetch the site's three artifacts, then install them as one snapshot.
+///
+/// Each request is independent: a failed one falls back to the compiled-in
+/// copy of that document through [`runtime::load_all_site`]. The future runs
+/// on the page's microtask queue, so the first frame is never delayed by the
+/// network.
+fn start_data_fetch(state: Rc<RefCell<WebState>>) {
+    spawn_local(async move {
+        let results = fetch_bytes(RESULTS_PATH).await;
+        let ladder = fetch_bytes(LADDER_PATH).await;
+        let capture = fetch_bytes(CAPTURE_PATH).await;
+        // Drawing is synchronous on this single-threaded page, so the borrow
+        // cannot really be held here. If a re-entrant call ever made it so,
+        // keep the embedded data rather than panic over a frame.
+        let Ok(mut state) = state.try_borrow_mut() else {
+            return;
+        };
+        state.fetched = Some(FetchedData {
+            results,
+            ladder,
+            capture,
+        });
+        let loaded = state.load();
+        state.app.apply_reload(loaded);
+        // Clearing the one-shot "reloaded" line exposes the persistent source
+        // tail, which names all three artifacts and their fallbacks.
+        state.app.set_status(None);
+    });
+}
+
+/// Fetch one document from the site origin.
+///
+/// `None` means the request failed (no window, a network error, a non-2xx
+/// status, or a body that is not text). A body that is text but not the
+/// expected JSON is *not* a failed fetch: it reaches the parser and becomes a
+/// hard `Invalid`, named in the UI.
+async fn fetch_bytes(path: &str) -> Option<Vec<u8>> {
+    let window = web_sys::window()?;
+    let response = JsFuture::from(window.fetch_with_str(path)).await.ok()?;
+    let response: web_sys::Response = response.dyn_into().ok()?;
+    if !response.ok() {
+        warn(&format!(
+            "climb-web: {path} returned HTTP {}; using the embedded copy",
+            response.status()
+        ));
+        return None;
+    }
+    let text = JsFuture::from(response.text().ok()?).await.ok()?;
+    text.as_string().map(String::into_bytes)
 }
 
 /// Attach the one keyboard adapter to the page.
@@ -231,6 +332,16 @@ mod tests {
         }
         for ignored in ["", "?", "?tour=0", "?tour=2", "?tour=1x", "?nottour=1"] {
             assert!(!is_tour_search(ignored), "{ignored:?} must not start it");
+        }
+    }
+
+    #[test]
+    fn the_data_paths_are_the_site_origin_paths() {
+        assert_eq!(RESULTS_PATH, "/data/climb-results.json");
+        assert_eq!(LADDER_PATH, "/data/ladder-verification.recorded.json");
+        assert_eq!(CAPTURE_PATH, "/data/dns-capture.recorded.json");
+        for path in [RESULTS_PATH, LADDER_PATH, CAPTURE_PATH] {
+            assert!(path.starts_with("/data/"), "{path} is origin-absolute");
         }
     }
 

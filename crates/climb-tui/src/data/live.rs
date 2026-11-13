@@ -19,6 +19,8 @@ use climb_report::{DnsCapture, HEADLINE_QNAME, HEADLINE_QTYPE};
 pub const LIVE_CAPTURE_PATH: &str = "target/dns-capture.json";
 /// Default path for the committed recorded fixture.
 pub const RECORDED_CAPTURE_PATH: &str = "docs/sample-output/dns-capture.recorded.json";
+/// The same fixture as published by the website and fetched by the browser.
+pub const SITE_CAPTURE_PATH: &str = "/data/dns-capture.recorded.json";
 
 /// How many characters of the recording's git commit the header shows.
 const COMMIT_SHORT_LEN: usize = 12;
@@ -30,8 +32,23 @@ pub enum LiveSource {
     LiveRun,
     /// The committed `docs/sample-output/dns-capture.recorded.json` fixture.
     RecordedFixture,
+    /// Fetched from the site origin (`/data/dns-capture.recorded.json`).
+    Site,
     /// The fixture compiled into the binary.
     Embedded,
+}
+
+impl LiveSource {
+    /// Lowercase tag used in provenance labels.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            LiveSource::LiveRun => "live run",
+            LiveSource::RecordedFixture => "recorded fixture",
+            LiveSource::Site => "site",
+            LiveSource::Embedded => "embedded",
+        }
+    }
 }
 
 /// How the recorded DNS capture looks at load time.
@@ -160,17 +177,32 @@ pub fn load_live_embedded() -> LiveLoadState {
     load_live_embedded_bytes(crate::data::embedded::DNS_CAPTURE)
 }
 
+/// Parse a DNS capture fetched from the site origin.
+///
+/// The capture goes through the same [`DnsCapture`] parser and
+/// [`LiveView`] projection as every other source.
+#[must_use]
+pub fn load_live_site(bytes: &[u8]) -> LiveLoadState {
+    load_live_bytes(bytes, PathBuf::from(SITE_CAPTURE_PATH), LiveSource::Site)
+}
+
 /// Parse a compiled-in DNS capture.
 fn load_live_embedded_bytes(bytes: &[u8]) -> LiveLoadState {
+    load_live_bytes(
+        bytes,
+        PathBuf::from(format!(
+            "<embedded {}>",
+            crate::data::embedded::DNS_CAPTURE_NAME
+        )),
+        LiveSource::Embedded,
+    )
+}
+
+fn load_live_bytes(bytes: &[u8], path: PathBuf, source: LiveSource) -> LiveLoadState {
     match serde_json::from_slice::<DnsCapture>(bytes) {
-        Ok(capture) => {
-            LiveLoadState::Loaded(Box::new(LiveView::new(capture, LiveSource::Embedded)))
-        }
+        Ok(capture) => LiveLoadState::Loaded(Box::new(LiveView::new(capture, source))),
         Err(error) => LiveLoadState::Invalid {
-            path: PathBuf::from(format!(
-                "<embedded {}>",
-                crate::data::embedded::DNS_CAPTURE_NAME
-            )),
+            path,
             error: error.to_string(),
         },
     }
@@ -296,6 +328,7 @@ impl LiveView {
         match self.source {
             LiveSource::LiveRun => "live run",
             LiveSource::RecordedFixture | LiveSource::Embedded => "recorded fixture",
+            LiveSource::Site => "site recording",
         }
     }
 

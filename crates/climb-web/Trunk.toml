@@ -1,11 +1,14 @@
 [build]
 target = "index.html"
 dist = "dist"
+# The browser module is built with the size profile even when the command says
+# `--release`; the native release profile must keep its default settings.
+cargo_profile = "wasm-release"
 # The WebAssembly module is published as a static asset; there is no server
 # process, no proxy and no environment variable it can read at runtime.
 filehash = true
 
 [serve]
-address = "127.0.0.1"
+addresses = ["127.0.0.1"]
 port = 8080
 open = false

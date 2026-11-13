@@ -14,8 +14,8 @@ use std::sync::mpsc::SyncSender;
 use std::thread::{self, JoinHandle};
 
 use crate::data::{
-    load_ladder_auto, load_ladder_embedded, load_live_auto, load_live_embedded, load_results_auto,
-    load_results_embedded, LoadedArtifacts,
+    load_ladder_auto, load_ladder_embedded, load_ladder_site, load_live_auto, load_live_embedded,
+    load_live_site, load_results_auto, load_results_embedded, load_results_site, LoadedArtifacts,
 };
 #[cfg(feature = "terminal")]
 use crate::event::Event;
@@ -48,6 +48,26 @@ pub fn load_all_embedded() -> LoadedArtifacts {
     }
 }
 
+/// Read the three documents a browser fetched from the site origin, falling
+/// back to the compiled-in copy of any document the fetch did not deliver.
+///
+/// `None` means the fetch failed (network error, non-success status); `Some`
+/// bytes always go through the same parsers the file paths use. A fetched
+/// document that is present but malformed therefore stays a hard `Invalid`
+/// naming its request path rather than silently degrading to embedded data.
+#[must_use]
+pub fn load_all_site(
+    results: Option<&[u8]>,
+    ladder: Option<&[u8]>,
+    live: Option<&[u8]>,
+) -> LoadedArtifacts {
+    LoadedArtifacts {
+        results: results.map_or_else(load_results_embedded, load_results_site),
+        ladder: ladder.map_or_else(load_ladder_embedded, load_ladder_site),
+        live: live.map_or_else(load_live_embedded, load_live_site),
+    }
+}
+
 /// Spawn a background reload. The returned handle is only useful to tests and
 /// to a caller that wants to join before exiting; the event loop does not.
 #[cfg(feature = "terminal")]
@@ -61,7 +81,10 @@ pub fn spawn_reload(explicit: Option<PathBuf>, sender: SyncSender<Event>) -> Joi
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::data::{LadderLoadState, LadderSource, LiveLoadState, LiveSource, LoadState};
+    use crate::data::{
+        embedded, ArtifactOrigin, LadderLoadState, LadderSource, LiveLoadState, LiveSource,
+        LoadState,
+    };
 
     #[test]
     fn the_embedded_load_needs_no_filesystem_and_labels_its_sources() {
@@ -84,6 +107,49 @@ mod tests {
             ),
             "the capture must be the compiled-in recording"
         );
+    }
+
+    #[test]
+    fn a_site_load_parses_every_fetched_document_and_names_its_request_path() {
+        let loaded = load_all_site(
+            Some(embedded::RESULTS),
+            Some(embedded::LADDER_VERIFICATION),
+            Some(embedded::DNS_CAPTURE),
+        );
+        assert!(matches!(loaded.results.1, LoadState::Loaded(_)));
+        assert_eq!(loaded.results.0.origin(), ArtifactOrigin::Site);
+        assert_eq!(
+            loaded.results.0.label(),
+            "[site] /data/climb-results.json",
+            "the status bar must name the fetched request path"
+        );
+        assert_eq!(loaded.ladder.source(), Some(LadderSource::Site));
+        assert_eq!(
+            loaded.live.view().map(|view| *view.source()),
+            Some(LiveSource::Site)
+        );
+    }
+
+    #[test]
+    fn a_failed_fetch_falls_back_to_the_embedded_copy_of_that_artifact_only() {
+        let loaded = load_all_site(Some(embedded::RESULTS), None, None);
+        assert_eq!(
+            loaded.results.0.origin(),
+            ArtifactOrigin::Site,
+            "the results fetch succeeded"
+        );
+        assert_eq!(
+            loaded.ladder.source(),
+            Some(LadderSource::Embedded),
+            "a failed ladder fetch keeps the compiled-in copy"
+        );
+        assert_eq!(
+            loaded.live.view().map(|view| *view.source()),
+            Some(LiveSource::Embedded),
+            "a failed capture fetch keeps the compiled-in copy"
+        );
+        assert!(matches!(loaded.ladder, LadderLoadState::Loaded { .. }));
+        assert!(matches!(loaded.live, LiveLoadState::Loaded(_)));
     }
 
     fn sample_results() -> std::path::PathBuf {

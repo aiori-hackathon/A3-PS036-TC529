@@ -21,8 +21,23 @@ pub enum LadderSource {
     LiveRun,
     /// The committed `docs/sample-output/ladder-verification.recorded.json` fixture.
     RecordedFixture,
+    /// Fetched from the site origin (`/data/ladder-verification.recorded.json`).
+    Site,
     /// The fixture compiled into the binary.
     Embedded,
+}
+
+impl LadderSource {
+    /// Lowercase tag used in provenance labels.
+    #[must_use]
+    pub fn label(self) -> &'static str {
+        match self {
+            LadderSource::LiveRun => "live run",
+            LadderSource::RecordedFixture => "recorded fixture",
+            LadderSource::Site => "site",
+            LadderSource::Embedded => "embedded",
+        }
+    }
 }
 
 /// How the recorded ladder-verification artifact looks at load time.
@@ -82,6 +97,8 @@ impl LadderLoadState {
 pub const LIVE_LADDER_PATH: &str = "target/ladder-verification.json";
 /// Default path for the committed recorded fixture.
 pub const RECORDED_LADDER_PATH: &str = "docs/sample-output/ladder-verification.recorded.json";
+/// The same fixture as published by the website and fetched by the browser.
+pub const SITE_LADDER_PATH: &str = "/data/ladder-verification.recorded.json";
 
 /// Load the recorded ladder-verification artifact from a specific path, never panicking.
 pub fn load_ladder(path: &Path) -> LadderLoadState {
@@ -173,18 +190,35 @@ pub fn load_ladder_embedded() -> LadderLoadState {
     load_ladder_embedded_bytes(crate::data::embedded::LADDER_VERIFICATION)
 }
 
+/// Parse a ladder-verification document fetched from the site origin.
+///
+/// Parsing is the same `serde_json` path as every other ladder source; only the
+/// source tag and the error's path label differ.
+#[must_use]
+pub fn load_ladder_site(bytes: &[u8]) -> LadderLoadState {
+    load_ladder_bytes(bytes, PathBuf::from(SITE_LADDER_PATH), LadderSource::Site)
+}
+
 /// Parse a compiled-in ladder-verification fixture.
 fn load_ladder_embedded_bytes(bytes: &[u8]) -> LadderLoadState {
+    load_ladder_bytes(
+        bytes,
+        PathBuf::from(format!(
+            "<embedded {}>",
+            crate::data::embedded::LADDER_VERIFICATION_NAME
+        )),
+        LadderSource::Embedded,
+    )
+}
+
+fn load_ladder_bytes(bytes: &[u8], path: PathBuf, source: LadderSource) -> LadderLoadState {
     match serde_json::from_slice::<LadderVerification>(bytes) {
         Ok(document) => LadderLoadState::Loaded {
             document: Box::new(document),
-            source: LadderSource::Embedded,
+            source,
         },
         Err(error) => LadderLoadState::Invalid {
-            path: PathBuf::from(format!(
-                "<embedded {}>",
-                crate::data::embedded::LADDER_VERIFICATION_NAME
-            )),
+            path,
             error: error.to_string(),
         },
     }
@@ -220,6 +254,7 @@ fn source_label(source: LadderSource, recorded_at: &str) -> String {
         LadderSource::RecordedFixture | LadderSource::Embedded => {
             format!("(recorded fixture {date})")
         }
+        LadderSource::Site => format!("(site recording {date})"),
     }
 }
 

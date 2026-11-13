@@ -51,3 +51,15 @@ plotters = { version = "0.3", default-features = false, features = [
     "point_series",
     "errorbar",
 ] }
+
+# Browser-only size profile. The wasm module is the one artifact with a byte
+# budget, so it is the one build that should optimise for size. It is a named
+# profile rather than `release` because the native release profile builds the
+# Criterion binaries and the terminal dashboard, whose timings and draw times
+# must not change.
+[profile.wasm-release]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+panic = "abort"
