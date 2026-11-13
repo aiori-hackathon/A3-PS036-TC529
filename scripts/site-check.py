@@ -4,10 +4,10 @@
 Two independent checks, one file, because both guard the same site build:
 
   contrast   the WCAG 2.x contrast ratio of every text, boundary and fill pair
-             in the site token set, printed as a table. The palette below is
-             the machine-readable copy of the site brand tokens; the table in
-             ``docs/site/brand.md`` is this command's output, so the document
-             cannot drift from the tokens the site build reads.
+             in the site token set, printed as a table. The palette below
+             mirrors the site token table in ``site/src/lib/tokens.ts``; the
+             table in ``docs/site/brand.md`` is this command's output, so the
+             document and the checker cannot drift from each other.
   copy       scans ``docs/site/copy.md`` for the banned words, for numbers that
              are not backed by a fact id, and for fact ids that do not resolve
              in the committed results artifact.
@@ -31,39 +31,51 @@ COPY_PATH = ROOT / "docs" / "site" / "copy.md"
 RESULTS_PATH = ROOT / "docs" / "sample-output" / "climb-results.json"
 
 # --------------------------------------------------------------------------
-# Site tokens (palette v2). The site is dark-only.
+# Site tokens (palette v2). The site is dark-only. This table mirrors
+# ``site/src/lib/tokens.ts``; a test on the site side keeps the two in step.
 # --------------------------------------------------------------------------
 
-SURFACES = {
-    "bg-0": "#07090c",  # page ground
-    "bg-1": "#0b0d10",  # raised section
-    "bg-2": "#11141a",  # panel / card
-    "bg-3": "#171b22",  # well / inset
+PALETTE = {
+    "ink": "#07080A",
+    "surface": "#0F1216",
+    "raised": "#161A20",
+    "paper": "#F2EDE4",
+    "text": "#EFEAE1",
+    "muted": "#9AA3AD",
+    "orange": "#FF5400",
+    "red": "#FF1A1A",
+    "teal": "#5CC8C2",
+    "slate": "#3A4A66",
+    "slate-light": "#6B7A93",
+    "measured": "#3DDC97",
+    "derived": "#6EA8FF",
+    "analytical": "#B79CFF",
+    "extrapolated": "#F5D547",
 }
 
-FOREGROUNDS = {
-    "text": "#E6EDF3",
-    "muted": "#8B98A5",
-    "accent-orange": "#FF5400",
-    "accent-text": "#FF8A4C",  # lightened orange, the accent for text on dark
-    "secondary-teal": "#5CC8C2",
-    "measured": "#6CCB8E",
-    "derived": "#5CA9FF",
-    "analytical": "#C58AF9",
-    "extrapolated": "#E0A93B",
-    "line-strong": "#646A74",  # interactive boundary, added because `line` fails 3:1
+SURFACES = ("ink", "surface", "raised")
+
+# Foreground -> the surfaces it is painted on. A pair that is not listed is
+# not used by the built site and must not be introduced without a target.
+TEXT_ON_SURFACES = {
+    "text": ("ink", "surface", "raised"),
+    "paper": ("ink",),
+    "muted": ("ink", "surface", "raised"),
+    "orange": ("ink", "surface", "raised"),
+    "teal": ("ink", "surface"),
+    "red": ("ink",),
+    "measured": ("ink", "surface", "raised"),
+    "derived": ("ink", "surface", "raised"),
+    "analytical": ("ink", "surface", "raised"),
+    "extrapolated": ("ink", "surface", "raised"),
 }
 
-# Decorative hairline, given as rgba(255,255,255,.08); composited over each
-# surface below because a translucent colour has no contrast of its own.
-LINE_ALPHA = 0.08
+# Fills carry the ink as their label; light text on any of them fails.
+FILLS = ("orange", "teal", "measured", "derived", "analytical", "extrapolated")
 
-# The ink painted on an accent or status fill. Light text on these fills fails.
-FILLS = {
-    "accent-orange": "#FF5400",
-    "secondary-teal": "#5CC8C2",
-    "extrapolated": "#E0A93B",
-}
+# The read-only boundary token. It clears the 3:1 non-text floor; `slate` does
+# not and is decorative only.
+BOUNDARY = "slate-light"
 
 TEXT_MIN = 4.5  # WCAG 1.4.3 normal text
 LARGE_MIN = 3.0  # WCAG 1.4.3 large text and 1.4.11 non-text boundary
@@ -90,53 +102,44 @@ def contrast(foreground: str, background: str) -> float:
     return (high + 0.05) / (low + 0.05)
 
 
-def composite_white(background: str, alpha: float) -> str:
-    """White at `alpha` painted over `background`; returns the flattened hex."""
-    red, green, blue = _rgb(background)
-    mix = lambda channel: round(255 * alpha + channel * (1 - alpha))
-    return "#%02X%02X%02X" % (mix(red), mix(green), mix(blue))
-
-
 def verdict(ratio: float, minimum: float) -> str:
     return "pass" if ratio >= minimum else "FAIL"
 
 
 def print_contrast() -> int:
-    """Print every token pair and the ratio it measures. Returns the failures."""
+    """Print every used token pair and the ratio it measures. Returns failures."""
     failures = 0
+    pairs = 0
     print("WCAG 2.x contrast, site tokens (rounded to two decimals)")
     print(f"thresholds: {TEXT_MIN}:1 normal text, {LARGE_MIN}:1 large text and UI boundaries")
     print()
 
     print("text and status ink on each surface")
-    header = "%-16s" % "foreground" + "".join("%9s" % name for name in SURFACES)
-    print(header)
-    for name, colour in FOREGROUNDS.items():
+    print("%-16s" % "foreground" + "".join("%9s" % name for name in SURFACES) + "   target")
+    for name, used_surfaces in TEXT_ON_SURFACES.items():
         row = "%-16s" % name
-        for surface in SURFACES.values():
-            ratio = contrast(colour, surface)
-            row += "%9.2f" % ratio
-            if ratio < TEXT_MIN and name != "line-strong":
-                failures += 1
+        for surface in SURFACES:
+            if surface in used_surfaces:
+                ratio = contrast(PALETTE[name], PALETTE[surface])
+                row += "%9.2f" % ratio
+                pairs += 1
+                if ratio < TEXT_MIN:
+                    failures += 1
+            else:
+                row += "%9s" % "-"
+        row += "     %.1f" % TEXT_MIN
         print(row)
 
     print()
-    print("decorative hairline rgba(255,255,255,.08) composited over each surface")
-    for name, surface in SURFACES.items():
-        flat = composite_white(surface, LINE_ALPHA)
-        ratio = contrast(flat, surface)
-        print("%-16s %s on %-6s %9.2f  %s (decorative only)"
-              % ("line", flat, name, ratio, verdict(ratio, LARGE_MIN)))
-
-    print()
     print("ink on an accent or status fill")
-    for name, fill in FILLS.items():
-        ink = contrast("#07090c", fill)
-        light = contrast("#E6EDF3", fill)
+    for name in FILLS:
+        ink = contrast(PALETTE["ink"], PALETTE[name])
+        light = contrast(PALETTE["paper"], PALETTE[name])
         ink_ok = verdict(ink, TEXT_MIN)
         light_ok = verdict(light, TEXT_MIN)
-        print("%-16s ink #07090c %9.2f  %s   light text #E6EDF3 %9.2f  %s"
+        print("%-16s ink #07080A %9.2f  %s   paper #F2EDE4 %9.2f  %s"
               % (name, ink, ink_ok, light, light_ok))
+        pairs += 1
         if ink_ok == "FAIL":
             failures += 1
         if light_ok == "FAIL":
@@ -144,16 +147,26 @@ def print_contrast() -> int:
             print("                 rule: light text is never painted on a fill; use the ink.")
 
     print()
-    print("interactive boundary (line-strong) against each surface")
-    for name, surface in SURFACES.items():
-        ratio = contrast(FOREGROUNDS["line-strong"], surface)
+    print("interactive boundary (slate-light) against each surface")
+    for surface in SURFACES:
+        ratio = contrast(PALETTE[BOUNDARY], PALETTE[surface])
         mark = verdict(ratio, LARGE_MIN)
-        print("%-16s on %-6s %9.2f  %s" % ("line-strong", name, ratio, mark))
+        print("%-16s on %-8s %9.2f  %s" % (BOUNDARY, surface, ratio, mark))
+        pairs += 1
         if mark == "FAIL":
             failures += 1
 
     print()
-    print("failures that need a rule (not a token change): %d" % failures)
+    print("decorative slate, never used as text or a boundary")
+    for surface in SURFACES:
+        ratio = contrast(PALETTE["slate"], PALETTE[surface])
+        print("%-16s on %-8s %9.2f  %s (decorative only)"
+              % ("slate", surface, ratio, verdict(ratio, LARGE_MIN)))
+        if ratio >= LARGE_MIN:
+            failures += 1
+
+    print()
+    print("used pairs: %d, failures: %d" % (pairs, failures))
     return failures
 
 
@@ -373,8 +386,17 @@ def selftest() -> int:
     expect("white on black is 21:1", abs(contrast("#FFFFFF", "#000000") - 21.0) < 0.01)
     expect("a colour against itself is 1:1", abs(contrast("#123456", "#123456") - 1.0) < 0.001)
     expect("order does not change the ratio",
-           abs(contrast("#E6EDF3", "#07090c") - contrast("#07090c", "#E6EDF3")) < 1e-12)
-    expect("the ink clears 4.5:1 on the accent", contrast("#07090c", "#FF5400") >= 4.5)
+           abs(contrast("#EFEAE1", "#07080A") - contrast("#07080A", "#EFEAE1")) < 1e-12)
+    expect("the ink clears 4.5:1 on the accent", contrast("#07080A", "#FF5400") >= 4.5)
+    expect("slate is decorative, below the 3:1 boundary floor",
+           contrast("#3A4A66", "#07080A") < 3.0)
+    expect("every used text pair clears its target",
+           all(contrast(PALETTE[name], PALETTE[surface]) >= TEXT_MIN
+               for name, surfaces in TEXT_ON_SURFACES.items()
+               for surface in surfaces))
+    expect("the boundary token clears 3:1 on every surface",
+           all(contrast(PALETTE[BOUNDARY], PALETTE[surface]) >= LARGE_MIN
+               for surface in SURFACES))
 
     print("pointer resolution")
     document = {"a": {"b": [10, 20]}, "c": "value"}

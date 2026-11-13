@@ -1,0 +1,133 @@
+/* Palette v2. Dark only: there is no light mode and no theme switch. */
+@theme {
+  --color-ink: #07080a;
+  --color-surface: #0f1216;
+  --color-raised: #161a20;
+  --color-paper: #f2ede4;
+  --color-text: #efeae1;
+  --color-muted: #9aa3ad;
+  --color-orange: #ff5400;
+  --color-red: #ff1a1a;
+  --color-teal: #5cc8c2;
+  --color-slate: #3a4a66;
+  --color-slate-light: #6b7a93;
+  --color-measured: #3ddc97;
+  --color-derived: #6ea8ff;
+  --color-analytical: #b79cff;
+  --color-extrapolated: #f5d547;
+
+  --color-rule: var(--color-slate);
+  --color-boundary: var(--color-slate-light);
+  --color-focus: var(--color-teal);
+
+  --font-display:
+    'Instrument Serif', 'Instrument Serif Fallback', 'Iowan Old Style', 'Times New Roman', serif;
+  --font-body: 'Geist', 'Geist Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-mono:
+    'Geist Mono', 'Geist Mono Fallback', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.25rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.5rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.625rem;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.875rem;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 2rem;
+  --text-3xl: 2rem;
+  --text-3xl--line-height: 2.375rem;
+  --text-4xl: 2.75rem;
+  --text-4xl--line-height: 3rem;
+  --text-5xl: 3.75rem;
+  --text-5xl--line-height: 4rem;
+  --text-6xl: 5rem;
+  --text-6xl--line-height: 5rem;
+
+  --radius-panel: 0.75rem;
+  --radius-control: 0.375rem;
+}
+
+/* Instrument Serif: display face, regular and italic. */
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('/fonts/instrument-serif-regular-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  src: url('/fonts/instrument-serif-italic-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Geist: body and UI face, instanced at the one weight the site uses. */
+@font-face {
+  font-family: 'Geist';
+  src: url('/fonts/geist-regular-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Geist Mono: data and code face. */
+@font-face {
+  font-family: 'Geist Mono';
+  src: url('/fonts/geist-mono-regular-latin.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/*
+ * Size-adjusted fallback faces. The size-adjust ratio is the webfont's x-height
+ * divided by the reference face's x-height (Tinos for Times New Roman, Arimo
+ * for Arial, Cousine for Courier New). The vertical overrides are the webfont's
+ * own hhea metrics as a percentage of the em, so a swap keeps the same line
+ * box: 111.12% = 0.510 / 0.45898, and 100.32% = 0.530 / 0.52832.
+ */
+@font-face {
+  font-family: 'Instrument Serif Fallback';
+  src: local('Times New Roman'), local('Tinos'), local('Liberation Serif');
+  size-adjust: 111.12%;
+  ascent-override: 99%;
+  descent-override: 31%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Geist Fallback';
+  src: local('Arial'), local('Arimo'), local('Liberation Sans');
+  size-adjust: 100.32%;
+  ascent-override: 100.5%;
+  descent-override: 29.5%;
+  line-gap-override: 0%;
+}
+
+@font-face {
+  font-family: 'Geist Mono Fallback';
+  src: local('Courier New'), local('Cousine'), local('Liberation Mono');
+  size-adjust: 100.32%;
+  ascent-override: 100.5%;
+  descent-override: 29.5%;
+  line-gap-override: 0%;
+}

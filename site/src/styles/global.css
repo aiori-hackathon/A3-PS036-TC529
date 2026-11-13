@@ -1,0 +1,126 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  html {
+    background-color: var(--color-ink);
+    color: var(--color-text);
+    font-family: var(--font-body);
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100dvh;
+  }
+
+  ::selection {
+    background-color: var(--color-orange);
+    color: var(--color-ink);
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: 3px;
+    border-radius: 2px;
+  }
+
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    font-weight: 400;
+    text-wrap: balance;
+  }
+}
+
+@layer components {
+  .skip-link {
+    position: absolute;
+    left: 1rem;
+    top: -100%;
+    z-index: 50;
+    border-radius: var(--radius-control);
+    background-color: var(--color-paper);
+    color: var(--color-ink);
+    padding: 0.5rem 0.875rem;
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .skip-link:focus {
+    top: 1rem;
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border: 1px solid var(--color-boundary);
+    border-radius: 999px;
+    padding: 0.125rem 0.625rem;
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.25rem;
+  }
+
+  .panel {
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-raised);
+  }
+}
+
+/*
+ * Cross-document view transitions: the browser animates navigation between
+ * documents without a client-side router or any script. Astro emits static
+ * pages, so this is the whole mechanism.
+ */
+@view-transition {
+  navigation: auto;
+}
+
+::view-transition-old(root) {
+  animation: 250ms ease-out both climb-fade-out;
+}
+
+::view-transition-new(root) {
+  animation: 250ms ease-in both climb-fade-in;
+}
+
+@keyframes climb-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes climb-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  ::view-transition-old(root),
+  ::view-transition-new(root) {
+    animation: none !important;
+  }
+}

@@ -1,0 +1,214 @@
+---
+import '../styles/global.css';
+
+interface Props {
+  title: string;
+  description: string;
+}
+
+const { title, description } = Astro.props;
+const site = Astro.site ?? Astro.url;
+const canonical = new URL(Astro.url.pathname, site);
+const ogImage = new URL('/og-image.png', site);
+const path = Astro.url.pathname;
+
+const primaryNav = [
+  { label: 'Home', href: '/' },
+  { label: 'Dashboard', href: '/dashboard' },
+  { label: 'Calculator', href: '/calculator' },
+  { label: 'Report', href: '/report' },
+  { label: 'Verify', href: '/verify' },
+  { label: 'Method', href: '/method' },
+];
+
+const repository = 'https://github.com/aiori-hackathon/A3-PS036-TC529';
+const isCurrent = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta name="theme-color" content="#07080A" />
+    <meta name="color-scheme" content="dark" />
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CLIMB" />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="The CLIMB wordmark on the ink background." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={ogImage} />
+
+    <link
+      rel="preload"
+      href="/fonts/instrument-serif-regular-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href="/fonts/geist-regular-latin.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+  </head>
+  <body class="bg-ink font-body text-text">
+    <a class="skip-link" href="#main">
+      Skip to content
+    </a>
+
+    <header class="border-b border-slate bg-surface">
+      <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-4 px-4 py-4 sm:px-6">
+        <a href="/" class="flex items-center gap-3" aria-label="CLIMB home">
+          <img
+            src="/logo/climb-logo-dark.svg"
+            alt="CLIMB"
+            width="1504"
+            height="912"
+            class="h-10 w-auto"
+          />
+        </a>
+
+        <nav aria-label="Primary" class="order-3 w-full sm:order-2 sm:w-auto">
+          <ul class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
+            {primaryNav.map((item) => (
+              <li>
+                <a
+                  href={item.href}
+                  class="border-b-2 border-transparent py-1 text-text hover:border-orange hover:text-orange"
+                  aria-current={isCurrent(item.href) ? 'page' : undefined}
+                >
+                  {item.label}
+                </a>
+              </li>
+            ))}
+          </ul>
+        </nav>
+
+        <a
+          href={repository}
+          class="order-2 ml-auto rounded-control bg-orange px-4 py-2 text-sm font-medium text-ink hover:bg-paper sm:order-3"
+          rel="noreferrer"
+        >
+          Open the repository
+        </a>
+      </div>
+    </header>
+
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+
+    <footer class="mt-24 border-t border-slate bg-surface">
+      <div class="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-4">
+        <div class="space-y-3">
+          <img
+            src="/logo/climb-logo-dark.svg"
+            alt="CLIMB"
+            width="1504"
+            height="912"
+            class="h-8 w-auto"
+          />
+          <p class="font-display text-2xl italic text-paper">Measured, not claimed.</p>
+        </div>
+
+        <div class="space-y-3 md:col-span-1">
+          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
+            Project
+          </h2>
+          <ul class="space-y-2 text-sm">
+            <li>
+              <a class="text-text hover:text-orange" href="/dashboard">
+                Dashboard
+              </a>
+            </li>
+            <li>
+              <a class="text-text hover:text-orange" href="/calculator">
+                Calculator
+              </a>
+            </li>
+            <li>
+              <a class="text-text hover:text-orange" href="/report">
+                Report
+              </a>
+            </li>
+            <li>
+              <a class="text-text hover:text-orange" href="/verify">
+                Verify
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-3">
+          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">Method</h2>
+          <ul class="space-y-2 text-sm">
+            <li>
+              <a class="text-text hover:text-orange" href="/method">
+                Method
+              </a>
+            </li>
+            <li>
+              <a class="text-text hover:text-orange" href="/reproduce">
+                Reproduce
+              </a>
+            </li>
+            <li>
+              <a class="text-text hover:text-orange" href="/commits">
+                Commits
+              </a>
+            </li>
+          </ul>
+        </div>
+
+        <div class="space-y-3">
+          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">Event</h2>
+          <ul class="space-y-2 text-sm">
+            <li>
+              <span class="text-text">AIORI-3 Hackathon</span>
+            </li>
+            <li>
+              <span class="text-text">Problem statement PS-036</span>
+            </li>
+            <li>
+              <span class="text-text">Team A3-PS036-TC529</span>
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="border-t border-slate">
+        <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:px-6">
+          <p>
+            This website presents recorded results and a client-side dashboard. The DNSSEC and PQC
+            benchmark itself is not deployed on the Internet; the DNS testbed runs locally.
+          </p>
+          <p>
+            <a class="text-orange hover:text-paper" href={`${repository}/blob/main/LICENSE`}>
+              MIT licence
+            </a>
+            . Results are empirical measurements; nothing here is a formal verification or a
+            certification.
+          </p>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
