@@ -231,6 +231,8 @@ FACT_IDS: dict[str, tuple[str | None, str]] = {
     "F-wire-sizes": ("/wire_size", "MEASURED"),
     "F-parameter-set": ("/dns_pipeline/algorithm", "MEASURED"),
     # Not in the results artifact; sources recorded so a missing fact is visible.
+    "F-plain-signature-bytes": (None, "LADDER: /sizes/7/signature_len in ladder-verification.recorded.json"),
+    "F-condensed-path-bytes": (None, "LADDER: /sizes/7/condensed/min in ladder-verification.recorded.json"),
     "F-udp-payload": (None, "CONSTANT: UDP_MTU_1232"),
     "F-claims-count": (None, "GENERATED: `cargo xtask readme-badges`"),
 }

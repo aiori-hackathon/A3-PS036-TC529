@@ -1,0 +1,228 @@
+---
+/**
+ * The static hero artwork, and the permanent fallback for the WebGL scene.
+ *
+ * Two measured shapes tell the whole story: a wide block of shards for one
+ * plain SLH-DSA signature, and a slim orange bar for one condensed MTL path.
+ * Both byte counts come from the generated fact register, so the picture and
+ * the figure beside it cannot disagree. The rose-to-slate rule under the bar
+ * is the wordmark's own ladder foot, drawn once on load and complete when the
+ * animation is skipped.
+ */
+import Fact from './Fact.astro';
+
+interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+
+// Deterministic shard geometry. The block is decorative, so the jitter is a
+// fixed arithmetic pattern rather than a random draw: every build produces
+// the same picture.
+const COLUMNS = 10;
+const ROWS = 4;
+const shards = Array.from({ length: COLUMNS * ROWS }, (_, index) => {
+  const column = index % COLUMNS;
+  const row = Math.floor(index / COLUMNS);
+  const width = 34 + ((index * 7) % 9);
+  const height = 34 + ((index * 5) % 9);
+  return {
+    x: 4 + column * 43 + ((index * 3) % 5),
+    y: 34 + row * 48 + ((index * 2) % 6),
+    width,
+    height,
+    tone: index % 7 === 0 ? 'light' : index % 5 === 0 ? 'muted' : 'slate',
+  };
+});
+---
+
+<figure class:list={['hero-art', className]} data-hero-art>
+  <svg class="hero-art__svg" viewBox="0 0 560 300" aria-hidden="true" focusable="false">
+    <defs>
+      <linearGradient id="hero-ladder-foot-gradient" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" class="hero-art__foot-rose"></stop>
+        <stop offset="1" class="hero-art__foot-slate"></stop>
+      </linearGradient>
+    </defs>
+
+    <g class="hero-art__shards">
+      {shards.map((shard, index) => (
+        <rect
+          class:list={['hero-art__shard', `hero-art__shard--${shard.tone}`]}
+          x={shard.x}
+          y={shard.y}
+          width={shard.width}
+          height={shard.height}
+          rx="2"
+          style={`--i: ${index};`}
+        />
+      ))}
+    </g>
+
+    <g class="hero-art__bar">
+      <rect
+        class="hero-art__bar-fill"
+        x="474"
+        y="34"
+        width="32"
+        height="200"
+        rx="2"
+        style="--i: 10"
+      ></rect>
+    </g>
+
+    <g class="hero-art__foot">
+      <line class="hero-art__rung" x1="478" y1="244" x2="478" y2="252"></line>
+      <line class="hero-art__rung" x1="490" y1="240" x2="490" y2="252"></line>
+      <line class="hero-art__rung" x1="502" y1="244" x2="502" y2="252"></line>
+      <rect
+        class="hero-art__foot-line"
+        x="470"
+        y="252"
+        width="48"
+        height="4"
+        rx="2"
+        fill="url(#hero-ladder-foot-gradient)"
+      ></rect>
+    </g>
+  </svg>
+
+  <figcaption class="hero-art__legend">
+    <div class="hero-art__label" data-byte-label="plain">
+      <span class="hero-art__name">Plain signature</span>
+      <Fact id="F-plain-signature-bytes" />
+    </div>
+    <div class="hero-art__label" data-byte-label="condensed">
+      <span class="hero-art__name">Condensed path</span>
+      <Fact id="F-condensed-path-bytes" />
+    </div>
+  </figcaption>
+</figure>
+
+<style>
+  .hero-art {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .hero-art__svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  .hero-art__shard {
+    fill: var(--color-slate);
+  }
+
+  .hero-art__shard--light {
+    fill: var(--color-slate-light);
+  }
+
+  .hero-art__shard--muted {
+    fill: var(--color-muted);
+  }
+
+  .hero-art__bar-fill {
+    fill: var(--color-orange);
+  }
+
+  .hero-art__rung {
+    stroke: var(--color-slate-light);
+    stroke-width: 2;
+  }
+
+  /*
+   * The wordmark's own foot gradient. The rose stop belongs to the logo and is
+   * used here only as the decorative ladder rule, never as text or a control
+   * colour; the slate stop is the palette token.
+   */
+  .hero-art__foot-rose {
+    stop-color: #e59b9b;
+  }
+
+  .hero-art__foot-slate {
+    stop-color: var(--color-slate);
+  }
+
+  .hero-art__legend {
+    display: grid;
+    gap: 0.75rem;
+  }
+
+  @media (min-width: 640px) {
+    .hero-art__legend {
+      grid-template-columns: 1fr auto;
+      align-items: start;
+      gap: 1.5rem;
+    }
+
+    .hero-art__label[data-byte-label='condensed'] {
+      text-align: right;
+      justify-items: end;
+    }
+  }
+
+  .hero-art__label {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .hero-art__name {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
+  /*
+   * A single draw-in on first paint. The server HTML is already in its final
+   * state; the start frame is armed only when the reader has not asked for
+   * reduced motion, so a skipped or unsupported animation leaves the complete
+   * picture rather than a half-drawn one.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero-art__shard,
+    .hero-art__bar-fill,
+    .hero-art__rung,
+    .hero-art__foot-line {
+      animation: hero-art-draw 520ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+      animation-delay: calc(var(--i, 0) * 14ms);
+    }
+
+    .hero-art__bar-fill,
+    .hero-art__rung,
+    .hero-art__foot-line {
+      transform-box: fill-box;
+      transform-origin: bottom;
+      animation-delay: 260ms;
+    }
+
+    .hero-art__rung:nth-child(2) {
+      animation-delay: 300ms;
+    }
+
+    .hero-art__rung:nth-child(3) {
+      animation-delay: 340ms;
+    }
+
+    .hero-art__foot-line {
+      animation-delay: 380ms;
+    }
+  }
+
+  @keyframes hero-art-draw {
+    from {
+      opacity: 0;
+      transform: translateY(6px) scale(0.97);
+    }
+
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>

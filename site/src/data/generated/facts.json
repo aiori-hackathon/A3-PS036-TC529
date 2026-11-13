@@ -1,5 +1,5 @@
 {
-  "content_sha256": "067318a788321260755de434f59e48e77bd8ffa93623da9b374ef0a3a04e9815",
+  "content_sha256": "4b46c771f3aec33c117a83866638286fc4440318fefb2ba49406b4a6f2acb89e",
   "facts": [
     {
       "baseline": "A",
@@ -95,6 +95,30 @@
       "pointer": "/wire_size/1/with_mtl_total_bytes",
       "raw": 2743352.0,
       "source": "docs/sample-output/climb-results.json",
+      "unit": "B"
+    },
+    {
+      "baseline": "n/a",
+      "class": "measured",
+      "denominator": null,
+      "display": "7,856",
+      "id": "F-plain-signature-bytes",
+      "kind": "count",
+      "pointer": "/sizes/7/signature_len",
+      "raw": 7856.0,
+      "source": "docs/sample-output/ladder-verification.recorded.json",
+      "unit": "B"
+    },
+    {
+      "baseline": "n/a",
+      "class": "measured",
+      "denominator": null,
+      "display": "124",
+      "id": "F-condensed-path-bytes",
+      "kind": "count",
+      "pointer": "/sizes/7/condensed/min",
+      "raw": 124.0,
+      "source": "docs/sample-output/ladder-verification.recorded.json",
       "unit": "B"
     },
     {

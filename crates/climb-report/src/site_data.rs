@@ -100,6 +100,11 @@ enum FactValue {
         fit: &'static str,
         total: &'static str,
     },
+    /// A field of one recorded ladder size in the ladder-verification fixture.
+    Ladder {
+        leaf_count: u64,
+        pointer_suffix: &'static str,
+    },
     /// A constant read from a model source file, not from JSON.
     Constant { value: f64, pointer: &'static str },
     /// The `passed of total` count of the claims registry.
@@ -116,7 +121,7 @@ struct FactSpec {
 }
 
 /// The fact ids the copy deck uses. Each id names evidence, not presentation.
-const FACT_SPECS: [FactSpec; 16] = [
+const FACT_SPECS: [FactSpec; 18] = [
     FactSpec {
         id: "F-wire-medium-c-vs-a",
         kind: FactKind::Percent,
@@ -183,6 +188,28 @@ const FACT_SPECS: [FactSpec; 16] = [
         unit: "B",
         class: "measured",
         baseline: "C",
+    },
+    FactSpec {
+        id: "F-plain-signature-bytes",
+        kind: FactKind::Count,
+        value: FactValue::Ladder {
+            leaf_count: 8,
+            pointer_suffix: "signature_len",
+        },
+        unit: "B",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-condensed-path-bytes",
+        kind: FactKind::Count,
+        value: FactValue::Ladder {
+            leaf_count: 8,
+            pointer_suffix: "condensed/min",
+        },
+        unit: "B",
+        class: "measured",
+        baseline: "n/a",
     },
     FactSpec {
         id: "F-wire-medium-c-vs-b",
@@ -257,6 +284,7 @@ const FACT_SPECS: [FactSpec; 16] = [
 fn fact_source(value: &FactValue) -> &'static str {
     match value {
         FactValue::ClaimsCount => "docs/sample-output/climb-results.json (claims registry)",
+        FactValue::Ladder { .. } => DEFAULT_LADDER,
         FactValue::Constant { .. } => "crates/climb-analytical/src/udp_fit.rs",
         _ => DEFAULT_RESULTS,
     }
@@ -476,10 +504,47 @@ fn class_label(lower: &str) -> String {
     }
 }
 
-/// Build `facts.json` from the results artifact, the quote sheet and the
-/// claims registry.
+/// Read one field of the recorded ladder row for a leaf count.
+///
+/// The fixture is ordered by size, so the row is located by `leaf_count`
+/// rather than by array position and the returned pointer names the row that
+/// actually supplied the value.
+fn ladder_size_value(
+    ladder: &Value,
+    leaf_count: u64,
+    pointer_suffix: &str,
+) -> Result<(usize, f64), ReportError> {
+    let sizes = ladder
+        .get("sizes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| malformed(Path::new(DEFAULT_LADDER), "`sizes` is missing"))?;
+    let index = sizes
+        .iter()
+        .position(|row| row.get("leaf_count").and_then(Value::as_u64) == Some(leaf_count))
+        .ok_or_else(|| {
+            malformed(
+                Path::new(DEFAULT_LADDER),
+                format!("no recorded row for N={leaf_count}"),
+            )
+        })?;
+    let value = sizes
+        .get(index)
+        .and_then(|row| row.pointer(&format!("/{pointer_suffix}")))
+        .and_then(Value::as_f64)
+        .ok_or_else(|| {
+            malformed(
+                Path::new(DEFAULT_LADDER),
+                format!("/sizes/{index}/{pointer_suffix} is not a number"),
+            )
+        })?;
+    Ok((index, value))
+}
+
+/// Build `facts.json` from the results artifact, the recorded ladder fixture,
+/// the quote sheet and the claims registry.
 pub fn build_facts(
     results: &Value,
+    ladder: &Value,
     quote_sheet: Option<&str>,
     claims_passed: usize,
     claims_total: usize,
@@ -498,7 +563,7 @@ pub fn build_facts(
                             .ok_or_else(|| malformed(Path::new(DEFAULT_RESULTS), "non-finite"))?,
                     )
                 };
-                (display, None, pointer, fact_source(&spec.value))
+                (display, None, pointer.to_string(), fact_source(&spec.value))
             }
             FactValue::ArrayLen(pointer) => {
                 let length = results
@@ -508,7 +573,12 @@ pub fn build_facts(
                     .ok_or_else(|| {
                         malformed(Path::new(DEFAULT_RESULTS), "array pointer missing")
                     })?;
-                (json!(length), None, *pointer, fact_source(&spec.value))
+                (
+                    json!(length),
+                    None,
+                    (*pointer).to_string(),
+                    fact_source(&spec.value),
+                )
             }
             FactValue::CountOf {
                 fit: fit_pointer,
@@ -519,17 +589,28 @@ pub fn build_facts(
                 (
                     json!(fit),
                     Some(total),
-                    *fit_pointer,
+                    (*fit_pointer).to_string(),
                     fact_source(&spec.value),
                 )
             }
-            FactValue::Constant { value, pointer } => {
-                (json!(value), None, *pointer, fact_source(&spec.value))
+            FactValue::Ladder {
+                leaf_count,
+                pointer_suffix,
+            } => {
+                let (index, value) = ladder_size_value(ladder, *leaf_count, pointer_suffix)?;
+                let pointer = format!("/sizes/{index}/{pointer_suffix}");
+                (json!(value), None, pointer, fact_source(&spec.value))
             }
+            FactValue::Constant { value, pointer } => (
+                json!(value),
+                None,
+                (*pointer).to_string(),
+                fact_source(&spec.value),
+            ),
             FactValue::ClaimsCount => (
                 json!(claims_passed),
                 Some(claims_total as f64),
-                "html::claims",
+                "html::claims".to_string(),
                 fact_source(&spec.value),
             ),
         };
@@ -540,7 +621,7 @@ pub fn build_facts(
         // The quote sheet is the rendered record of unit/class/baseline; when
         // a row names this pointer, the two must agree or the site would label
         // a value differently from the record it quotes.
-        if let Some(row) = quote_row_for(&rows, pointer) {
+        if let Some(row) = quote_row_for(&rows, &pointer) {
             if !unit_is_compatible(&unit, &row.unit) {
                 return Err(malformed(
                     Path::new(DEFAULT_QUOTE_SHEET),
@@ -1076,7 +1157,9 @@ pub fn render(root: &Path) -> Result<Vec<(String, String)>, ReportError> {
         .unwrap_or(0) as usize;
     let total = claims_doc.get("total").and_then(Value::as_u64).unwrap_or(0) as usize;
 
-    let facts = build_facts(&results, quote_sheet.as_deref(), passed, total)?;
+    let ladder_path = root.join(DEFAULT_LADDER);
+    let ladder_raw = read_json(&ladder_path)?;
+    let facts = build_facts(&results, &ladder_raw, quote_sheet.as_deref(), passed, total)?;
     let provenance_text =
         read_text(&root.join(DEFAULT_PROVENANCE))?.ok_or_else(|| ReportError::Io {
             path: root.join(DEFAULT_PROVENANCE),
@@ -1085,17 +1168,11 @@ pub fn render(root: &Path) -> Result<Vec<(String, String)>, ReportError> {
     let environment = read_json(&root.join(DEFAULT_ENVIRONMENT))?;
     let provenance = build_provenance(&provenance_text, &environment)?;
     let series = build_series(&typed)?;
-    let ladder_path = root.join(DEFAULT_LADDER);
-    let ladder_text = serde_json::from_str::<LadderVerification>(
-        &fs::read_to_string(&ladder_path).map_err(|source| ReportError::Io {
+    let ladder_text: LadderVerification =
+        serde_json::from_value(ladder_raw).map_err(|source| ReportError::JsonDecode {
             path: ladder_path.clone(),
             source,
-        })?,
-    )
-    .map_err(|source| ReportError::JsonDecode {
-        path: ladder_path.clone(),
-        source,
-    })?;
+        })?;
     let ladder = build_ladder(&ladder_text)?;
     let graph = read_json(&root.join(DEFAULT_COMMITS))?;
     let commits = build_commits(graph);
@@ -1176,20 +1253,25 @@ mod tests {
         serde_json::from_str(&text).expect("ladder fixture parses")
     }
 
+    fn fixture_value() -> Value {
+        read_json(&root().join(DEFAULT_LADDER)).expect("ladder fixture")
+    }
+
     #[test]
     fn every_registry_fact_has_a_distinct_id() {
         let mut ids: Vec<&str> = FACT_SPECS.iter().map(|spec| spec.id).collect();
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), FACT_SPECS.len());
-        assert_eq!(ids.len(), 16);
+        assert_eq!(ids.len(), 18);
     }
 
     #[test]
     fn facts_render_the_quote_sheet_values() {
         let results = results();
+        let ladder = fixture_value();
         let quote = read_text(&root().join(DEFAULT_QUOTE_SHEET)).expect("quote sheet read");
-        let facts = build_facts(&results, quote.as_deref(), 852, 852).expect("facts");
+        let facts = build_facts(&results, &ladder, quote.as_deref(), 852, 852).expect("facts");
         let find = |id: &str| -> &Value {
             facts
                 .get("facts")
@@ -1205,6 +1287,18 @@ mod tests {
                 .get("display")
                 .and_then(Value::as_str),
             Some("2,743,352")
+        );
+        assert_eq!(
+            find("F-plain-signature-bytes")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("7,856")
+        );
+        assert_eq!(
+            find("F-condensed-path-bytes")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("124")
         );
         assert_eq!(
             find("F-sign-medium-c-vs-a")
@@ -1252,6 +1346,61 @@ mod tests {
                 .and_then(Value::as_str),
             Some("852 of 852")
         );
+    }
+
+    #[test]
+    fn hero_byte_facts_point_at_the_eight_leaf_recorded_row() {
+        let results = results();
+        let ladder = fixture_value();
+        let facts = build_facts(&results, &ladder, None, 852, 852).expect("facts");
+        let rows = facts
+            .get("facts")
+            .and_then(Value::as_array)
+            .expect("facts array");
+        let find = |id: &str| -> &Value {
+            rows.iter()
+                .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+                .expect("hero byte fact present")
+        };
+
+        let eight = ladder
+            .get("sizes")
+            .and_then(Value::as_array)
+            .and_then(|sizes| {
+                sizes
+                    .iter()
+                    .position(|row| row.get("leaf_count").and_then(Value::as_u64) == Some(8))
+            })
+            .expect("recorded N=8 row");
+
+        let plain = find("F-plain-signature-bytes");
+        assert_eq!(
+            plain.get("pointer").and_then(Value::as_str),
+            Some(format!("/sizes/{eight}/signature_len").as_str())
+        );
+        assert_eq!(
+            plain.get("raw").and_then(Value::as_f64),
+            ladder
+                .pointer(&format!("/sizes/{eight}/signature_len"))
+                .and_then(Value::as_f64)
+        );
+        assert_eq!(
+            plain.get("source").and_then(Value::as_str),
+            Some(DEFAULT_LADDER)
+        );
+
+        let condensed = find("F-condensed-path-bytes");
+        assert_eq!(
+            condensed.get("pointer").and_then(Value::as_str),
+            Some(format!("/sizes/{eight}/condensed/min").as_str())
+        );
+        assert_eq!(
+            condensed.get("raw").and_then(Value::as_f64),
+            ladder
+                .pointer(&format!("/sizes/{eight}/condensed/min"))
+                .and_then(Value::as_f64)
+        );
+        assert_eq!(condensed.get("unit").and_then(Value::as_str), Some("B"));
     }
 
     #[test]

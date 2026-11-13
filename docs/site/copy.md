@@ -51,7 +51,7 @@ about the system.
 
 Every fact id used below. `scripts/site-check.py copy` resolves each one
 against the committed artifact `docs/sample-output/climb-results.json` and
-fails on an undeclared or unresolvable id. Two ids are **not** in the results
+fails on an undeclared or unresolvable id. Four ids are **not** in the results
 artifact and are listed as such: the scan prints them as `not in the artifact`
 with their real source rather than passing them silently.
 
@@ -67,6 +67,8 @@ build reads the class from this table.
 | `F-wire-medium-c-vs-a` | `/`, `/dashboard`, `/calculator` | Derived | `/comparisons/2/wire_reduction_c_vs_a_percent` |
 | `F-sign-medium-c-vs-a` | `/`, `/dashboard`, `/calculator` | Derived | `/comparisons/2/signing_speedup_c_vs_a` |
 | `F-verify-medium-c-vs-a` | `/`, `/dashboard` | Derived | `/comparisons/2/verifying_speedup_cached_vs_a` |
+| `F-plain-signature-bytes` | `/` (hero artwork label) | Measured | **not in the artifact**: `/sizes/7/signature_len` in `docs/sample-output/ladder-verification.recorded.json` |
+| `F-condensed-path-bytes` | `/` (hero artwork label) | Measured | **not in the artifact**: `/sizes/7/condensed/min` in `docs/sample-output/ladder-verification.recorded.json` |
 | `F-udp-c-fit` | `/`, `/dashboard` | Analytical | `/derived/udp_fit/aggregate/2/fit_rows` |
 | `F-udp-c-total` | `/`, `/dashboard` | Analytical | `/derived/udp_fit/aggregate/2/total_rows` |
 | `F-wire-medium-a` | `/dashboard`, `/calculator` | Measured | `/wire_size/1/plain_total_bytes` |
@@ -81,9 +83,10 @@ build reads the class from this table.
 | `F-udp-payload` | `/calculator`, `/dashboard`, `/method` | Constant | **not in the artifact**: `UDP_MTU_1232` in `crates/climb-analytical/src/udp_fit.rs` |
 | `F-claims-count` | `/verify`, footer | Generated | **not in the artifact**: emitted by `cargo xtask readme-badges` |
 
-The two non-artifact ids are the only ones the copy cannot read from the
-results artifact. They are real values with a defined source, listed here
-rather than passed as if artifact-backed.
+Four ids are not in the results artifact and are listed as such: the payload constant,
+the generated claim count, and the two ladder byte counts read from
+`docs/sample-output/ladder-verification.recorded.json`. The copy scan prints each one
+as `not in the artifact` with its real source rather than passing it silently.
 
 ## The scope sentence
 
@@ -110,8 +113,9 @@ Buttons: **Open the dashboard** (primary) · **See the evidence** (secondary)
 Microcopy under the buttons: Recorded results, read from the committed
 artifact. This page is a viewer, not a service.
 
-Alt text for the hero art: The CLIMB wordmark over a ladder of Merkle tree
-rungs; decorative.
+Alt text for the hero art: A wide block of shards for one plain SLH-DSA
+signature, a slim orange bar for one condensed MTL path, and a thin ladder
+foot. Decorative; the byte labels beside it carry the measured facts.
 <!-- copy:end -->
 
 <!-- copy:begin id=home-figures -->

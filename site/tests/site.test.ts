@@ -191,10 +191,27 @@ describe('facts', () => {
   });
 
   it('formats every registered fact to its generated display value', () => {
-    expect(allFacts()).toHaveLength(16);
+    expect(allFacts()).toHaveLength(18);
     for (const fact of allFacts()) {
       expect(formatFactValue(fact), fact.id).toBe(fact.display);
     }
+  });
+
+  it('derives the hero byte facts from the recorded eight-leaf ladder tree', () => {
+    const ladder = loadGenerated('ladder') as { trees: LadderTree[] };
+    const tree = ladder.trees.find((candidate) => candidate.leaf_count === 8);
+    expect(tree).toBeDefined();
+    if (tree === undefined) {
+      return;
+    }
+    const plain = getFact('F-plain-signature-bytes');
+    const condensed = getFact('F-condensed-path-bytes');
+    expect(plain.raw).toBe(tree.plain_signature_bytes);
+    expect(plain.display).toBe(formatFactValue(plain));
+    expect(condensed.raw).toBe(tree.leaves[0]?.condensed_bytes);
+    expect(condensed.display).toBe(formatFactValue(condensed));
+    expect(plain.unit).toBe('B');
+    expect(condensed.unit).toBe('B');
   });
 });
 
@@ -454,5 +471,15 @@ describe('production build', () => {
     const html = readFileSync(join(dist, 'index.html'), 'utf8');
     expect(html).toContain('Post-quantum DNSSEC, without the weight.');
     expect(html).not.toMatch(/<script\b/i);
+  });
+
+  it('emits both hero actions and the measured byte labels', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    expect(html).toContain('button-cta--primary');
+    expect(html).toContain('button-cta--secondary');
+    expect(html).toContain('data-byte-label="plain"');
+    expect(html).toContain('data-byte-label="condensed"');
+    expect(html).toContain('data-fact-id="F-plain-signature-bytes"');
+    expect(html).toContain('data-fact-id="F-condensed-path-bytes"');
   });
 });

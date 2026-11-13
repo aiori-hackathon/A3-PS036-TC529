@@ -3,17 +3,25 @@ interface Props {
   href?: string;
   type?: 'button' | 'submit' | 'reset';
   disabled?: boolean;
+  /** `primary` is the orange call to action; `secondary` is a boundary-only peer. */
+  variant?: 'primary' | 'secondary';
   class?: string;
 }
 
-const { href, type = 'button', disabled = false, class: className = '' } = Astro.props;
+const {
+  href,
+  type = 'button',
+  disabled = false,
+  variant = 'primary',
+  class: className = '',
+} = Astro.props;
 
 const Tag = href === undefined ? 'button' : 'a';
 const external = href !== undefined && /^https?:\/\//.test(href);
 ---
 
 <Tag
-  class:list={['button-cta', className]}
+  class:list={['button-cta', `button-cta--${variant}`, className]}
   href={href}
   type={href === undefined ? type : undefined}
   disabled={href === undefined ? disabled : undefined}
@@ -61,6 +69,24 @@ const external = href !== undefined && /^https?:\/\//.test(href);
   .button-cta:disabled {
     cursor: not-allowed;
     background-color: var(--color-raised);
+    color: var(--color-muted);
+  }
+
+  .button-cta--secondary {
+    border: 1px solid var(--color-boundary);
+    background-color: transparent;
+    color: var(--color-text);
+  }
+
+  .button-cta--secondary:hover {
+    border-color: var(--color-teal);
+    background-color: transparent;
+    color: var(--color-teal);
+  }
+
+  .button-cta--secondary:disabled {
+    border-color: var(--color-slate);
+    background-color: transparent;
     color: var(--color-muted);
   }
 

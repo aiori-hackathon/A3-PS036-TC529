@@ -37,11 +37,14 @@ rules fix the composition.
 
 ## 3. The one decorative element
 
-The home route has exactly one deliberate decoration: the ladder motif in the
-hero — the wordmark set over a ladder of Merkle-tree rungs, drawn in `line` and
-`accent-orange`, echoing the Merkle path the page is about. It is inert, it
-carries the hero's alt text, and it is the only ornament on the route. Every
-other route has none. If a second flourish appears anywhere, rule 5 fails.
+The home route has exactly one deliberate decoration: the artwork in the
+hero. A wide block of hand-placed shards stands for one plain SLH-DSA
+signature; a slim orange bar beside it stands for one condensed MTL path; a
+thin rose-to-slate rule under the bar is the wordmark's ladder foot. The
+picture is inert and carries no figure of its own: its two byte labels are
+ordinary HTML rendered from the fact register, and the SVG is hidden from
+assistive technology. It is the only ornament on the route. Every other route
+has none. If a second flourish appears anywhere, rule 5 fails.
 
 ## 4. Motion
 
@@ -62,6 +65,11 @@ These animations are in scope, and no others. Each one states its job:
 - **The scroll progress line.** A two-pixel orange line shows how much of the
   document remains. It is decorative position feedback, hidden from assistive
   technology. Reduced motion: it still updates, without a transition.
+- **The hero draw-in.** The hero artwork draws once on first paint so the two
+  shapes read as a size comparison before the eye reaches the labels. The
+  server HTML is already the complete picture; only a reader who has not asked
+  for reduced motion sees the brief draw. Reduced motion: the complete artwork
+  with no animation.
 - **The marquee.** A single strip of topic labels loops to show that the list
   continues. The duplicate group is hidden from assistive technology and the
   strip pauses on hover or keyboard focus. Reduced motion: the items wrap as a
