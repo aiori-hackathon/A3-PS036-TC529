@@ -186,20 +186,20 @@ display_font = "Instrument Serif"
 # date are drawn dimmed and dashed.
 [[commit_graph.milestones]]
 date = "2026-10-14"
-label = "Round 1 submission"
+label = "Round 1"
 short = "Round 1"
 
 [[commit_graph.milestones]]
 date = "2026-10-20"
-label = "Level 2 qualified"
+label = "Level 2"
 short = "Level 2"
 
 [[commit_graph.milestones]]
-date = "2026-11-19"
-label = "Regional, IIEST Shibpur"
+date = "2026-11-18"
+label = "IIEST"
 short = "Reg"
 
 [[commit_graph.milestones]]
 date = "2026-12-17"
-label = "Finals, IIT Jammu"
+label = "Finals"
 short = "Finals"

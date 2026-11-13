@@ -1694,6 +1694,36 @@ fn milestone_labels_keep_eight_px_clearance_from_every_pole() {
 }
 
 #[test]
+fn plot_annotations_need_no_pole_clearance_but_milestone_labels_still_do() {
+    let font = Font::load().expect("the embedded fonts");
+    let mut canvas = Canvas::new(&font);
+    // The wide-card geometry that aborted generation once 13 November became
+    // the busiest day: the busiest annotation starts 3.9 px under the chart
+    // baseline, and the upcoming regional flag's pole rises from that baseline.
+    canvas.texts.push((
+        "annotations".to_string(),
+        TextBox {
+            x: 482.8,
+            y: 387.9,
+            width: 208.7,
+            height: 12.2,
+        },
+    ));
+    canvas
+        .marks
+        .push(super::Mark::segment("pole", 643.4, 384.0, 643.4, 362.0));
+    assert!(
+        canvas.check_collisions().is_ok(),
+        "a plot annotation may sit under a pole it does not cross"
+    );
+    canvas.texts[0].0 = "milestone-1".to_string();
+    assert!(
+        canvas.check_collisions().is_err(),
+        "a milestone label still needs 8 px of clearance from every pole"
+    );
+}
+
+#[test]
 fn streak_label_is_left_aligned_over_its_bracket_and_clear_of_the_busiest_label() {
     let graph = committed_graph();
     let svg_text = committed(WIDE);
@@ -1716,8 +1746,8 @@ fn streak_label_is_left_aligned_over_its_bracket_and_clear_of_the_busiest_label(
     // right run is the busiest label (centred over the tallest bar).
     let mut ordered = runs;
     ordered.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
-    let (streak_x, streak_y, _streak_w, streak_h) = ordered[0];
-    let (_busiest_x, busiest_y, _busiest_w, _busiest_h) = ordered[1];
+    let (streak_x, streak_y, streak_w, streak_h) = ordered[0];
+    let (busiest_x, busiest_y, busiest_w, busiest_h) = ordered[1];
 
     // Streak is left-aligned over the left end of its bracket.
     let start_index = graph
@@ -1736,12 +1766,24 @@ fn streak_label_is_left_aligned_over_its_bracket_and_clear_of_the_busiest_label(
         "the streak label starts at {streak_x:.1}, the bracket at {bracket_x0:.1}"
     );
 
-    // The busiest label keeps at least 16 px of vertical clearance from the
-    // streak label.
-    let streak_bottom = streak_y + streak_h;
-    let gap = busiest_y - streak_bottom;
+    // The placement keeps a 16 px Euclidean gap from the busiest label. When
+    // the streak sits in a different part of the plot the two share no columns,
+    // so that gap is horizontal and stacking them is not required.
+    let streak_box = TextBox {
+        x: streak_x,
+        y: streak_y,
+        width: streak_w,
+        height: streak_h,
+    };
+    let busiest_box = TextBox {
+        x: busiest_x,
+        y: busiest_y,
+        width: busiest_w,
+        height: busiest_h,
+    };
+    let gap = streak_box.gap(&busiest_box);
     assert!(
         gap >= 16.0,
-        "the busiest label is {gap:.1} px above the streak label, below 16 px"
+        "the busiest label is {gap:.1} px from the streak label, below 16 px"
     );
 }

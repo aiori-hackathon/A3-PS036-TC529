@@ -591,15 +591,21 @@ impl<'a> Canvas<'a> {
     }
 
     /// Recompute the layout's collision rule on the finished scene: a text run
-    /// may not cross a data mark, and only a leader may touch the run it points
-    /// at. Generation fails instead of publishing an overlapping label.
+    /// may not cross a data mark, a milestone label keeps eight pixels of
+    /// clearance from every flag pole, and only a leader may touch the run it
+    /// points at. Generation fails instead of publishing an overlapping label.
     fn check_collisions(&self) -> Result<()> {
         for (group, text) in &self.texts {
+            // The pole clearance is a milestone-label rule: those labels are
+            // placed around flag poles. Plot-anchored text (the annotations,
+            // the axis labels and the `now` label) only has to stay clear of
+            // ink, so a pole that ends below the chart cannot reject it.
+            let milestone_label = group.starts_with("milestone-");
             for mark in &self.marks {
                 if mark.kind == "leader" && mark.owner.as_deref() == Some(group.as_str()) {
                     continue;
                 }
-                if mark.kind == "pole" {
+                if mark.kind == "pole" && milestone_label {
                     // Milestone labels need an 8 px clearance from every pole.
                     if mark.gap_to(text) < 8.0 {
                         bail!(
