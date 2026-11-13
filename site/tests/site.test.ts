@@ -470,7 +470,14 @@ describe('production build', () => {
   it('emits the home route with no inline script', () => {
     const html = readFileSync(join(dist, 'index.html'), 'utf8');
     expect(html).toContain('Post-quantum DNSSEC, without the weight.');
-    expect(html).not.toMatch(/<script\b/i);
+    // The server HTML stays complete and parseable: the one script is the
+    // deferred dashboard window, and it is an external module, not inline.
+    const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
+    expect(scripts.length, 'the dashboard window is the only script').toBe(1);
+    for (const tag of scripts) {
+      expect(tag).toContain('src=');
+      expect(tag).toContain('type="module"');
+    }
   });
 
   it('emits both hero actions and the measured byte labels', () => {

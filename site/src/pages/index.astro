@@ -4,6 +4,7 @@ import Button from '../components/Button.astro';
 import Fact from '../components/Fact.astro';
 import HeroArt from '../components/HeroArt.astro';
 import Marquee from '../components/Marquee.astro';
+import TuiWindow from '../components/TuiWindow.astro';
 
 const heroFacts = [
   {
@@ -87,4 +88,23 @@ const marqueeItems = [
   </section>
 
   <Marquee items={marqueeItems} label="Sections of the record" />
+
+  <section class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6" aria-labelledby="browser-window">
+    <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+      <div>
+        <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.50 the window</p>
+        <h2 id="browser-window" class="mt-3 font-display text-3xl text-paper">
+          The dashboard, in the browser
+        </h2>
+      </div>
+      <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">no install · no server</p>
+    </div>
+
+    <p class="mb-6 max-w-2xl text-base text-muted">
+      The same Rust dashboard the terminal runs, compiled to WebAssembly. It reads the recorded
+      artifacts and waits until you reach it before it loads.
+    </p>
+
+    <TuiWindow mode="home" />
+  </section>
 </BaseLayout>

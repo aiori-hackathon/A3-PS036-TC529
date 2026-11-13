@@ -277,12 +277,28 @@ async fn fetch_bytes(path: &str) -> Option<Vec<u8>> {
 
 /// Attach the one keyboard adapter to the page.
 ///
-/// The listener is on `window`, not the canvas, so the dashboard receives keys
-/// whatever element has focus. A key the dashboard binds has its browser
-/// default suppressed; a key it does not bind is left alone, so page
-/// navigation and browser shortcuts keep working.
+/// The listener is on `window`, not the canvas, so the standalone dashboard
+/// receives keys whatever element has focus. A page that embeds the window in
+/// a longer document can set `data-keys="focus"` on the grid: the listener then
+/// lives on that focusable element, so the page keeps its own Tab and arrow
+/// behaviour until the reader deliberately enters the window. A key the
+/// dashboard binds has its browser default suppressed; a key it does not bind
+/// is left alone, so page navigation and browser shortcuts keep working.
 fn attach_keyboard(state: Rc<RefCell<WebState>>) -> Result<(), String> {
     let window = web_sys::window().ok_or_else(|| "no window".to_string())?;
+    let document = window.document().ok_or_else(|| "no document".to_string())?;
+    let grid = document.get_element_by_id("grid");
+    let attribute = grid
+        .as_ref()
+        .and_then(|element| element.get_attribute("data-keys"));
+    let target: web_sys::EventTarget = match (key_scope(attribute.as_deref()), grid) {
+        (KeyScope::Grid, Some(element)) => element.unchecked_ref::<web_sys::EventTarget>().clone(),
+        (KeyScope::Grid, None) => {
+            return Err("the page asked for a focused window but has no #grid".to_string())
+        }
+        (KeyScope::Page, _) => window.unchecked_ref::<web_sys::EventTarget>().clone(),
+    };
+
     let callback =
         Closure::<dyn FnMut(web_sys::KeyboardEvent)>::new(move |event: web_sys::KeyboardEvent| {
             let key = event.key();
@@ -295,13 +311,34 @@ fn attach_keyboard(state: Rc<RefCell<WebState>>) -> Result<(), String> {
                 }
             }
         });
-    window
+    target
         .add_event_listener_with_callback("keydown", callback.as_ref().unchecked_ref())
         .map_err(|error| format!("attaching the keyboard listener: {error:?}"))?;
     // The page lives as long as the module, so the listener owns its closure
     // for the lifetime of the document rather than risking a dropped callback.
     callback.forget();
     Ok(())
+}
+
+/// Where a page asks the dashboard to listen for keys.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyScope {
+    /// The whole page: the standalone window owns the keyboard.
+    Page,
+    /// Only the focused grid: an embedded window must not take the page's keys.
+    Grid,
+}
+
+/// Read the page's request from the grid's `data-keys` attribute.
+///
+/// A page that does not set it gets the standalone behaviour the trunk build
+/// and the terminal have always had. `focus` is the documented opt-in for a
+/// window embedded in a longer page.
+fn key_scope(attribute: Option<&str>) -> KeyScope {
+    match attribute {
+        Some(value) if value.trim().eq_ignore_ascii_case("focus") => KeyScope::Grid,
+        _ => KeyScope::Page,
+    }
 }
 
 /// Whether a page query string asks for the guided tour.
@@ -381,5 +418,14 @@ mod tests {
             "a 40 ms gap must carry at least one 33 ms tick (before {before}, after {})",
             state.app.tick
         );
+    }
+
+    #[test]
+    fn an_embedded_window_takes_keys_from_its_grid_not_the_page() {
+        assert_eq!(key_scope(Some("focus")), KeyScope::Grid);
+        assert_eq!(key_scope(Some(" Focus ")), KeyScope::Grid);
+        assert_eq!(key_scope(None), KeyScope::Page);
+        assert_eq!(key_scope(Some("page")), KeyScope::Page);
+        assert_eq!(key_scope(Some("")), KeyScope::Page);
     }
 }

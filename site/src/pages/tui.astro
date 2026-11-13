@@ -1,0 +1,266 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Button from '../components/Button.astro';
+import TuiWindow from '../components/TuiWindow.astro';
+import commands from '../data/tui-commands.json';
+
+interface CommandTab {
+  readonly id: string;
+  readonly label: string;
+  readonly note: string;
+  readonly lines: readonly string[];
+}
+
+const tabs: readonly CommandTab[] = commands.tabs;
+
+const limits = [
+  {
+    title: 'Recorded results only',
+    body: 'The window reads the committed artifacts this site publishes. It does not sign, verify or benchmark anything, and it has no route to a live cryptographic backend.',
+  },
+  {
+    title: 'No live libMTL',
+    body: 'The WebAssembly module links the dashboard, not the C library. Ladder verification in the browser is the recorded model-versus-library check, replayed from the artifact.',
+  },
+  {
+    title: 'No server and no account',
+    body: 'Everything is static files on one origin. The only requests are the three recorded documents beside this page; nothing is sent anywhere.',
+  },
+  {
+    title: 'A wide window',
+    body: 'The dashboard is designed for a wide terminal of at least eighty columns. Below that the window scrolls sideways; the touch row below it still works.',
+  },
+  {
+    title: 'Keys belong to the window',
+    body: 'While the window has focus, its keys take precedence over the page — the same behaviour as a terminal. Move focus out with the browser’s own focus shortcut, or click outside.',
+  },
+];
+---
+
+<BaseLayout
+  title="CLIMB — the recorded dashboard, in a browser tab"
+  description="The CLIMB terminal dashboard compiled to WebAssembly: the same model, widgets and key table, reading recorded artifacts with no server."
+>
+  <section class="mx-auto max-w-6xl px-4 pt-12 pb-10 sm:px-6 sm:pt-16">
+    <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/02.00 the window</p>
+
+    <h1 class="mt-5 max-w-3xl font-display text-5xl leading-[0.95] text-paper sm:text-6xl">
+      The dashboard, in this tab.
+    </h1>
+
+    <p class="mt-6 max-w-2xl text-lg text-muted">
+      The terminal dashboard, compiled to WebAssembly. It is the same Rust model, the same widgets
+      and the same key table; only the platform underneath changes. It reads the recorded artifacts
+      this site publishes, so there is no server to keep alive.
+    </p>
+
+    <div class="mt-8 flex flex-wrap items-center gap-3">
+      <Button href="/tui?tour=1">Take the tour</Button>
+      <Button href="#run" variant="secondary">Run it locally</Button>
+    </div>
+
+    <p class="mt-4 max-w-2xl text-sm text-muted">
+      Recorded measurements, drawn by the same code the terminal uses. Click the window to give it
+      the keyboard.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="window-heading">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <h2 id="window-heading" class="font-display text-3xl text-paper">The recorded run, live</h2>
+      <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">
+        same model · same widgets · same keys
+      </p>
+    </div>
+
+    <TuiWindow />
+
+    <p class="mt-4 text-sm text-muted">
+      The status bar inside the window names where each document came from:
+      <code class="font-mono text-text">[site]</code> for the files beside this page,
+      <code class="font-mono text-text">[embedded]</code> when a request failed and the compiled-in
+      recording took over.
+    </p>
+  </section>
+
+  <section id="run" class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="run-heading">
+    <h2 id="run-heading" class="font-display text-3xl text-paper">Run it locally</h2>
+    <p class="mt-3 max-w-2xl text-base text-muted">
+      The terminal build is the reference implementation: read-only, offline, and without a browser.
+      Pick the route that fits your machine. These are the same commands as the repository README.
+    </p>
+
+    <div class="tui-run" data-tui-tabs>
+      <div class="tui-run__list" role="tablist" aria-label="Ways to run the terminal dashboard">
+        {
+          tabs.map((tab, index) => (
+            <button
+              class="tui-run__tab"
+              type="button"
+              role="tab"
+              id={`run-tab-${tab.id}`}
+              aria-controls={`run-panel-${tab.id}`}
+              aria-selected={index === 0 ? 'true' : 'false'}
+              tabindex={index === 0 ? 0 : -1}
+              data-tui-tab={tab.id}
+            >
+              {tab.label}
+            </button>
+          ))
+        }
+      </div>
+
+      {
+        tabs.map((tab, index) => (
+          <section
+            class="tui-run__panel"
+            role="tabpanel"
+            id={`run-panel-${tab.id}`}
+            aria-labelledby={`run-tab-${tab.id}`}
+            data-tui-panel={tab.id}
+            data-tui-active={index === 0 ? 'true' : undefined}
+            tabindex="0"
+          >
+            <p class="tui-run__note">{tab.note}</p>
+            <pre class="tui-run__code">
+              <code>{tab.lines.join('\n')}</code>
+            </pre>
+          </section>
+        ))
+      }
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6" aria-labelledby="limits-heading">
+    <h2 id="limits-heading" class="font-display text-3xl text-paper">What this window is not</h2>
+    <ul class="mt-6 grid gap-px overflow-hidden rounded-panel border border-slate bg-slate sm:grid-cols-2">
+      {
+        limits.map((limit) => (
+          <li class="bg-raised p-5 last:sm:col-span-2">
+            <h3 class="font-body text-sm font-medium text-paper">{limit.title}</h3>
+            <p class="mt-2 text-sm text-muted">{limit.body}</p>
+          </li>
+        ))
+      }
+    </ul>
+  </section>
+</BaseLayout>
+
+<script>
+  import { nextTabIndex } from '../lib/tui';
+
+  const root = document.querySelector<HTMLElement>('[data-tui-tabs]');
+  if (root !== null) {
+    const tabs = [...root.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
+    const panels = [...root.querySelectorAll<HTMLElement>('[role="tabpanel"]')];
+
+    const activate = (index: number, focus: boolean): void => {
+      tabs.forEach((tab, position) => {
+        const selected = position === index;
+        tab.setAttribute('aria-selected', selected ? 'true' : 'false');
+        tab.tabIndex = selected ? 0 : -1;
+      });
+      panels.forEach((panel, position) => {
+        const active = position === index;
+        panel.toggleAttribute('hidden', !active);
+        if (active) {
+          panel.dataset.tuiActive = 'true';
+        } else {
+          delete panel.dataset.tuiActive;
+        }
+      });
+      if (focus) {
+        tabs[index]?.focus();
+      }
+    };
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener('click', () => {
+        activate(index, false);
+      });
+      tab.addEventListener('keydown', (event) => {
+        const next = nextTabIndex(index, event.key, tabs.length);
+        if (next === null) return;
+        event.preventDefault();
+        activate(next, true);
+      });
+    });
+
+    // Without scripting every panel stays visible; once the tablist is
+    // enhanced the stylesheet hides the inactive ones.
+    root.dataset.tuiTabsReady = 'true';
+    activate(0, false);
+  }
+</script>
+
+<style>
+  .tui-run {
+    margin-top: 1.5rem;
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-raised);
+    overflow: hidden;
+  }
+
+  .tui-run__list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--color-rule);
+    background-color: var(--color-surface);
+    padding: 0.5rem 0.5rem 0;
+  }
+
+  .tui-run__tab {
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: var(--color-muted);
+    padding: 0.5rem 0.75rem 0.625rem;
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    cursor: pointer;
+  }
+
+  .tui-run__tab[aria-selected='true'] {
+    border-bottom-color: var(--color-orange);
+    color: var(--color-paper);
+  }
+
+  .tui-run__tab:hover {
+    color: var(--color-orange);
+  }
+
+  .tui-run__panel {
+    padding: 1.25rem 1.25rem 1.5rem;
+    outline: none;
+  }
+
+  .tui-run[data-tui-tabs-ready] [role='tabpanel']:not([data-tui-active]) {
+    display: none;
+  }
+
+  .tui-run__panel:focus-visible {
+    outline: 3px solid var(--color-focus);
+    outline-offset: -3px;
+  }
+
+  .tui-run__note {
+    margin: 0 0 0.75rem;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  .tui-run__code {
+    margin: 0;
+    overflow-x: auto;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-ink);
+    padding: 1rem;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+</style>

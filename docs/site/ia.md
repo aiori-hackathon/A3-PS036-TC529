@@ -5,13 +5,14 @@ route lives in `docs/site/copy.md`, keyed by the same path.
 
 ## 1. Routes
 
-Nine routes. Each one has a single job; if a route cannot state its job in one
+Ten routes. Each one has a single job; if a route cannot state its job in one
 sentence it is two routes.
 
 | Path | Title | Job | Primary action | Evidence shown |
 | --- | --- | --- | --- | --- |
 | `/` | CLIMB — post-quantum DNSSEC, measured | Say what was measured, in one headline and four figures, and route to the evidence. | Open the dashboard | The four headline facts |
 | `/dashboard` | Dashboard | The client-side dashboard: browse every recorded result interactively, with its evidence class. | Switch dataset | Wire, signing, verifying, memory, UDP fit, live DNS |
+| `/tui` | The dashboard, in a browser tab | Run the recorded dashboard in the browser: the same terminal model, widgets and keys, with no server. | Take the tour | The recorded run, the nine views, the source of each document |
 | `/calculator` | Break-even calculator | Let a reader put their own message count and response profile against the recorded per-message costs. | Compute | Wire totals, the break-even crossings, the UDP-fit window |
 | `/report` | Report | The full HTML report and the results artifact, rendered and downloadable. | Download the artifact | Every recorded fact |
 | `/verify` | Verify | Show the claims registry: each claim, its pointer, its value and its pass mark. | Re-run the check locally | The claims count and a worked example |
@@ -25,16 +26,16 @@ sentence it is two routes.
 - **Removed: `/lab`.** The prototype's laboratory route is cut; its content is
   either promoted into `/method` (definitions) or `/dashboard` (the
   interactive view), so no capability is lost.
-- **Removed: the terminal route.** The site does not ship a terminal-style
-  route. The terminal dashboard is a local binary
-  (`cargo run -p climb-tui`), documented on `/reproduce`; the browser
-  equivalent is `/dashboard`. The removed path is treated as `/tui`; if the
-  earlier plan used a different path, the redirect below follows the real one.
 - **Added: `/dashboard`.** The client-side dashboard, which is the browser
   counterpart of the terminal dashboard and the primary interactive surface.
+- **Reintroduced: `/tui`.** An earlier version of this map removed a
+  terminal-style route. The dashboard now runs in the browser as well, so
+  `/tui` is a real page: the recorded terminal dashboard in a window, linked
+  from the home route. It is the window; `/dashboard` remains
+  the analysis route.
 
-A removed path serves a 301 to its replacement (`/lab` → `/method`, `/tui` →
-`/dashboard`). No path 404s because of the change.
+A removed path serves a 301 to its replacement (`/lab` → `/method`). No path
+404s because of a route change.
 
 ## 2. Navigation
 
