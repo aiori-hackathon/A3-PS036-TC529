@@ -1,0 +1,95 @@
+---
+/**
+ * The evidence chip as a button.
+ *
+ * It keeps the written class and the class-specific mark, so colour is never
+ * the only channel, and it names the dialog it controls. The button is a real
+ * `<button>`: it is reachable by Tab and activated by Enter or Space without
+ * any script.
+ */
+import { getFact } from '../lib/facts';
+import { dialogIdFor } from '../lib/results';
+
+interface Props {
+  id: string;
+  label?: string;
+}
+
+const fact = getFact(Astro.props.id);
+const labels: Record<string, string> = {
+  measured: 'Measured',
+  derived: 'Derived',
+  analytical: 'Analytical',
+  extrapolated: 'Extrapolated',
+  constant: 'Constant',
+  generated: 'Generated',
+};
+const text = Astro.props.label ?? labels[fact.class] ?? fact.class;
+---
+
+<button
+  type="button"
+  class:list={['chip', 'evidence-chip', `evidence-chip--${fact.class}`]}
+  data-evidence-open={fact.id}
+  aria-haspopup="dialog"
+  aria-controls={dialogIdFor(fact.id)}
+  title={`Open the evidence for ${fact.id}`}
+>
+  <span class="chip__mark" aria-hidden="true"></span>
+  {text}
+  <span class="sr-only"> evidence</span>
+</button>
+
+<style>
+  .evidence-chip {
+    cursor: pointer;
+    background-color: transparent;
+    color: var(--color-muted);
+  }
+
+  .evidence-chip:hover {
+    background-color: var(--color-raised);
+  }
+
+  .evidence-chip--measured {
+    color: var(--color-measured);
+  }
+
+  .evidence-chip--derived {
+    color: var(--color-derived);
+  }
+
+  .evidence-chip--analytical {
+    color: var(--color-analytical);
+  }
+
+  .evidence-chip--extrapolated {
+    color: var(--color-extrapolated);
+    border-style: dashed;
+  }
+
+  .chip__mark {
+    flex: none;
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 1.5px solid currentColor;
+    border-radius: 999px;
+  }
+
+  .evidence-chip--measured .chip__mark {
+    background-color: currentColor;
+  }
+
+  .evidence-chip--derived .chip__mark {
+    background: linear-gradient(90deg, currentColor 50%, transparent 50%);
+  }
+
+  .evidence-chip--analytical .chip__mark {
+    background-color: transparent;
+  }
+
+  .evidence-chip--extrapolated .chip__mark {
+    border-style: dotted;
+    border-width: 2px;
+  }
+</style>

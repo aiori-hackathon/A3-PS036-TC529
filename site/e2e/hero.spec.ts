@@ -110,7 +110,7 @@ test('the hero renders every figure and its artwork without JavaScript', async (
     await expect(
       page.getByRole('heading', { level: 1, name: 'Post-quantum DNSSEC, without the weight.' }),
     ).toBeVisible();
-    await expect(page.getByRole('link', { name: 'Open the dashboard' })).toBeVisible();
+    await expect(page.getByRole('link', { name: 'Open the dashboard' }).first()).toBeVisible();
     await expect(page.getByRole('link', { name: 'See the evidence' })).toBeVisible();
     await expect(page.locator('[data-hero-art]')).toBeVisible();
 

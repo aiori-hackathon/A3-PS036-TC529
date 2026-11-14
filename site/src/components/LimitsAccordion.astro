@@ -1,0 +1,100 @@
+---
+/**
+ * Honest limits.
+ *
+ * The three method sections are parsed from the committed methodology at
+ * build time; the scope sentence and the "what we did not measure" list come
+ * from the copy deck. A renamed section fails the build rather than leaving an
+ * empty accordion item.
+ */
+import Button from './Button.astro';
+import Fact from './Fact.astro';
+import { loadLimitItems, renderInline } from '../lib/limits';
+
+const items = loadLimitItems();
+---
+
+<section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6" aria-labelledby="limits-title" data-limits>
+  <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.40 honest limits</p>
+  <h2 id="limits-title" class="mt-3 font-display text-4xl text-paper sm:text-5xl">
+    Honest limits
+  </h2>
+  <p class="mt-4 max-w-2xl text-base text-muted">
+    These results are empirical measurements from one parameter set (<Fact id="F-parameter-set" />
+    ), one reference implementation and one laptop-class machine. They are not a formal
+    verification, an audit or a certification.
+  </p>
+
+  <div class="mt-8 border-t border-slate" data-limits-accordion>
+    {items.map((item) => (
+      <details class="limit-item" data-limit-id={item.id} open={item.id === 'scope'}>
+        <summary>{item.title}</summary>
+        <div class="limit-item__body">
+          {item.paragraphs.map((paragraph) => (
+            <p
+              set:html={renderInline(paragraph)}
+              data-limit-scope={item.id === 'scope' ? '' : undefined}
+            />
+          ))}
+          {item.bullets.length > 0 ? (
+            <ul>
+              {item.bullets.map((bullet) => (
+                <li set:html={renderInline(bullet)} />
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </details>
+    ))}
+  </div>
+
+  <div class="mt-8">
+    <Button href="/method" variant="secondary">
+      Read the method
+    </Button>
+  </div>
+</section>
+
+<style>
+  .limit-item {
+    border-bottom: 1px solid var(--color-slate);
+  }
+
+  .limit-item summary {
+    cursor: pointer;
+    padding: 1rem 0;
+    font-family: var(--font-body);
+    font-size: var(--text-lg);
+    color: var(--color-paper);
+  }
+
+  .limit-item summary:hover {
+    color: var(--color-orange);
+  }
+
+  .limit-item__body {
+    max-width: 46rem;
+    padding-bottom: 1.25rem;
+    color: var(--color-muted);
+  }
+
+  .limit-item__body p,
+  .limit-item__body ul {
+    margin-top: 0.75rem;
+  }
+
+  .limit-item__body ul {
+    list-style: disc;
+    padding-left: 1.25rem;
+  }
+
+  .limit-item__body li + li {
+    margin-top: 0.5rem;
+  }
+
+  .limit-item__body code {
+    font-family: var(--font-mono);
+    font-size: 0.9em;
+    color: var(--color-teal);
+  }
+</style>

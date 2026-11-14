@@ -134,6 +134,16 @@ Evidence legend: Measured: read from a measurement artifact · Derived: computed
 Microcopy: Every figure carries its evidence class and the baseline it is compared against. Definitions are in Method. The full table is the quote sheet.
 <!-- copy:end -->
 
+<!-- copy:begin id=home-byterace -->
+Headline: **One response, two weights**
+
+Body: One full response carries a whole signed ladder: **7,856 B** (Measured) `[F-plain-signature-bytes]`. One condensed response carries only its authentication path: **124 B** (Measured) `[F-condensed-path-bytes]`.
+
+Body: Slide the count to compare condensed responses with the bytes of one full response. The comparison is arithmetic over the measured byte counts, not a re-run of the benchmark.
+
+Microcopy: A condensed response is a Merkle authentication path. A full response is the whole signed ladder.
+<!-- copy:end -->
+
 <!-- copy:begin id=home-mechanism -->
 Headline: **How the ladder saves weight**
 
@@ -160,6 +170,20 @@ verification, an audit or a certification. The DNS pipeline runs locally, on a
 testbed, not on the Internet.
 
 Button: **Read the method**
+<!-- copy:end -->
+
+<!-- copy:begin id=home-team -->
+Headline: **Team CLIMB**
+
+Subhead: AIORI-3 Hackathon, problem statement PS-036, team A3-PS036-TC529.
+
+Body: Pratyay Mukherjee — Team Lead and Developer.
+
+Body: Mohit Kumar Yadav — Lead Researcher, UI and Logo Designer.
+
+Body: Dr. Maibam Devi — Faculty Mentor.
+
+Microcopy: Contact and profile links are on the repository.
 <!-- copy:end -->
 
 ## `/dashboard` — Dashboard

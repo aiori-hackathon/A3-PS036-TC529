@@ -1,0 +1,45 @@
+---
+/**
+ * Who built the record, and which event it belongs to.
+ *
+ * Names and roles are read from the repository's team table. There are no
+ * avatars and no portraits: the section is a plain list of people and links.
+ */
+import team from '../data/team.json';
+---
+
+<section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6" aria-labelledby="team-title" data-team>
+  <div class="grid gap-10 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)] lg:gap-16">
+    <div>
+      <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.60 who</p>
+      <h2 id="team-title" class="mt-3 font-display text-4xl text-paper sm:text-5xl">
+        Team CLIMB
+      </h2>
+      <p class="mt-4 max-w-xl text-base text-muted">
+        {team.event}, problem statement {team.problem}, team {team.team}.
+      </p>
+      <p class="mt-4 max-w-xl text-sm text-muted">
+        Contact and profile links are on the repository.
+      </p>
+    </div>
+
+    <ul class="border-t border-slate">
+      {team.members.map((member) => (
+        <li class="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 border-b border-slate py-5">
+          <div>
+            <p class="text-lg text-paper">{member.name}</p>
+            <p class="mt-1 text-sm text-muted">{member.role}</p>
+          </div>
+          <a
+            class="font-mono text-xs tracking-[0.12em] text-teal uppercase underline underline-offset-4 hover:text-paper"
+            href={member.link.href}
+            rel="noreferrer"
+            aria-label={`${member.name} on ${member.link.label}`}
+          >
+            {member.link.label}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>

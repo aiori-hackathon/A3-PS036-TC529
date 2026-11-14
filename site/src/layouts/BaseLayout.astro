@@ -1,5 +1,6 @@
 ---
 import '../styles/global.css';
+import Fact from '../components/Fact.astro';
 
 interface Props {
   title: string;
@@ -116,102 +117,163 @@ const isCurrent = (href: string) => (href === '/' ? path === '/' : path.startsWi
       <slot />
     </main>
 
-    <footer class="mt-24 border-t border-slate bg-surface">
-      <div class="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-4">
-        <div class="space-y-3">
-          <img
-            src="/logo/climb-logo-dark.svg"
-            alt="CLIMB"
-            width="1504"
-            height="912"
-            class="h-8 w-auto"
-          />
-          <p class="font-display text-2xl italic text-paper">Measured, not claimed.</p>
+    <footer class="mt-24">
+      <a class="footer-band" href="/dashboard" data-footer-band>
+        <span class="footer-band__label">Open the dashboard</span>
+        <svg
+          class="footer-band__arrow"
+          viewBox="0 0 64 64"
+          width="64"
+          height="64"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="3"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <path d="M10 32h42M38 18l14 14-14 14"></path>
+        </svg>
+      </a>
+
+      <div class="border-t border-slate bg-surface">
+        <div class="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-4">
+          <div class="space-y-3">
+            <img
+              src="/logo/climb-logo-dark.svg"
+              alt="CLIMB"
+              width="1504"
+              height="912"
+              class="h-8 w-auto"
+            />
+            <p class="font-display text-2xl italic text-paper">Measured, not claimed.</p>
+          </div>
+
+          <div class="space-y-3 md:col-span-1">
+            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
+              Project
+            </h2>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="text-text hover:text-orange" href="/dashboard">
+                  Dashboard
+                </a>
+              </li>
+              <li>
+                <a class="text-text hover:text-orange" href="/calculator">
+                  Calculator
+                </a>
+              </li>
+              <li>
+                <a class="text-text hover:text-orange" href="/report">
+                  Report
+                </a>
+              </li>
+              <li>
+                <a class="text-text hover:text-orange" href="/verify">
+                  Verify
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="space-y-3">
+            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
+              Method
+            </h2>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <a class="text-text hover:text-orange" href="/method">
+                  Method
+                </a>
+              </li>
+              <li>
+                <a class="text-text hover:text-orange" href="/reproduce">
+                  Reproduce
+                </a>
+              </li>
+              <li>
+                <a class="text-text hover:text-orange" href="/commits">
+                  Commits
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="space-y-3">
+            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
+              Event
+            </h2>
+            <ul class="space-y-2 text-sm">
+              <li>
+                <span class="text-text">AIORI-3 Hackathon</span>
+              </li>
+              <li>
+                <span class="text-text">Problem statement PS-036</span>
+              </li>
+              <li>
+                <span class="text-text">Team A3-PS036-TC529</span>
+              </li>
+            </ul>
+          </div>
         </div>
 
-        <div class="space-y-3 md:col-span-1">
-          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
-            Project
-          </h2>
-          <ul class="space-y-2 text-sm">
-            <li>
-              <a class="text-text hover:text-orange" href="/dashboard">
-                Dashboard
+        <div class="border-t border-slate">
+          <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:px-6">
+            <p>
+              This website presents recorded results and a client-side dashboard. The DNSSEC and PQC
+              benchmark itself is not deployed on the Internet; the DNS testbed runs locally.
+            </p>
+            <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1" data-footer-claims>
+              <Fact id="F-claims-count" />
+              <span>verified in the claims registry.</span>
+            </p>
+            <p>
+              <a
+                class="text-orange underline underline-offset-2 hover:text-paper"
+                href={`${repository}/blob/main/LICENSE`}
+              >
+                MIT licence
               </a>
-            </li>
-            <li>
-              <a class="text-text hover:text-orange" href="/calculator">
-                Calculator
-              </a>
-            </li>
-            <li>
-              <a class="text-text hover:text-orange" href="/report">
-                Report
-              </a>
-            </li>
-            <li>
-              <a class="text-text hover:text-orange" href="/verify">
-                Verify
-              </a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="space-y-3">
-          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">Method</h2>
-          <ul class="space-y-2 text-sm">
-            <li>
-              <a class="text-text hover:text-orange" href="/method">
-                Method
-              </a>
-            </li>
-            <li>
-              <a class="text-text hover:text-orange" href="/reproduce">
-                Reproduce
-              </a>
-            </li>
-            <li>
-              <a class="text-text hover:text-orange" href="/commits">
-                Commits
-              </a>
-            </li>
-          </ul>
-        </div>
-
-        <div class="space-y-3">
-          <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">Event</h2>
-          <ul class="space-y-2 text-sm">
-            <li>
-              <span class="text-text">AIORI-3 Hackathon</span>
-            </li>
-            <li>
-              <span class="text-text">Problem statement PS-036</span>
-            </li>
-            <li>
-              <span class="text-text">Team A3-PS036-TC529</span>
-            </li>
-          </ul>
-        </div>
-      </div>
-
-      <div class="border-t border-slate">
-        <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:px-6">
-          <p>
-            This website presents recorded results and a client-side dashboard. The DNSSEC and PQC
-            benchmark itself is not deployed on the Internet; the DNS testbed runs locally.
-          </p>
-          <p>
-            <a
-              class="text-orange underline underline-offset-2 hover:text-paper"
-              href={`${repository}/blob/main/LICENSE`}
-            >
-              MIT licence
-            </a>
-            . Results are empirical measurements; nothing here is a formal verification or a
-            certification.
-          </p>
+              . Results are empirical measurements; nothing here is a formal verification or a
+              certification.
+            </p>
+          </div>
         </div>
       </div>
     </footer>
+
+    <style>
+      .footer-band {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 1.5rem;
+        padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 4vw, 3rem);
+        background-color: var(--color-orange);
+        color: var(--color-ink);
+      }
+
+      .footer-band:hover {
+        background-color: var(--color-paper);
+      }
+
+      .footer-band__label {
+        font-family: var(--font-display);
+        font-size: clamp(2.75rem, 9vw, 8rem);
+        line-height: 0.9;
+        letter-spacing: -0.02em;
+      }
+
+      .footer-band__arrow {
+        flex: none;
+        width: clamp(2.5rem, 8vw, 6rem);
+        height: auto;
+        transition: transform 180ms ease-out;
+      }
+
+      .footer-band:hover .footer-band__arrow {
+        transform: translateX(0.5rem);
+      }
+    </style>
   </body>
 </html>

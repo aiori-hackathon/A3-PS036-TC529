@@ -1,0 +1,142 @@
+---
+/**
+ * One full response against a chosen number of condensed responses.
+ *
+ * The slider is a native range input, so it works with arrow keys, Home, End
+ * and Page Up/Page Down before any script runs. The initial frame is rendered
+ * from the recorded byte facts; the script recomputes the bar from the same
+ * facts and never introduces a number of its own.
+ */
+import Fact from './Fact.astro';
+import { getFact } from '../lib/facts';
+import { byteRaceModel, formatByteCount, maxCondensedPaths } from '../lib/results';
+
+const full = getFact('F-plain-signature-bytes');
+const condensed = getFact('F-condensed-path-bytes');
+if (typeof full.raw !== 'number' || typeof condensed.raw !== 'number') {
+  throw new Error('the byte comparison needs two numeric byte facts');
+}
+
+const fullBytes = full.raw;
+const condensedBytes = condensed.raw;
+const maxPaths = maxCondensedPaths(fullBytes, condensedBytes);
+const initial = byteRaceModel(fullBytes, condensedBytes, 1);
+const rangeId = 'byte-race-range';
+const outputId = 'byte-race-output';
+---
+
+<section
+  class="mx-auto max-w-6xl px-4 pb-20 sm:px-6"
+  aria-labelledby="byte-race-title"
+  data-byte-race
+  data-full-bytes={fullBytes}
+  data-condensed-bytes={condensedBytes}
+>
+  <div class="grid gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-16">
+    <div>
+      <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.30 two weights</p>
+      <h2 id="byte-race-title" class="mt-3 font-display text-4xl text-paper sm:text-5xl">
+        One response, two weights
+      </h2>
+      <p class="mt-4 max-w-xl text-base text-muted">
+        One full response carries a whole signed ladder (<Fact id={full.id} />
+        ). One condensed response carries only its authentication path (<Fact id={condensed.id} />
+        ).
+      </p>
+      <p class="mt-4 max-w-xl text-sm text-muted">
+        Slide the count to compare condensed responses with the bytes of one full response. The
+        comparison is arithmetic over the measured byte counts, not a re-run of the benchmark.
+      </p>
+    </div>
+
+    <div class="panel p-5 sm:p-7">
+      <div class="space-y-6">
+        <div>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">
+              One full response
+            </p>
+            <p class="text-sm text-muted">
+              <Fact id={full.id} />
+            </p>
+          </div>
+          <div class="race-track mt-2" aria-hidden="true">
+            <div class="race-fill race-fill--full"></div>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex flex-wrap items-baseline justify-between gap-2">
+            <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">
+              <span data-byte-race-paths>{initial.paths}</span> condensed
+            </p>
+            <p class="text-sm text-muted">
+              <Fact id={condensed.id} /> each
+            </p>
+          </div>
+          <div class="race-track mt-2" aria-hidden="true">
+            <div
+              class="race-fill race-fill--condensed"
+              data-byte-race-fill
+              style={`width: ${initial.widthPercent}%`}
+            ></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-7 border-t border-slate pt-6">
+        <label class="block font-mono text-xs tracking-[0.12em] text-muted uppercase" for={rangeId}>
+          Condensed responses to compare
+        </label>
+        <input
+          id={rangeId}
+          class="race-range mt-3 w-full"
+          type="range"
+          min="1"
+          max={maxPaths}
+          value={initial.paths}
+          step="1"
+          data-byte-race-range
+          aria-describedby={outputId}
+        />
+        <output id={outputId} class="mt-3 block text-sm text-text" for={rangeId}>
+          <span data-byte-race-paths>{initial.paths}</span> condensed responses carry
+          <span class="font-mono" data-byte-race-bytes>
+            {formatByteCount(initial.bytes)}
+          </span>
+          B against one full response.
+        </output>
+      </div>
+    </div>
+  </div>
+</section>
+
+<style>
+  .race-track {
+    height: 0.75rem;
+    border: 1px solid var(--color-slate);
+    border-radius: 999px;
+    background-color: var(--color-surface);
+    overflow: clip;
+  }
+
+  .race-fill {
+    height: 100%;
+    border-radius: 999px;
+  }
+
+  .race-fill--full {
+    width: 100%;
+    background-color: var(--color-orange);
+  }
+
+  .race-fill--condensed {
+    min-width: 2px;
+    background-color: var(--color-teal);
+    transition: width 180ms ease-out;
+  }
+
+  .race-range {
+    accent-color: var(--color-orange);
+  }
+</style>

@@ -1,0 +1,193 @@
+---
+/**
+ * One fact's evidence drawer.
+ *
+ * The body is server-rendered inside a native `<dialog>`, so the value,
+ * evidence class, baseline, JSON pointer, source file and provenance are all
+ * present without scripting. The chip opens it modally; the script adds the
+ * explicit Tab loop, Escape close and focus restoration.
+ */
+import Fact from './Fact.astro';
+import { getFact } from '../lib/facts';
+import { dialogIdFor } from '../lib/results';
+import provenance from '../data/generated/provenance.json';
+
+interface Props {
+  id: string;
+  label?: string;
+}
+
+const fact = getFact(Astro.props.id);
+const title = Astro.props.label ?? fact.id;
+const classLabel = fact.class.charAt(0).toUpperCase() + fact.class.slice(1);
+const titleId = `${dialogIdFor(fact.id)}-title`;
+---
+
+<dialog
+  id={dialogIdFor(fact.id)}
+  class="evidence-drawer"
+  data-evidence-drawer={fact.id}
+  aria-labelledby={titleId}
+>
+  <div class="evidence-drawer__frame">
+    <div class="evidence-drawer__head">
+      <button class="evidence-drawer__close" type="button" data-evidence-close>
+        Close
+      </button>
+      <div>
+        <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">Evidence</p>
+        <h2 id={titleId} class="mt-1 font-display text-2xl text-paper">
+          {title}
+        </h2>
+      </div>
+    </div>
+
+    <dl class="evidence-drawer__list">
+      <div>
+        <dt>Value</dt>
+        <dd>
+          <Fact id={fact.id} />
+        </dd>
+      </div>
+      <div>
+        <dt>Evidence class</dt>
+        <dd>{classLabel}</dd>
+      </div>
+      <div>
+        <dt>Baseline</dt>
+        <dd>{fact.baseline === 'n/a' ? 'No comparison baseline' : fact.baseline}</dd>
+      </div>
+      <div>
+        <dt>JSON pointer</dt>
+        <dd>
+          <code>{fact.pointer}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Source file</dt>
+        <dd>
+          <code>{fact.source}</code>
+        </dd>
+      </div>
+      <div>
+        <dt>Content identity</dt>
+        <dd>
+          <code>{provenance.content_identity}</code>
+        </dd>
+      </div>
+    </dl>
+
+    <div class="evidence-drawer__actions">
+      <button class="evidence-drawer__button" type="button" data-copy-pointer={fact.pointer}>
+        Copy JSON pointer
+      </button>
+      <a class="evidence-drawer__link" href="/verify">
+        Open Verify
+      </a>
+      <span class="sr-only" role="status" data-copy-status></span>
+    </div>
+  </div>
+</dialog>
+
+<style>
+  .evidence-drawer {
+    width: min(38rem, calc(100vw - 2rem));
+    max-height: calc(100dvh - 2rem);
+    margin: auto;
+    padding: 0;
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-raised);
+    color: var(--color-text);
+    overflow: auto;
+  }
+
+  .evidence-drawer::backdrop {
+    background-color: color-mix(in srgb, var(--color-ink) 78%, transparent);
+  }
+
+  .evidence-drawer__frame {
+    padding: 1.5rem;
+  }
+
+  .evidence-drawer__head {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    justify-content: space-between;
+  }
+
+  .evidence-drawer__close {
+    order: 2;
+    flex: none;
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-control);
+    padding: 0.25rem 0.75rem;
+    color: var(--color-text);
+  }
+
+  .evidence-drawer__close:hover {
+    border-color: var(--color-orange);
+    color: var(--color-orange);
+  }
+
+  .evidence-drawer__list {
+    display: grid;
+    gap: 0.875rem;
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--color-slate);
+    padding-top: 1.25rem;
+  }
+
+  .evidence-drawer__list dt {
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.12em;
+    color: var(--color-muted);
+    text-transform: uppercase;
+  }
+
+  .evidence-drawer__list dd {
+    margin: 0.25rem 0 0;
+    overflow-wrap: anywhere;
+  }
+
+  .evidence-drawer__list code {
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    color: var(--color-teal);
+  }
+
+  .evidence-drawer__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 1rem;
+    margin-top: 1.5rem;
+    border-top: 1px solid var(--color-slate);
+    padding-top: 1.25rem;
+  }
+
+  .evidence-drawer__button {
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-control);
+    padding: 0.5rem 0.875rem;
+    color: var(--color-text);
+  }
+
+  .evidence-drawer__button:hover,
+  .evidence-drawer__button[data-copied='true'] {
+    border-color: var(--color-orange);
+    color: var(--color-orange);
+  }
+
+  .evidence-drawer__link {
+    color: var(--color-teal);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+  }
+
+  .evidence-drawer__link:hover {
+    color: var(--color-paper);
+  }
+</style>

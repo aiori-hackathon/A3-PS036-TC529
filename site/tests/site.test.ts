@@ -39,6 +39,20 @@ import {
   progressScale,
 } from '../src/lib/motion';
 import { collectSources, findTypedNumbers } from '../src/lib/guard';
+import {
+  buildLimitItems,
+  markdownSection,
+  notMeasuredItems,
+  renderInline,
+  scopeSentence,
+} from '../src/lib/limits';
+import {
+  byteRaceModel,
+  condensedWidthPercent,
+  dialogIdFor,
+  formatByteCount,
+  maxCondensedPaths,
+} from '../src/lib/results';
 import { centreOf, rippleGeometry } from '../src/lib/ripple';
 import { contrastRatio, palette, usedPairs } from '../src/lib/tokens';
 
@@ -231,6 +245,109 @@ describe('fact formatter', () => {
     expect(
       formatFactValue({ kind: 'ratio', raw: 992.4, denominator: null, class: 'derived' }),
     ).toBe('992.4');
+  });
+});
+
+describe('results interaction helpers', () => {
+  // Test data: the two hero byte facts. The production values come from the
+  // fact register, not from these literals.
+  const fullBytes = 7856;
+  const condensedBytes = 124;
+
+  it('names a dialog from its fact id', () => {
+    expect(dialogIdFor('F-wire-medium-c-vs-a')).toBe('evidence-f-wire-medium-c-vs-a');
+    expect(dialogIdFor('F-udp-c-fit')).toBe('evidence-f-udp-c-fit');
+  });
+
+  it('never offers more condensed responses than the recorded bytes support', () => {
+    expect(maxCondensedPaths(fullBytes, condensedBytes)).toBe(63);
+    expect(maxCondensedPaths(condensedBytes, fullBytes)).toBe(1);
+    expect(maxCondensedPaths(0, condensedBytes)).toBe(1);
+    expect(maxCondensedPaths(Number.NaN, condensedBytes)).toBe(1);
+  });
+
+  it('clamps the condensed bar to its share of one full response', () => {
+    expect(condensedWidthPercent(0, fullBytes)).toBe(0);
+    expect(condensedWidthPercent(fullBytes, fullBytes)).toBe(100);
+    expect(condensedWidthPercent(fullBytes * 2, fullBytes)).toBe(100);
+    expect(condensedWidthPercent(condensedBytes, fullBytes)).toBeCloseTo(1.578, 3);
+  });
+
+  it('builds a byte-race frame from the two facts and clamps the slider', () => {
+    const frame = byteRaceModel(fullBytes, condensedBytes, 63);
+    expect(frame.maxPaths).toBe(63);
+    expect(frame.paths).toBe(63);
+    expect(frame.bytes).toBe(7812);
+    expect(frame.widthPercent).toBeLessThan(100);
+    expect(byteRaceModel(fullBytes, condensedBytes, 0).paths).toBe(1);
+    expect(byteRaceModel(fullBytes, condensedBytes, 1000).paths).toBe(63);
+    expect(formatByteCount(frame.bytes)).toBe('7,812');
+  });
+});
+
+describe('honest limits sources', () => {
+  const methodology = readFileSync(join(siteRoot, '..', 'docs/METHODOLOGY.md'), 'utf8');
+  const copyDeck = readFileSync(join(siteRoot, '..', 'docs/site/copy.md'), 'utf8');
+
+  it('reads the exact scope sentence from the copy deck footer', () => {
+    expect(scopeSentence(copyDeck)).toBe(
+      'This website presents recorded results and a client-side dashboard. The DNSSEC and PQC benchmark itself is not deployed on the Internet; the DNS testbed runs locally.',
+    );
+  });
+
+  it('keeps every what-we-did-not-measure paragraph', () => {
+    const items = notMeasuredItems(copyDeck);
+    expect(items).toHaveLength(5);
+    expect(items[0]).toMatch(/^No Internet latency\./);
+    expect(items[4]).toMatch(/^No security property\./);
+  });
+
+  it('extracts a methodology section as prose and bullets', () => {
+    const section = markdownSection(methodology, 'Environment pinning');
+    expect(section).not.toBeNull();
+    expect(section?.paragraphs[0]).toContain('Every measurement run records its environment');
+    expect(section?.bullets).toHaveLength(4);
+    expect(section?.bullets.join(' ')).toContain('rust-toolchain.toml');
+    expect(markdownSection(methodology, 'Not a section')).toBeNull();
+  });
+
+  it('assembles the accordion in reading order', () => {
+    const items = buildLimitItems(methodology, copyDeck);
+    expect(items.map((item) => item.id)).toEqual([
+      'scope',
+      'environment',
+      'sampling',
+      'baselines',
+      'not-measured',
+    ]);
+    expect(items[0]?.paragraphs[0]).toBe(scopeSentence(copyDeck));
+    expect(items[4]?.bullets).toHaveLength(5);
+  });
+
+  it('escapes HTML before rendering the small inline subset', () => {
+    expect(renderInline('`hash` <script> & **bold**')).toBe(
+      '<code>hash</code> &lt;script&gt; &amp; <strong>bold</strong>',
+    );
+    expect(renderInline('[BASELINES.md](BASELINES.md)')).toBe('BASELINES.md');
+  });
+});
+
+describe('team data', () => {
+  const team = JSON.parse(readFileSync(join(siteRoot, 'src/data/team.json'), 'utf8')) as {
+    members: { name: string; role: string }[];
+  };
+  const readme = readFileSync(join(siteRoot, '..', 'README.md'), 'utf8');
+
+  it('matches the names and roles in the repository team table', () => {
+    expect(team.members.map((member) => member.name)).toEqual([
+      'Pratyay Mukherjee',
+      'Mohit Kumar Yadav',
+      'Dr. Maibam Devi',
+    ]);
+    for (const member of team.members) {
+      expect(readme).toContain(`[${member.name}]`);
+      expect(readme).toContain(`| ${member.role} |`);
+    }
   });
 });
 
@@ -470,10 +587,11 @@ describe('production build', () => {
   it('emits the home route with no inline script', () => {
     const html = readFileSync(join(dist, 'index.html'), 'utf8');
     expect(html).toContain('Post-quantum DNSSEC, without the weight.');
-    // The server HTML stays complete and parseable: the one script is the
-    // deferred dashboard window, and it is an external module, not inline.
+    // The server HTML stays complete and parseable: the two scripts are the
+    // deferred dashboard window and the evidence/byte-race interaction, both
+    // external modules, not inline.
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
-    expect(scripts.length, 'the dashboard window is the only script').toBe(1);
+    expect(scripts.length, 'the dashboard and results scripts are external').toBe(2);
     for (const tag of scripts) {
       expect(tag).toContain('src=');
       expect(tag).toContain('type="module"');
@@ -488,5 +606,53 @@ describe('production build', () => {
     expect(html).toContain('data-byte-label="condensed"');
     expect(html).toContain('data-fact-id="F-plain-signature-bytes"');
     expect(html).toContain('data-fact-id="F-condensed-path-bytes"');
+  });
+
+  it('emits the four results, their drawers, the byte race, limits, team and footer band', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    expect(html).toContain('data-results');
+    expect(html).toContain('data-byte-race');
+    expect(html).toContain('data-limits');
+    expect(html).toContain('data-team');
+    expect(html).toContain('data-footer-band');
+    expect(html).toContain('data-footer-claims');
+
+    const ids = [
+      'F-wire-medium-c-vs-a',
+      'F-sign-medium-c-vs-a',
+      'F-verify-medium-c-vs-a',
+      'F-udp-c-fit',
+    ];
+    expect([...html.matchAll(/data-result-stat="/g)]).toHaveLength(4);
+    for (const id of ids) {
+      expect(html).toContain(`data-result-stat="${id}"`);
+      expect(html).toContain(`data-evidence-drawer="${id}"`);
+      expect(html).toContain(`data-evidence-open="${id}"`);
+      const block = html.split(`data-result-stat="${id}"`)[1]?.split('</li>')[0] ?? '';
+      expect(block, id).toContain(getFact(id).display);
+    }
+
+    const full = getFact('F-plain-signature-bytes');
+    const condensed = getFact('F-condensed-path-bytes');
+    expect(typeof full.raw).toBe('number');
+    expect(typeof condensed.raw).toBe('number');
+    if (typeof full.raw !== 'number' || typeof condensed.raw !== 'number') {
+      return;
+    }
+    const raceStart = html.indexOf('data-byte-race');
+    const race =
+      raceStart === -1 ? '' : html.slice(raceStart, html.indexOf('</section>', raceStart));
+    expect(race).toContain(`max="${maxCondensedPaths(full.raw, condensed.raw)}"`);
+    expect(race).toContain(full.display);
+    expect(race).toContain(condensed.display);
+
+    expect(html).toContain(
+      scopeSentence(readFileSync(join(siteRoot, '..', 'docs/site/copy.md'), 'utf8')),
+    );
+    expect(html).toContain('No Internet latency.');
+    expect(html).toContain('Pratyay Mukherjee');
+    expect(html).toContain('Mohit Kumar Yadav');
+    expect(html).toContain('Dr. Maibam Devi');
+    expect(html).toContain(getFact('F-claims-count').display);
   });
 });

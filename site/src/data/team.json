@@ -1,0 +1,31 @@
+{
+  "event": "AIORI-3 Hackathon",
+  "problem": "PS-036",
+  "team": "A3-PS036-TC529",
+  "members": [
+    {
+      "name": "Pratyay Mukherjee",
+      "role": "Team Lead and Developer",
+      "link": {
+        "label": "GitHub",
+        "href": "https://github.com/profm0r14rty"
+      }
+    },
+    {
+      "name": "Mohit Kumar Yadav",
+      "role": "Lead Researcher, UI and Logo Designer",
+      "link": {
+        "label": "GitHub",
+        "href": "https://github.com/Mohh12glitch"
+      }
+    },
+    {
+      "name": "Dr. Maibam Devi",
+      "role": "Faculty Mentor",
+      "link": {
+        "label": "NFSU profile",
+        "href": "https://www.nfsu.ac.in/Faculty/profile/664"
+      }
+    }
+  ]
+}

@@ -1,0 +1,75 @@
+---
+/**
+ * The four headline figures, each with its evidence drawer.
+ *
+ * The Counter renders the final value into the server HTML. The site does not
+ * load the motion core on this route, so the number is already at its recorded
+ * value when the HTML arrives; the evidence chip is the interactive part.
+ */
+import Counter from './Counter.astro';
+import EvidenceDrawer from './EvidenceDrawer.astro';
+
+const stats = [
+  {
+    id: 'F-wire-medium-c-vs-a',
+    label: 'Wire reduction, C against A',
+    detail: 'Derived from the recorded Medium wire totals.',
+  },
+  {
+    id: 'F-sign-medium-c-vs-a',
+    label: 'Signing speed-up, C against A',
+    detail: 'Derived from the recorded per-message signing costs.',
+  },
+  {
+    id: 'F-verify-medium-c-vs-a',
+    label: 'Verification speed-up, pre-validated ladder, C against A',
+    detail: 'The verifier has already checked the ladder.',
+  },
+  {
+    id: 'F-udp-c-fit',
+    label: 'Modelled UDP responses that fit the payload, C',
+    detail: 'A closed-form fit model over the recorded response profiles.',
+  },
+] as const;
+---
+
+<section
+  class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6"
+  aria-labelledby="results-title"
+  data-results
+>
+  <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.20 four figures</p>
+  <h2 id="results-title" class="mt-3 max-w-2xl font-display text-4xl text-paper sm:text-5xl">
+    Four things the benchmark measured
+  </h2>
+  <p class="mt-4 max-w-2xl text-base text-muted">
+    Every figure carries its evidence class and the baseline it is compared against. Open the chip
+    beside a value to read its pointer, source and provenance.
+  </p>
+
+  <ul class="mt-10 grid border-t border-l border-slate sm:grid-cols-2">
+    {stats.map((stat) => (
+      <li class="border-r border-b border-slate p-6 sm:p-8" data-result-stat={stat.id}>
+        <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">{stat.label}</p>
+        <p class="mt-5 text-2xl leading-none sm:text-3xl">
+          <Counter id={stat.id} drawer />
+        </p>
+        <p class="mt-4 text-sm text-muted">{stat.detail}</p>
+      </li>
+    ))}
+  </ul>
+
+  <p class="mt-6 max-w-2xl text-sm text-muted">
+    Definitions are in Method. The full table is the quote sheet.
+  </p>
+
+  {stats.map((stat) => (
+    <EvidenceDrawer id={stat.id} label={stat.label} />
+  ))}
+</section>
+
+<script>
+  import { initResults } from '../lib/results';
+
+  initResults();
+</script>

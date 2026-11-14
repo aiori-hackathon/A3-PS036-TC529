@@ -6,15 +6,20 @@
  * present before any script runs and a reader without JavaScript sees the
  * recorded number, not a zero. The motion script reads the final text from
  * the data attribute and always lands on it exactly.
+ *
+ * On a page that carries the evidence drawers, `drawer` turns the class chip
+ * into the button that opens the fact's dialog.
  */
 import Fact from './Fact.astro';
 import { getFact } from '../lib/facts';
 
 interface Props {
   id: string;
+  drawer?: boolean;
 }
 
-const fact = getFact(Astro.props.id);
+const { id, drawer = false } = Astro.props;
+const fact = getFact(id);
 const animatable =
   typeof fact.raw === 'number' &&
   (fact.kind === 'ratio' ||
@@ -33,5 +38,5 @@ const animatable =
   data-counter-final={fact.display}
   data-counter-state="server"
 >
-  <Fact id={fact.id} />
+  <Fact id={fact.id} drawer={drawer} />
 </span>

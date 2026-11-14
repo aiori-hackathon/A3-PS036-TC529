@@ -1,7 +1,14 @@
 // @ts-check
 import { defineConfig } from 'astro/config';
 import tailwindcss from '@tailwindcss/vite';
-import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -97,7 +104,10 @@ const dashboard = {
           return;
         }
 
-        response.setHeader('content-type', CONTENT_TYPES[extname(source)] ?? 'application/octet-stream');
+        response.setHeader(
+          'content-type',
+          CONTENT_TYPES[extname(source)] ?? 'application/octet-stream',
+        );
         response.setHeader('cache-control', 'no-store');
         response.end(readFileSync(source));
       });
@@ -134,5 +144,10 @@ export default defineConfig({
   devToolbar: { enabled: false },
   vite: {
     plugins: [tailwindcss()],
+    build: {
+      // Keep every module script external. The home route's interaction is a
+      // source file with its own cache entry, never a page-local inline blob.
+      assetsInlineLimit: 0,
+    },
   },
 });
