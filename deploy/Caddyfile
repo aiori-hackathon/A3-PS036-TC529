@@ -1,0 +1,75 @@
+# Serve the static dashboard. Installed as /etc/caddy/Caddyfile by
+# deploy/bootstrap.sh; edit deploy/Caddyfile, not the installed copy.
+#
+# The address comes from /etc/climb/caddy.env, which the bootstrap writes. With
+# no DuckDNS name yet it is http://localhost, so nothing is published and no
+# certificate is requested until a name exists.
+#
+# Access logging is opt-in in Caddy. Nothing below opts in, and the default
+# logger is discarded, so request lines are never written.
+{
+	admin off
+	log {
+		output discard
+	}
+}
+
+{$CLIMB_SITE_ADDRESS:http://localhost} {
+	encode zstd gzip
+
+	root * /srv/climb/current
+
+	# CSP: no inline scripts, no third-party origins, WebAssembly allowed to
+	# instantiate (wasm-unsafe-eval) and same-origin frames only (the report
+	# route embeds report.html in a sandboxed frame). Style attributes are
+	# allowed because several server-rendered elements carry one; stylesheets
+	# themselves must be same-origin.
+	header {
+		Content-Security-Policy "default-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; frame-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; style-src-attr 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; worker-src 'self' blob:; manifest-src 'self'; media-src 'self'"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+		Cross-Origin-Opener-Policy "same-origin"
+		# HSTS-FLAG: Strict-Transport-Security "max-age=31536000; includeSubDomains"
+	}
+
+	@wasm path *.wasm
+	header @wasm Content-Type "application/wasm"
+
+	# Every response revalidates by default, so a new deployment is visible on
+	# the next request. Only Astro's content-hashed directory is immutable.
+	# `?Cache-Control` is a default: it applies only where no earlier rule set
+	# the header, and matcher-specific rules run before this one.
+	@hashed path /_astro/*
+	header @hashed Cache-Control "public, max-age=31536000, immutable"
+
+	# The dashboard publishes a manifest that names the current module files;
+	# it must never be cached or a stale module id survives a deploy.
+	@manifest path /tui/manifest.json
+	header @manifest Cache-Control "no-store"
+
+	header ?Cache-Control "no-cache"
+
+	# Directory builds: /report is /report/index.html, and a missing path
+	# stays missing so the error handler below answers with a real 404.
+	try_files {path} {path}.html {path}/
+
+	file_server {
+		# Precompressed siblings win over on-the-fly encoding, then `encode`
+		# covers anything that has no sibling.
+		precompressed br gzip
+	}
+
+	# A 404 stays a 404: the site's own page when the build ships one, a short
+	# text body otherwise. There is no fallback to index.html.
+	handle_errors 404 {
+		@page file /404.html
+		handle @page {
+			rewrite /404.html
+			file_server
+		}
+		handle {
+			respond "404 Not Found" 404
+		}
+	}
+}

@@ -1,0 +1,17 @@
+[Unit]
+Description=Refresh the DuckDNS record for the dashboard host
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/climb-duckdns-update
+User=root
+# The token is read by the updater from /etc/climb/duckdns.env (mode 0600); it
+# is not placed in the environment, so it cannot leak through /proc/<pid>/environ.
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectHome=yes
+ProtectSystem=strict
+RestrictAddressFamilies=AF_INET AF_INET6
+LockPersonality=yes
