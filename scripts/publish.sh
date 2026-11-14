@@ -3,7 +3,9 @@
 # card and the public repository agree.
 #
 # The flow, in order:
-#   0. run the viewer CI steps in a clean worktree (scripts/ci-local.sh);
+#   0. run the viewer CI steps in a public-export replica
+#      (scripts/ci-local.sh --public), which rebuilds the rewritten-history
+#      situation GitHub sees before anything is pushed;
 #   1. push the commits the sync will read to the private upstream;
 #   2. run the sync script that publishes a cleaned copy to the public
 #      repository;
@@ -110,9 +112,9 @@ if [[ "$skip_ci" -eq 1 ]]; then
   echo "!! must watch the Actions tab. Use this only for an explicit emergency. !!"
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 else
-  echo "==> 0/6 run the viewer CI steps in a clean worktree"
-  if ! bash "$repo_root/scripts/ci-local.sh"; then
-    echo "error: local CI failed; nothing was pushed or published." >&2
+  echo "==> 0/6 run the viewer CI steps in a public-export replica"
+  if ! bash "$repo_root/scripts/ci-local.sh" --public; then
+    echo "error: the public-export CI replica failed; nothing was pushed or published." >&2
     echo "Fix the failure above, then run this script again." >&2
     exit 1
   fi

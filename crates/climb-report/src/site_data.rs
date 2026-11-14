@@ -748,22 +748,30 @@ pub fn build_provenance(provenance_text: &str, environment: &Value) -> Result<Va
         })
     };
     let commit = get("commit sha")?;
+    let content_identity = get("content identity")?;
     let rustc = get("rustc")?;
     let date = get("date")?;
-    let submodule_text = get("submodule shas")?;
-    let mut submodules = Vec::new();
-    for entry in submodule_text.split(',') {
+    // `pinned inputs` is the current name; `submodule SHAs` is the shape of an
+    // older record and stays readable so a previously committed artifact does
+    // not become unparseable.
+    let pinned_text = fields
+        .get("pinned inputs")
+        .or_else(|| fields.get("submodule shas"))
+        .cloned()
+        .ok_or_else(|| malformed(Path::new(DEFAULT_PROVENANCE), "no `pinned inputs:` line"))?;
+    let mut pinned_inputs = Vec::new();
+    for entry in pinned_text.split(',') {
         if let Some((path, sha)) = entry.trim().split_once('=') {
-            submodules.push(json!({
+            pinned_inputs.push(json!({
                 "path": path.trim(),
                 "sha": sha.trim(),
             }));
         }
     }
-    if submodules.is_empty() {
+    if pinned_inputs.is_empty() {
         return Err(malformed(
             Path::new(DEFAULT_PROVENANCE),
-            "no submodule SHAs recorded",
+            "no pinned inputs recorded",
         ));
     }
 
@@ -774,7 +782,9 @@ pub fn build_provenance(provenance_text: &str, environment: &Value) -> Result<Va
         "source": DEFAULT_PROVENANCE,
         "commit": commit,
         "commit_short": short,
-        "submodules": submodules,
+        "content_identity": content_identity,
+        "pinned_inputs": pinned_inputs.clone(),
+        "submodules": pinned_inputs,
         "rustc": rustc,
         "host_fingerprint_sha256": host,
         "date": date,
@@ -1244,6 +1254,56 @@ mod tests {
             .expect("workspace root")
     }
 
+    /// A synthetic environment fingerprint. A clean public clone has no
+    /// `environment.json` (it is generated per machine), so the tests must not
+    /// depend on the local file.
+    fn fixture_environment() -> Value {
+        json!({
+            "system": {
+                "uname": "Linux",
+                "kernel_release": "6.0.0-test",
+            },
+            "cpu": {
+                "model_name": "Test CPU",
+                "logical_cpus": 8,
+                "physical_cores": 4,
+            },
+        })
+    }
+
+    /// A temporary workspace root with the committed site-data inputs and a
+    /// synthetic environment fingerprint, so `render` and `write` run without
+    /// any generated local file.
+    fn temp_root() -> tempfile::TempDir {
+        let temp = tempfile::tempdir().expect("temp dir");
+        for relative in [
+            DEFAULT_RESULTS,
+            DEFAULT_LADDER,
+            DEFAULT_PROVENANCE,
+            DEFAULT_QUOTE_SHEET,
+            DEFAULT_COMMITS,
+        ] {
+            let source = root().join(relative);
+            let destination = temp.path().join(relative);
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).expect("create the fixture directory");
+            }
+            std::fs::copy(&source, &destination).unwrap_or_else(|error| {
+                panic!(
+                    "cannot copy {} to {}: {error}",
+                    source.display(),
+                    destination.display()
+                )
+            });
+        }
+        std::fs::write(
+            temp.path().join(DEFAULT_ENVIRONMENT),
+            serde_json::to_string(&fixture_environment()).expect("serialize the fixture"),
+        )
+        .expect("write the fixture fingerprint");
+        temp
+    }
+
     fn results() -> Value {
         read_json(&root().join(DEFAULT_RESULTS)).expect("results artifact")
     }
@@ -1500,8 +1560,9 @@ mod tests {
 
     #[test]
     fn generated_documents_are_deterministic_and_sealed() {
-        let first = render(&root()).expect("render");
-        let second = render(&root()).expect("render");
+        let fixture = temp_root();
+        let first = render(fixture.path()).expect("render");
+        let second = render(fixture.path()).expect("render");
         assert_eq!(first, second);
         assert_eq!(first.len(), OUTPUT_FILES.len());
         for ((name, text), expected) in first.iter().zip(OUTPUT_FILES) {
@@ -1513,17 +1574,17 @@ mod tests {
 
     #[test]
     fn stale_check_reports_a_missing_or_changed_file() {
-        let temp = tempfile::tempdir().expect("temp dir");
-        let out = temp.path().join("generated");
-        write(&root(), &out).expect("write");
-        assert!(stale_files(&root(), &out).expect("stale").is_empty());
+        let fixture = temp_root();
+        let out = fixture.path().join("generated");
+        write(fixture.path(), &out).expect("write");
+        assert!(stale_files(fixture.path(), &out).expect("stale").is_empty());
 
         std::fs::write(out.join("facts.json"), "{}\n").expect("tamper");
-        let stale = stale_files(&root(), &out).expect("stale");
+        let stale = stale_files(fixture.path(), &out).expect("stale");
         assert_eq!(stale, vec!["facts.json (stale)".to_string()]);
 
         std::fs::remove_file(out.join("ladder.json")).expect("remove");
-        let stale = stale_files(&root(), &out).expect("stale");
+        let stale = stale_files(fixture.path(), &out).expect("stale");
         assert!(stale.contains(&"ladder.json (missing)".to_string()));
     }
 
@@ -1551,11 +1612,16 @@ mod tests {
         let provenance = read_text(&root().join(DEFAULT_PROVENANCE))
             .expect("provenance read")
             .unwrap();
-        let environment = read_json(&root().join(DEFAULT_ENVIRONMENT)).expect("environment");
+        let environment = fixture_environment();
+        let recorded_commit = provenance
+            .lines()
+            .find_map(|line| line.strip_prefix("commit SHA:"))
+            .map(str::trim)
+            .expect("the record names its commit");
         let document = build_provenance(&provenance, &environment).expect("provenance");
         assert_eq!(
             document.get("commit").and_then(Value::as_str),
-            Some("fea347548a3f182bb2392c6c3ecdcebed275f882")
+            Some(recorded_commit)
         );
         assert_eq!(
             document
@@ -1564,11 +1630,41 @@ mod tests {
                 .map(Vec::len),
             Some(2)
         );
+        assert_eq!(
+            document
+                .get("pinned_inputs")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
+        let identity = document
+            .get("content_identity")
+            .and_then(Value::as_str)
+            .expect("content identity");
+        assert!(identity.starts_with("sha256:"), "{identity}");
+        assert_eq!(identity.len(), "sha256:".len() + 64, "{identity}");
         let hash = document
             .get("host_fingerprint_sha256")
             .and_then(Value::as_str)
             .expect("host hash");
         assert_eq!(hash.len(), 64);
         assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn provenance_still_reads_the_legacy_submodule_line() {
+        let provenance = read_text(&root().join(DEFAULT_PROVENANCE))
+            .expect("provenance read")
+            .unwrap()
+            .replace("pinned inputs:", "submodule SHAs:");
+        let environment = fixture_environment();
+        let document = build_provenance(&provenance, &environment).expect("legacy provenance");
+        assert_eq!(
+            document
+                .get("pinned_inputs")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(2)
+        );
     }
 }

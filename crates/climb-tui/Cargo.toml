@@ -15,6 +15,19 @@ name = "climb-tui"
 path = "src/main.rs"
 required-features = ["terminal"]
 
+# These targets execute the terminal binary. The viewer job tests the library
+# with `--no-default-features`, where the binary does not exist, so the targets
+# must not be built there.
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["terminal"]
+
+[[test]]
+name = "pty"
+path = "tests/pty.rs"
+required-features = ["terminal"]
+
 [features]
 default = ["native", "terminal"]
 # Link the native measurement stack through `climb-report`. The dashboard

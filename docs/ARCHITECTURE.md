@@ -198,6 +198,33 @@ or an attacker with the same user account. The benchmark assumes a single-user
 developer machine and makes no confidentiality guarantee. Any deployment that
 needs real key custody must use a dedicated key store, not this crate.
 
+## Public history and content identity
+
+The public submission repository is a rewritten copy of the development
+history: private-only paths are removed from every commit and references are
+redacted before publication. Rewriting changes trees, parent links and
+committer metadata, so every public commit hash differs from its development
+counterpart. A recorded development commit therefore cannot be resolved in a
+public checkout, and a shallow clone or a source tarball may lack it as well.
+
+Artifact checks are therefore content-based. `docs/sample-output/SHA256SUMS`
+records one digest per committed sample file, and the provenance record carries
+a content identity computed from that manifest sorted by file name. The
+identity is independent of history and travels unchanged through a rewrite.
+The sample check always verifies the digests and the identity; it verifies the
+recorded commit only when the checkout contains it and otherwise prints the
+reason and continues. The documentation gate uses the same lenient
+verification. The commit graph is regenerated from its public as-of commit,
+which is stable, and its history comparison is skipped with a printed reason in
+a shallow clone or a tarball. Supply-chain pins use the submodule commits,
+which are public and stable.
+
+Strict commit verification exists only for the development checkout's own
+tooling (`cargo xtask sample-check --require-commit`, or
+`CLIMB_REPO_ROLE=private`). CI and the public copy never set it. The publishing
+flow and the public-export replica are described in
+[`DEPLOYMENT.md`](DEPLOYMENT.md).
+
 ## Crate responsibilities
 
 | Crate | Responsibility |

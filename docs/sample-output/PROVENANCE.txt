@@ -1,6 +1,7 @@
 commit SHA: fea347548a3f182bb2392c6c3ecdcebed275f882
+content identity: sha256:625258ae74e73f5f09c8e1634a85be2b8853f9eb65b367f39acd1240488e36fc
+pinned inputs: third_party/MTL=53ce25dcc35c15e051c5263e41aaeaede18a8aa7, third_party/liboqs=5a1a854b0dc9f2141bdc771c555ee60c37950183
 rustc: rustc 1.99.1 (58cf8f9c3 2026-10-13) (Arch Linux rust 1:1.99.1-2)
-submodule SHAs: third_party/MTL=53ce25dcc35c15e051c5263e41aaeaede18a8aa7, third_party/liboqs=5a1a854b0dc9f2141bdc771c555ee60c37950183
 date: 2026-11-13T01:31:52+05:30
 normalisation: absolute workspace paths replaced with <repo>
-checks: results/report claim counts equal; report --check clean; second consolidation byte-identical apart from generated_at and diagnostics
+checks: results/report claim counts equal; report --check clean; content identity matches SHA256SUMS; second consolidation byte-identical apart from generated_at and diagnostics

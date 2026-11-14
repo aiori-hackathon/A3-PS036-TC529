@@ -368,7 +368,15 @@ fn a_ladder_with_a_tampered_declared_signature_length_is_a_layout_error() {
 fn a_tampered_ladder_signature_is_a_cryptographic_rejection() {
     let baseline = baseline();
     let last = baseline.ladder.len() - 1;
-    let bytes = patch(baseline.ladder.as_bytes(), last, &[0xff]);
+    // The signature is freshly keyed on every run, so the last byte may already
+    // be 0xff. Choose the other value so the tamper is guaranteed to change a
+    // byte instead of occasionally leaving the signature untouched.
+    let replacement = if baseline.ladder.as_bytes()[last] == 0xff {
+        0x00
+    } else {
+        0xff
+    };
+    let bytes = patch(baseline.ladder.as_bytes(), last, &[replacement]);
     let result = baseline.verifier.verify(
         &baseline.messages[0],
         &Signature::Condensed(baseline.condensed),

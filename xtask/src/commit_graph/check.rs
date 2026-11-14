@@ -92,6 +92,12 @@ pub(crate) fn check_with_paths(
             "commit graph: history checks skipped because as_of_sha `{}` is not a full commit id",
             graph.as_of_sha
         ))
+    } else if !crate::sample_check::git_repository_present(root) {
+        Some(
+            "commit graph: history-dependent checks skipped because this checkout has no .git \
+             (a source tarball); the committed document and its cards are still checked"
+                .to_string(),
+        )
     } else if is_shallow(root)? {
         Some(
             "commit graph: history-dependent checks skipped because this is a shallow clone; \

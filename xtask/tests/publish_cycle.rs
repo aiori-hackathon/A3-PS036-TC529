@@ -17,6 +17,13 @@ fn script() -> PathBuf {
         .join("scripts/publish.sh")
 }
 
+fn ci_local_script() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives in the workspace")
+        .join("scripts/ci-local.sh")
+}
+
 fn git(dir: &Path, args: &[&str]) -> Output {
     Command::new("git")
         .arg("-C")
@@ -367,6 +374,50 @@ fn skip_ci_prints_a_loud_warning() {
 }
 
 #[test]
+fn publish_runs_the_public_export_variant() {
+    let fixture = fixture("public-variant", 3);
+    write(
+        &fixture.repo,
+        "scripts/ci-local.sh",
+        "#!/bin/bash\nprintf '%s\\n' \"$@\" > ci-local-args.txt\nexit 0\n",
+    );
+    make_executable(&fixture.repo.join("scripts/ci-local.sh"));
+    commit_all(&fixture.repo, "record the local CI arguments");
+    git_ok(&fixture.repo, &["push", "--quiet"]);
+
+    let output = publish_with(&fixture, 0, &[]);
+    let text = combined(&output);
+    assert!(output.status.success(), "{text}");
+    let args = std::fs::read_to_string(fixture.repo.join("ci-local-args.txt"))
+        .expect("the fake local CI recorded its arguments");
+    assert_eq!(
+        args.trim(),
+        "--public",
+        "publish must use the public replica"
+    );
+}
+
+#[test]
+fn ci_local_lists_the_public_steps_without_building_an_export() {
+    let output = Command::new("bash")
+        .arg(ci_local_script())
+        .args(["--list", "--public"])
+        .current_dir(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .expect("xtask lives in the workspace"),
+        )
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .expect("run ci-local.sh --list --public");
+    let text = combined(&output);
+    assert!(output.status.success(), "{text}");
+    assert!(text.contains("Environment report"), "{text}");
+    assert!(text.contains("Check committed sample pair"), "{text}");
+}
+
+#[test]
 fn a_failing_local_ci_refuses_to_publish() {
     let fixture = fixture("ci-fail", 3);
     write(
@@ -381,7 +432,11 @@ fn a_failing_local_ci_refuses_to_publish() {
     let output = publish_with(&fixture, 0, &[]);
     let text = combined(&output);
     assert!(!output.status.success(), "{text}");
-    assert!(text.contains("local CI failed"), "{text}");
+    assert!(
+        text.contains("public-export CI replica failed"),
+        "publish must name the gate that failed: {text}"
+    );
+    assert!(text.contains("local ci failed"), "{text}");
     assert!(
         !fixture.sync_log.exists(),
         "the sync must not run when local CI fails"

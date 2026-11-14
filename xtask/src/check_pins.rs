@@ -252,27 +252,53 @@ pub(crate) fn compare_pins(
     git_submodules: &[SubmodulePin],
     environment_json: &str,
 ) -> Vec<PinMismatch> {
+    compare_pins_with_checkout(dockerfile, Some(git_submodules), environment_json)
+}
+
+/// Compare the Dockerfile comment tokens against the recorded fingerprint only.
+///
+/// A source tarball has no `.git` directory, so the submodule checkouts cannot
+/// be read. The recorded pins are still compared; the missing checkouts are a
+/// printed skip, not a mismatch.
+pub(crate) fn compare_pins_without_checkout(
+    dockerfile: &str,
+    environment_json: &str,
+) -> Vec<PinMismatch> {
+    compare_pins_with_checkout(dockerfile, None, environment_json)
+}
+
+fn compare_pins_with_checkout(
+    dockerfile: &str,
+    git_submodules: Option<&[SubmodulePin]>,
+    environment_json: &str,
+) -> Vec<PinMismatch> {
     let mut mismatches = Vec::new();
     for pin in parse_dockerfile_pins(dockerfile) {
-        let git_pin = git_submodules.iter().find(|s| s.path == pin.submodule_path);
+        let git_pin = git_submodules.and_then(|submodules| {
+            submodules
+                .iter()
+                .find(|submodule| submodule.path == pin.submodule_path)
+        });
         let env_sha = submodule_sha_from_environment(environment_json, &pin.submodule_path);
 
-        match git_pin {
-            Some(submodule) if token_matches(&pin.comment_token, submodule) => {}
-            Some(submodule) => mismatches.push(PinMismatch {
-                label: pin.label.clone(),
-                message: format!(
-                    "the toolchain Dockerfile comment pins `{}` but the submodule at {} is {}",
-                    pin.comment_token, pin.submodule_path, submodule.sha
-                ),
-            }),
-            None => mismatches.push(PinMismatch {
-                label: pin.label.clone(),
-                message: format!(
-                    "no submodule checkout found for {} (expected in `git submodule status`)",
-                    pin.submodule_path
-                ),
-            }),
+        if git_submodules.is_some() {
+            match git_pin {
+                Some(submodule) if token_matches(&pin.comment_token, submodule) => {}
+                Some(submodule) => mismatches.push(PinMismatch {
+                    label: pin.label.clone(),
+                    message: format!(
+                        "the toolchain Dockerfile comment pins `{}` but the submodule at {} is {}",
+                        pin.comment_token, pin.submodule_path, submodule.sha
+                    ),
+                }),
+                None => mismatches.push(PinMismatch {
+                    label: pin.label.clone(),
+                    message: format!(
+                        "no submodule checkout found for {} (expected in `git submodule status`)",
+                        pin.submodule_path
+                    ),
+                }),
+            }
         }
 
         if let Some(sha) = env_sha {
@@ -349,14 +375,26 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let dockerfile = std::fs::read_to_string(&dockerfile_path)
         .with_context(|| format!("failed to read {}", dockerfile_path.display()))?;
 
-    let submodules: Vec<SubmodulePin> = crate::pin_env::capture_submodules(root)
-        .into_iter()
-        .map(|s| SubmodulePin {
-            path: s.path,
-            sha: s.sha,
-            describe: s.describe,
-        })
-        .collect();
+    let git_available = crate::sample_check::git_repository_present(root);
+    if !git_available {
+        println!(
+            "check-pins: no git repository in {}; the submodule checkouts cannot be read, so the \
+             checkout comparison is skipped and the recorded pins are still checked",
+            root.display()
+        );
+    }
+    let submodules: Vec<SubmodulePin> = if git_available {
+        crate::pin_env::capture_submodules(root)
+            .into_iter()
+            .map(|s| SubmodulePin {
+                path: s.path,
+                sha: s.sha,
+                describe: s.describe,
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
 
     let env_path = root.join("environment.json");
     let environment_json = match std::fs::read_to_string(&env_path) {
@@ -376,7 +414,12 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         }
     };
 
-    for mismatch in compare_pins(&dockerfile, &submodules, &environment_json) {
+    let mismatches = if git_available {
+        compare_pins(&dockerfile, &submodules, &environment_json)
+    } else {
+        compare_pins_without_checkout(&dockerfile, &environment_json)
+    };
+    for mismatch in mismatches {
         failures.push(mismatch.to_string());
     }
 
@@ -597,6 +640,48 @@ mod tests {
             .expect("toolchain Dockerfile is committed");
         assert!(text.contains("ARG OPENSSL_SHA256="), "{text}");
         assert!(text.contains("sha256sum -c -"), "{text}");
+    }
+
+    #[test]
+    fn without_a_checkout_the_recorded_pins_are_still_compared() {
+        // Without a checkout there is no `git describe` string, so a version
+        // comment can only be compared when the Dockerfile names a SHA prefix.
+        let dockerfile = DOCKERFILE.replace("0.16.0", "5a1a854");
+        let mismatches = compare_pins_without_checkout(&dockerfile, ENVIRONMENT);
+        assert!(mismatches.is_empty(), "{mismatches:?}");
+
+        let stale = dockerfile.replace("53ce25d", "566c518");
+        let mismatches = compare_pins_without_checkout(&stale, ENVIRONMENT);
+        assert_eq!(mismatches.len(), 1, "{mismatches:?}");
+        assert!(mismatches[0].message.contains("environment.json"));
+        assert!(
+            !mismatches[0].message.contains("submodule checkout"),
+            "a missing checkout is a skip, not a mismatch: {mismatches:?}"
+        );
+    }
+
+    #[test]
+    fn a_tarball_without_git_skips_the_checkout_comparison() {
+        let dir = std::env::temp_dir().join(format!(
+            "climb-check-pins-tarball-{}-{:?}",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("docker")).expect("create the docker directory");
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        std::fs::copy(
+            root.join("docker/Dockerfile.build"),
+            dir.join("docker/Dockerfile.build"),
+        )
+        .expect("copy the toolchain Dockerfile");
+        std::fs::write(dir.join("environment.json"), ENVIRONMENT).expect("write the fingerprint");
+
+        assert!(!crate::sample_check::git_repository_present(&dir));
+        run(&dir).expect("a tarball without git is a printed skip, not a failure");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Every image that downloads the OpenSSL release archive must verify it

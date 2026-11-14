@@ -12,7 +12,18 @@
 //! 1. the report exists and carries exactly the claims the results imply;
 //! 2. `report --check` reports no drift, missing claim or stray registry entry;
 //! 3. every digest in `SHA256SUMS` still describes the committed file;
-//! 4. the provenance record names a commit that exists in this history.
+//! 4. the recorded content identity matches the current manifest;
+//! 5. the provenance commit exists in this history *when it is present*.
+//!
+//! The public repository is a rewritten copy of the development history: the
+//! publishing sync removes private-only paths and redacts references from every
+//! commit, so every commit hash changes. A commit recorded by the development
+//! checkout therefore cannot exist in a public copy, and a shallow clone may
+//! not contain it either. The check is content-based: it always verifies the
+//! per-file digests and a content identity computed from the manifest, and it
+//! treats a missing commit as an expected condition with a printed reason. A
+//! strict mode exists for the development checkout's own tooling
+//! (`--require-commit`, or `CLIMB_REPO_ROLE=private`); CI never enables it.
 //!
 //! The README's claims badge reads the same pair: the badge generator refuses
 //! to publish a count the report does not carry, so the badge, the report and
@@ -22,7 +33,7 @@ use anyhow::{bail, Context, Result};
 use clap::Args;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use climb_report::ClimbResults;
 
@@ -61,6 +72,44 @@ pub(crate) struct SampleCheckArgs {
     /// before it writes the manifest and provenance record).
     #[arg(long)]
     pub(crate) pair_only: bool,
+
+    /// Require the recorded commit to exist in this repository. Only the
+    /// development checkout's tooling sets this (or `CLIMB_REPO_ROLE=private`);
+    /// CI runs without it, because a rewritten public copy cannot carry the
+    /// development commit.
+    #[arg(long)]
+    pub(crate) require_commit: bool,
+}
+
+/// The provenance line naming the commit the sample was recorded at.
+const COMMIT_PREFIX: &str = "commit SHA:";
+/// The provenance line naming the history-independent content identity.
+const CONTENT_IDENTITY_PREFIX: &str = "content identity:";
+
+/// Whether the recorded commit can be resolved in this checkout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CommitState {
+    /// `git cat-file -e <sha>^{commit}` succeeded.
+    Present,
+    /// The checkout is a git repository but does not contain the commit.
+    Absent,
+    /// There is no git repository to ask (a source tarball).
+    Unavailable,
+}
+
+/// One `<sha256>  <file>` row of the checksum manifest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ManifestEntry {
+    pub(crate) digest: String,
+    pub(crate) name: String,
+}
+
+/// The outcome of verifying the recorded provenance.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ProvenanceOutcome {
+    pub(crate) commit: String,
+    pub(crate) content_identity: String,
+    pub(crate) commit_state: CommitState,
 }
 
 /// Claim counts read from the committed pair.
@@ -184,12 +233,11 @@ pub(crate) fn check_pair(results_path: &Path, report_path: &Path) -> Result<Pair
     Ok(counts)
 }
 
-/// Verify every digest in the manifest against the file beside it.
-pub(crate) fn check_manifest(manifest_path: &Path) -> Result<usize> {
+/// Parse and validate the manifest without touching the payload files.
+pub(crate) fn parse_manifest(manifest_path: &Path) -> Result<Vec<ManifestEntry>> {
     let text = std::fs::read_to_string(manifest_path)
         .with_context(|| format!("failed to read {}", manifest_path.display()))?;
-    let dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let mut checked = 0usize;
+    let mut entries = Vec::new();
     for (index, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() {
@@ -216,22 +264,63 @@ pub(crate) fn check_manifest(manifest_path: &Path) -> Result<usize> {
                 index + 1
             );
         }
-        let bytes = std::fs::read(dir.join(name))
-            .with_context(|| format!("cannot read {}", dir.join(name).display()))?;
-        let actual = crate::package::sha256_hex(&bytes);
-        if !actual.eq_ignore_ascii_case(digest) {
-            bail!(
-                "{}:{}: `{name}` hashes to {actual}, not the recorded {digest}; regenerate the manifest with scripts/make-sample-output.sh",
-                manifest_path.display(),
-                index + 1
-            );
-        }
-        checked += 1;
+        entries.push(ManifestEntry {
+            digest: digest.to_ascii_lowercase(),
+            name: name.to_string(),
+        });
     }
-    if checked == 0 {
+    if entries.is_empty() {
         bail!("{}: manifest is empty", manifest_path.display());
     }
-    Ok(checked)
+    Ok(entries)
+}
+
+/// Canonical manifest text: one row per file, sorted by file name, two spaces
+/// between digest and name, one trailing newline. This is the byte string the
+/// content identity hashes, so the identity does not depend on write order.
+pub(crate) fn canonical_manifest(entries: &mut [ManifestEntry]) -> String {
+    entries.sort_by(|left, right| left.name.cmp(&right.name));
+    let mut text = String::new();
+    for entry in entries.iter() {
+        text.push_str(&entry.digest);
+        text.push_str("  ");
+        text.push_str(&entry.name);
+        text.push('\n');
+    }
+    text
+}
+
+/// The history-independent identity of a sample set: the SHA-256 of the
+/// canonical manifest. Any changed file, added file, removed file or stale
+/// digest changes it.
+pub(crate) fn content_identity_from_manifest(manifest_path: &Path) -> Result<String> {
+    let mut entries = parse_manifest(manifest_path)?;
+    let canonical = canonical_manifest(&mut entries);
+    Ok(format!(
+        "sha256:{}",
+        crate::package::sha256_hex(canonical.as_bytes())
+    ))
+}
+
+/// Verify every digest in the manifest against the file beside it.
+pub(crate) fn check_manifest(manifest_path: &Path) -> Result<usize> {
+    let entries = parse_manifest(manifest_path)?;
+    let dir = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    for (index, entry) in entries.iter().enumerate() {
+        let bytes = std::fs::read(dir.join(&entry.name))
+            .with_context(|| format!("cannot read {}", dir.join(&entry.name).display()))?;
+        let actual = crate::package::sha256_hex(&bytes);
+        if !actual.eq_ignore_ascii_case(&entry.digest) {
+            bail!(
+                "{}:{}: `{}` hashes to {actual}, not the recorded {}; regenerate the manifest with scripts/make-sample-output.sh",
+                manifest_path.display(),
+                index + 1,
+                entry.name,
+                entry.digest
+            );
+        }
+    }
+    Ok(entries.len())
 }
 
 /// Read the recorded commit SHA out of a provenance record.
@@ -240,7 +329,7 @@ pub(crate) fn provenance_commit(provenance_path: &Path) -> Result<String> {
         .with_context(|| format!("failed to read {}", provenance_path.display()))?;
     let sha = text
         .lines()
-        .find_map(|line| line.strip_prefix("commit SHA:"))
+        .find_map(|line| line.strip_prefix(COMMIT_PREFIX))
         .map(str::trim)
         .filter(|sha| !sha.is_empty())
         .with_context(|| {
@@ -258,24 +347,144 @@ pub(crate) fn provenance_commit(provenance_path: &Path) -> Result<String> {
     Ok(sha.to_string())
 }
 
-/// Prove the provenance commit exists in the repository at `root`.
-pub(crate) fn check_provenance(root: &Path, provenance_path: &Path) -> Result<String> {
-    let sha = provenance_commit(provenance_path)?;
-    let status = Command::new("git")
-        .arg("-C")
-        .arg(root)
-        .arg("cat-file")
-        .arg("-e")
-        .arg(format!("{sha}^{{commit}}"))
-        .status()
-        .with_context(|| "failed to run git cat-file")?;
-    if !status.success() {
+/// Read the recorded content identity out of a provenance record.
+pub(crate) fn provenance_content_identity(provenance_path: &Path) -> Result<String> {
+    let text = std::fs::read_to_string(provenance_path)
+        .with_context(|| format!("failed to read {}", provenance_path.display()))?;
+    let value = text
+        .lines()
+        .find_map(|line| line.strip_prefix(CONTENT_IDENTITY_PREFIX))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .with_context(|| {
+            format!(
+                "{}: no `content identity:` line; regenerate it with scripts/make-sample-output.sh",
+                provenance_path.display()
+            )
+        })?;
+    let Some(hex) = value.strip_prefix("sha256:") else {
         bail!(
-            "{}: recorded commit {sha} does not exist in this repository; the sample's provenance cannot be verified",
+            "{}: `{value}` is not a `sha256:<64 hex>` content identity",
+            provenance_path.display()
+        );
+    };
+    if hex.len() != 64 || !hex.chars().all(|c| c.is_ascii_hexdigit()) {
+        bail!(
+            "{}: `{value}` is not a `sha256:<64 hex>` content identity",
             provenance_path.display()
         );
     }
-    Ok(sha)
+    Ok(format!("sha256:{}", hex.to_ascii_lowercase()))
+}
+
+/// Run one git command in `root`; `None` when git is missing or cannot start.
+fn git_status(root: &Path, args: &[&str]) -> Option<bool> {
+    let mut command = Command::new("git");
+    command
+        .arg("-C")
+        .arg(root)
+        .args(args)
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command.status().ok().map(|status| status.success())
+}
+
+/// True when `root` is inside a git repository (a worktree or a bare
+/// repository). A source tarball without `.git` is not.
+pub(crate) fn git_repository_present(root: &Path) -> bool {
+    git_status(root, &["rev-parse", "--git-dir"]).unwrap_or(false)
+}
+
+/// True when the checkout at `root` is a shallow clone. A directory without a
+/// git repository is not shallow: it simply has no history to read.
+pub(crate) fn is_shallow(root: &Path) -> bool {
+    if !git_repository_present(root) {
+        return false;
+    }
+    let output = Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "--is-shallow-repository"])
+        .env("GIT_TERMINAL_PROMPT", "0")
+        .stdin(Stdio::null())
+        .output();
+    output
+        .ok()
+        .map(|output| String::from_utf8_lossy(&output.stdout).trim() == "true")
+        .unwrap_or(false)
+}
+
+/// Resolve the provenance commit against the checkout. This never fails: an
+/// absent commit is an expected condition in a rewritten or shallow copy.
+pub(crate) fn commit_state(root: &Path, sha: &str) -> CommitState {
+    if !git_repository_present(root) {
+        return CommitState::Unavailable;
+    }
+    let revision = format!("{sha}^{{commit}}");
+    if git_status(root, &["cat-file", "-e", &revision]) == Some(true) {
+        CommitState::Present
+    } else {
+        CommitState::Absent
+    }
+}
+
+/// The line `sample-check` prints for a resolved commit state. The absent
+/// wording is part of the contract: a rewritten public copy is expected to
+/// carry different hashes, so it is a skip with a reason, not a failure.
+pub(crate) fn commit_message(state: CommitState, sha: &str) -> String {
+    let short = &sha[..7.min(sha.len())];
+    match state {
+        CommitState::Present => format!(
+            "provenance commit {short} present in this repository; content identity verified"
+        ),
+        CommitState::Absent => format!(
+            "provenance commit {short} not present in this repository (expected in a rewritten public copy); content identity verified"
+        ),
+        CommitState::Unavailable => format!(
+            "provenance commit {short} not checkable (no git repository); content identity verified"
+        ),
+    }
+}
+
+/// Verify the content identity and the manifest, then resolve the recorded
+/// commit. The commit is required only when `require_commit` is set.
+pub(crate) fn verify_provenance(
+    root: &Path,
+    provenance_path: &Path,
+    manifest_path: &Path,
+    require_commit: bool,
+) -> Result<ProvenanceOutcome> {
+    let commit = provenance_commit(provenance_path)?;
+    let recorded = provenance_content_identity(provenance_path)?;
+    let actual = content_identity_from_manifest(manifest_path)?;
+    if recorded != actual {
+        bail!(
+            "{}: recorded content identity {recorded} does not match the current SHA256SUMS ({actual}); \
+             regenerate the sample with scripts/make-sample-output.sh",
+            provenance_path.display()
+        );
+    }
+    let state = commit_state(root, &commit);
+    if require_commit && state != CommitState::Present {
+        let reason = match state {
+            CommitState::Absent => "does not exist in this repository",
+            CommitState::Unavailable => {
+                "cannot be checked because this checkout has no git repository"
+            }
+            CommitState::Present => unreachable!("the present state cannot fail the requirement"),
+        };
+        bail!(
+            "{}: recorded commit {commit} {reason}; --require-commit was requested by the private checkout",
+            provenance_path.display()
+        );
+    }
+    Ok(ProvenanceOutcome {
+        commit,
+        content_identity: actual,
+        commit_state: state,
+    })
 }
 
 /// The `sample-check` subcommand entry point.
@@ -283,8 +492,27 @@ pub(crate) fn cmd_sample_check(args: SampleCheckArgs) -> Result<()> {
     run(&args).map(|_| ())
 }
 
+/// True when the caller asked for strict commit verification: the explicit flag
+/// or the development checkout's role marker. CI never sets either.
+fn strict_requested(args: &SampleCheckArgs) -> bool {
+    args.require_commit
+        || std::env::var("CLIMB_REPO_ROLE")
+            .map(|role| role.eq_ignore_ascii_case("private"))
+            .unwrap_or(false)
+}
+
 /// Run every check over the committed sample and return the claim counts.
 pub(crate) fn run(args: &SampleCheckArgs) -> Result<PairCounts> {
+    run_inner(args, strict_requested(args))
+}
+
+/// Run every check without strict commit verification. `docs-check` uses this
+/// path so the documentation gate works in a public copy and in CI.
+fn run_lenient(args: &SampleCheckArgs) -> Result<PairCounts> {
+    run_inner(args, false)
+}
+
+fn run_inner(args: &SampleCheckArgs, require_commit: bool) -> Result<PairCounts> {
     let results = resolve(&args.root, &args.results);
     let report = resolve(&args.root, &args.report);
     let counts = check_pair(&results, &report)?;
@@ -297,8 +525,21 @@ pub(crate) fn run(args: &SampleCheckArgs) -> Result<PairCounts> {
         let manifest = resolve(&args.root, &args.manifest);
         let provenance = resolve(&args.root, &args.provenance);
         let files = check_manifest(&manifest)?;
-        let sha = check_provenance(&args.root, &provenance)?;
-        println!("sample-check: {files} manifest entries match; provenance commit {sha} exists");
+        println!("sample-check: {files} manifest entries match");
+        if is_shallow(&args.root) {
+            println!(
+                "sample-check: this checkout is a shallow clone; the recorded commit is verified only if it is present"
+            );
+        }
+        let outcome = verify_provenance(&args.root, &provenance, &manifest, require_commit)?;
+        println!(
+            "sample-check: content identity {} verified",
+            outcome.content_identity
+        );
+        println!(
+            "sample-check: {}",
+            commit_message(outcome.commit_state, &outcome.commit)
+        );
     }
     println!("sample-check: committed sample pair is consistent");
     Ok(counts)
@@ -313,8 +554,9 @@ pub(crate) fn violations(root: &Path) -> Vec<String> {
         manifest: PathBuf::from(DEFAULT_MANIFEST),
         provenance: PathBuf::from(DEFAULT_PROVENANCE),
         pair_only: false,
+        require_commit: false,
     };
-    match run(&args) {
+    match run_lenient(&args) {
         Ok(_) => Vec::new(),
         Err(error) => vec![format!("sample-check failed: {error:#}")],
     }
@@ -453,20 +695,6 @@ mod tests {
     }
 
     #[test]
-    fn a_provenance_commit_that_does_not_exist_is_reported() {
-        let dir = temp_dir("provenance");
-        std::fs::write(
-            dir.join("PROVENANCE.txt"),
-            format!("commit SHA: {}\n", "0".repeat(40)),
-        )
-        .expect("write provenance");
-        let error = check_provenance(&workspace_root(), &dir.join("PROVENANCE.txt"))
-            .expect_err("an unknown commit must fail");
-        assert!(error.to_string().contains("does not exist"), "{error}");
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    #[test]
     fn a_provenance_record_without_a_commit_line_is_reported() {
         let dir = temp_dir("provenance-missing");
         std::fs::write(dir.join("PROVENANCE.txt"), "rustc: anything\n").expect("write");
@@ -477,12 +705,35 @@ mod tests {
     }
 
     #[test]
+    fn a_provenance_record_without_a_content_identity_is_reported() {
+        let dir = temp_dir("identity-missing");
+        std::fs::write(
+            dir.join("PROVENANCE.txt"),
+            format!("commit SHA: {}\n", "0".repeat(40)),
+        )
+        .expect("write");
+        let error = provenance_content_identity(&dir.join("PROVENANCE.txt"))
+            .expect_err("a missing content identity must fail");
+        assert!(error.to_string().contains("content identity"), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn the_committed_manifest_and_provenance_are_consistent() {
         let root = workspace_root();
         let files = check_manifest(&root.join(DEFAULT_MANIFEST)).expect("manifest matches");
         assert!(files >= 10, "the manifest covers the committed sample");
-        check_provenance(&root, &root.join(DEFAULT_PROVENANCE))
-            .expect("the provenance commit exists");
+        let outcome = verify_provenance(
+            &root,
+            &root.join(DEFAULT_PROVENANCE),
+            &root.join(DEFAULT_MANIFEST),
+            false,
+        )
+        .expect("the content identity and the manifest agree");
+        assert_eq!(
+            outcome.content_identity,
+            provenance_content_identity(&root.join(DEFAULT_PROVENANCE)).expect("identity")
+        );
     }
 
     #[test]
@@ -495,8 +746,229 @@ mod tests {
             manifest: PathBuf::from(DEFAULT_MANIFEST),
             provenance: PathBuf::from(DEFAULT_PROVENANCE),
             pair_only: false,
+            require_commit: false,
         })
         .expect("the committed sample passes every check");
         assert_eq!(counts.expected, counts.in_report);
+    }
+
+    // --- temporary repositories: present, absent, shallow, no .git ----------
+
+    fn git(dir: &Path, args: &[&str]) -> bool {
+        Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .env("GIT_AUTHOR_NAME", "Test Harness")
+            .env("GIT_AUTHOR_EMAIL", "harness@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Test Harness")
+            .env("GIT_COMMITTER_EMAIL", "harness@example.invalid")
+            .env("GIT_AUTHOR_DATE", "2026-10-22T12:00:00+0530")
+            .env("GIT_COMMITTER_DATE", "2026-10-22T12:00:00+0530")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .expect("run git")
+            .success()
+    }
+
+    fn init_repo(dir: &Path) {
+        std::fs::create_dir_all(dir).expect("create the repository directory");
+        assert!(git(dir, &["init", "-q", "-b", "main"]), "git init");
+        assert!(git(dir, &["config", "user.name", "Test Harness"]));
+        assert!(git(
+            dir,
+            &["config", "user.email", "harness@example.invalid"]
+        ));
+        assert!(git(dir, &["config", "commit.gpgsign", "false"]));
+    }
+
+    fn commit(dir: &Path, file: &str, message: &str) -> String {
+        std::fs::write(dir.join(file), format!("{message}\n")).expect("write the committed file");
+        assert!(git(dir, &["add", "-A"]), "git add");
+        assert!(git(dir, &["commit", "-q", "-m", message]), "git commit");
+        std::fs::read_to_string(dir.join(".git/HEAD"))
+            .ok()
+            .and_then(|head| {
+                head.trim().strip_prefix("ref: ").and_then(|reference| {
+                    std::fs::read_to_string(dir.join(".git").join(reference)).ok()
+                })
+            })
+            .map(|sha| sha.trim().to_string())
+            .expect("resolve HEAD")
+    }
+
+    /// Write one-file sample output beside a provenance record. The manifest is
+    /// deliberately written in a different order from the canonical one.
+    fn write_sample(dir: &Path, recorded_commit: &str) -> (PathBuf, PathBuf) {
+        let payload = b"recorded sample payload";
+        std::fs::write(dir.join("artifact.json"), payload).expect("write the payload");
+        let digest = crate::package::sha256_hex(payload);
+        let manifest = dir.join("SHA256SUMS");
+        std::fs::write(
+            &manifest,
+            format!(
+                "{}  zz-other.txt\n{digest}  artifact.json\n",
+                "a".repeat(64)
+            ),
+        )
+        .expect("write the manifest");
+        // The second row names a file that does not exist; content identity
+        // does not read the payload, but check_manifest does. Only the identity
+        // tests use this manifest directly.
+        let identity = content_identity_from_manifest(&manifest).expect("identity");
+        let provenance = dir.join("PROVENANCE.txt");
+        std::fs::write(
+            &provenance,
+            format!(
+                "commit SHA: {recorded_commit}\n\
+                 content identity: {identity}\n\
+                 pinned inputs: third_party/MTL={}, third_party/liboqs={}\n\
+                 rustc: rustc test\n\
+                 date: 2026-10-22T12:00:00+05:30\n",
+                "c".repeat(40),
+                "d".repeat(40)
+            ),
+        )
+        .expect("write the provenance");
+        (manifest, provenance)
+    }
+
+    #[test]
+    fn a_present_commit_is_reported_as_present() {
+        let dir = temp_dir("commit-present");
+        init_repo(&dir);
+        let sha = commit(&dir, "a.txt", "first");
+        let (manifest, provenance) = write_sample(&dir, &sha);
+        let outcome =
+            verify_provenance(&dir, &provenance, &manifest, false).expect("verification runs");
+        assert_eq!(outcome.commit_state, CommitState::Present);
+        assert!(commit_message(outcome.commit_state, &outcome.commit)
+            .contains("present in this repository"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_absent_commit_reports_the_public_copy_reason_without_failing() {
+        let dir = temp_dir("commit-absent");
+        init_repo(&dir);
+        commit(&dir, "a.txt", "first");
+        let absent = "0".repeat(40);
+        let (manifest, provenance) = write_sample(&dir, &absent);
+        let outcome =
+            verify_provenance(&dir, &provenance, &manifest, false).expect("absence is a skip");
+        assert_eq!(outcome.commit_state, CommitState::Absent);
+        assert_eq!(
+            commit_message(outcome.commit_state, &outcome.commit),
+            "provenance commit 0000000 not present in this repository (expected in a rewritten public copy); content identity verified"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_shallow_clone_reports_the_absent_commit_without_failing() {
+        let root = temp_dir("shallow");
+        let origin = root.join("origin");
+        init_repo(&origin);
+        let first = commit(&origin, "a.txt", "first");
+        commit(&origin, "b.txt", "second");
+        let clone = root.join("clone");
+        let url = format!("file://{}", origin.display());
+        assert!(Command::new("git")
+            .args(["clone", "-q", "--depth", "1", &url])
+            .arg(&clone)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .status()
+            .expect("run git clone")
+            .success());
+        assert!(is_shallow(&clone), "the fixture must really be shallow");
+        let (manifest, provenance) = write_sample(&clone, &first);
+        let outcome = verify_provenance(&clone, &provenance, &manifest, false)
+            .expect("a skip, not a failure");
+        assert_eq!(outcome.commit_state, CommitState::Absent);
+        assert!(commit_message(outcome.commit_state, &outcome.commit)
+            .contains("expected in a rewritten public copy"));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_tarball_without_git_reports_the_commit_as_unavailable() {
+        let dir = temp_dir("tarball");
+        let absent = "e".repeat(40);
+        let (manifest, provenance) = write_sample(&dir, &absent);
+        assert!(!git_repository_present(&dir));
+        let outcome =
+            verify_provenance(&dir, &provenance, &manifest, false).expect("no git is a skip");
+        assert_eq!(outcome.commit_state, CommitState::Unavailable);
+        assert!(commit_message(outcome.commit_state, &outcome.commit).contains("no git repository"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn strict_mode_refuses_an_absent_commit() {
+        let dir = temp_dir("strict");
+        init_repo(&dir);
+        commit(&dir, "a.txt", "first");
+        let absent = "0".repeat(40);
+        let (manifest, provenance) = write_sample(&dir, &absent);
+        let error = verify_provenance(&dir, &provenance, &manifest, true)
+            .expect_err("strict mode must refuse an absent commit");
+        assert!(error.to_string().contains("--require-commit"), "{error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_content_identity_that_disagrees_with_the_manifest_is_reported() {
+        let dir = temp_dir("identity-mismatch");
+        let (manifest, provenance) = write_sample(&dir, &"0".repeat(40));
+        let text = std::fs::read_to_string(&provenance).expect("read the provenance");
+        let replaced = text
+            .lines()
+            .map(|line| {
+                if line.starts_with(CONTENT_IDENTITY_PREFIX) {
+                    format!("content identity: sha256:{}", "0".repeat(64))
+                } else {
+                    line.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(&provenance, replaced).expect("rewrite the provenance");
+        let error = verify_provenance(&dir, &provenance, &manifest, false)
+            .expect_err("a stale identity must fail");
+        assert!(
+            error
+                .to_string()
+                .contains("does not match the current SHA256SUMS"),
+            "{error}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_content_identity_ignores_manifest_row_order() {
+        let dir = temp_dir("identity-order");
+        let first = dir.join("first.txt");
+        let second = dir.join("second.txt");
+        std::fs::write(
+            &first,
+            format!("{}  b.txt\n{}  a.txt\n", "b".repeat(64), "a".repeat(64)),
+        )
+        .expect("write the first manifest");
+        std::fs::write(
+            &second,
+            format!("{}  a.txt\n{}  b.txt\n", "a".repeat(64), "b".repeat(64)),
+        )
+        .expect("write the second manifest");
+        assert_eq!(
+            content_identity_from_manifest(&first).expect("first identity"),
+            content_identity_from_manifest(&second).expect("second identity")
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

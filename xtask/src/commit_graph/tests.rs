@@ -525,6 +525,52 @@ fn a_shallow_clone_skips_history_checks_and_reports_why() {
 }
 
 #[test]
+fn a_tarball_without_git_skips_history_checks_and_reports_why() {
+    let repo = TempRepo::new("tarball-source");
+    repo.commit(
+        "2026-10-10T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    repo.commit(
+        "2026-10-11T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("b.txt", "b\n")],
+    );
+    write_artifacts(&repo, "HEAD");
+
+    // A source tarball: the same committed artifacts, no .git directory.
+    let tarball = TempDir::new("tarball");
+    std::fs::create_dir_all(tarball.root.join("docs/media")).expect("create the card directory");
+    for relative in [
+        CONFIG_PATH,
+        JSON_PATH,
+        SVG_PATH,
+        NARROW_PATH,
+        COMPACT_PATH,
+        COMPACT_NARROW_PATH,
+    ] {
+        std::fs::copy(repo.path().join(relative), tarball.root.join(relative))
+            .expect("copy the committed artifact");
+    }
+    assert!(!crate::sample_check::git_repository_present(&tarball.root));
+
+    let outcome = check::check_with_paths(
+        &tarball.root,
+        &tarball.root.join(JSON_PATH),
+        &tarball.root.join(SVG_PATH),
+        &tarball.root.join(NARROW_PATH),
+        &tarball.root.join(COMPACT_PATH),
+        &tarball.root.join(COMPACT_NARROW_PATH),
+    )
+    .expect("the check runs without git");
+    let note = outcome.note.unwrap_or_default();
+    assert!(note.contains("no .git"), "{note}");
+    assert!(note.contains("tarball"), "{note}");
+    assert!(outcome.violations.is_empty(), "{:?}", outcome.violations);
+}
+
+#[test]
 fn generation_is_byte_identical_twice() {
     let repo = TempRepo::new("determinism");
     repo.commit(

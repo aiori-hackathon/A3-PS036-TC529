@@ -320,6 +320,11 @@ fi
   sha256sum "${MANIFEST_FILES[@]}" > SHA256SUMS
 )
 
+# The content identity is history-independent: the SHA-256 of the manifest
+# sorted by file name. Every commit rewrite leaves it unchanged, so a public
+# copy can verify the sample even though its commit hashes differ.
+CONTENT_IDENTITY="sha256:$(LC_ALL=C sort -k2 "$OUT/SHA256SUMS" | sha256sum | awk '{print $1}')"
+
 COMMIT="$(git rev-parse HEAD)"
 RUSTC="$(rustc --version)"
 SUBMTL="$(git submodule status | awk 'NR==1{print $1}' | tr -d '+-')"
@@ -328,15 +333,21 @@ DATE="$(date -Iseconds)"
 
 cat > "$OUT/PROVENANCE.txt" <<EOF
 commit SHA: $COMMIT
+content identity: $CONTENT_IDENTITY
+pinned inputs: third_party/MTL=$SUBMTL, third_party/liboqs=$SUBOQS
 rustc: $RUSTC
-submodule SHAs: third_party/MTL=$SUBMTL, third_party/liboqs=$SUBOQS
 date: $DATE
 normalisation: absolute workspace paths replaced with <repo>
-checks: results/report claim counts equal; report --check clean; second consolidation byte-identical apart from generated_at and diagnostics
+checks: results/report claim counts equal; report --check clean; content identity matches SHA256SUMS; second consolidation byte-identical apart from generated_at and diagnostics
 EOF
 
-# The full check hashes the manifest and resolves the provenance commit.
-cargo xtask sample-check --root "$REPO_ROOT"
+# The full check hashes the manifest, verifies the content identity and
+# resolves the provenance commit when it exists.
+if [[ "${CLIMB_REPO_ROLE:-}" == "private" ]]; then
+  cargo xtask sample-check --root "$REPO_ROOT" --require-commit
+else
+  cargo xtask sample-check --root "$REPO_ROOT"
+fi
 
 printf 'make-sample-output: refreshed %s (%d manifest entries)\n' \
   "$OUT" "${#MANIFEST_FILES[@]}"
