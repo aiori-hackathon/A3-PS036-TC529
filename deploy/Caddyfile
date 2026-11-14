@@ -48,6 +48,11 @@
 	@manifest path /tui/manifest.json
 	header @manifest Cache-Control "no-store"
 
+	# The release the host is serving. A deployment probe reads it, and a
+	# cached answer would report a release that is no longer current.
+	@release path /release.json
+	header @release Cache-Control "no-store"
+
 	header ?Cache-Control "no-cache"
 
 	# Directory builds: /report is /report/index.html, and a missing path

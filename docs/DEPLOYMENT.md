@@ -3,8 +3,10 @@
 This note has two parts: how the public dashboard is hosted on a VPS, and why
 the public repository's history differs from the development checkout.
 
-Nothing in this repository deploys itself. Every step in the first part is run
-by a human, in the order written, on a machine they control.
+Nothing in this repository deploys itself until a human has installed the
+release receiver and added the deploy key. After that, a push that touches the
+site publishes it: the workflow and the laptop run the same packaging script,
+and the host verifies what it receives before anything becomes visible.
 
 ## Hosting the dashboard
 
@@ -81,9 +83,10 @@ a working key for the sudo user.
 
 ### 4. Create the DuckDNS name
 
-Sign in at duckdns.org, create one subdomain (for example `climb`), and copy
-the account token from the same page. The subdomain becomes
-`climb.duckdns.org`; the token is the credential for its updates.
+Sign in at duckdns.org, create one subdomain (`climb-pqc` for this project), and
+copy the account token from the same page. The subdomain becomes
+`climb-pqc.duckdns.org`, which is the address the site is published at; the
+token is the credential for its updates.
 
 Keep the token in a password manager. It belongs in exactly one place on the
 server, `/etc/climb/duckdns.env` (mode 0600), and never in this repository, a
@@ -103,7 +106,7 @@ scp -r deploy root@<server-address>:/root/
 ssh -i ~/.ssh/climb_ed25519 root@<server-address>
 umask 077
 cat > /root/duckdns.token     # paste the token, then Ctrl-D
-bash /root/deploy/bootstrap.sh --domain climb --token-file /root/duckdns.token
+bash /root/deploy/bootstrap.sh --domain climb-pqc --token-file /root/duckdns.token
 shred -u /root/duckdns.token
 passwd climb                  # so sudo can authenticate; SSH passwords stay off
 ```
@@ -165,49 +168,189 @@ Two outcomes are expected on a container and are not defects:
   the certificate. Caddy retries on its own; re-run the check after a minute
   or two. Inspect `journalctl -u caddy` if it stays red.
 
-### 7. Publish a build
+### 7. Install the release receiver
 
-Build on the development machine, precompress the files Caddy can serve
-directly, and publish into a new release directory. `brotli` and `gzip` are
-needed locally.
+The host publishes releases through one command, run by one key, reachable only
+through a forced command. Copy both release scripts to the host and install
+them under the same names the repository uses, because the rollback script
+loads its verification helpers from the receiver:
 
 ```sh
-cd site
-npm ci
-npm run build
-find dist -type f \
-  \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.json' \
-     -o -name '*.svg' -o -name '*.wasm' -o -name '*.txt' -o -name '*.xml' \) \
-  -exec brotli -q 11 -f -k {} \; \
-  -exec gzip -9 -f -k {} \;
-stamp="$(date -u +%Y%m%dT%H%M%SZ)"
-
-ssh -i ~/.ssh/climb_ed25519 climb@<server-address> "mkdir -p /srv/climb/releases/$stamp"
-rsync -a --delete -e "ssh -i ~/.ssh/climb_ed25519" \
-  dist/ climb@<server-address>:/srv/climb/releases/$stamp/
-ssh -t -i ~/.ssh/climb_ed25519 climb@<server-address> \
-  "sudo ln -sfnT /srv/climb/releases/$stamp /srv/climb/current && sudo systemctl reload caddy"
+scp scripts/deploy-receive.sh scripts/rollback.sh \
+  climb@<server-address>:/tmp/
+ssh -t -i ~/.ssh/climb_ed25519 climb@<server-address>
+sudo install -o root -g root -m 755 /tmp/deploy-receive.sh /usr/local/sbin/
+sudo install -o root -g root -m 755 /tmp/rollback.sh /usr/local/sbin/
+rm -f /tmp/deploy-receive.sh /tmp/rollback.sh
+sha256sum /usr/local/sbin/deploy-receive.sh /usr/local/sbin/rollback.sh
 ```
 
-`ln -sfnT` replaces the directory the bootstrap created with the symlink
-rather than nesting inside it. The previous release stays in
-`/srv/climb/releases/`; roll back by pointing `current` at it again and
-reloading Caddy.
+Compare those digests with `sha256sum scripts/deploy-receive.sh
+scripts/rollback.sh` on the development machine. Re-install both whenever the
+repository copies change; a release refuses to publish if a tool it needs is
+missing, but it cannot tell that it is out of date.
 
-The Caddyfile serves precompressed `.br` and `.gz` siblings, falls back to
-zstd or gzip on the fly, marks `/_astro/*` immutable for a year, revalidates
-everything else, keeps `/tui/manifest.json` out of every cache, sets
-`application/wasm`, and answers a missing path with `404.html`.
+Create the account the key will belong to. It has no password and no shell:
 
-### 8. Enable HSTS
+```sh
+sudo adduser --disabled-password --gecos "" --shell /usr/sbin/nologin deploy
+sudo install -d -m 700 -o deploy -g deploy ~deploy/.ssh
+```
+
+On the development machine, make a key for deployments only (never reuse the
+personal login key):
+
+```sh
+ssh-keygen -t ed25519 -N '' -C climb-deploy -f ~/.ssh/climb_deploy_ed25519
+cat ~/.ssh/climb_deploy_ed25519.pub
+```
+
+Append that public key to `~deploy/.ssh/authorized_keys` on the host with
+a forced command and every forwarding option disabled:
+
+```sh
+key='ssh-ed25519 AAAA... climb-deploy'   # the line printed above
+sudo tee -a ~deploy/.ssh/authorized_keys >/dev/null <<EOF
+restrict,command="/usr/bin/sudo -n /usr/local/sbin/deploy-receive.sh" $key
+EOF
+sudo chown deploy:deploy ~deploy/.ssh/authorized_keys
+sudo chmod 600 ~deploy/.ssh/authorized_keys
+```
+
+`restrict` turns off the pty, port, agent and X11 forwarding, and the forced
+command replaces whatever the client asks for, so the key cannot open a shell
+or run anything else. The sudoers file grants the receiver and nothing beside
+it, and keeps the one environment variable that carries the request: sudo
+resets the environment, so without this line `SSH_ORIGINAL_COMMAND` never
+reaches the script and every publish is refused.
+
+```sh
+sudo tee /etc/sudoers.d/climb-deploy >/dev/null <<'EOF'
+Defaults:deploy env_keep += "SSH_ORIGINAL_COMMAND"
+deploy ALL=(root) NOPASSWD: /usr/local/sbin/deploy-receive.sh
+EOF
+sudo chmod 440 /etc/sudoers.d/climb-deploy
+sudo visudo -c -f /etc/sudoers.d/climb-deploy
+```
+
+Finally pin the host key. `ssh-keyscan` is trusted only after its fingerprint
+has been compared with the one the provider shows in its console:
+
+```sh
+ssh-keyscan -p 22 <server-address> > ~/.ssh/climb_deploy_known_hosts
+ssh-keygen -lf ~/.ssh/climb_deploy_known_hosts
+```
+
+The publishing script refuses to connect without that file and never accepts
+an unknown key, so a machine that answers in the host's place cannot receive a
+release.
+
+### 8. Publish a release
+
+One script packages and ships, from the laptop or from CI:
+
+```sh
+scripts/deploy-local.sh --host <server-address>
+```
+
+It builds the dashboard with `trunk build --release`, builds the site, writes a
+brotli and a gzip sibling for every compressible file, records the release in
+`site/release.json`, hashes every file into `manifest.json`, hashes the
+manifest into `manifest.sha256`, packs the three into `climb-site-<stamp>-<sha>.tar.zst`,
+and prints the archive digest before it sends anything. `--package-only` stops
+after the archive, `--dry-run` prints the SSH command it would run, and
+`--allow-dirty` packages an uncommitted tree (refused by default, because the
+release names a commit).
+
+The receiver, on the host, then:
+
+1. refuses an archive whose digest is not the one the sender pinned;
+2. refuses a path that is absolute, contains `..`, or is not under `site/`;
+3. checks `manifest.sha256` against `manifest.json`;
+4. checks every listed file's length and digest, and refuses any file the
+   manifest does not list or any listed file that is missing;
+5. checks the module's first four bytes against the WebAssembly magic;
+6. moves the tree into `/srv/climb/releases/<release>` and replaces
+   `/srv/climb/current` with one rename, so no reader sees a half-written
+   site;
+7. reloads Caddy, then asks `/release.json` which release it is serving, and
+   reloads until the answer is the new one or the attempts run out;
+8. on any failure restores the previous symlink, reloads, and keeps the failed
+   tree as `<release>.failed`;
+9. deletes releases beyond the newest five.
+
+The layout is one directory per release and one symlink:
+
+```text
+/srv/climb/releases/20261115T041500Z-672e2d1/
+/srv/climb/current -> /srv/climb/releases/20261115T041500Z-672e2d1
+```
+
+The Caddyfile serves `current`, so a release is live the moment the symlink
+moves. It serves the precompressed `.br` and `.gz` siblings, falls back to zstd
+or gzip on the fly, marks `/_astro/*` immutable for a year, revalidates
+everything else, keeps `/tui/manifest.json` and `/release.json` out of every
+cache, sets `application/wasm`, and answers a missing path with `404.html`.
+
+**From CI.** `.github/workflows/deploy.yml` runs the same script after its
+gates, on pushes to `main` that touch `site/`, `crates/climb-web/` or
+`docs/sample-output/`, and on a manual dispatch. It needs these repository
+settings:
+
+| Kind | Name | Value |
+|---|---|---|
+| Variable | `DEPLOY_HOST` | the server address |
+| Variable | `DEPLOY_USER` | `deploy` |
+| Variable | `DEPLOY_URL` | `https://climb-pqc.duckdns.org` |
+| Secret | `DEPLOY_SSH_KEY` | the whole private key file |
+| Secret | `DEPLOY_KNOWN_HOSTS` | the whole pinned host key line |
+
+The workflow refuses to run outside the public repository, so a fork cannot
+deploy even if it is handed a key. It builds the module, checks the generated
+site data, builds the site, runs lint, typecheck and the unit tests, runs
+Lighthouse against the built pages, runs the release-script tests, publishes,
+and then runs the live smoke test. A red run after the publish step means the
+release is live but the public path failed a check; the previous release is one
+rollback away.
+
+### 9. Roll back
+
+```sh
+ssh -t -i ~/.ssh/climb_ed25519 climb@<server-address>
+sudo /usr/local/sbin/rollback.sh --list
+sudo /usr/local/sbin/rollback.sh previous
+```
+
+`--list` prints the releases with a star on the current one. `previous` is the
+release the current one replaced; a release id works as well. The target is
+verified with the same rules a new release is, so a damaged tree is refused
+rather than served, and `current` is left where it was.
+
+### 10. Prove the live site
+
+```sh
+scripts/smoke-live.sh
+```
+
+It checks the certificate chain and that the leaf does not expire inside a
+fortnight, that plain HTTP redirects to HTTPS, that the response arrives over
+HTTP/2 or HTTP/3, the security headers, every route with its expected title,
+the module's media type, compression and magic bytes, that no request on the
+home page or the dashboard leaves the site's origin, and a response-time
+budget. Each line prints `PASS`, `FAIL` or `SKIP` with the value it saw;
+`--require-hsts` adds HSTS to the required headers, `--budget-ms` raises the
+time-to-first-byte budget, and `--skip-browser` turns off the origin check
+when the site's Playwright package is not installed.
+
+### 11. Enable HSTS
 
 HSTS is deliberately absent from the first deployment: sending it before
 HTTPS is known to work can lock a browser out of the site for a year. After
 step 6 has reported a passing certificate and a `200` from
-`https://climb.duckdns.org/`, enable it once:
+`https://climb-pqc.duckdns.org/`, enable it once:
 
 ```sh
-sudo bash /root/deploy/bootstrap.sh --domain climb --hsts
+sudo bash /root/deploy/bootstrap.sh --domain climb-pqc --hsts
 ```
 
 The flag uncomments the single `Strict-Transport-Security` line in the
@@ -218,6 +361,27 @@ needed after this step:
 ```sh
 sudo rm -rf /root/deploy
 ```
+
+### The free fallback: Cloudflare Pages
+
+The VPS is the primary target because Caddy serves the precompressed
+siblings and the exact header set the smoke test checks, and because the
+benchmark numbers travel with a host this project controls. Cloudflare Pages is
+the free fallback: the same `site/dist` directory at the edge, with no server to
+keep patched.
+
+Set the repository variable `CLOUDFLARE_PAGES_PROJECT` to the Pages project
+name and add `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` as secrets; the
+last step of `.github/workflows/deploy.yml` then publishes the same build with
+`wrangler pages deploy`. With the variable unset the step does not run.
+
+What the fallback does not carry: `precompressed` and the shipped header set
+belong to Caddy, and the site ships no `_headers` file, so a Pages deployment
+answers without that policy until one is added. The certificate, HTTP version
+and cache behaviour are Cloudflare's settings rather than this repository's.
+Check it directly with `scripts/smoke-live.sh https://<project>.pages.dev`; the
+smoke script's default target is the VPS. This is documented as a fallback, not
+as an equal second target.
 
 ### Cost log
 
@@ -232,18 +396,28 @@ invoices; no price is assumed here.
 
 ### Testing the deployment scripts
 
-The scripts are tested against a temporary root with stand-in commands, not
-against the server:
+The scripts are tested against temporary directories with stand-in commands,
+never against the server:
 
 ```sh
 bash deploy/tests/run.sh
+bash deploy/tests/release.sh
 ```
 
-The suite drives both the virtual-machine and container branches with a fake
+`run.sh` drives both the virtual-machine and container branches with a fake
 `systemd-detect-virt`, checks that a container plan creates no swap file, no
 time-sync unit and no sysctl file, asserts the token never appears in
 arguments, output or the warning file, and runs `verify-server.sh` against a
-healthy and a failing host. `shellcheck` is part of the suite when installed.
+healthy and a failing host.
+
+`release.sh` packages a fixture site and publishes it through the receiver, then
+checks the refusals: a wrong archive digest, a corrupted manifest, a manifest
+that names another release, a tampered file, an unlisted file, a module without
+the WebAssembly magic, an archive with a parent-directory path, and a failing
+health probe that has to restore the previous release. It also checks pruning,
+`rollback.sh` backwards and forwards, and that the smoke script expects the
+titles the site actually renders. `shellcheck` is part of both suites when it
+is installed.
 
 ## Why the two repositories disagree about hashes
 

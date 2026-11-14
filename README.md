@@ -77,7 +77,24 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 ## Live demo
 
 <!-- live:begin -->
-Live demo: coming with the web release
+**Live dashboard:** <https://climb-pqc.duckdns.org>
+
+Every route in this site is served from the same static build this repository
+produces: the home page, [`/report`](https://climb-pqc.duckdns.org/report/),
+[`/verify`](https://climb-pqc.duckdns.org/verify/),
+[`/reproduce`](https://climb-pqc.duckdns.org/reproduce/) and the recorded
+dashboard at [`/tui`](https://climb-pqc.duckdns.org/tui/).
+
+The host is a small VPS behind a DuckDNS name. `scripts/deploy-local.sh` builds
+and packages a release, the host verifies the archive digest, the manifest hash,
+every file digest and the WebAssembly magic bytes before it moves the `current`
+symlink, and `scripts/smoke-live.sh` checks the public path afterwards — the
+same script the deploy workflow runs. Rollback is one command; the pipeline and
+its failure modes are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+If the host is unavailable, nothing here becomes unreproducible: every figure,
+page and dashboard view is regenerated from this repository by the commands in
+[Quickstart](#quickstart).
 <!-- live:end -->
 
 ## Headline results

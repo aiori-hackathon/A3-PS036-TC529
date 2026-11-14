@@ -211,9 +211,11 @@ install_base_packages() {
     debian-keyring
     fail2ban
     gnupg
+    jq
     python3-systemd
     ufw
     unattended-upgrades
+    zstd
   )
   say "== base packages =="
   run env DEBIAN_FRONTEND=noninteractive apt-get update -qq
@@ -221,7 +223,10 @@ install_base_packages() {
 }
 
 create_site_user() {
-  local home="${root_prefix}/home/${site_user}"
+  # The account's home is the distribution's conventional one, under
+  # /home plus the user name; this is not a developer path, so the scanner's
+  # marker sits on the line that builds it.
+  local home="${root_prefix}/home/${site_user}" # path-hygiene:allow
   say "== sudo user =="
   if id -u "$site_user" >/dev/null 2>&1; then
     info "user $site_user already exists"

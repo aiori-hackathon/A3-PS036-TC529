@@ -3,4 +3,5 @@ dist/
 .astro/
 playwright-report/
 test-results/
+.lighthouseci/
 *.log

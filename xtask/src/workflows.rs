@@ -7,7 +7,9 @@
 //!    40-character commit SHA, so moving a tag cannot change what runs;
 //! 2. no workflow uses the `pull_request_target` event, which would run with a
 //!    write token against code from a fork;
-//! 3. no workflow reads a repository secret.
+//! 3. no workflow reads a repository secret, except the deploy workflow, which
+//!    may read the names on its own allowlist (the deploy key and the optional
+//!    Cloudflare token) and nothing else.
 //!
 //! Every workflow must also declare a top-level `permissions:` block, so the
 //! token the run receives is named in the file rather than defaulted.
@@ -61,6 +63,41 @@ pub(crate) fn is_pinned_action(value: &str) -> bool {
         && reference.chars().all(|c| c.is_ascii_hexdigit())
 }
 
+/// The only workflow allowed to read repository secrets, and the only names it
+/// may read. Publishing needs a deploy key; the optional second target needs a
+/// Cloudflare token. Every other workflow, and every other name in this one, is
+/// a violation, so a new secret cannot be wired in without being written here
+/// first.
+const DEPLOY_WORKFLOW: &str = ".github/workflows/deploy.yml";
+const DEPLOY_SECRETS: &[&str] = &[
+    "DEPLOY_SSH_KEY",
+    "DEPLOY_KNOWN_HOSTS",
+    "CLOUDFLARE_API_TOKEN",
+    "CLOUDFLARE_ACCOUNT_ID",
+];
+
+/// True when the file is the deploy workflow.
+fn is_deploy_workflow(file: &str) -> bool {
+    file == DEPLOY_WORKFLOW || file.ends_with("/deploy.yml")
+}
+
+/// Every `secrets.<NAME>` reference on a line, in order of appearance.
+fn secret_references(line: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    let mut rest = line;
+    while let Some(index) = rest.find("secrets.") {
+        rest = &rest[index + "secrets.".len()..];
+        let name: String = rest
+            .chars()
+            .take_while(|character| character.is_ascii_alphanumeric() || *character == '_')
+            .collect();
+        if !name.is_empty() {
+            names.push(name);
+        }
+    }
+    names
+}
+
 /// Extract the `uses:` value of a line, without its trailing comment.
 fn uses_value(line: &str) -> Option<&str> {
     let trimmed = line.trim_start();
@@ -103,11 +140,23 @@ pub(crate) fn lint_workflow(file: &str, text: &str) -> Vec<Violation> {
                 message: "the workflow uses the pull_request_target event".to_string(),
             });
         }
-        if line.contains("secrets.") {
+        for name in secret_references(line) {
+            if is_deploy_workflow(file) && DEPLOY_SECRETS.contains(&name.as_str()) {
+                continue;
+            }
+            let message = if is_deploy_workflow(file) {
+                format!(
+                    "`secrets.{name}` is not on the deploy allowlist, so the token scope has to be widened deliberately"
+                )
+            } else {
+                format!(
+                    "the workflow reads `secrets.{name}`, which only the deploy workflow may do"
+                )
+            };
             violations.push(Violation {
                 file: file.to_string(),
                 line: number,
-                message: "the workflow reads a repository secret".to_string(),
+                message,
             });
         }
     }
@@ -246,6 +295,48 @@ jobs:
     }
 
     #[test]
+    fn the_deploy_workflow_may_read_its_allowlisted_secrets() {
+        for name in DEPLOY_SECRETS {
+            let text = format!("{CLEAN}      - run: echo \"${{{{ secrets.{name} }}}}\"\n");
+            let violations = lint_workflow(DEPLOY_WORKFLOW, &text);
+            assert!(violations.is_empty(), "{name}: {violations:?}");
+        }
+    }
+
+    #[test]
+    fn the_deploy_workflow_may_not_read_another_secret() {
+        let text = format!("{CLEAN}      - run: echo \"${{{{ secrets.AWS_KEY }}}}\"\n");
+        let violations = lint_workflow(DEPLOY_WORKFLOW, &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].message.contains("AWS_KEY"), "{violations:?}");
+        assert!(
+            violations[0].message.contains("allowlist"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn an_allowlisted_name_is_still_a_violation_outside_the_deploy_workflow() {
+        let text = format!("{CLEAN}      - run: echo \"${{{{ secrets.DEPLOY_SSH_KEY }}}}\"\n");
+        let violations = lint_workflow(".github/workflows/site.yml", &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(
+            violations[0].message.contains("only the deploy workflow"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn every_secret_on_a_line_is_checked() {
+        let text = format!(
+            "{CLEAN}      - run: echo \"${{{{ secrets.DEPLOY_SSH_KEY }}}} ${{{{ secrets.DEPLOY_KNOWN_HOSTS }}}} ${{{{ secrets.OTHER }}}}\"\n"
+        );
+        let violations = lint_workflow(DEPLOY_WORKFLOW, &text);
+        assert_eq!(violations.len(), 1, "{violations:?}");
+        assert!(violations[0].message.contains("OTHER"), "{violations:?}");
+    }
+
+    #[test]
     fn a_workflow_without_top_level_permissions_is_a_violation() {
         let text = CLEAN.replace("permissions:\n  contents: read\n", "");
         let violations = lint_workflow(".github/workflows/ci.yml", &text);
@@ -350,7 +441,7 @@ jobs:
             .parent()
             .expect("xtask lives in a subdirectory of the workspace");
         let (files, _) = check_workflows(root).expect("the workflow directory exists");
-        for name in ["ci.yml", "security.yml"] {
+        for name in ["ci.yml", "security.yml", "deploy.yml"] {
             assert!(
                 root.join(".github/workflows").join(name).is_file(),
                 "{name} is missing from the workflow directory ({files} files)"
@@ -360,5 +451,113 @@ jobs:
             root.join(".github/dependabot.yml").is_file(),
             "the Dependabot configuration is missing"
         );
+    }
+
+    /// The deploy workflow is the only door into the host, so the properties
+    /// that keep it narrow are asserted here rather than trusted to review:
+    /// it cannot run from a fork, cannot be triggered by a pull request, and
+    /// declares the one permission it needs.
+    #[test]
+    fn the_deploy_workflow_is_scoped_to_the_public_repository() {
+        let text = committed_workflow("deploy.yml");
+        assert!(
+            text.contains("if: github.repository == 'aiori-hackathon/A3-PS036-TC529'"),
+            "the deploy job does not refuse to run outside the public repository"
+        );
+        assert!(
+            text.contains("permissions:\n  contents: read\n"),
+            "the workflow does not declare contents: read at the top level"
+        );
+        assert!(
+            !text.contains("pull_request"),
+            "a pull request must never reach the deploy workflow"
+        );
+        assert!(
+            text.contains("concurrency:"),
+            "a deploy has no concurrency group"
+        );
+    }
+
+    #[test]
+    fn the_deploy_workflow_runs_on_the_builds_that_change_the_site() {
+        let text = committed_workflow("deploy.yml");
+        for trigger in [
+            "\"site/**\"",
+            "\"crates/climb-web/**\"",
+            "\"docs/sample-output/**\"",
+            "workflow_dispatch:",
+        ] {
+            assert!(
+                text.contains(trigger),
+                "the deploy workflow does not trigger on {trigger}"
+            );
+        }
+    }
+
+    /// Order is the point: the gates and the smoke test run around the publish
+    /// step, not after it.
+    #[test]
+    fn the_deploy_workflow_gates_before_it_publishes() {
+        let text = committed_workflow("deploy.yml");
+        let position = |needle: &str| {
+            text.find(needle)
+                .unwrap_or_else(|| panic!("the deploy workflow never mentions `{needle}`"))
+        };
+        let check = position("npm run check");
+        let lighthouse = position("npm run lighthouse");
+        let scripts = position("deploy/tests/release.sh");
+        let publish = position("scripts/deploy-local.sh --no-build");
+        let smoke = position("scripts/smoke-live.sh");
+        assert!(check < publish, "the site checks run after the publish");
+        assert!(
+            lighthouse < publish,
+            "the Lighthouse gate runs after the publish"
+        );
+        assert!(
+            scripts < publish,
+            "the release-script tests run after the publish"
+        );
+        assert!(
+            publish < smoke,
+            "the live smoke test runs before the publish"
+        );
+        assert!(
+            text.contains("CLIMB_DEPLOY_KNOWN_HOSTS"),
+            "the host key is not pinned from a secret"
+        );
+        assert!(
+            text.contains("vars.CLOUDFLARE_PAGES_PROJECT != ''"),
+            "the second target is not behind a repository variable"
+        );
+    }
+
+    /// The allowlist is the contract: a workflow that reads a secret the list
+    /// does not name fails the lint, so this test keeps the list honest.
+    #[test]
+    fn the_deploy_workflow_reads_only_allowlisted_secrets() {
+        let text = committed_workflow("deploy.yml");
+        let mut used: Vec<String> = Vec::new();
+        for line in text.lines() {
+            for name in secret_references(line) {
+                if !used.contains(&name) {
+                    used.push(name);
+                }
+            }
+        }
+        used.sort();
+        let mut allowed: Vec<String> = DEPLOY_SECRETS.iter().map(|name| name.to_string()).collect();
+        allowed.sort();
+        assert_eq!(
+            used, allowed,
+            "the deploy workflow and the secret allowlist disagree"
+        );
+    }
+
+    fn committed_workflow(name: &str) -> String {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        std::fs::read_to_string(root.join(".github/workflows").join(name))
+            .unwrap_or_else(|error| panic!("failed to read {name}: {error}"))
     }
 }

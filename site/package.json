@@ -18,7 +18,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "fonts": "python3 scripts/build-fonts.py",
-    "check": "npm run lint && npm run typecheck && npm run test"
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "lighthouse": "lhci autorun"
   },
   "dependencies": {
     "@tailwindcss/vite": "4.3.3",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@astrojs/check": "0.9.12",
     "@eslint/js": "9.39.5",
+    "@lhci/cli": "0.16.1",
     "@playwright/test": "1.64.1",
     "@types/node": "26.6.6",
     "axe-core": "4.14.0",

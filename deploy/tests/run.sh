@@ -333,6 +333,7 @@ expect_has "$text" 'precompressed br gzip' "precompressed brotli and gzip"
 expect_has "$text" 'application/wasm' "wasm media type"
 expect_has "$text" 'public, max-age=31536000, immutable' "hashed assets cached for a year"
 expect_has "$text" 'header ?Cache-Control "no-cache"' "HTML revalidates by default"
+expect_has "$text" 'header @release Cache-Control "no-store"' "the served release is never cached"
 expect_has "$text" "connect-src 'self'" "CSP connect-src"
 expect_has "$text" "'wasm-unsafe-eval'" "CSP allows WebAssembly"
 expect_has "$text" "frame-ancestors 'none'" "CSP frame ancestors"
@@ -353,11 +354,11 @@ expect_has "$text" $'\t\t# HSTS-FLAG: Strict-Transport-Security' \
 if command -v caddy >/dev/null 2>&1; then
   cp "$caddyfile" "$work/Caddyfile"
   expect_true "caddy validates the shipped Caddyfile" \
-    env CLIMB_SITE_ADDRESS=climb.duckdns.org \
+    env CLIMB_SITE_ADDRESS=climb-pqc.duckdns.org \
     caddy validate --config "$work/Caddyfile" --adapter caddyfile
   sed 's|^\([[:space:]]*\)# HSTS-FLAG: |\1|' "$work/Caddyfile" >"$work/Caddyfile.hsts"
   expect_true "caddy validates the HSTS variant" \
-    env CLIMB_SITE_ADDRESS=climb.duckdns.org \
+    env CLIMB_SITE_ADDRESS=climb-pqc.duckdns.org \
     caddy validate --config "$work/Caddyfile.hsts" --adapter caddyfile
 else
   printf 'note: caddy is not installed; the Caddyfile was not parsed by caddy\n'
@@ -367,7 +368,7 @@ fi
 section "kvm dry run plans the host branch"
 # ---------------------------------------------------------------------------
 new_root
-out="$(FAKE_VIRT=kvm run_boot --dry-run --domain climb 2>&1)"
+out="$(FAKE_VIRT=kvm run_boot --dry-run --domain climb-pqc 2>&1)"
 expect_status $? 0 "kvm dry run exits 0"
 expect_has "$out" 'virtualisation: kvm' "virtualisation is printed"
 expect_has "$out" 'would run: fallocate -l 1G' "swap file is planned"
@@ -382,7 +383,7 @@ expect_true "dry run writes no warning file" test ! -e "$root/var/lib/climb/boot
 # ---------------------------------------------------------------------------
 section "lxc dry run skips what a container cannot own"
 # ---------------------------------------------------------------------------
-out="$(FAKE_VIRT=lxc run_boot --dry-run --domain climb 2>&1)"
+out="$(FAKE_VIRT=lxc run_boot --dry-run --domain climb-pqc 2>&1)"
 expect_status $? 0 "lxc dry run exits 0"
 expect_has "$out" 'virtualisation: lxc' "virtualisation is printed"
 expect_has "$out" 'skip: swap' "swap is skipped"
@@ -400,7 +401,7 @@ section "lxc without netfilter warns and still exits 0"
 # ---------------------------------------------------------------------------
 new_root
 out="$(FAKE_VIRT=lxc FAKE_UFW_ACTIVE=0 FAKE_UFW_ENABLE=1 FAKE_IPTABLES=1 \
-  run_boot --domain climb --token-file "$work/token" 2>&1)"
+  run_boot --domain climb-pqc --token-file "$work/token" 2>&1)"
 status=$?
 expect_status "$status" 0 "a container without netfilter still exits 0"
 expect_has "$out" 'WARN  ufw could not enforce rules here' "the firewall warning is printed"
@@ -421,7 +422,7 @@ expect_true "the journald limit is written" \
 expect_has "$(cat "$root/etc/systemd/journald.conf.d/50-climb.conf")" \
   'SystemMaxUse=200M' "journald size limit"
 expect_has "$(cat "$root/etc/climb/caddy.env")" \
-  'CLIMB_SITE_ADDRESS=climb.duckdns.org' "the site address is the DuckDNS name"
+  'CLIMB_SITE_ADDRESS=climb-pqc.duckdns.org' "the site address is the DuckDNS name"
 expect_true "the duckdns environment file exists" test -f "$root/etc/climb/duckdns.env"
 expect_mode "$root/etc/climb/duckdns.env" 600 "the duckdns environment file is root-only"
 expect_mode "$root/etc/climb" 700 "the duckdns directory is root-only"
@@ -444,7 +445,7 @@ section "no key means no lockout"
 # ---------------------------------------------------------------------------
 new_root
 rm -f "$root/root/.ssh/authorized_keys"
-out="$(FAKE_VIRT=lxc run_boot --domain climb --token-file "$work/token" 2>&1)"
+out="$(FAKE_VIRT=lxc run_boot --domain climb-pqc --token-file "$work/token" 2>&1)"
 status=$?
 expect_status "$status" 1 "the run stops when no key exists"
 expect_has "$out" 'no public key found' "the reason names the missing key"
@@ -452,10 +453,11 @@ expect_true "the sshd drop-in was not written" \
   test ! -e "$root/etc/ssh/sshd_config.d/00-climb-hardening.conf"
 
 new_root
-mkdir -p "$root/home/climb/.ssh"
+# The fixture home of the sudo user, under the temporary root.
+mkdir -p "$root/home/climb/.ssh" # path-hygiene:allow
 printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIUSERkey user@test\n' \
-  >"$root/home/climb/.ssh/authorized_keys"
-out="$(FAKE_VIRT=lxc FAKE_USER_EXISTS=1 run_boot --dry-run --domain climb 2>&1)"
+  >"$root/home/climb/.ssh/authorized_keys" # path-hygiene:allow
+out="$(FAKE_VIRT=lxc FAKE_USER_EXISTS=1 run_boot --dry-run --domain climb-pqc 2>&1)"
 expect_status $? 0 "an existing key for the sudo user is accepted"
 expect_has "$out" 'already has an authorized key' "the existing key is reported"
 
@@ -463,9 +465,9 @@ expect_has "$out" 'already has an authorized key' "the existing key is reported"
 section "kvm run is complete and idempotent"
 # ---------------------------------------------------------------------------
 new_root
-out="$(FAKE_VIRT=kvm run_boot --domain climb --token-file "$work/token" 2>&1)"
+out="$(FAKE_VIRT=kvm run_boot --domain climb-pqc --token-file "$work/token" 2>&1)"
 expect_status $? 0 "the first kvm run succeeds"
-out2="$(FAKE_VIRT=kvm run_boot --domain climb --token-file "$work/token" 2>&1)"
+out2="$(FAKE_VIRT=kvm run_boot --domain climb-pqc --token-file "$work/token" 2>&1)"
 expect_status $? 0 "the second kvm run succeeds"
 expect_true "the swap file exists" test -f "$root/swapfile"
 expect_has "$(cat "$log")" 'mkswap' "the swap file was formatted"
@@ -483,7 +485,7 @@ expect_has "$out2" 'warnings: 0' "the second run records no warning"
 section "HSTS is enabled only when asked"
 # ---------------------------------------------------------------------------
 new_root
-FAKE_VIRT=lxc run_boot --domain climb --token-file "$work/token" --hsts >/dev/null 2>&1
+FAKE_VIRT=lxc run_boot --domain climb-pqc --token-file "$work/token" --hsts >/dev/null 2>&1
 installed="$root/etc/caddy/Caddyfile"
 expect_true "the Caddyfile is installed" test -f "$installed"
 expect_has "$(cat "$installed")" 'Strict-Transport-Security "max-age=31536000; includeSubDomains"' \
@@ -494,13 +496,13 @@ expect_lacks "$(cat "$installed")" 'HSTS-FLAG' "the flag marker is gone"
 section "the DuckDNS updater keeps the token out of argv and the log"
 # ---------------------------------------------------------------------------
 env_file="$work/duckdns.env"
-printf 'DUCKDNS_DOMAIN=climb\nDUCKDNS_TOKEN=%s\n' "$token" >"$env_file"
+printf 'DUCKDNS_DOMAIN=climb-pqc\nDUCKDNS_TOKEN=%s\n' "$token" >"$env_file"
 : >"$work/curl-args"
 out="$(PATH="$fake:$PATH" FAKE_LOG="$work/curl-args" FAKE_CURL_STDIN="$work/curl-stdin" FAKE_CURL_BODY=OK \
   CLIMB_DUCKDNS_ENV="$env_file" "$deploy_dir/duckdns-update.sh" 2>&1)"
 expect_status $? 0 "a successful update exits 0"
-expect_has "$out" 'record for climb.duckdns.org is current' "the success line names the record"
-expect_has "$(cat "$work/curl-stdin")" 'domains=climb' "the request carries the domain"
+expect_has "$out" 'record for climb-pqc.duckdns.org is current' "the success line names the record"
+expect_has "$(cat "$work/curl-stdin")" 'domains=climb-pqc' "the request carries the domain"
 expect_has "$(cat "$work/curl-stdin")" "token=$token" "the request carries the token on stdin"
 expect_has "$(cat "$work/curl-stdin")" 'https://www.duckdns.org/update' "the request is HTTPS"
 expect_lacks "$(cat "$work/curl-args")" "$token" "the token is absent from the process arguments"
@@ -518,7 +520,7 @@ expect_has "$out" '***' "the token is redacted in the error"
 expect_lacks "$out" "$token" "the token never reaches the error text"
 
 bad_env="$work/duckdns-bad.env"
-printf 'DUCKDNS_DOMAIN=climb\nDUCKDNS_TOKEN=short\n' >"$bad_env"
+printf 'DUCKDNS_DOMAIN=climb-pqc\nDUCKDNS_TOKEN=short\n' >"$bad_env"
 out="$(PATH="$fake:$PATH" FAKE_LOG="$work/curl-args" FAKE_CURL_STDIN="$work/curl-stdin" \
   CLIMB_DUCKDNS_ENV="$bad_env" "$deploy_dir/duckdns-update.sh" 2>&1)"
 expect_status $? 1 "a malformed token is refused"
@@ -533,7 +535,7 @@ section "verify-server reports every item"
 # ---------------------------------------------------------------------------
 new_root
 mkdir -p "$root/etc/climb" "$root/etc/caddy"
-printf 'DUCKDNS_DOMAIN=climb\nDUCKDNS_TOKEN=%s\n' "$token" >"$root/etc/climb/duckdns.env"
+printf 'DUCKDNS_DOMAIN=climb-pqc\nDUCKDNS_TOKEN=%s\n' "$token" >"$root/etc/climb/duckdns.env"
 cp "$deploy_dir/Caddyfile" "$root/etc/caddy/Caddyfile"
 printf 'ufw could not enforce rules here (no usable netfilter in this container)\n' \
   >"$root/var/lib/climb/bootstrap-warnings.txt"

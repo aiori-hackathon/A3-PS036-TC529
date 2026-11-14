@@ -1,0 +1,148 @@
+name: Deploy
+
+# Publishing the dashboard is a deliberate, one-way action: the build is gated
+# here, packaged with a manifest, and then handed to a forced-command receiver
+# that verifies it before the symlink moves. Nothing in this workflow reads the
+# archive back, and a failed run leaves the previous release serving.
+#
+# Forks cannot deploy: the job is restricted to the public repository, and the
+# secrets it needs are not exposed to pull requests in any case.
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "site/**"
+      - "crates/climb-web/**"
+      - "docs/sample-output/**"
+      - "scripts/deploy-local.sh"
+      - "scripts/deploy-receive.sh"
+      - "deploy/Caddyfile"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  # Never cancel a publish halfway through: the receiver holds a lock and a
+  # half-finished run has to be allowed to finish or fail on its own.
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: deploy (build, gate, publish)
+    if: github.repository == 'aiori-hackathon/A3-PS036-TC529'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    environment:
+      name: production
+      url: https://climb-pqc.duckdns.org
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Install Rust toolchain from rust-toolchain.toml
+        uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
+        with:
+          cache: false
+          target: wasm32-unknown-unknown
+
+      - name: Cache Cargo registry and target
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          shared-key: deploy-wasm
+
+      - name: Install Node from site/.nvmrc
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: site/.nvmrc
+          cache: npm
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install the packaging tools
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq brotli zstd jq
+
+      - name: Install trunk
+        run: cargo install trunk --version 0.22.0 --locked
+
+      - name: Install site dependencies
+        working-directory: site
+        run: npm ci --no-audit --no-fund
+
+      - name: Check the generated site data against the committed artifacts
+        run: |
+          cargo run -p xtask --no-default-features -- site-data
+          cargo run -p xtask --no-default-features -- site-check
+
+      - name: Build the browser dashboard
+        working-directory: crates/climb-web
+        run: trunk build --release
+
+      - name: Report the module and the optimiser that produced it
+        run: |
+          wasm="$(find crates/climb-web/dist -maxdepth 1 -name '*_bg.wasm' -print -quit)"
+          echo "module: $wasm ($(wc -c <"$wasm") bytes)"
+          echo "magic: $(od -An -tx1 -N4 "$wasm" | tr -d ' \n')"
+          wasm-opt --version 2>/dev/null || echo "wasm-opt: fetched by trunk into its own cache"
+
+      - name: Build the site
+        working-directory: site
+        run: npm run build
+
+      - name: Lint, typecheck and unit-test the site
+        working-directory: site
+        run: npm run check
+
+      - name: Lighthouse gate
+        working-directory: site
+        run: npm run lighthouse
+
+      - name: Install the headless browser for the live smoke test
+        working-directory: site
+        run: PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium
+
+      - name: Test the release scripts
+        run: bash deploy/tests/release.sh
+
+      - name: Pin the host key and write the deploy key
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d "$RUNNER_TEMP/deploy"
+          printf '%s\n' "$DEPLOY_SSH_KEY" >"$RUNNER_TEMP/deploy/id"
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" >"$RUNNER_TEMP/deploy/known_hosts"
+          chmod 600 "$RUNNER_TEMP/deploy/id" "$RUNNER_TEMP/deploy/known_hosts"
+          ssh-keygen -lf "$RUNNER_TEMP/deploy/known_hosts"
+
+      - name: Publish the release
+        env:
+          CLIMB_DEPLOY_HOST: ${{ vars.DEPLOY_HOST }}
+          CLIMB_DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          CLIMB_DEPLOY_KEY: ${{ runner.temp }}/deploy/id
+          CLIMB_DEPLOY_KNOWN_HOSTS: ${{ runner.temp }}/deploy/known_hosts
+        run: bash scripts/deploy-local.sh --no-build
+
+      - name: Prove the live site
+        run: bash scripts/smoke-live.sh "${{ vars.DEPLOY_URL || 'https://climb-pqc.duckdns.org' }}"
+
+      # The free fallback: the same build served by Cloudflare Pages, enabled
+      # only when the repository variable names a project. It is one command
+      # from the same job so the dashboard module and the pages cannot drift
+      # between the two targets.
+      - name: Publish the same build to Cloudflare Pages
+        if: vars.CLOUDFLARE_PAGES_PROJECT != ''
+        working-directory: site
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: >-
+          npx --yes wrangler@4.162.0 pages deploy dist
+          --project-name "${{ vars.CLOUDFLARE_PAGES_PROJECT }}"
+          --branch main

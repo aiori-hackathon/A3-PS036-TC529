@@ -2394,11 +2394,19 @@ fn is_plausible_email(token: &str) -> bool {
     })
 }
 
+/// Content-addressable lock files, whose rows are written by package managers
+/// from upstream metadata: they carry the maintainers' addresses, not the
+/// author's, and a line cannot be annotated because a parser owns the file.
+/// They are the one generated kind exempt from the identity scan.
+fn is_generated_lockfile(file: &str) -> bool {
+    file.ends_with("-lock.json") || file.ends_with("package-lock.json")
+}
+
 /// Scan every tracked text file (except the vendored `third_party/` tree).
 fn check_path_hygiene(root: &Path, tracked: &HashSet<String>) -> Result<Vec<Violation>> {
     let mut violations = Vec::new();
     for file in tracked {
-        if file.starts_with("third_party/") {
+        if file.starts_with("third_party/") || is_generated_lockfile(file) {
             continue;
         }
         let path = root.join(file);
@@ -4908,6 +4916,9 @@ fn path_hygiene_flags_home_and_windows_paths() {
     assert!(!scan_path_hygiene_line(r"clone at C:\Users\someone\climb").is_empty()); // path-hygiene:allow
     assert!(scan_path_hygiene_line("clone at <repo>/target").is_empty());
     assert!(scan_path_hygiene_line("clone at ~/work/climb").is_empty());
+    assert!(is_generated_lockfile("site/package-lock.json"));
+    assert!(is_generated_lockfile("some/dir/cargo-lock.json"));
+    assert!(!is_generated_lockfile("docs/DEPLOYMENT.md"));
 }
 
 #[test]
