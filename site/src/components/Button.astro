@@ -5,6 +5,8 @@ interface Props {
   disabled?: boolean;
   /** `primary` is the orange call to action; `secondary` is a boundary-only peer. */
   variant?: 'primary' | 'secondary';
+  /** Ask the browser to save the target instead of navigating to it. */
+  download?: boolean;
   class?: string;
 }
 
@@ -13,6 +15,7 @@ const {
   type = 'button',
   disabled = false,
   variant = 'primary',
+  download = false,
   class: className = '',
 } = Astro.props;
 
@@ -25,6 +28,7 @@ const external = href !== undefined && /^https?:\/\//.test(href);
   href={href}
   type={href === undefined ? type : undefined}
   disabled={href === undefined ? disabled : undefined}
+  download={href === undefined ? undefined : download || undefined}
   rel={external ? 'noreferrer' : undefined}
 >
   <span class="button-cta__label">

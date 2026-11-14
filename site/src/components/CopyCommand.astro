@@ -1,0 +1,138 @@
+---
+/**
+ * One command line with a copy button.
+ *
+ * The command is rendered in the server HTML as selectable text, and the
+ * button only enhances it. A refused clipboard write is reported in the live
+ * region and the text stays selectable, so the command is never lost.
+ */
+interface Props {
+  label: string;
+  command: string;
+  note?: string;
+  id?: string;
+}
+
+const { label, command, note, id } = Astro.props;
+const statusId = id === undefined ? undefined : `${id}-status`;
+---
+
+<div class="copy-command" data-copy-command>
+  <pre class="copy-command__code"><code>{command}</code></pre>
+  <button
+    class="copy-command__button"
+    type="button"
+    data-copy-button
+    data-copy-text={command}
+    aria-describedby={statusId}
+    data-copy-label={label}
+  >
+    <span data-copy-label>{label}</span>
+  </button>
+  <p
+    class="copy-command__status"
+    id={statusId}
+    role="status"
+    aria-live="polite"
+    data-copy-status
+  ></p>
+  {note === undefined ? null : <p class="copy-command__note">{note}</p>}
+</div>
+
+<script>
+  import { writeClipboard } from '../lib/copy';
+
+  const READY = 'Copy';
+  const DONE = 'Copied';
+  const FAILED = 'Copy failed — select the command instead';
+
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-copy-button]')];
+  for (const button of buttons) {
+    const label = button.dataset.copyLabel ?? READY;
+    const host = button.closest<HTMLElement>('[data-copy-command]');
+    const status = host?.querySelector<HTMLElement>('[data-copy-status]') ?? null;
+    const text = button.dataset.copyText ?? '';
+    const written = button.querySelector<HTMLElement>('[data-copy-label]');
+
+    button.addEventListener('click', async () => {
+      const copied = await writeClipboard(text, navigator.clipboard);
+      if (written !== null) {
+        written.textContent = copied ? DONE : FAILED;
+      }
+      if (status !== null) {
+        status.textContent = copied
+          ? 'The command is on your clipboard.'
+          : 'The browser refused the clipboard write. The command is selected below; copy it by hand.';
+      }
+      if (!copied) {
+        const code = host?.querySelector('pre');
+        if (code !== null && code !== undefined) {
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          const selection = window.getSelection();
+          selection?.removeAllRanges();
+          selection?.addRange(range);
+        }
+      }
+      window.setTimeout(() => {
+        if (written !== null) {
+          written.textContent = label;
+        }
+      }, 2400);
+    });
+  }
+</script>
+
+<style>
+  .copy-command {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+    gap: 0.75rem;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-ink);
+    padding: 1rem;
+  }
+
+  .copy-command__code {
+    margin: 0;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .copy-command__button {
+    border: 1px solid var(--color-boundary);
+    border-radius: 999px;
+    background-color: transparent;
+    color: var(--color-text);
+    padding: 0.25rem 0.75rem;
+    font-family: var(--font-body);
+    font-size: var(--text-xs);
+    cursor: pointer;
+  }
+
+  .copy-command__button:hover {
+    border-color: var(--color-teal);
+    color: var(--color-teal);
+  }
+
+  .copy-command__status {
+    grid-column: 1 / -1;
+    margin: 0;
+    min-height: 1.25rem;
+    color: var(--color-muted);
+    font-size: var(--text-xs);
+  }
+
+  .copy-command__note {
+    grid-column: 1 / -1;
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+</style>

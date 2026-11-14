@@ -1,0 +1,232 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Button from '../components/Button.astro';
+import Fact from '../components/Fact.astro';
+import { evidence, formatBytes, shortDigest } from '../lib/evidence';
+import chartCopy from '../data/report-charts.json';
+
+interface ChartCopy {
+  readonly file: string;
+  readonly title: string;
+  readonly caption: string;
+}
+
+const report = evidence.report;
+const manifest = evidence.sums;
+const captions = new Map<string, ChartCopy>(
+  (chartCopy.charts as readonly ChartCopy[]).map((chart) => [chart.file, chart]),
+);
+const charts = evidence.charts.map((chart) => ({
+  ...chart,
+  title: captions.get(chart.name)?.title ?? chart.name,
+  caption: captions.get(chart.name)?.caption ?? '',
+}));
+
+const downloads = [
+  {
+    label: 'Results artifact',
+    path: 'climb-results.json',
+    note: 'The source every number on this site is read from.',
+    primary: true,
+  },
+  {
+    label: 'Rendered report',
+    path: 'report.html',
+    note: 'The self-contained HTML report, embedded above.',
+    primary: false,
+  },
+  {
+    label: 'Checksum manifest',
+    path: 'SHA256SUMS',
+    note: 'SHA-256 of every published payload.',
+    primary: false,
+  },
+  {
+    label: 'Provenance',
+    path: 'PROVENANCE.txt',
+    note: 'Commit, date and content identity of the run.',
+    primary: false,
+  },
+];
+---
+
+<BaseLayout
+  title="CLIMB — the full report"
+  description="The rendered CLIMB report and the machine-readable results artifact from the same recorded run, with every chart and its checksum."
+>
+  <section class="mx-auto max-w-6xl px-4 pt-12 pb-10 sm:px-6 sm:pt-16">
+    <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/04.00 the record</p>
+
+    <h1 class="mt-5 max-w-3xl font-display text-5xl leading-[0.95] text-paper sm:text-6xl">
+      The full report
+    </h1>
+
+    <p class="mt-6 max-w-2xl text-lg text-muted">
+      The rendered report and the machine-readable results artifact, from the same recorded run.
+    </p>
+
+    <p class="mt-4 max-w-2xl text-base text-muted" data-report-scope>
+      The run covers <Fact id="F-wire-sizes" /> with the parameter set <Fact id="F-parameter-set" />
+      .
+    </p>
+
+    <div class="mt-8 flex flex-wrap items-center gap-3">
+      <Button href="/evidence/climb-results.json" download>
+        Download the results artifact
+      </Button>
+      {report.available ? (
+        <Button href="/evidence/report.html" variant="secondary">
+          Open the HTML report
+        </Button>
+      ) : null}
+    </div>
+
+    <p class="mt-4 max-w-2xl text-sm text-muted">
+      The artifact is the source; the HTML report is rendered from it. Both are committed.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="report-embed-heading">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <h2 id="report-embed-heading" class="font-display text-3xl text-paper">
+        The rendered report
+      </h2>
+      {report.available && report.check !== null ? (
+        <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase" data-report-check>
+          {report.check.agree} agree · {report.check.drift} drift · {report.check.missing} missing
+        </p>
+      ) : null}
+    </div>
+
+    {report.available ? (
+      <figure class="report-embed" data-report-available>
+        <iframe
+          class="report-embed__frame"
+          src="/evidence/report.html"
+          title="The rendered CLIMB report"
+          sandbox=""
+          loading="lazy"
+        />
+        <figcaption class="report-embed__caption">
+          A sandboxed copy of the report, {formatBytes(report.bytes ?? 0)} of self-contained HTML.
+          Its digest begins {shortDigest(report.sha256 ?? '')}.
+        </figcaption>
+      </figure>
+    ) : (
+      <div class="report-empty" data-report-empty>
+        <p class="text-base text-paper">
+          No report has been rendered from this artifact yet. The download is still available.
+        </p>
+        <p class="mt-2 text-sm text-muted">
+          Render it with <code class="font-mono text-text">cargo xtask report</code> and reload this
+          page.
+        </p>
+      </div>
+    )}
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="charts-heading">
+    <div class="mb-4 flex flex-wrap items-end justify-between gap-3">
+      <h2 id="charts-heading" class="font-display text-3xl text-paper">
+        The charts
+      </h2>
+      <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">
+        {charts.length} figures · each with its recorded digest
+      </p>
+    </div>
+
+    {charts.length === 0 ? (
+      <p class="text-base text-muted">No chart has been published beside this artifact.</p>
+    ) : (
+      <ul class="grid gap-px overflow-hidden rounded-panel border border-slate bg-slate md:grid-cols-2">
+        {charts.map((chart) => (
+          <li class="bg-raised p-4" data-report-chart={chart.name}>
+            <figure>
+              <a class="block" href={`/evidence/${chart.name}`}>
+                <img
+                  class="h-auto w-full"
+                  src={`/evidence/${chart.name}`}
+                  alt={`${chart.title}, rendered from the recorded results`}
+                  loading="lazy"
+                />
+              </a>
+              <figcaption class="mt-3">
+                <span class="block font-body text-sm font-medium text-paper">{chart.title}</span>
+                <span class="mt-1 block text-sm text-muted">{chart.caption}</span>
+                <span class="mt-2 block font-mono text-xs text-muted">
+                  {formatBytes(chart.bytes)} · SHA-256 {shortDigest(chart.sha256)}
+                </span>
+              </figcaption>
+            </figure>
+          </li>
+        ))}
+      </ul>
+    )}
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6" aria-labelledby="downloads-heading">
+    <h2 id="downloads-heading" class="font-display text-3xl text-paper">
+      Download the evidence
+    </h2>
+    <p class="mt-3 max-w-2xl text-base text-muted">
+      Every file below is published from the same recorded run. The manifest lists the digest of
+      each one, so a download can be checked with{' '}
+      <code class="font-mono text-text">sha256sum -c SHA256SUMS</code>.
+    </p>
+
+    <ul class="mt-6 divide-y divide-slate border-y border-slate">
+      {downloads.map((item) => (
+        <li class="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-4">
+          <a
+            class="font-body text-base text-text underline underline-offset-2 hover:text-orange"
+            href={`/evidence/${item.path}`}
+            download
+          >
+            {item.label}
+          </a>
+          <code class="font-mono text-xs text-muted">/evidence/{item.path}</code>
+          <span class="ml-auto text-sm text-muted">{item.note}</span>
+        </li>
+      ))}
+    </ul>
+
+    <p class="mt-4 text-sm text-muted">
+      {manifest.available ? (
+        <>
+          The manifest lists {manifest.rows.length} files. The report is
+          {report.available ? ' present' : ' absent'}; the artifact is always present.
+        </>
+      ) : (
+        <>No checksum manifest is published beside this artifact.</>
+      )}
+    </p>
+  </section>
+</BaseLayout>
+
+<style>
+  .report-embed {
+    margin: 0;
+  }
+
+  .report-embed__frame {
+    display: block;
+    width: 100%;
+    height: clamp(28rem, 80vh, 64rem);
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-paper);
+  }
+
+  .report-embed__caption {
+    margin-top: 0.75rem;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  .report-empty {
+    border: 1px dashed var(--color-slate);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-raised);
+    padding: 1.5rem;
+  }
+</style>

@@ -1,0 +1,220 @@
+---
+/**
+ * In-browser digest checker.
+ *
+ * The visitor picks a downloaded file; the page hashes it with Web Crypto and
+ * compares the digest with the recorded row in the published `SHA256SUMS`.
+ * The file never leaves the page — there is no upload and no request carrying
+ * its bytes, only one same-origin request for the manifest itself.
+ */
+interface Props {
+  manifestUrl?: string;
+}
+
+const { manifestUrl = '/evidence/SHA256SUMS' } = Astro.props;
+---
+
+<div class="sha-checker" data-sha-checker data-manifest-url={manifestUrl}>
+  <div class="sha-checker__field">
+    <label class="sha-checker__label" for="sha-checker-file">
+      Choose a downloaded file
+    </label>
+    <input
+      class="sha-checker__input"
+      id="sha-checker-file"
+      name="sha-checker-file"
+      type="file"
+      data-sha-input
+    />
+  </div>
+
+  <p class="sha-checker__hint">
+    The digest is computed on this device. Nothing is uploaded.
+    <a class="sha-checker__link" href={manifestUrl}>
+      Open the manifest
+    </a>
+    .
+  </p>
+
+  <dl class="sha-checker__result" data-sha-result hidden>
+    <dt class="sha-checker__term">File</dt>
+    <dd class="sha-checker__value" data-sha-file></dd>
+    <dt class="sha-checker__term">Computed</dt>
+    <dd class="sha-checker__value" data-sha-computed></dd>
+    <dt class="sha-checker__term">Recorded</dt>
+    <dd class="sha-checker__value" data-sha-recorded></dd>
+  </dl>
+
+  <p class="sha-checker__verdict" role="status" aria-live="polite" data-sha-verdict>
+    Pick a file to compare its digest with the recorded manifest.
+  </p>
+</div>
+
+<script>
+  import {
+    baseName,
+    compareDigest,
+    lookupChecksum,
+    parseChecksumManifest,
+    sha256Hex,
+  } from '../lib/sha256';
+
+  const roots = [...document.querySelectorAll<HTMLElement>('[data-sha-checker]')];
+
+  for (const root of roots) {
+    const input = root.querySelector<HTMLInputElement>('[data-sha-input]');
+    const result = root.querySelector<HTMLElement>('[data-sha-result]');
+    const fileCell = root.querySelector<HTMLElement>('[data-sha-file]');
+    const computedCell = root.querySelector<HTMLElement>('[data-sha-computed]');
+    const recordedCell = root.querySelector<HTMLElement>('[data-sha-recorded]');
+    const verdict = root.querySelector<HTMLElement>('[data-sha-verdict]');
+    const manifestUrl = root.dataset.manifestUrl ?? '/evidence/SHA256SUMS';
+
+    if (input === null || result === null || verdict === null) {
+      continue;
+    }
+
+    input.addEventListener('change', async () => {
+      const file = input.files?.[0];
+      if (file === undefined) {
+        result.hidden = true;
+        verdict.dataset.verdict = 'idle';
+        verdict.textContent = 'Pick a file to compare its digest with the recorded manifest.';
+        return;
+      }
+
+      verdict.dataset.verdict = 'working';
+      verdict.textContent = 'Computing the digest…';
+
+      let computed: string;
+      try {
+        computed = await sha256Hex(await file.arrayBuffer());
+      } catch (error) {
+        verdict.dataset.verdict = 'error';
+        verdict.textContent = `This browser could not compute a digest: ${String(error)}`;
+        return;
+      }
+
+      const name = baseName(file.name);
+      let recorded: string | null = null;
+      let manifestError: string | null = null;
+      try {
+        const response = await fetch(manifestUrl, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`${response.status} ${response.statusText}`.trim());
+        }
+        recorded = lookupChecksum(parseChecksumManifest(await response.text()), name);
+      } catch (error) {
+        manifestError = String(error);
+      }
+
+      result.hidden = false;
+      if (fileCell !== null) fileCell.textContent = name;
+      if (computedCell !== null) computedCell.textContent = computed;
+      if (recordedCell !== null) recordedCell.textContent = recorded ?? '—';
+
+      if (manifestError !== null) {
+        verdict.dataset.verdict = 'error';
+        verdict.textContent = `The recorded manifest could not be read (${manifestError}). The computed digest above is still yours to compare.`;
+      } else if (recorded === null) {
+        verdict.dataset.verdict = 'unknown';
+        verdict.textContent =
+          'This file name is not listed in the recorded manifest, so there is no recorded digest to compare against.';
+      } else if (compareDigest(recorded, computed) === 'match') {
+        verdict.dataset.verdict = 'match';
+        verdict.textContent = 'Match: the file is byte-identical to the recorded copy.';
+      } else {
+        verdict.dataset.verdict = 'mismatch';
+        verdict.textContent =
+          'Mismatch: the file differs from the recorded copy. Do not use it; download it again.';
+      }
+    });
+  }
+</script>
+
+<style>
+  .sha-checker {
+    border: 1px solid var(--color-boundary);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-raised);
+    padding: 1.25rem;
+  }
+
+  .sha-checker__field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .sha-checker__label {
+    color: var(--color-paper);
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    font-weight: 500;
+  }
+
+  .sha-checker__input {
+    max-width: 100%;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-ink);
+    padding: 0.5rem;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  .sha-checker__hint {
+    margin: 0.75rem 0 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  .sha-checker__link {
+    color: var(--color-orange);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .sha-checker__result {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.5rem 1rem;
+    margin: 1rem 0 0;
+    border-top: 1px solid var(--color-rule);
+    padding-top: 1rem;
+  }
+
+  .sha-checker__result[hidden] {
+    display: none;
+  }
+
+  .sha-checker__term {
+    color: var(--color-muted);
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+  }
+
+  .sha-checker__value {
+    margin: 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+  }
+
+  .sha-checker__verdict {
+    margin: 1rem 0 0;
+    color: var(--color-muted);
+    font-size: var(--text-sm);
+  }
+
+  .sha-checker__verdict[data-verdict='match'] {
+    color: var(--color-success, var(--color-teal));
+  }
+
+  .sha-checker__verdict[data-verdict='mismatch'],
+  .sha-checker__verdict[data-verdict='error'] {
+    color: var(--color-orange);
+  }
+</style>

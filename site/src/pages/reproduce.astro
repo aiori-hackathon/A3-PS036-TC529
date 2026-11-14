@@ -1,0 +1,323 @@
+---
+import { join } from 'node:path';
+
+import BaseLayout from '../layouts/BaseLayout.astro';
+import CopyCommand from '../components/CopyCommand.astro';
+import Fact from '../components/Fact.astro';
+import Sha256Checker from '../components/Sha256Checker.astro';
+import {
+  evidence,
+  findReleaseBundle,
+  formatBytes,
+  repositoryRoot,
+  shortDigest,
+} from '../lib/evidence';
+import { provenance, recordedDate, recordedOffset } from '../lib/provenance';
+import { commands, expectedOutputLines, reproductionModeLabel } from '../lib/reproduce';
+import { claimCounts, claims } from '../lib/verify';
+
+const bundle = findReleaseBundle(join(repositoryRoot(), 'dist'));
+const counts = claimCounts(claims);
+
+const expected = expectedOutputLines({
+  claims: counts,
+  check: evidence.report.check,
+  manifestRows: evidence.sums.rows.length,
+  documents: evidence.site_documents.length,
+  contentIdentity: provenance.content_identity,
+  commitShort: provenance.commit.slice(0, 7),
+});
+
+const downloads = [
+  {
+    label: 'Results artifact',
+    file: 'climb-results.json',
+    note: 'Every number on this site is read from this file.',
+  },
+  {
+    label: 'Checksum manifest',
+    file: 'SHA256SUMS',
+    note: 'SHA-256 of every published payload in this directory.',
+  },
+  {
+    label: 'Provenance',
+    file: 'PROVENANCE.txt',
+    note: 'Commit, date and content identity of the recorded run.',
+  },
+];
+
+const pinned = provenance.pinned_inputs;
+const mode = reproductionModeLabel(evidence.reproduction_mode);
+---
+
+<BaseLayout
+  title="CLIMB — rebuild every number"
+  description="The pinned environment and the exact commands that regenerate every CLIMB artifact from a clean clone, with an in-browser digest checker."
+>
+  <section class="mx-auto max-w-6xl px-4 pt-12 pb-10 sm:px-6 sm:pt-16">
+    <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/06.00 rebuild it</p>
+
+    <h1 class="mt-5 max-w-3xl font-display text-5xl leading-[0.95] text-paper sm:text-6xl">
+      Rebuild every number
+    </h1>
+
+    <p class="mt-6 max-w-2xl text-lg text-muted">
+      The pinned environment and the commands that regenerate the artifacts from a clean clone.
+    </p>
+
+    <p class="mt-4 max-w-2xl text-base text-muted" data-reproduce-scope>
+      The run uses <Fact id="F-wire-sizes" /> and the parameter set <Fact id="F-parameter-set" />.
+    </p>
+
+    <div class="mt-8 max-w-2xl">
+      <CopyCommand
+        id="reproduce-command"
+        label="Copy the command"
+        command={commands.regenerate[0]?.lines[0] ?? 'cargo xtask reproduce --report-only'}
+        note="The commands run locally. The benchmark is not deployed on the Internet; the DNS testbed runs in Docker on your machine."
+      />
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="quickstart-heading">
+    <h2 id="quickstart-heading" class="font-display text-3xl text-paper">
+      Quickstart
+    </h2>
+    <p class="mt-3 max-w-2xl text-base text-muted">
+      The viewer is read-only and needs no native cryptographic stack. These are the same commands
+      as the repository README.
+    </p>
+
+    <ul class="mt-6 grid gap-4 lg:grid-cols-3">
+      {commands.quickstart.map((group) => (
+        <li class="panel p-4" data-quickstart={group.id}>
+          <h3 class="font-body text-sm font-medium text-paper">{group.label}</h3>
+          <p class="mt-1 mb-3 text-sm text-muted">{group.note}</p>
+          <CopyCommand label={`Copy: ${group.label}`} command={group.lines.join('\n')} />
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="rebuild-heading">
+    <h2 id="rebuild-heading" class="font-display text-3xl text-paper">
+      Rebuild the artifacts
+    </h2>
+    <p class="mt-3 max-w-2xl text-base text-muted">
+      Two modes: reuse the measurements already on disk, or run the benchmarks and measurements
+      again. The artifact records which mode produced it.
+    </p>
+
+    <div class="mt-6 grid gap-4 md:grid-cols-2">
+      {commands.regenerate.map((group) => (
+        <div class="panel p-4" data-rebuild={group.id}>
+          <h3 class="font-body text-sm font-medium text-paper">{group.label}</h3>
+          <p class="mt-1 mb-3 text-sm text-muted">{group.note}</p>
+          <CopyCommand label="Copy the command" command={group.lines.join('\n')} />
+        </div>
+      ))}
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="expected-heading">
+    <h2 id="expected-heading" class="font-display text-3xl text-paper">
+      What a clean run prints
+    </h2>
+    <p class="mt-3 max-w-2xl text-base text-muted">
+      The line counts below are read from the committed artifacts, not typed into this page. A run
+      with a different registry prints its own counts.
+    </p>
+
+    <pre class="expected-output" data-expected-output><code>{expected.join('\n')}</code></pre>
+
+    <p class="mt-3 text-sm text-muted">
+      The check re-resolves the registry against the committed results, verifies every manifest
+      entry and confirms the provenance commit is present in this repository.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="environment-heading">
+    <h2 id="environment-heading" class="font-display text-3xl text-paper">
+      The pinned environment
+    </h2>
+
+    <dl class="env-grid mt-6">
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Commit</dt>
+        <dd class="env-grid__value">
+          <code>{provenance.commit_short}</code>
+        </dd>
+      </div>
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Recorded</dt>
+        <dd class="env-grid__value">
+          <time datetime={provenance.date}>{recordedDate(provenance.date)}</time>
+          {recordedOffset(provenance.date)}
+        </dd>
+      </div>
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Content identity</dt>
+        <dd class="env-grid__value">
+          <code>{provenance.content_identity}</code>
+        </dd>
+      </div>
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Toolchain</dt>
+        <dd class="env-grid__value">
+          <code>{provenance.rustc}</code>
+        </dd>
+      </div>
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Host fingerprint</dt>
+        <dd class="env-grid__value">
+          <code>{shortDigest(provenance.host_fingerprint_sha256)}</code>
+        </dd>
+      </div>
+      <div class="env-grid__cell">
+        <dt class="env-grid__term">Reproduction mode</dt>
+        <dd class="env-grid__value" data-reproduction-mode={evidence.reproduction_mode}>
+          {mode}
+        </dd>
+      </div>
+    </dl>
+
+    <h3 class="mt-8 font-body text-sm font-medium text-paper">Pinned inputs</h3>
+    <ul class="mt-3 divide-y divide-slate border-y border-slate">
+      {pinned.map((input) => (
+        <li class="flex flex-wrap items-baseline gap-x-4 gap-y-1 py-3">
+          <code class="font-mono text-sm text-text">{input.path}</code>
+          <code class="ml-auto font-mono text-xs text-muted">{input.sha}</code>
+        </li>
+      ))}
+    </ul>
+
+    <p class="mt-4 max-w-2xl text-sm text-muted">
+      A pinned value that is missing fails the build rather than being silently skipped. The
+      reproducibility notes name each input and the gate that enforces it.
+    </p>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-16 sm:px-6" aria-labelledby="downloads-heading">
+    <h2 id="downloads-heading" class="font-display text-3xl text-paper">
+      Download the run
+    </h2>
+
+    <div class="mt-6 grid gap-4 lg:grid-cols-2">
+      <div class="panel p-4" data-release-bundle>
+        <h3 class="font-body text-sm font-medium text-paper">Release bundle</h3>
+        {bundle === null ? (
+          <p class="mt-2 text-sm text-muted">
+            No release bundle has been published from this checkout. Build it with
+            <code class="font-mono text-text">cargo xtask package</code>; the download appears here
+            once <code class="font-mono text-text">dist/</code> holds the archive.
+          </p>
+        ) : (
+          <>
+            <p class="mt-2 text-sm text-muted">
+              The newest archive written by{' '}
+              <code class="font-mono text-text">cargo xtask package</code>, with its build-time
+              digest.
+            </p>
+            <p class="mt-3">
+              <a class="download-link" href={`/evidence/${bundle.name}`} download>
+                {bundle.name}
+              </a>
+            </p>
+            <p class="mt-2 font-mono text-xs text-muted">
+              {formatBytes(bundle.bytes)} · SHA-256 {shortDigest(bundle.sha256)}
+            </p>
+          </>
+        )}
+      </div>
+
+      <div class="panel p-4">
+        <h3 class="font-body text-sm font-medium text-paper">Evidence files</h3>
+        <ul class="mt-3 divide-y divide-slate">
+          {downloads.map((item) => (
+            <li class="py-3">
+              <a class="download-link" href={`/evidence/${item.file}`} download>
+                {item.label}
+              </a>
+              <p class="mt-1 text-sm text-muted">{item.note}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section class="mx-auto max-w-6xl px-4 pb-20 sm:px-6" aria-labelledby="checker-heading">
+    <h2 id="checker-heading" class="font-display text-3xl text-paper">
+      Check a download
+    </h2>
+    <p class="mt-3 mb-6 max-w-2xl text-base text-muted">
+      Pick any file you downloaded from this run. The page computes its SHA-256 on your device and
+      compares it with the recorded row in the manifest. Nothing is uploaded.
+    </p>
+
+    <Sha256Checker />
+  </section>
+</BaseLayout>
+
+<style>
+  .expected-output {
+    margin: 1.25rem 0 0;
+    border: 1px solid var(--color-rule);
+    border-radius: var(--radius-control);
+    background-color: var(--color-ink);
+    padding: 1rem;
+    color: var(--color-text);
+    font-family: var(--font-mono);
+    font-size: var(--text-sm);
+    line-height: 1.7;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+
+  .env-grid {
+    display: grid;
+    gap: 1px;
+    overflow: hidden;
+    border: 1px solid var(--color-slate);
+    border-radius: var(--radius-panel);
+    background-color: var(--color-slate);
+  }
+
+  @media (min-width: 48rem) {
+    .env-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  .env-grid__cell {
+    background-color: var(--color-raised);
+    padding: 1rem;
+  }
+
+  .env-grid__term {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+
+  .env-grid__value {
+    margin: 0.5rem 0 0;
+    overflow-wrap: anywhere;
+    color: var(--color-text);
+    font-size: var(--text-sm);
+  }
+
+  .download-link {
+    color: var(--color-text);
+    font-family: var(--font-body);
+    font-size: var(--text-sm);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .download-link:hover {
+    color: var(--color-orange);
+  }
+</style>

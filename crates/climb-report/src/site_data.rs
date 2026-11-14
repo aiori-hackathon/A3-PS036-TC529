@@ -3,7 +3,7 @@
 //! under `site/src/data/generated/`.
 //!
 //! The module is native-free: it reads JSON documents and text artifacts and
-//! never touches libMTL, liboqs or a C library. The six generated documents
+//! never touches libMTL, liboqs or a C library. The seven generated documents
 //! are
 //!
 //! | File | Source |
@@ -14,6 +14,7 @@
 //! | `series.json` | the wire, signing, verifying and memory rows of the results artifact |
 //! | `ladder.json` | the recorded ladder-verification fixture, re-checked against the model |
 //! | `commits.json` | the committed commit-graph document |
+//! | `evidence.json` | the rendered report, its checksum manifest and the generated-document digests |
 //!
 //! Every document is deterministic: it contains no wall-clock timestamp, no
 //! hash-map iteration order and no absolute path. A `content_sha256` field is
@@ -40,8 +41,14 @@ pub const SITE_DATA_SCHEMA_VERSION: u32 = 1;
 pub const DEFAULT_RESULTS: &str = "docs/sample-output/climb-results.json";
 /// Committed ladder-verification fixture.
 pub const DEFAULT_LADDER: &str = "docs/sample-output/ladder-verification.recorded.json";
-/// Recorded provenance of the sample output.
+/// Committed provenance of the sample output.
 pub const DEFAULT_PROVENANCE: &str = "docs/sample-output/PROVENANCE.txt";
+/// Committed checksum manifest over the sample output.
+pub const DEFAULT_MANIFEST: &str = "docs/sample-output/SHA256SUMS";
+/// Rendered self-contained HTML report.
+pub const DEFAULT_REPORT: &str = "docs/sample-output/report.html";
+/// Directory the evidence documents are published from.
+pub const DEFAULT_EVIDENCE_DIR: &str = "docs/sample-output";
 /// Committed environment fingerprint.
 pub const DEFAULT_ENVIRONMENT: &str = "environment.json";
 /// Committed commit-graph document.
@@ -51,14 +58,15 @@ pub const DEFAULT_QUOTE_SHEET: &str = "docs/deck-facts.md";
 /// Default output directory, relative to the repository root.
 pub const DEFAULT_OUT_DIR: &str = "site/src/data/generated";
 
-/// The six generated files, in write order.
-pub const OUTPUT_FILES: [&str; 6] = [
+/// The seven generated files, in write order.
+pub const OUTPUT_FILES: [&str; 7] = [
     "facts.json",
     "claims.json",
     "provenance.json",
     "series.json",
     "ladder.json",
     "commits.json",
+    "evidence.json",
 ];
 
 /// How a fact value is rendered.
@@ -702,6 +710,114 @@ fn unit_is_compatible(registry: &str, sheet: &str) -> bool {
     registry == sheet || sheet == "—" || registry == "—"
 }
 
+/// The ancestors of a JSON pointer, nearest first, excluding the document root.
+fn ancestor_pointers(pointer: &str) -> Vec<&str> {
+    let mut ancestors = Vec::new();
+    let mut current = pointer;
+    while let Some(index) = current.rfind('/') {
+        current = &current[..index];
+        if current.is_empty() {
+            break;
+        }
+        ancestors.push(current);
+    }
+    ancestors
+}
+
+/// The evidence class of a claim, from the nearest recorded `class` field or
+/// the documented section fallback.
+///
+/// A claim that records `class` itself is classified by its own value. The
+/// results document is the authority; the fallback only covers sections whose
+/// rows do not repeat the class on every object.
+fn claim_class(results: &Value, pointer: &str) -> Option<String> {
+    if pointer.ends_with("/class") {
+        if let Some(value) = results.pointer(pointer).and_then(Value::as_str) {
+            return Some(value.to_ascii_lowercase());
+        }
+    }
+    for ancestor in ancestor_pointers(pointer) {
+        if let Some(value) = results
+            .pointer(ancestor)
+            .and_then(|object| object.get("class"))
+            .and_then(Value::as_str)
+        {
+            return Some(value.to_ascii_lowercase());
+        }
+    }
+    section_class(pointer).map(str::to_string)
+}
+
+/// Section-level evidence class for pointers whose rows carry no `class`.
+fn section_class(pointer: &str) -> Option<&'static str> {
+    let class = if matches!(
+        pointer,
+        "/version" | "/generated_at" | "/ladder/source" | "/ladder/recorded_at"
+    ) {
+        "generated"
+    } else if pointer.starts_with("/derived/") {
+        "derived"
+    } else if pointer.starts_with("/cache_use/analytical/") {
+        "analytical"
+    } else if pointer.starts_with("/cache_use/")
+        || pointer.starts_with("/ladder/")
+        || pointer.starts_with("/dns_pipeline/")
+        || pointer.starts_with("/dns_rtt/")
+        || pointer.starts_with("/wire_size/")
+        || pointer.starts_with("/memory/")
+    {
+        "measured"
+    } else {
+        return None;
+    };
+    Some(class)
+}
+
+/// Canonicalise the dataset-size spellings the artifacts use.
+fn canonical_size(raw: &str) -> Option<&'static str> {
+    match raw.to_ascii_lowercase().as_str() {
+        "small" => Some("Small"),
+        "onek" | "one_k" | "1k" => Some("OneK"),
+        "medium" => Some("Medium"),
+        "large" => Some("Large"),
+        _ => None,
+    }
+}
+
+/// Map a recorded message count to the dataset size it names.
+fn size_from_messages(messages: u64) -> Option<&'static str> {
+    match messages {
+        100 => Some("Small"),
+        1_000 => Some("OneK"),
+        10_000 => Some("Medium"),
+        1_000_000 => Some("Large"),
+        _ => None,
+    }
+}
+
+/// The dataset size of a claim, from the nearest recorded `size`, or from the
+/// message count of the row that contains it.
+fn claim_size(results: &Value, pointer: &str) -> Option<&'static str> {
+    for ancestor in ancestor_pointers(pointer) {
+        let Some(object) = results.pointer(ancestor) else {
+            continue;
+        };
+        if let Some(size) = object.get("size").and_then(Value::as_str) {
+            if let Some(canonical) = canonical_size(size) {
+                return Some(canonical);
+            }
+        }
+        for field in ["messages", "message_count", "zone_leaves"] {
+            if let Some(messages) = object.get(field).and_then(Value::as_u64) {
+                if let Some(size) = size_from_messages(messages) {
+                    return Some(size);
+                }
+            }
+        }
+    }
+    None
+}
+
 /// Build `claims.json` from the claims registry.
 pub fn build_claims(results: &Value, registry: &[crate::html::Claim]) -> Value {
     let mut claims = Vec::with_capacity(registry.len());
@@ -719,6 +835,8 @@ pub fn build_claims(results: &Value, registry: &[crate::html::Claim]) -> Value {
             "value": claim.value,
             "formatted": claim.formatted,
             "verified": verified,
+            "class": claim_class(results, &claim.pointer),
+            "size": claim_size(results, &claim.pointer),
         }));
     }
     json!({
@@ -1148,6 +1266,160 @@ pub fn build_commits(graph: Value) -> Value {
     })
 }
 
+/// Read one checksum manifest into `(digest, file)` rows.
+///
+/// A line without a 64-hex digest and a file name is a malformed manifest, not
+/// a row to skip: silently dropping it would let the published evidence claim
+/// less than the manifest does.
+fn parse_manifest(path: &Path, text: &str) -> Result<Vec<(String, String)>, ReportError> {
+    let mut rows = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let mut parts = trimmed.split_whitespace();
+        let digest = parts.next().unwrap_or_default();
+        let file = parts.next().unwrap_or_default();
+        let trailing = parts.next();
+        if digest.len() != 64
+            || !digest.chars().all(|c| c.is_ascii_hexdigit())
+            || file.is_empty()
+            || trailing.is_some()
+        {
+            return Err(malformed(
+                path,
+                format!("line {} is not `<sha256>  <file>`", index + 1),
+            ));
+        }
+        rows.push((digest.to_ascii_lowercase(), file.to_string()));
+    }
+    Ok(rows)
+}
+
+/// Build `evidence.json` from the sample output beside the results artifact.
+///
+/// The report is optional and an absent one is a stated state, not an error.
+/// The checksum manifest is optional in the same way. Once a manifest exists,
+/// however, every payload it lists must be present and must hash to its
+/// recorded digest: a mismatch is a hard error naming the file, not a row the
+/// site would render as if it had been checked.
+pub fn build_evidence(
+    results: &crate::results::ClimbResults,
+    sample_dir: &Path,
+    site_documents: &[(String, String)],
+) -> Result<Value, ReportError> {
+    let report_path = sample_dir.join("report.html");
+    let report = match fs::read(&report_path) {
+        Ok(bytes) => Some(bytes),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(source) => {
+            return Err(ReportError::Io {
+                path: report_path.clone(),
+                source,
+            })
+        }
+    };
+    let check = crate::html::check(results, &report_path)?;
+    let (agree, drift, missing) = check.counts();
+    let report_doc = match report {
+        Some(bytes) => json!({
+            "available": true,
+            "path": format!("{DEFAULT_EVIDENCE_DIR}/report.html"),
+            "bytes": bytes.len(),
+            "sha256": sha256_hex(&bytes),
+            "check": {
+                "agree": agree,
+                "drift": drift,
+                "missing": missing,
+                "registry_ok": check.registry_ok,
+                "report_found": check.report_found,
+                "problems": check.problems,
+            },
+        }),
+        None => json!({
+            "available": false,
+            "path": format!("{DEFAULT_EVIDENCE_DIR}/report.html"),
+            "bytes": null,
+            "sha256": null,
+            "check": null,
+        }),
+    };
+
+    let manifest_path = sample_dir.join("SHA256SUMS");
+    let manifest_text = read_text(&manifest_path)?;
+    let mut rows = Vec::new();
+    let mut charts = Vec::new();
+    if let Some(text) = &manifest_text {
+        for (listed, file) in parse_manifest(&manifest_path, text)? {
+            let payload_path = sample_dir.join(&file);
+            let bytes = fs::read(&payload_path).map_err(|source| ReportError::Io {
+                path: payload_path.clone(),
+                source,
+            })?;
+            let recomputed = sha256_hex(&bytes);
+            if recomputed != listed {
+                return Err(malformed(
+                    &payload_path,
+                    format!("listed digest {listed} does not match the file"),
+                ));
+            }
+            if file.ends_with(".svg") {
+                charts.push(json!({
+                    "name": file,
+                    "bytes": bytes.len(),
+                    "sha256": recomputed,
+                }));
+            }
+            rows.push(json!({
+                "path": file,
+                "bytes": bytes.len(),
+                "listed_sha256": listed,
+                "sha256": recomputed,
+                "matches": true,
+            }));
+        }
+    }
+
+    let documents: Vec<Value> = site_documents
+        .iter()
+        .map(|(file, text)| {
+            json!({
+                "file": file,
+                "bytes": text.len(),
+                "sha256": sha256_hex(text.as_bytes()),
+            })
+        })
+        .collect();
+
+    Ok(json!({
+        "schema_version": SITE_DATA_SCHEMA_VERSION,
+        "source": DEFAULT_EVIDENCE_DIR,
+        "published_base": "/evidence",
+        "report": report_doc,
+        "charts": charts,
+        "sums": {
+            "available": manifest_text.is_some(),
+            "file": "SHA256SUMS",
+            "rows": rows,
+        },
+        "reproduction_mode": results.reproduction_mode.label(),
+        "site_documents": documents,
+    }))
+}
+
+/// Seal, pretty-print and terminate one generated document.
+fn seal_text(document: Value) -> Result<String, ReportError> {
+    let sealed = seal(document)?;
+    let mut text =
+        serde_json::to_string_pretty(&sealed).map_err(|source| ReportError::JsonDecode {
+            path: PathBuf::from("<generated>"),
+            source,
+        })?;
+    text.push('\n');
+    Ok(text)
+}
+
 /// Render every generated document in memory. The result is ordered by
 /// [`OUTPUT_FILES`].
 pub fn render(root: &Path) -> Result<Vec<(String, String)>, ReportError> {
@@ -1188,17 +1460,17 @@ pub fn render(root: &Path) -> Result<Vec<(String, String)>, ReportError> {
     let commits = build_commits(graph);
 
     let documents = [facts, claims_doc, provenance, series, ladder, commits];
-    let mut out = Vec::with_capacity(documents.len());
+    let mut out = Vec::with_capacity(OUTPUT_FILES.len());
+    let mut site_documents = Vec::with_capacity(documents.len());
     for (name, document) in OUTPUT_FILES.iter().zip(documents) {
-        let sealed = seal(document)?;
-        let mut text =
-            serde_json::to_string_pretty(&sealed).map_err(|source| ReportError::JsonDecode {
-                path: PathBuf::from("<generated>"),
-                source,
-            })?;
-        text.push('\n');
+        let text = seal_text(document)?;
+        site_documents.push(((*name).to_string(), text.clone()));
         out.push(((*name).to_string(), text));
     }
+
+    let evidence = build_evidence(&typed, &root.join(DEFAULT_EVIDENCE_DIR), &site_documents)?;
+    let evidence_name = OUTPUT_FILES.last().copied().unwrap_or("evidence.json");
+    out.push((evidence_name.to_string(), seal_text(evidence)?));
     Ok(out)
 }
 
@@ -1276,13 +1548,28 @@ mod tests {
     /// any generated local file.
     fn temp_root() -> tempfile::TempDir {
         let temp = tempfile::tempdir().expect("temp dir");
-        for relative in [
-            DEFAULT_RESULTS,
-            DEFAULT_LADDER,
-            DEFAULT_PROVENANCE,
-            DEFAULT_QUOTE_SHEET,
-            DEFAULT_COMMITS,
-        ] {
+        let sample = root().join(DEFAULT_EVIDENCE_DIR);
+        for entry in std::fs::read_dir(&sample).expect("sample output directory") {
+            let entry = entry.expect("sample output entry");
+            if !entry.file_type().expect("file type").is_file() {
+                continue;
+            }
+            let destination = temp
+                .path()
+                .join(DEFAULT_EVIDENCE_DIR)
+                .join(entry.file_name());
+            if let Some(parent) = destination.parent() {
+                std::fs::create_dir_all(parent).expect("create the fixture directory");
+            }
+            std::fs::copy(entry.path(), &destination).unwrap_or_else(|error| {
+                panic!(
+                    "cannot copy {} to {}: {error}",
+                    entry.path().display(),
+                    destination.display()
+                )
+            });
+        }
+        for relative in [DEFAULT_QUOTE_SHEET, DEFAULT_COMMITS] {
             let source = root().join(relative);
             let destination = temp.path().join(relative);
             if let Some(parent) = destination.parent() {
@@ -1605,6 +1892,214 @@ mod tests {
             .is_some_and(|claims| claims
                 .iter()
                 .all(|claim| claim.get("verified").and_then(Value::as_bool) == Some(true))));
+    }
+
+    fn typed_results() -> crate::results::ClimbResults {
+        serde_json::from_value(results()).expect("typed results")
+    }
+
+    fn claim_row<'a>(document: &'a Value, pointer: &str) -> &'a Value {
+        document
+            .get("claims")
+            .and_then(Value::as_array)
+            .and_then(|rows| {
+                rows.iter()
+                    .find(|row| row.get("pointer").and_then(Value::as_str) == Some(pointer))
+            })
+            .expect("claim row present")
+    }
+
+    #[test]
+    fn every_claim_carries_an_evidence_class_and_the_size_it_belongs_to() {
+        let results = results();
+        let typed = typed_results();
+        let registry = crate::html::claims(&typed).expect("claims");
+        let document = build_claims(&results, &registry);
+
+        let rows = document
+            .get("claims")
+            .and_then(Value::as_array)
+            .expect("claims array");
+        assert_eq!(rows.len(), registry.len());
+        for row in rows {
+            assert!(
+                row.get("class").and_then(Value::as_str).is_some(),
+                "claim {} has no class",
+                row.get("pointer").and_then(Value::as_str).unwrap_or("?")
+            );
+        }
+
+        // Nearest recorded class wins: a row inside a UDP-fit row is
+        // analytical, and the row's own message count names its size.
+        let udp = claim_row(&document, "/derived/udp_fit/rows/0/fit_1232_percent");
+        assert_eq!(udp.get("class").and_then(Value::as_str), Some("analytical"));
+        assert_eq!(udp.get("size").and_then(Value::as_str), Some("Small"));
+
+        // A wire row sizes itself; the class comes from the section table
+        // because `wire_size` rows do not repeat it.
+        let wire = claim_row(&document, "/wire_size/1/plain_total_bytes");
+        assert_eq!(wire.get("class").and_then(Value::as_str), Some("measured"));
+        assert_eq!(wire.get("size").and_then(Value::as_str), Some("Medium"));
+
+        // A comparison row repeats both fields on the row.
+        let comparison = claim_row(&document, "/comparisons/2/wire_reduction_c_vs_a_percent");
+        assert_eq!(
+            comparison.get("class").and_then(Value::as_str),
+            Some("derived")
+        );
+        assert_eq!(
+            comparison.get("size").and_then(Value::as_str),
+            Some("Medium")
+        );
+
+        // Generated metadata is named as such, not as a measurement.
+        assert_eq!(
+            claim_row(&document, "/version")
+                .get("class")
+                .and_then(Value::as_str),
+            Some("generated")
+        );
+        assert_eq!(
+            claim_row(&document, "/ladder/source")
+                .get("class")
+                .and_then(Value::as_str),
+            Some("generated")
+        );
+
+        // Ladder rows carry no dataset size in the same vocabulary.
+        assert_eq!(
+            claim_row(&document, "/ladder/sizes/0/leaf_count")
+                .get("size")
+                .and_then(Value::as_str),
+            None
+        );
+    }
+
+    #[test]
+    fn evidence_records_the_report_manifest_charts_and_site_documents() {
+        let temp = temp_root();
+        let sample = temp.path().join(DEFAULT_EVIDENCE_DIR);
+        let typed = typed_results();
+        let site_documents = vec![("facts.json".to_string(), "{\"facts\":[]}\n".to_string())];
+        let document = build_evidence(&typed, &sample, &site_documents).expect("evidence");
+
+        let report = document.get("report").expect("report");
+        assert_eq!(report.get("available").and_then(Value::as_bool), Some(true));
+        let bytes = std::fs::read(sample.join("report.html")).expect("report bytes");
+        assert_eq!(
+            report.get("bytes").and_then(Value::as_u64),
+            Some(bytes.len() as u64)
+        );
+        assert_eq!(
+            report.get("sha256").and_then(Value::as_str),
+            Some(sha256_hex(&bytes).as_str())
+        );
+
+        let check = report.get("check").expect("check");
+        let total = crate::html::claims(&typed).expect("claims").len() as u64;
+        assert_eq!(check.get("agree").and_then(Value::as_u64), Some(total));
+        assert_eq!(check.get("drift").and_then(Value::as_u64), Some(0));
+        assert_eq!(check.get("missing").and_then(Value::as_u64), Some(0));
+        assert_eq!(
+            check.get("registry_ok").and_then(Value::as_bool),
+            Some(true)
+        );
+
+        let charts = document
+            .get("charts")
+            .and_then(Value::as_array)
+            .expect("charts");
+        assert_eq!(charts.len(), 7);
+        assert!(charts
+            .iter()
+            .all(|chart| chart.get("name").and_then(Value::as_str).is_some()
+                && chart.get("sha256").and_then(Value::as_str).is_some()));
+
+        let sums = document.get("sums").expect("sums");
+        assert_eq!(sums.get("available").and_then(Value::as_bool), Some(true));
+        let rows = sums
+            .get("rows")
+            .and_then(Value::as_array)
+            .expect("manifest rows");
+        assert_eq!(rows.len(), 14);
+        assert!(rows
+            .iter()
+            .all(|row| row.get("matches").and_then(Value::as_bool) == Some(true)));
+
+        assert!(document
+            .get("reproduction_mode")
+            .and_then(Value::as_str)
+            .is_some());
+        let documents = document
+            .get("site_documents")
+            .and_then(Value::as_array)
+            .expect("site documents");
+        assert_eq!(documents.len(), 1);
+        assert_eq!(
+            documents[0].get("sha256").and_then(Value::as_str),
+            Some(sha256_hex(b"{\"facts\":[]}\n").as_str())
+        );
+    }
+
+    #[test]
+    fn evidence_states_an_absent_report_and_manifest_without_inventing_a_check() {
+        let temp = temp_root();
+        let sample = temp.path().join(DEFAULT_EVIDENCE_DIR);
+        std::fs::remove_file(sample.join("report.html")).expect("remove report");
+        std::fs::remove_file(sample.join("SHA256SUMS")).expect("remove manifest");
+        let document =
+            build_evidence(&typed_results(), &sample, &[]).expect("absent evidence is a state");
+
+        let report = document.get("report").expect("report");
+        assert_eq!(
+            report.get("available").and_then(Value::as_bool),
+            Some(false)
+        );
+        assert_eq!(report.get("sha256").and_then(Value::as_str), None);
+        assert_eq!(report.get("check").and_then(Value::as_str), None);
+        let sums = document.get("sums").expect("sums");
+        assert_eq!(sums.get("available").and_then(Value::as_bool), Some(false));
+        assert_eq!(
+            sums.get("rows").and_then(Value::as_array).map(Vec::len),
+            Some(0)
+        );
+        assert_eq!(
+            document
+                .get("charts")
+                .and_then(Value::as_array)
+                .map(Vec::len),
+            Some(0)
+        );
+    }
+
+    #[test]
+    fn evidence_rejects_a_manifest_payload_that_is_missing() {
+        let temp = temp_root();
+        let sample = temp.path().join(DEFAULT_EVIDENCE_DIR);
+        std::fs::remove_file(sample.join("udp_fit.svg")).expect("remove payload");
+        let error = build_evidence(&typed_results(), &sample, &[]).expect_err("missing payload");
+        assert!(format!("{error}").contains("udp_fit.svg"), "{error}");
+    }
+
+    #[test]
+    fn evidence_rejects_a_manifest_digest_that_does_not_match() {
+        let temp = temp_root();
+        let sample = temp.path().join(DEFAULT_EVIDENCE_DIR);
+        let payload = sample.join("dataset-digests.json");
+        let mut bytes = std::fs::read(&payload).expect("payload");
+        bytes.push(b' ');
+        std::fs::write(&payload, bytes).expect("tamper");
+        let error = build_evidence(&typed_results(), &sample, &[]).expect_err("digest mismatch");
+        assert!(
+            format!("{error}").contains("dataset-digests.json"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_manifest_line_without_a_digest_and_file_is_malformed() {
+        let error = parse_manifest(Path::new("SHA256SUMS"), "not-a-row\n").expect_err("malformed");
+        assert!(format!("{error}").contains("line 1"), "{error}");
     }
 
     #[test]

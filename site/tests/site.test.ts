@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdtempSync,
@@ -425,8 +426,16 @@ describe('ladder data', () => {
 });
 
 describe('generated site data', () => {
-  it('ships six sealed documents', () => {
-    for (const name of ['facts', 'claims', 'provenance', 'series', 'ladder', 'commits']) {
+  it('ships seven sealed documents', () => {
+    for (const name of [
+      'facts',
+      'claims',
+      'provenance',
+      'series',
+      'ladder',
+      'commits',
+      'evidence',
+    ]) {
       const document = loadGenerated(name) as Record<string, unknown> & { content_sha256: string };
       expect(document.content_sha256, name).toMatch(/^[0-9a-f]{64}$/);
       expect(document.schema_version, name).toBe(1);
@@ -446,6 +455,158 @@ describe('generated site data', () => {
     expect(provenance.date).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     expect(provenance.submodules.length).toBeGreaterThan(0);
     expect(provenance.host_fingerprint_sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+interface EvidenceDocument {
+  readonly published_base: string;
+  readonly report: {
+    readonly available: boolean;
+    readonly path: string;
+    readonly bytes: number | null;
+    readonly sha256: string | null;
+    readonly check: {
+      readonly agree: number;
+      readonly drift: number;
+      readonly missing: number;
+      readonly registry_ok: boolean;
+      readonly report_found: boolean;
+    } | null;
+  };
+  readonly charts: readonly {
+    readonly name: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  }[];
+  readonly sums: {
+    readonly available: boolean;
+    readonly file: string;
+    readonly rows: readonly {
+      readonly path: string;
+      readonly bytes: number;
+      readonly listed_sha256: string;
+      readonly sha256: string;
+      readonly matches: boolean;
+    }[];
+  };
+  readonly reproduction_mode: string;
+  readonly site_documents: readonly {
+    readonly file: string;
+    readonly bytes: number;
+    readonly sha256: string;
+  }[];
+}
+
+interface ClaimsDocument {
+  readonly total: number;
+  readonly passed: number;
+  readonly claims: readonly {
+    readonly id: string;
+    readonly pointer: string;
+    readonly class: string | null;
+    readonly size: string | null;
+  }[];
+}
+
+describe('evidence document', () => {
+  const evidence = loadGenerated('evidence') as unknown as EvidenceDocument;
+  const sampleDir = join(siteRoot, '../docs/sample-output');
+
+  it('names the published directory and the report it embeds', () => {
+    expect(evidence.published_base).toBe('/evidence');
+    expect(evidence.report.available).toBe(true);
+    expect(evidence.report.path).toBe('docs/sample-output/report.html');
+    expect(evidence.report.bytes).toBe(statSync(join(sampleDir, 'report.html')).size);
+    expect(evidence.report.sha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('records a report-versus-results check that agrees with the registry', () => {
+    const claims = loadGenerated('claims') as unknown as ClaimsDocument;
+    const check = evidence.report.check;
+    expect(check).not.toBeNull();
+    if (check === null) return;
+    expect(check.report_found).toBe(true);
+    expect(check.registry_ok).toBe(true);
+    expect(check.agree).toBe(claims.total);
+    expect(check.drift).toBe(0);
+    expect(check.missing).toBe(0);
+    expect(claims.passed).toBe(claims.total);
+  });
+
+  it('recomputes every manifest digest from the committed file', () => {
+    expect(evidence.sums.available).toBe(true);
+    expect(evidence.sums.file).toBe('SHA256SUMS');
+    const lines = readFileSync(join(sampleDir, 'SHA256SUMS'), 'utf8')
+      .split('\n')
+      .filter((line) => line.trim() !== '');
+    expect(evidence.sums.rows).toHaveLength(lines.length);
+    for (const row of evidence.sums.rows) {
+      const bytes = readFileSync(join(sampleDir, row.path));
+      const digest = createHash('sha256').update(bytes).digest('hex');
+      expect(row.bytes, row.path).toBe(bytes.length);
+      expect(row.sha256, row.path).toBe(digest);
+      expect(row.listed_sha256, row.path).toBe(digest);
+      expect(row.matches, row.path).toBe(true);
+    }
+  });
+
+  it('lists exactly the charts the report page captions', () => {
+    const copy = JSON.parse(
+      readFileSync(join(siteRoot, 'src/data/report-charts.json'), 'utf8'),
+    ) as {
+      charts: { file: string }[];
+    };
+    const captioned = copy.charts.map((chart) => chart.file).sort();
+    const published = evidence.charts.map((chart) => chart.name).sort();
+    expect(published).toEqual(captioned);
+    for (const chart of evidence.charts) {
+      const bytes = readFileSync(join(sampleDir, chart.name));
+      expect(chart.bytes).toBe(bytes.length);
+      expect(chart.sha256).toBe(createHash('sha256').update(bytes).digest('hex'));
+    }
+  });
+
+  it('classifies every claim and names the size it belongs to', () => {
+    const claims = loadGenerated('claims') as unknown as ClaimsDocument;
+    expect(claims.claims).toHaveLength(claims.total);
+    const sizes = new Set<string | null>();
+    for (const claim of claims.claims) {
+      expect(claim.class, claim.pointer).toMatch(
+        /^(measured|derived|analytical|extrapolated|constant|generated)$/,
+      );
+      sizes.add(claim.size);
+    }
+    for (const size of sizes) {
+      expect(['Small', 'OneK', 'Medium', 'Large', null]).toContain(size);
+    }
+  });
+
+  it('names every generated document it describes', () => {
+    const files = evidence.site_documents.map((document) => document.file).sort();
+    expect(files).toEqual(
+      [
+        'claims.json',
+        'commits.json',
+        'facts.json',
+        'ladder.json',
+        'provenance.json',
+        'series.json',
+      ].sort(),
+    );
+    for (const document of evidence.site_documents) {
+      if (document.file === 'evidence.json') continue;
+      const bytes = readFileSync(join(generatedDir, document.file));
+      expect(document.bytes, document.file).toBe(bytes.length);
+      expect(document.sha256, document.file).toBe(createHash('sha256').update(bytes).digest('hex'));
+    }
+  });
+
+  it('states the reproduction mode without inventing one', () => {
+    expect(['unknown', 'report-only', 'remeasure']).toContain(evidence.reproduction_mode);
+    const results = JSON.parse(readFileSync(join(sampleDir, 'climb-results.json'), 'utf8')) as {
+      reproduction_mode?: string;
+    };
+    expect(evidence.reproduction_mode).toBe(results.reproduction_mode ?? 'unknown');
   });
 });
 
@@ -582,6 +743,70 @@ describe('production build', () => {
       .map((path) => relative(dist, path))
       .filter((path) => path.includes('_dev'));
     expect(devPaths).toEqual([]);
+  });
+
+  it('emits the report, verify and reproduce routes with their evidence', () => {
+    for (const route of ['report', 'verify', 'reproduce']) {
+      expect(existsSync(join(dist, route, 'index.html')), route).toBe(true);
+    }
+
+    const report = readFileSync(join(dist, 'report/index.html'), 'utf8');
+    expect(report).toContain('The full report');
+    expect(report).toContain('src="/evidence/report.html"');
+    expect(report).toContain('sandbox=""');
+    expect([...report.matchAll(/data-report-chart="/g)]).toHaveLength(7);
+    expect(report).toContain('href="/evidence/climb-results.json"');
+
+    const claims = loadGenerated('claims') as unknown as ClaimsDocument;
+    const verify = readFileSync(join(dist, 'verify/index.html'), 'utf8');
+    expect(verify).toContain('Verify the numbers');
+    expect(verify).toContain('data-claims-search');
+    expect([...verify.matchAll(/data-claim-row\b/g)]).toHaveLength(claims.total);
+    expect(verify).toContain('data-registry-status="clean"');
+    expect(verify).toContain('cargo xtask sample-check');
+
+    const reproduce = readFileSync(join(dist, 'reproduce/index.html'), 'utf8');
+    expect(reproduce).toContain('Rebuild every number');
+    expect(reproduce).toContain('data-expected-output');
+    expect(reproduce).toContain('data-sha-checker');
+    expect(reproduce).toContain('href="/evidence/SHA256SUMS"');
+    expect(reproduce).toContain('href="/evidence/PROVENANCE.txt"');
+
+    const evidence = loadGenerated('evidence') as unknown as EvidenceDocument;
+    for (const row of evidence.sums.rows) {
+      expect(existsSync(join(dist, 'evidence', row.path)), row.path).toBe(true);
+    }
+    expect(existsSync(join(dist, 'evidence', 'SHA256SUMS'))).toBe(true);
+    expect(existsSync(join(dist, 'evidence', 'PROVENANCE.txt'))).toBe(true);
+    expect(existsSync(join(dist, 'evidence', 'report.html'))).toBe(true);
+  });
+
+  it('links every internal destination that this build ships', () => {
+    // Routes that a later phase builds. The list is explicit so a typo in a
+    // built route cannot hide behind the same exemption.
+    const pending = new Set(['/dashboard', '/calculator', '/method', '/commits']);
+    const pages = walk(dist).filter((path) => path.endsWith('.html'));
+    expect(pages.length).toBeGreaterThanOrEqual(5);
+
+    const missing: string[] = [];
+    for (const page of pages) {
+      const html = readFileSync(page, 'utf8');
+      for (const match of html.matchAll(/(?:href|src)="(\/[^"]*)"/g)) {
+        const raw = match[1] ?? '';
+        const pathname = decodeURI(raw.split('#')[0]?.split('?')[0] ?? '');
+        if (pathname === '' || pending.has(pathname)) {
+          continue;
+        }
+        const target = join(dist, pathname);
+        const found =
+          (existsSync(target) && statSync(target).isFile()) ||
+          existsSync(join(target, 'index.html'));
+        if (!found) {
+          missing.push(`${relative(dist, page)} -> ${raw}`);
+        }
+      }
+    }
+    expect(missing).toEqual([]);
   });
 
   it('emits the home route with no inline script', () => {

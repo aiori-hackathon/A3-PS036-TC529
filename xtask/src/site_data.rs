@@ -1,9 +1,9 @@
 //! `cargo xtask site-data` and `cargo xtask site-check`.
 //!
-//! `site-data` regenerates the six committed build-time documents the website
-//! reads. `site-check` re-renders them in memory and fails when the committed
-//! copy is stale, then runs the numeric-literal guard over `site/src` so a
-//! typed benchmark number cannot reach the page.
+//! `site-data` regenerates the seven committed build-time documents the
+//! website reads. `site-check` re-renders them in memory and fails when the
+//! committed copy is stale, then runs the numeric-literal guard over `site/src`
+//! so a typed benchmark number cannot reach the page.
 
 use anyhow::{bail, Context, Result};
 use clap::Args;

@@ -13,6 +13,7 @@ import { basename, extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { TUI_DATA_FILES, tuiManifestFrom } from './src/lib/tui.ts';
+import { evidenceFiles, findReleaseBundle, releaseBundleNames } from './src/lib/evidence.ts';
 
 /**
  * The token gallery is a development-only route. Astro ignores a page whose
@@ -43,6 +44,8 @@ const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 const moduleDir = join(repoRoot, 'crates', 'climb-web', 'dist');
 /** The committed recordings the dashboard reads at run time. */
 const dataDir = join(repoRoot, 'docs', 'sample-output');
+/** The packaged release bundles, when the checkout has run `cargo xtask package`. */
+const releaseDir = join(repoRoot, 'dist');
 
 const JSON_TYPE = 'application/json; charset=utf-8';
 
@@ -51,6 +54,10 @@ const CONTENT_TYPES = {
   '.js': 'text/javascript; charset=utf-8',
   '.wasm': 'application/wasm',
   '.json': JSON_TYPE,
+  '.html': 'text/html; charset=utf-8',
+  '.svg': 'image/svg+xml',
+  '.txt': 'text/plain; charset=utf-8',
+  '.gz': 'application/gzip',
 };
 
 /**
@@ -81,6 +88,26 @@ const dashboard = {
           response.setHeader('content-type', JSON_TYPE);
           response.setHeader('cache-control', 'no-store');
           response.end(JSON.stringify(manifest));
+          return;
+        }
+
+        if (path.startsWith('/evidence/')) {
+          const name = basename(path);
+          const source = evidenceFiles().includes(name)
+            ? join(dataDir, name)
+            : releaseBundleNames(releaseDir).includes(name)
+              ? join(releaseDir, name)
+              : null;
+          if (source === null || !existsSync(source)) {
+            next();
+            return;
+          }
+          response.setHeader(
+            'content-type',
+            CONTENT_TYPES[extname(source)] ?? 'application/octet-stream',
+          );
+          response.setHeader('cache-control', 'no-store');
+          response.end(readFileSync(source));
           return;
         }
 
@@ -134,6 +161,30 @@ const dashboard = {
         copyFileSync(join(dataDir, file), join(out, 'data', file));
       }
       logger.info(`dashboard data: published ${TUI_DATA_FILES.length} documents`);
+
+      // The evidence directory is self-contained: every manifest payload,
+      // the manifest itself and the provenance file sit beside the pages that
+      // link them, so `sha256sum -c SHA256SUMS` runs from one directory.
+      mkdirSync(join(out, 'evidence'), { recursive: true });
+      let published = 0;
+      for (const file of evidenceFiles()) {
+        const source = join(dataDir, file);
+        if (!existsSync(source)) {
+          logger.warn(`evidence: ${file} is missing; the page shows its absent state`);
+          continue;
+        }
+        copyFileSync(source, join(out, 'evidence', file));
+        published += 1;
+      }
+      const bundle = findReleaseBundle(releaseDir);
+      if (bundle === null) {
+        logger.info('evidence: no release bundle in dist/; the download shows its empty state');
+      } else {
+        copyFileSync(bundle.path, join(out, 'evidence', bundle.name));
+        published += 1;
+        logger.info(`evidence: published ${bundle.name}`);
+      }
+      logger.info(`evidence: published ${published} file(s)`);
     },
   },
 };

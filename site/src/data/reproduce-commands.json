@@ -1,0 +1,52 @@
+{
+  "verify": {
+    "id": "sample-check",
+    "label": "Re-resolve every claim",
+    "note": "Re-resolves the claims registry against the committed results and checks the report beside it.",
+    "lines": ["cargo xtask sample-check"]
+  },
+  "quickstart": [
+    {
+      "id": "clone",
+      "label": "Run from a clone",
+      "note": "The viewer needs no native cryptographic stack and no network at run time.",
+      "lines": [
+        "git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb",
+        "cargo run --release -p climb-tui --no-default-features"
+      ]
+    },
+    {
+      "id": "install",
+      "label": "Install the binary",
+      "note": "Installs the same read-only viewer onto your PATH.",
+      "lines": [
+        "cargo install --locked --git https://github.com/aiori-hackathon/A3-PS036-TC529 climb-tui --no-default-features",
+        "climb-tui"
+      ]
+    },
+    {
+      "id": "container",
+      "label": "Run in a container",
+      "note": "Needs Docker; the image carries the recorded artifacts.",
+      "lines": [
+        "git clone https://github.com/aiori-hackathon/A3-PS036-TC529 climb && cd climb",
+        "docker build -f docker/Dockerfile.tui -t climb-tui .",
+        "docker run -it --rm climb-tui"
+      ]
+    }
+  ],
+  "regenerate": [
+    {
+      "id": "report-only",
+      "label": "Rebuild the derived chain",
+      "note": "Reuses the measurements already on disk and says so in the artifact.",
+      "lines": ["cargo xtask reproduce --report-only"]
+    },
+    {
+      "id": "remeasure",
+      "label": "Re-measure first",
+      "note": "Runs the benchmarks and measurements again before rebuilding the derived artifacts.",
+      "lines": ["cargo xtask reproduce --remeasure"]
+    }
+  ]
+}

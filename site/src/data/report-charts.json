@@ -1,0 +1,39 @@
+{
+  "charts": [
+    {
+      "file": "signing_time.svg",
+      "title": "Signing time by dataset size",
+      "caption": "Batch signing time by dataset size. Solid bars are Criterion means with confidence whiskers; hollow bars are extrapolated."
+    },
+    {
+      "file": "verifying_time.svg",
+      "title": "Verifying time by dataset size",
+      "caption": "Batch verification time by dataset size, including the trust-cached ladder rows. Every bar is measured."
+    },
+    {
+      "file": "transmitted_bytes.svg",
+      "title": "Transmitted bytes",
+      "caption": "Transmitted bytes with and without MTL amortisation, both from real output rather than a model."
+    },
+    {
+      "file": "amortization_curve.svg",
+      "title": "Amortisation with batch size",
+      "caption": "Per-message signing cost against batch size, with the fitted curve over the measured points."
+    },
+    {
+      "file": "memory_measured_vs_analytical.svg",
+      "title": "Measured and analytical memory",
+      "caption": "Measured resident and peak memory against the itemised analytical model, with the recomputed residual."
+    },
+    {
+      "file": "reuse_curve.svg",
+      "title": "Ladder reuse",
+      "caption": "Effective per-message time and bytes against reuse count, with the parity line and the break-even crossing."
+    },
+    {
+      "file": "udp_fit.svg",
+      "title": "Modelled UDP fit",
+      "caption": "Modelled response size over UDP against the EDNS fit threshold and the TCP-fallback ceiling. Every bar is analytical."
+    }
+  ]
+}
