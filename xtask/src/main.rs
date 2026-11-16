@@ -22,6 +22,7 @@ mod criteria_card;
 mod dataset_digests;
 mod deck_delta;
 mod deck_facts;
+mod demo;
 mod dist_tui;
 mod dns_cache;
 mod dns_demo;
@@ -62,6 +63,7 @@ use criteria_card::{cmd_criteria_card, CriteriaCardArgs};
 use dataset_digests::{cmd_dataset_digests, DatasetDigestsArgs};
 use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
+use demo::{cmd_demo, DemoArgs};
 use dist_tui::{cmd_dist_tui, DistTuiArgs};
 use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
@@ -341,6 +343,17 @@ enum Commands {
     FinalRun(FinalRunArgs),
     /// Run stability check (repeat signing/verify benches under pinned governor).
     Stability(StabilityArgs),
+    /// Put the recorded evidence in front of an audience from one command.
+    ///
+    /// Runs the GO/NO-GO preflight, then arranges four panes — the dashboard
+    /// on the recorded artifact with the brand theme and tour keys, the
+    /// verification trio with one verdict each, a loopback static server over
+    /// the built site, and a cheat sheet whose five rows are read from the
+    /// artifact — side by side in tmux, or one after another when tmux is
+    /// absent. `--offline` adds a browser run that blocks every non-localhost
+    /// request and loads all five site routes. `--plan` prints the arrangement
+    /// without starting anything.
+    Demo(DemoArgs),
     /// Recompute every headline number from raw rows and compare every surface.
     ///
     /// Checks the consolidated artifact, the quote sheet, the README headline
@@ -517,6 +530,7 @@ fn main() -> Result<()> {
         Commands::Reproduce(args) => cmd_reproduce(args),
         Commands::FinalRun(args) => final_run::cmd_final_run(args),
         Commands::Stability(args) => cmd_stability(args),
+        Commands::Demo(args) => cmd_demo(args),
         Commands::VerifyNumbers(args) => cmd_verify_numbers(args),
         Commands::Headline(args) => cmd_headline(args),
         Commands::DatasetDigests(args) => cmd_dataset_digests(args),

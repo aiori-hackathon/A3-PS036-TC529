@@ -17,6 +17,24 @@ signing speed-up at Medium of 9,434 × for the amortised configuration against
 plain SLH-DSA, verifying speed-up of 77.34 × with a trusted cached ladder, and
 the wire reduction rows. Keys `1` through `9` switch tabs.
 
+### One command for the whole demonstration
+
+```bash
+demo/preflight.sh              # GO/NO-GO table and a fix for every NO-GO
+cargo xtask demo --plan        # the arrangement, without starting anything
+cargo xtask demo               # four tmux panes, or sequential output
+cargo xtask demo --offline     # also blocks every non-localhost browser request
+```
+
+`cargo xtask demo` arranges the brand-themed dashboard on the recorded
+artifact, the three verification commands with one verdict each, a loopback
+server for the built site on `127.0.0.1:8080`, and a cheat sheet whose five
+numbers are read from `docs/sample-output/climb-results.json`. Without tmux it
+prints the same panes in order and stops the server at the end; the tmux
+session keeps it running. `--offline` loads `/`, `/tui/`, `/verify/`,
+`/report/` and `/reproduce/` while blocking every request that is not to the
+loopback address, which is the proof that the demonstration needs no network.
+
 ## Stop one — signing a batch with one MTL ladder
 
 Show the **Ladder** tab and the **Signing** tab.
