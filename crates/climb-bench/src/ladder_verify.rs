@@ -382,6 +382,7 @@ mod tests {
     use climb_analytical::{predicted_condensed_len, predicted_ladder_len, rungs};
 
     #[test]
+    #[cfg(feature = "native")]
     fn readers_are_bounds_checked() {
         let bytes = [0x01u8, 0x02, 0x03];
         assert_eq!(read_u16_be(&bytes, 0), Some(0x0102));

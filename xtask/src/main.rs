@@ -26,6 +26,7 @@ mod dns_cache;
 mod dns_demo;
 mod dns_rtt;
 mod docs_check;
+mod feature_matrix;
 mod final_run;
 mod groups;
 mod headline;
@@ -64,6 +65,7 @@ use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
 use docs_check::{cmd_docs_check, cmd_mermaid_lint, DocsCheckArgs, MermaidLintArgs};
+use feature_matrix::{cmd_feature_matrix, FeatureMatrixArgs};
 use final_run::FinalRunArgs;
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use headline::{cmd_headline, HeadlineArgs};
@@ -377,6 +379,14 @@ enum Commands {
     /// Fail when the generated site data is stale, or when a page types a
     /// benchmark number instead of reading a fact id.
     SiteCheck(SiteArgs),
+    /// Compile and lint the viewer-scope crates in every feature configuration.
+    ///
+    /// Runs `check`, `clippy --all-targets` and `test --no-run` for each crate
+    /// under `none`, `default` and `all`, always with `RUSTFLAGS=-D warnings`.
+    /// Feature sets that need the native crypto stack are named and skipped
+    /// when the checkout has no libMTL prefix, which is the public runner's
+    /// situation. `--check-only` runs the check and clippy subset.
+    FeatureMatrix(FeatureMatrixArgs),
 }
 
 #[derive(Args)]
@@ -510,6 +520,7 @@ fn main() -> Result<()> {
         Commands::SampleCheck(args) => cmd_sample_check(args),
         Commands::SiteData(args) => cmd_site_data(args),
         Commands::SiteCheck(args) => cmd_site_check(args),
+        Commands::FeatureMatrix(args) => cmd_feature_matrix(args),
     }
 }
 

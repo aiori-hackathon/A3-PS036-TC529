@@ -104,6 +104,17 @@ if [ -n "${CLIMB_XTASK:-}" ]; then
   xtask_cmd=("$CLIMB_XTASK")
 fi
 
+# A feature-gated lint is invisible to a run that only builds one feature set.
+# Run the whole viewer-scope matrix here, where the native prefix exists, before
+# the replica and the push; the viewer job runs the check+clippy subset because
+# its runner has no native toolchain.
+echo ""
+echo "==> full feature matrix (viewer scope, check + clippy + test --no-run)"
+if ! "${xtask_cmd[@]}" feature-matrix; then
+  echo "error: the feature matrix failed; nothing was pushed or published." >&2
+  exit 1
+fi
+
 echo ""
 if [[ "$skip_ci" -eq 1 ]]; then
   echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

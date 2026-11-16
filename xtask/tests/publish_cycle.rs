@@ -174,6 +174,10 @@ fn fixture(label: &str, public_commits: usize) -> Fixture {
         &format!(
             r#"#!/bin/bash
 set -euo pipefail
+if [ "${{1:-}}" = "feature-matrix" ]; then
+  echo "feature-matrix: fake matrix passed"
+  exit 0
+fi
 if [ ! -f {state:?} ]; then
   : > {state:?}
   mkdir -p docs/media
@@ -388,6 +392,10 @@ fn publish_runs_the_public_export_variant() {
     let output = publish_with(&fixture, 0, &[]);
     let text = combined(&output);
     assert!(output.status.success(), "{text}");
+    assert!(
+        text.contains("full feature matrix") && text.contains("feature-matrix: fake matrix passed"),
+        "publish must run the feature matrix before the replica: {text}"
+    );
     let args = std::fs::read_to_string(fixture.repo.join("ci-local-args.txt"))
         .expect("the fake local CI recorded its arguments");
     assert_eq!(

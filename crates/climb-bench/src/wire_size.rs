@@ -144,7 +144,9 @@ pub struct WireSizeReport {
 /// Panics if `lens` is empty.  The caller (the public API) guarantees the
 /// slice is non-empty because [`measure_wire_sizes`] only calls this after a
 /// successful `sign_batch`, which rejects empty batches.
-#[cfg(feature = "native")]
+// The measurement path is native-only, but the helper is pure and its unit
+// tests compile in every feature set, so it is present for `test` builds too.
+#[cfg(any(feature = "native", test))]
 fn stats(lens: &[usize]) -> CondensedStats {
     assert!(!lens.is_empty(), "lens must be non-empty");
 

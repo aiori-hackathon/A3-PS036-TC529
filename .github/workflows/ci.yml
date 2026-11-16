@@ -16,7 +16,7 @@ permissions:
 jobs:
   viewer:
     name: viewer (no native libraries)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -45,6 +45,10 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
         with:
           cache: false
+          # Written out rather than left to the action's default, so the local
+          # CI replica can parse the same value from this file. The action only
+          # sets RUSTFLAGS when it is not already set.
+          rustflags: "-D warnings"
 
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -58,9 +62,11 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/test-logs
-          cargo clippy -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-viewer.log
-          cargo clippy -p climb-report --no-default-features -- -D warnings 2>&1 | tee target/test-logs/clippy-report.log
+          cargo clippy -p climb-dns -p climb-analytical -p climb-tui -p xtask --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-viewer.log
+          cargo clippy -p climb-report --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-report.log
 
+      - name: Feature matrix (check and clippy)
+        run: cargo run -p xtask --no-default-features -- feature-matrix --check-only
 
       - name: Fetch main branch
         run: git fetch origin main
@@ -72,8 +78,8 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p target/test-logs
-          cargo test -p climb-dns -p climb-analytical -p climb-tui --no-default-features 2>&1 | tee target/test-logs/viewer-dns-analytical-tui.log
-          cargo test -p climb-report --no-default-features --lib 2>&1 | tee target/test-logs/viewer-report.log
+          cargo test -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets 2>&1 | tee target/test-logs/viewer-dns-analytical-tui.log
+          cargo test -p climb-report --no-default-features --all-targets 2>&1 | tee target/test-logs/viewer-report.log
 
       - name: Verify viewer build has no native dependencies
         run: ./scripts/check-viewer-build.sh
@@ -104,7 +110,7 @@ jobs:
   native:
     name: native (pinned Docker toolchain)
     needs: viewer
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
@@ -120,6 +126,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
         with:
           cache: false
+          rustflags: "-D warnings"
 
       - name: Cache extracted native toolchain (.mtl-install)
         id: mtl-cache

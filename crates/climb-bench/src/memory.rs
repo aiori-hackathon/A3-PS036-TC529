@@ -268,18 +268,21 @@ pub fn compare_to_analytical(report: &RssSizeReport, analytical: MemoryEstimate)
 // ---------------------------------------------------------------------------
 #[cfg(test)]
 mod tests {
-    use std::sync::{Mutex, MutexGuard};
-
     use super::*;
     use climb_analytical::estimate_memory_footprint;
+
+    #[cfg(feature = "native")]
+    use std::sync::{Mutex, MutexGuard};
 
     /// RSS is a process-wide quantity: a measurement running on another thread
     /// can land between one test's before/after samples and change its delta.
     /// These two tests therefore take this lock so they never overlap.
+    #[cfg(feature = "native")]
     static RSS_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     /// Take the RSS-test lock, recovering the guard if a previous holder
     /// panicked (the measurement itself has no state to poison).
+    #[cfg(feature = "native")]
     fn rss_test_guard() -> MutexGuard<'static, ()> {
         RSS_TEST_LOCK
             .lock()

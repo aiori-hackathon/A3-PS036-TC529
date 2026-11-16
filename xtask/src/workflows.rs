@@ -560,4 +560,150 @@ jobs:
         std::fs::read_to_string(root.join(".github/workflows").join(name))
             .unwrap_or_else(|error| panic!("failed to read {name}: {error}"))
     }
+
+    fn committed_file(relative: &str) -> String {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        std::fs::read_to_string(root.join(relative))
+            .unwrap_or_else(|error| panic!("failed to read {relative}: {error}"))
+    }
+
+    /// The environment variables the pinned setup action writes into
+    /// `GITHUB_ENV`, from its `action.yml` at the SHA named in `ci.yml`.
+    const SETUP_ACTION_ENV: &[&str] = &[
+        "CARGO_INCREMENTAL",
+        "CARGO_PROFILE_DEV_DEBUG",
+        "CARGO_TERM_COLOR",
+        "RUST_BACKTRACE",
+        "RUSTFLAGS",
+        "CARGO_UNSTABLE_SPARSE_REGISTRY",
+        "CARGO_REGISTRIES_CRATES_IO_PROTOCOL",
+    ];
+
+    #[test]
+    fn the_ci_workflow_writes_out_the_toolchain_rustflags() {
+        let text = committed_workflow("ci.yml");
+        let count = text
+            .lines()
+            .filter(|line| line.trim() == "rustflags: \"-D warnings\"")
+            .count();
+        assert_eq!(
+            count, 2,
+            "both setup-rust-toolchain steps must name their rustflags explicitly"
+        );
+    }
+
+    #[test]
+    fn ci_local_exports_every_variable_the_setup_action_sets() {
+        let script = committed_file("scripts/ci-local.sh");
+        let marker = script
+            .lines()
+            .find(|line| line.contains("ci-setup-rust-toolchain-env:"))
+            .expect("ci-local must carry the setup-action environment contract marker");
+        let names: Vec<String> = marker
+            .split_once("ci-setup-rust-toolchain-env:")
+            .expect("marker prefix")
+            .1
+            .split_whitespace()
+            .map(|name| name.to_string())
+            .collect();
+        let mut expected: Vec<String> = SETUP_ACTION_ENV
+            .iter()
+            .map(|name| name.to_string())
+            .collect();
+        let mut actual = names.clone();
+        expected.sort();
+        actual.sort();
+        assert_eq!(
+            actual, expected,
+            "ci-local.sh does not export the same variables as the setup action; \
+             update the marker and the export block together"
+        );
+        for name in SETUP_ACTION_ENV {
+            let export = format!("export {name}=");
+            assert!(
+                script.contains(&export),
+                "ci-local.sh names {name} but never exports it (`{export}`)"
+            );
+        }
+    }
+
+    #[test]
+    fn ci_local_reads_the_rustflags_input_from_the_workflow() {
+        let script = committed_file("scripts/ci-local.sh");
+        assert!(
+            script.contains("key == \"rustflags\""),
+            "ci-local must parse the workflow's rustflags input"
+        );
+        assert!(
+            script.contains("SETUP_RUSTFLAGS"),
+            "ci-local must carry the parsed rustflags into the step environment"
+        );
+        assert!(
+            script.contains("[[ ! -v RUSTFLAGS"),
+            "the replica must keep an already-set RUSTFLAGS, as the action does"
+        );
+    }
+
+    #[test]
+    fn the_viewer_job_lints_every_target_it_tests() {
+        let text = committed_workflow("ci.yml");
+        let report_clippy = text
+            .lines()
+            .find(|line| line.contains("cargo clippy -p climb-report"))
+            .expect("the report lint line");
+        assert!(
+            report_clippy.contains("--all-targets"),
+            "clippy for climb-report must lint test targets: {report_clippy}"
+        );
+        assert!(
+            report_clippy.contains("--no-default-features"),
+            "the report lint and test feature sets must agree: {report_clippy}"
+        );
+        let report_test = text
+            .lines()
+            .find(|line| line.contains("cargo test -p climb-report"))
+            .expect("the report test line");
+        assert!(
+            report_test.contains("--no-default-features"),
+            "the report test feature set must agree with clippy: {report_test}"
+        );
+        assert!(
+            !report_test.contains("--lib"),
+            "the report test must compile every target clippy lints: {report_test}"
+        );
+    }
+
+    #[test]
+    fn the_workflows_pin_a_supported_runner_image() {
+        for name in ["ci.yml", "site.yml"] {
+            let text = committed_workflow(name);
+            assert!(
+                text.contains("runs-on: ubuntu-24.04"),
+                "{name} must pin a concrete runner image"
+            );
+            assert!(
+                !text.contains("runs-on: ubuntu-latest"),
+                "{name} still uses the moving `ubuntu-latest` label"
+            );
+        }
+    }
+
+    #[test]
+    fn the_deploy_job_is_skipped_until_a_host_is_configured() {
+        let text = committed_workflow("deploy.yml");
+        let condition = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("if:"))
+            .expect("the deploy job condition");
+        assert!(
+            condition.contains("github.repository =="),
+            "the deploy job must stay scoped to the public repository: {condition}"
+        );
+        assert!(
+            condition.contains("vars.DEPLOY_HOST != ''"),
+            "the deploy job must be skipped, not failed, without DEPLOY_HOST: {condition}"
+        );
+    }
 }

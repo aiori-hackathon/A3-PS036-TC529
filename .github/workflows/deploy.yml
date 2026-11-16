@@ -34,8 +34,11 @@ permissions:
 jobs:
   deploy:
     name: deploy (build, gate, publish)
-    if: github.repository == 'aiori-hackathon/A3-PS036-TC529'
-    runs-on: ubuntu-latest
+    # A repository without a host must be a no-op, not a failed run: an empty
+    # DEPLOY_HOST means the deployment has not been configured yet. The job
+    # stays restricted to the public repository as well.
+    if: github.repository == 'aiori-hackathon/A3-PS036-TC529' && vars.DEPLOY_HOST != ''
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     environment:

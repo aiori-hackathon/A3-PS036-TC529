@@ -16,7 +16,7 @@ permissions:
 jobs:
   site:
     name: site (build, lint, typecheck, test)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
     defaults:

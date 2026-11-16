@@ -2095,9 +2095,11 @@ mod tests {
     use super::*;
     use crate::results::{
         AnalyticalMemoryModel, BenchmarkResults, ConfigComparison, DerivedSummary,
-        DnsCaptureSource, DnsPipelineHeadline, EnvironmentFingerprint, EvidenceClass, MemoryResult,
-        MemoryResults, ReuseCurvePoint, ReuseResult, SignatureContextRow,
+        DnsCaptureSource, DnsPipelineHeadline, EnvironmentFingerprint, EvidenceClass,
+        MemoryResults,
     };
+    #[cfg(feature = "native")]
+    use crate::results::{MemoryResult, ReuseCurvePoint, ReuseResult, SignatureContextRow};
 
     fn synthetic_ladder_section() -> crate::ladder::LadderSection {
         use crate::ladder::{LadderSection, LadderSizeRow, LadderSource};

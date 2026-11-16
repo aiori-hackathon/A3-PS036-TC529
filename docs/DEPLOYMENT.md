@@ -484,3 +484,59 @@ lighter worktree rehearsal for day-to-day work.
 The workflow's `Environment report` step prints the checked-out commit, whether
 the clone is shallow and which sample-check mode ran, so a future failure
 explains its own history conditions.
+
+## Runner images, Node runtimes and the local CI replica
+
+Every workflow pins a concrete runner image (`ubuntu-24.04`) instead of the
+moving `ubuntu-latest` label, so a runner migration cannot silently change the
+compiler, linker or container versions a green run was measured on. The
+`workflows` lint and its tests reject `ubuntu-latest` in `ci.yml` and
+`site.yml`.
+
+GitHub is retiring the Node 20 runtime for JavaScript actions. A run on the
+current pins prints a deprecation annotation for the actions that still declare
+`using: node20`; it does not fail the job, but the runtime will eventually be
+forced to Node 24. The pinned actions fall into two groups:
+
+| Action and pin | Runtime in `action.yml` | Needs a bump? |
+|---|---|---|
+| `actions/checkout` `v4.4.0` | `node20` | yes — `v7.0.1` declares `node24` |
+| `actions/cache` `v4.3.0` | `node20` | yes — `v6.1.0` declares `node24` |
+| `actions/upload-artifact` `v4.6.2` | `node20` | yes — `v7.0.2` declares `node24` |
+| `actions/setup-node` `v7.1.0` | `node24` | no |
+| `Swatinem/rust-cache` `v2.9.3` | `node24` | no |
+| `actions-rust-lang/setup-rust-toolchain` `v1.9.0` | composite (no JavaScript runtime) | no |
+
+The versions in the right-hand column are the newest tags at the time this table
+was written; they are named as targets, not pinned. A bump must replace the
+full forty-character commit SHA in every workflow that uses the action (the
+`workflows` lint rejects a tag), then rerun both CI jobs before the new pins are
+trusted. `trunk` and `wrangler` are installed by `cargo` and `npx`, not by an
+action, so they have no Node-action runtime of their own.
+
+`scripts/ci-local.sh` reproduces the toolchain action's environment instead of
+inheriting whatever the developer's shell has. It reads the workflow's explicit
+`rustflags: "-D warnings"` input, exports `RUSTFLAGS` only when it is unset
+(exactly as the action does), and sets the action's other defaults
+(`CARGO_INCREMENTAL=0`, `CARGO_PROFILE_DEV_DEBUG=0`, `CARGO_TERM_COLOR=always`,
+`RUST_BACKTRACE=short`, `CARGO_UNSTABLE_SPARSE_REGISTRY=true`,
+`CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse`). A workflow test fails when the
+action's variable list and the replica's export block drift apart. After the
+parsed viewer steps, the replica runs the full feature matrix; the viewer job
+runs the check-and-clippy subset because its runner has no native crypto
+toolchain.
+
+## When the deploy workflow does nothing
+
+`deploy.yml` is a no-op until a host is configured. Its job condition is:
+
+```yaml
+if: github.repository == 'aiori-hackathon/A3-PS036-TC529' && vars.DEPLOY_HOST != ''
+```
+
+An empty or unset `DEPLOY_HOST` therefore **skips** the job instead of failing
+it, which is the correct state for a fresh fork, the private repository, or a
+public copy whose host has not been set up. The Cloudflare Pages fallback is
+gated separately on `vars.CLOUDFLARE_PAGES_PROJECT`. The `workflows` tests pin
+both conditions, so removing the guard is a test failure rather than a surprise
+red run.

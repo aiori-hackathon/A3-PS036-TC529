@@ -8,7 +8,7 @@
 # shell, forward a port or run anything else. The archive arrives on stdin and
 # the request arrives in SSH_ORIGINAL_COMMAND:
 #
-#   ssh deploy@host 'receive <release-id> <archive-sha256>' \
+#   ssh -l deploy <host> 'receive <release-id> <archive-sha256>' \
 #     < climb-site-<release-id>.tar.zst
 #
 # Publishing is one rename of the `current` symlink, which is why a reader

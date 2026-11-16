@@ -37,6 +37,28 @@ name = "primitives"
 harness = false
 required-features = ["native"]
 
+# These integration tests drive the real MTL signing path or parse its signed
+# bytes, so they need the native measurement stack by construction.
+[[test]]
+name = "cross_validation"
+path = "tests/cross_validation.rs"
+required-features = ["native"]
+
+[[test]]
+name = "probes"
+path = "tests/probes.rs"
+required-features = ["native"]
+
+[[test]]
+name = "wire_accounting"
+path = "tests/wire_accounting.rs"
+required-features = ["native"]
+
+[[test]]
+name = "wire_size"
+path = "tests/wire_size.rs"
+required-features = ["native"]
+
 [dependencies]
 climb-mtl-sys = { path = "../climb-mtl-sys", optional = true }  # direct dep so DEP_MTLSLIB_LIB_DIR flows to build.rs
 climb-mtl = { path = "../climb-mtl", optional = true }

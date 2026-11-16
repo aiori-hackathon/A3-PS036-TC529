@@ -14,6 +14,44 @@ description = "Criterion output parsing, plain-text summaries (Batch 2), and cha
 name = "climb-site-data"
 path = "src/bin/climb-site-data.rs"
 
+# These contract tests render the SVG charts, which need `plotters`. They are
+# native-feature targets by construction, so a viewer build neither compiles nor
+# runs them.
+[[test]]
+name = "cache_contract"
+path = "tests/cache_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "ladder_contract"
+path = "tests/ladder_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "memory_contract"
+path = "tests/memory_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "reuse_contract"
+path = "tests/reuse_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "signing_baseline_contract"
+path = "tests/signing_baseline_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "stability_contract"
+path = "tests/stability_contract.rs"
+required-features = ["native"]
+
+[[test]]
+name = "udp_fit_contract"
+path = "tests/udp_fit_contract.rs"
+required-features = ["native"]
+
 [features]
 default = ["native"]
 # Native chart rendering (plotters) plus the native measurement crate it

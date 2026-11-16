@@ -155,6 +155,98 @@ if [[ "$LIST_ONLY" -eq 1 ]]; then
   exit 0
 fi
 
+# --- reproduce the toolchain action's environment -------------------------
+# The pinned setup action writes these into GITHUB_ENV before the first step
+# runs, and one of them is `RUSTFLAGS=-D warnings`. A local run that omits them
+# lints and tests a different build than CI does. Parse the workflow's explicit
+# `rustflags` input, then apply the action's documented default for every other
+# variable, keeping a value that is already set exactly as the action does.
+python3 - "$WORKFLOW" "$JOB" "$TMP" <<'PY'
+import re
+import shlex
+import sys
+
+workflow, job, outdir = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(workflow, encoding="utf-8") as handle:
+    lines = handle.read().splitlines()
+
+job_re = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
+start = None
+for index, line in enumerate(lines):
+    match = job_re.match(line)
+    if match and match.group(1) == job:
+        start = index + 1
+        break
+if start is None:
+    sys.exit(f"ci-local: job `{job}` not found in {workflow}")
+end = len(lines)
+for index in range(start, len(lines)):
+    if job_re.match(lines[index]):
+        end = index
+        break
+
+rustflags = None
+action = "actions-rust-lang/setup-rust-toolchain@"
+for index in range(start, end):
+    line = lines[index]
+    if action in line and "uses:" in line:
+        step_start = index
+        while step_start > start and not lines[step_start - 1].startswith("      - "):
+            step_start -= 1
+        step_end = index + 1
+        while step_end < end and not lines[step_end].startswith("      - "):
+            step_end += 1
+        in_with = False
+        for body in lines[step_start:step_end]:
+            stripped = body.strip()
+            if stripped == "with:":
+                in_with = True
+                continue
+            if in_with and stripped == "":
+                continue
+            if in_with and not body.startswith("          "):
+                in_with = False
+                continue
+            if in_with:
+                key, _, value = stripped.partition(":")
+                if key == "rustflags":
+                    value = value.strip()
+                    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+                        value = value[1:-1]
+                    rustflags = value
+        break
+if rustflags is None:
+    # The action's own default. The workflow contract test requires the input
+    # to be written out, so this branch is a warning, not the normal path.
+    print(
+        "ci-local: warning: no `rustflags` input on the setup-rust-toolchain step; "
+        "using the action default `-D warnings`",
+        file=sys.stderr,
+    )
+    rustflags = "-D warnings"
+
+with open(f"{outdir}/setup-env.sh", "w", encoding="utf-8") as handle:
+    handle.write(f"SETUP_RUSTFLAGS={shlex.quote(rustflags)}\n")
+PY
+# shellcheck source=/dev/null
+source "$TMP/setup-env.sh"
+
+# Environment contract of the pinned setup action. Keep this marker in sync
+# with the action: the workflow tests fail when a variable is missing here.
+# ci-setup-rust-toolchain-env: CARGO_INCREMENTAL CARGO_PROFILE_DEV_DEBUG CARGO_TERM_COLOR RUST_BACKTRACE RUSTFLAGS CARGO_UNSTABLE_SPARSE_REGISTRY CARGO_REGISTRIES_CRATES_IO_PROTOCOL
+if [[ ! -v RUSTFLAGS && -n "$SETUP_RUSTFLAGS" ]]; then
+  export RUSTFLAGS="$SETUP_RUSTFLAGS"
+fi
+[[ -v CARGO_INCREMENTAL ]] || export CARGO_INCREMENTAL=0
+[[ -v CARGO_PROFILE_DEV_DEBUG ]] || export CARGO_PROFILE_DEV_DEBUG=0
+[[ -v CARGO_TERM_COLOR ]] || export CARGO_TERM_COLOR=always
+[[ -v RUST_BACKTRACE ]] || export RUST_BACKTRACE=short
+[[ -v CARGO_UNSTABLE_SPARSE_REGISTRY ]] || export CARGO_UNSTABLE_SPARSE_REGISTRY=true
+[[ -v CARGO_REGISTRIES_CRATES_IO_PROTOCOL ]] || export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+
+printf 'ci-local: setup-rust-toolchain env: RUSTFLAGS=%s CARGO_INCREMENTAL=%s RUST_BACKTRACE=%s\n' \
+  "${RUSTFLAGS:-<unset>}" "$CARGO_INCREMENTAL" "$RUST_BACKTRACE"
+
 # --- public-export replica ------------------------------------------------
 # The public repository is a rewritten copy: private-only paths are removed
 # from every commit, so every hash differs. Rebuild that situation locally by
@@ -313,4 +405,25 @@ if [[ "$failed" -ne 0 ]]; then
   printf '\nci-local: FAILED — the viewer workflow would fail on this tree\n' >&2
   exit 1
 fi
+
+# --- full feature matrix ---------------------------------------------------
+# The viewer job runs the check+clippy subset because a public runner has no
+# native crypto toolchain. Locally, when the source checkout has the extracted
+# prefix, point the matrix at it so the default and all-features cells really
+# compile as well. Without a prefix the matrix names those cells as skipped.
+matrix_env=()
+if [[ -z "${CLIMB_MTL_PREFIX:-}" ]]; then
+  prefix_candidate="$REPO_ROOT/.mtl-install"
+  if [[ -f "$prefix_candidate/include/mtllib/mtllib.h" ]]; then
+    matrix_env=(env "CLIMB_MTL_PREFIX=$prefix_candidate")
+    printf 'ci-local: feature matrix uses the extracted native prefix %s\n' \
+      "$prefix_candidate"
+  fi
+fi
+printf '\n==> [matrix] full feature matrix (none, default, all)\n'
+if ! ( cd "$WORKTREE" && "${matrix_env[@]}" cargo run -p xtask --no-default-features -- feature-matrix ); then
+  printf '\nci-local: FAILED — the full feature matrix failed\n' >&2
+  exit 1
+fi
+
 printf '\nci-local: all viewer steps passed in a clean worktree\n'
