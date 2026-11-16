@@ -19,7 +19,7 @@ and the *Gap closed by* column names the deliverable that will close it.
 | Requirement (problem-statement wording) | Status | Gap closed by | Evidence | Command | Artifact pointer | TUI tab |
 | --- | --- | --- | --- | --- | --- | --- |
 | use one supported PQC signature algorithm | met | — | `crates/climb-mtl/src/lib.rs` | `cargo xtask bench-all` | `/ladder/algorithm` | Signing |
-| use one mentor-tested MTL reference implementation | met | — | `ENVIRONMENT.md` | `cargo xtask check-pins` | `/environment/submodules` | Method |
+| use one mentor-tested MTL reference implementation (pinned public libMTL commit, its source, and our conformance and negative tests) | met | — | `ENVIRONMENT.md` | `cargo xtask check-pins` | `/environment/submodules` | Method |
 | test three dataset sizes | met | — | `xtask/src/groups.rs` | `cargo xtask bench-all --sizes all` | `/wire_size` | Signing |
 | compare equivalent workloads with and without MTL | met | — | `docs/BASELINES.md` | `cargo xtask bench-all` | `/comparisons` | Wire |
 | repeated trials under a pinned software and hardware environment | met | — | `scripts/pin-perf-governor.sh` | `cargo xtask stability` | `/derived/stability` | Method |
@@ -27,6 +27,7 @@ and the *Gap closed by* column names the deliverable that will close it.
 | record and report configuration and workload parameters | met | — | `ENVIRONMENT.md` | `cargo xtask pin-env` | `/environment` | Method |
 | separate directly measured cache usage from analytical estimates | met | — | `docs/METHODOLOGY.md` | `cargo xtask dns-cache` | `/cache_use` | Memory |
 | no new cryptography | met | — | `crates/climb-mtl-sys/src/lib.rs` | `cargo xtask check-pins` | `/ladder/algorithm` | Method |
+| defer the project if the required implementation and test fixtures are not available before launch | met | — | `ENVIRONMENT.md` | `cargo xtask check-pins` | `/environment/submodules` | Method |
 | no resolver from scratch | met | — | `docker/Dockerfile.nsd` | `cargo xtask dns-demo` | `/dns_pipeline` | Live |
 | no Internet deployment | met | — | `docker/compose.dns-pipeline.yml` | `cargo xtask dns-demo` | `/dns_pipeline` | Live |
 | no Internet deployment — hosting the results dashboard (AIORI written reply, 2026-11-10, AIORI-3 hackathon organisers) | partial | the web release of the recorded-results dashboard | `README.md` | — | — | — |
@@ -41,8 +42,30 @@ and the *Gap closed by* column names the deliverable that will close it.
 | expected outcome — cache-use measurements and analytical estimates | met | — | `xtask/src/dns_cache.rs` | `cargo xtask dns-cache` | `/cache_use` | Memory |
 | expected outcome — reproducible results report | met | — | `docs/REPRODUCIBILITY.md` | `cargo xtask reproduce` | `/reproduction_mode` | Integrity |
 | expected outcome — technical demonstration | met | — | `docs/media/CLIMB-TUI-demo-video.mp4` | `cargo xtask dist-tui` | `/dns_pipeline` | Live |
-| expected outcome — prototype demonstration with a pseudocode snippet to the mentor | partial | the mentor demonstration session, which happens outside the repository | `docs/PSEUDOCODE.md` | `cargo xtask docs-check` | — | Method |
+| deliverable — GitHub collaboration: repository owned by aiori-hackathon and named for the team | met | — | `README.md` | `cargo xtask docs-check` | — | — |
+| deliverable — a PDF in the repository following the proposed structure | partial | the section-by-section comparison with AIORI's template, which is not in the repository | `A3-PS036-TC529.pdf` | `cargo xtask docs-check` | — | — |
+| deliverable — prototype demonstration with a pseudocode snippet to the mentor | partial | the mentor demonstration session, which happens outside the repository | `docs/PSEUDOCODE.md` | `cargo xtask docs-check` | — | Method |
 <!-- compliance:end -->
+
+## What "mentor-tested" means for the reference implementation
+
+AIORI's written reply of 2026-11-10, from the AIORI-3 hackathon organisers,
+stated that mentors would not supply a reference implementation or its test
+fixtures. "Mentor-tested" in the row above therefore means the public Verisign
+reference code, pinned and tested by this project, not a private fixture handed
+out at launch. The pinned source is `third_party/MTL` at commit
+`53ce25dcc35c15e051c5263e41aaeaede18a8aa7`, from
+`github.com/profm0r14rty/MTL` branch `climb/liboqs-0.16-compat`: a fork of
+`github.com/verisign/MTL` (tag `MTLLIB_1_2_1`) carrying only the liboqs 0.16
+compatibility patch. Six conformance tests (`crates/climb-mtl/tests/conformance.rs`)
+and the negative suite (`crates/climb-mtl/tests/negative.rs`) run against it,
+and `cargo xtask check-pins` proves the pin agrees with `environment.json` and
+the toolchain Dockerfile. The same reply is the source of the hosting addendum
+below; no sender address or contact detail is recorded in this repository.
+
+Because that implementation and its fixtures were pinned on 2026-09-26, before
+the October launch, the deferral condition in the ninth requirement did not
+arise. The row is marked `met` for that reason, not because a deferral happened.
 
 ## Cache accounting: what the two measured targets are
 

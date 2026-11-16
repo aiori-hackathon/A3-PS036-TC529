@@ -409,11 +409,17 @@ Supporting directories:
   the local-only DNS pipeline (NSD, Unbound, zone signer, scripted queries);
 - `third_party/` — pinned submodules: `liboqs` and `MTL` (the reference
   implementation);
-- `docs/` — `ARCHITECTURE.md`, `METHODOLOGY.md`, `BASELINES.md`,
-  `RESEARCH.md` (source provenance), `REPRODUCIBILITY.md` (every input and the
-  check that enforces it), `COMPLIANCE.md` (requirements traceability),
-  `PSEUDOCODE.md` and `DEMO-PROTOTYPE.md` (the pseudocode and demonstration
-  deliverables), the generated quote sheet `deck-facts.md`, and
+- `docs/` — [`ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+  [`METHODOLOGY.md`](docs/METHODOLOGY.md), [`BASELINES.md`](docs/BASELINES.md),
+  [`RESEARCH.md`](docs/RESEARCH.md) (source provenance),
+  [`REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) (every input and the check
+  that enforces it), [`COMPLIANCE.md`](docs/COMPLIANCE.md) (requirements
+  traceability), [`CRITERIA-AUDIT.md`](docs/CRITERIA-AUDIT.md) (the same
+  requirements with pasted evidence and a printable card),
+  [`PSEUDOCODE.md`](docs/PSEUDOCODE.md),
+  [`DEMO-PROTOTYPE.md`](docs/DEMO-PROTOTYPE.md) and
+  [`MENTOR-HANDOUT.md`](docs/MENTOR-HANDOUT.md) (the pseudocode and
+  demonstration deliverables), the generated quote sheet `deck-facts.md`, and
   `sample-output/` (committed, provenance-stamped sample artifacts);
 - `data/` — recorded fixtures (DNS capture, ladder verification);
 - `scripts/` — environment pinning, clean-clone check helpers, the logo asset

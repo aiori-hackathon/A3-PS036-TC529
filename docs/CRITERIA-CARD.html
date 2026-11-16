@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CLIMB — PS-036 criteria card</title>
+<style>
+@page { size: A4 portrait; margin: 9mm; }
+* { box-sizing: border-box; }
+body { margin: 0; color: #14161a; background: #fff; font: 7.6pt/1.25 "DejaVu Sans", Arial, sans-serif; }
+header { display: flex; justify-content: space-between; gap: 8mm; border-bottom: 1.4pt solid #14161a; padding-bottom: 2mm; }
+h1 { margin: 0; font-size: 13pt; letter-spacing: .02em; }
+.sub { margin: .6mm 0 0; color: #4a4f57; font-size: 8pt; }
+.summary { display: flex; gap: 2mm; flex-wrap: wrap; margin: 2.5mm 0 3mm; }
+.pill { border: .6pt solid #14161a; border-radius: 999px; padding: .6mm 2mm; font-weight: 700; }
+section { margin-top: 2.4mm; }
+h2 { margin: 0 0 1mm; font-size: 8.4pt; text-transform: uppercase; letter-spacing: .08em; border-bottom: .5pt solid #b9bec6; padding-bottom: .6mm; }
+.rows { column-count: 2; column-gap: 5mm; }
+.row { padding: .75mm 0; border-bottom: .35pt solid #d9dce1; break-inside: avoid; }
+.id { font-weight: 800; font-variant-numeric: tabular-nums; margin-right: 1.2mm; }
+.status { font-weight: 800; letter-spacing: .03em; margin-right: 1.2mm; }
+.req { display: inline; }
+.status.pass { color: #0b6b3a; }
+.status.partial { color: #8a5200; }
+.status.fail { color: #a01818; }
+.status.na { color: #4a4f57; }
+.req { font-weight: 650; }
+.meta { color: #4a4f57; font-size: 6.8pt; margin-top: .25mm; }
+code { font-family: "DejaVu Sans Mono", monospace; font-size: 6.6pt; color: #14161a; }
+footer { margin-top: 3mm; border-top: .8pt solid #14161a; padding-top: 1.2mm; color: #4a4f57; font-size: 6.8pt; }
+@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<header>
+<div>
+<h1>CLIMB — PS-036 criteria audit</h1>
+<p class="sub">Cryptographic Ladder Impact Measurement Benchmark · AIORI-3 PS-036 · one-page judge card</p>
+</div>
+<div class="sub">Generated from <code>docs/CRITERIA-AUDIT.md</code><br>statuses are read, never typed</div>
+</header>
+<div class="summary">
+<span class="pill"><span class="status pass">PASS</span> 24</span>
+<span class="pill"><span class="status partial">PARTIAL</span> 2</span>
+<span class="pill"><span class="status fail">FAIL</span> 0</span>
+<span class="pill"><span class="status n/a">N/A</span> 0</span>
+<span class="pill">total 26</span>
+</div>
+<section>
+<h2>Requirements <span class="sub" style="text-transform:none;letter-spacing:0">Problem-statement requirements, verbatim wording shortened only where the audit does so.</span></h2>
+<div class="rows">
+<div class="row" title="caveat: One parameter set only; it is the library default and the MTL-wrapped form of FIPS 205 SLH-DSA-SHA2-128s.">
+<span class="id">R1</span><span class="status pass">PASS</span><span class="req">Use one supported PQC signature algorithm</span>
+<div class="meta">evidence <code>crates/climb-mtl/src/lib.rs`, `docs/sample-output/climb-results.json</code> · prove <code>jq -r '.ladder.algorithm' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: AIORI's written reply of 2026-11-10 said mentors would not supply an implementation. Pinned commit `53ce25d` comes from `github.com/profm0r14rty/MTL` branch `climb/liboqs-0.16-compat`, a fork of `github.com/verisign/MTL` tag `MTLLIB_1_2_1` with only the liboqs 0.16 compatibility patch. Six conformance and 24 negative tests run against it.">
+<span class="id">R2</span><span class="status pass">PASS</span><span class="req">Use one mentor-tested MTL reference implementation</span>
+<div class="meta">evidence <code>ENVIRONMENT.md`, `crates/climb-mtl/tests/negative.rs</code> · prove <code>cargo test -p climb-mtl --test conformance</code></div>
+</div>
+<div class="row" title="caveat: The three blueprint sizes; no additional sizes are claimed as the required matrix.">
+<span class="id">R3</span><span class="status pass">PASS</span><span class="req">Test three dataset sizes</span>
+<div class="meta">evidence <code>xtask/src/groups.rs`, `docs/sample-output/climb-results.json</code> · prove <code>jq -r '.wire_size[] | &quot;\(.size) \(.message_count)&quot;' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: A, B and C use the same tool, key and dataset; only batching differs. B is the non-MTL MTL-library control, A the plain SLH-DSA baseline.">
+<span class="id">R4</span><span class="status pass">PASS</span><span class="req">Compare equivalent workloads with and without MTL</span>
+<div class="meta">evidence <code>docs/BASELINES.md`, `crates/climb-bench/benches/signing.rs</code> · prove <code>jq -r '.wire_size[] | &quot;\(.size) A=\(.plain_total_bytes) B=\(.without_mtl_total_bytes) C=\(.with_mtl_total_bytes)&quot;' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: Nine model ratios each carry five repeats; Criterion also repeats every timed cell. The host is a laptop with documented thermal variance, so ratios are reported to about three significant figures.">
+<span class="id">R5</span><span class="status pass">PASS</span><span class="req">Run repeated trials under a pinned software and hardware environment</span>
+<div class="meta">evidence <code>environment.json`, `scripts/pin-perf-governor.sh</code> · prove <code>jq -c '{n_runs:(.derived.stability.runs|length), first:.derived.stability.runs[0].ratio_name, governor:.environment.benchmark_runtime.cpu_governor, pin:.environment.benchmark_runtime.pin_expression}' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: Signing rows cover A/B/C and MTL primitives; verification covers full, condensed cold and condensed cached. Bytes are counted from serialized signatures and ladder.">
+<span class="id">R6</span><span class="status pass">PASS</span><span class="req">Measure signing time, verification time and transmitted bytes</span>
+<div class="meta">evidence <code>crates/climb-bench/benches/signing.rs`, `crates/climb-bench/src/wire_size.rs</code> · prove <code>jq -c '{signing:(.benchmark.signing|length), verifying:(.benchmark.verifying|length), wire_rows:(.wire_size|length)}' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: The workload parameters (algorithm, sizes, seeds, submodule pins) are carried by the consolidated artifact and the pin record.">
+<span class="id">R7</span><span class="status pass">PASS</span><span class="req">Record and report benchmark configuration and workload parameters</span>
+<div class="meta">evidence <code>environment.json`, `ENVIRONMENT.md</code> · prove <code>jq -c '{cpu:.cpu, governor:.benchmark_runtime.cpu_governor, pin:.benchmark_runtime.pin_expression, rustc:.toolchain.rustc_version}' environment.json</code></div>
+</div>
+<div class="row" title="caveat: The measured rows are Unbound accounting and container RSS; the analytical rows are the libMTL page model. They are never merged into one number.">
+<span class="id">R8</span><span class="status pass">PASS</span><span class="req">Separate directly measured cache usage from analytical estimates</span>
+<div class="meta">evidence <code>docs/METHODOLOGY.md`, `docs/sample-output/climb-results.json</code> · prove <code>jq -c '{measured:(.cache_use.measured|length), analytical:(.cache_use.analytical|length), ladder:(.cache_use.ladder|length), ladder_analytical:(.cache_use.ladder_analytical|length)}' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: The condition did not arise: the implementation and fixtures were pinned on 2026-09-26, before the October launch, so no deferral was required.">
+<span class="id">R9</span><span class="status pass">PASS</span><span class="req">Defer the project if the required implementation and test fixtures are not available before launch</span>
+<div class="meta">evidence <code>ENVIRONMENT.md`, `third_party/MTL/README.md</code> · prove <code>git log --reverse --format='%cs %h %s' -- . | head -1</code></div>
+</div>
+<div class="row" title="caveat: Every cryptographic operation is a call into the pinned library; the Rust side is bindgen output plus ownership, length and layout checks.">
+<span class="id">R10</span><span class="status pass">PASS</span><span class="req">No new cryptography</span>
+<div class="meta">evidence <code>crates/climb-mtl-sys/src/lib.rs`, `crates/climb-mtl/src/ffi.rs</code> · prove <code>git grep -n 'mtllib_' -- crates/climb-mtl/src</code></div>
+</div>
+<div class="row" title="caveat: NSD, Unbound and the ldns signer are the pinned Verisign/community forks; CLIMB supplies configuration and capture tooling, not resolver code.">
+<span class="id">R11</span><span class="status pass">PASS</span><span class="req">No resolver implementation from scratch</span>
+<div class="meta">evidence <code>docker/Dockerfile.nsd`, `docker/Dockerfile.ldns-signer</code> · prove <code>git grep -n 'mtl-mode-ldns|mtl-mode-nsd|mtl-mode-unbound' -- docker</code></div>
+</div>
+<div class="row" title="caveat: The DNS and measurement pipeline is local-only. The recorded-results dashboard is public, permitted by AIORI's written reply of 2026-11-10; its separate compliance row stays partial until the release is verified.">
+<span class="id">R12</span><span class="status pass">PASS</span><span class="req">No Internet deployment</span>
+<div class="meta">evidence <code>docker/compose.dns-pipeline.yml`, `docs/COMPLIANCE.md</code> · prove <code>sed -n '33,36p' docker/compose.dns-pipeline.yml</code></div>
+</div>
+<div class="row" title="caveat: The wording describes empirical measurements, never a proof, guarantee or certification.">
+<span class="id">R13</span><span class="status pass">PASS</span><span class="req">No claimed security proof</span>
+<div class="meta">evidence <code>docs/METHODOLOGY.md`, `README.md</code> · prove <code>git grep -n -i 'not a security proof|no formal security guarantee' -- README.md docs</code></div>
+</div>
+</div>
+</section>
+<section>
+<h2>Expected outcomes <span class="sub" style="text-transform:none;letter-spacing:0">What the problem statement expects the benchmark to produce.</span></h2>
+<div class="rows">
+<div class="row" title="caveat: The three pin sources agree: toolchain Dockerfile comment, generated fingerprint and submodule status.">
+<span class="id">O1</span><span class="status pass">PASS</span><span class="req">Expected outcome: pinned benchmark environment</span>
+<div class="meta">evidence <code>environment.json`, `ENVIRONMENT.md</code> · prove <code>cargo xtask check-pins; echo &quot;exit=$?&quot;</code></div>
+</div>
+<div class="row" title="caveat: The harness builds as a test and benchmark target; the recorded artifacts are its output.">
+<span class="id">O2</span><span class="status pass">PASS</span><span class="req">Expected outcome: benchmark harness</span>
+<div class="meta">evidence <code>crates/climb-bench/benches/signing.rs`, `xtask/src/groups.rs</code> · prove <code>cargo test -p climb-bench --no-run</code></div>
+</div>
+<div class="row" title="caveat: Each size carries C-vs-A and C-vs-B speed-ups and byte reductions; OneK is an intermediate validation size, not a required dataset.">
+<span class="id">O3</span><span class="status pass">PASS</span><span class="req">Expected outcome: MTL and non-MTL workload configurations</span>
+<div class="meta">evidence <code>docs/BASELINES.md`, `docs/sample-output/climb-results.json</code> · prove <code>jq -r '.comparisons[] | .size' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: Same matrix as R3, shown from the transmitted-byte rows rather than the timing rows.">
+<span class="id">O4</span><span class="status pass">PASS</span><span class="req">Expected outcome: three dataset-size test cases</span>
+<div class="meta">evidence <code>xtask/src/groups.rs`, `docs/sample-output/climb-results.json</code> · prove <code>jq -r '.wire_size[] | &quot;\(.size) \(.message_count)&quot;' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: The stability block records median, minimum, maximum and coefficient of variation per model ratio, never a single cherry-picked run.">
+<span class="id">O5</span><span class="status pass">PASS</span><span class="req">Expected outcome: repeated-trial measurements</span>
+<div class="meta">evidence <code>xtask/src/stability.rs`, `docs/sample-output/climb-results.json</code> · prove <code>jq -c '.derived.stability.runs[0]' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: The HTML report renders the same rows through registered claims; `sample-check` proves the report and data agree.">
+<span class="id">O6</span><span class="status pass">PASS</span><span class="req">Expected outcome: signing and verification performance results</span>
+<div class="meta">evidence <code>crates/climb-report/src/html.rs`, `docs/sample-output/report.html</code> · prove <code>jq -c '{signing:(.benchmark.signing|length), verifying:(.benchmark.verifying|length)}' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: Counts are exact serialized lengths, not estimates; the UDP-fit block is labelled separately as analytical.">
+<span class="id">O7</span><span class="status pass">PASS</span><span class="req">Expected outcome: transmitted-byte comparison</span>
+<div class="meta">evidence <code>crates/climb-bench/src/wire_size.rs`, `docs/sample-output/climb-results.json</code> · prove <code>jq -r '.wire_size[] | &quot;\(.size) A=\(.plain_total_bytes) B=\(.without_mtl_total_bytes) C=\(.with_mtl_total_bytes)&quot;' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: Measured rows come from the local Unbound control channel and container RSS; analytical rows come from the library's page model.">
+<span class="id">O8</span><span class="status pass">PASS</span><span class="req">Expected outcome: cache-use measurements and analytical estimates</span>
+<div class="meta">evidence <code>xtask/src/dns_cache.rs`, `docs/METHODOLOGY.md</code> · prove <code>jq -c '{measured:(.cache_use.measured|length), analytical:(.cache_use.analytical|length)}' docs/sample-output/climb-results.json</code></div>
+</div>
+<div class="row" title="caveat: The check also verifies the checksum manifest and provenance identity; the full re-measure is one command, `cargo xtask reproduce`.">
+<span class="id">O9</span><span class="status pass">PASS</span><span class="req">Expected outcome: reproducible results report</span>
+<div class="meta">evidence <code>docs/REPRODUCIBILITY.md`, `docs/sample-output/report.html</code> · prove <code>cargo xtask sample-check</code></div>
+</div>
+<div class="row" title="caveat: The dashboard reads the committed artifact; the browser build of the same model is embedded on the public site.">
+<span class="id">O10</span><span class="status pass">PASS</span><span class="req">Expected outcome: technical demonstration</span>
+<div class="meta">evidence <code>crates/climb-tui/src/app.rs`, `docs/DEMO-PROTOTYPE.md</code> · prove <code>./target/debug/climb-tui --results docs/sample-output/climb-results.json --dump-frame overview 100x30</code></div>
+</div>
+</div>
+</section>
+<section>
+<h2>Deliverables <span class="sub" style="text-transform:none;letter-spacing:0">Submission artefacts, including the two that need a human or an external session.</span></h2>
+<div class="rows">
+<div class="row" title="caveat: The development checkout's `origin` is still the personal working remote; the public collaboration repository is the aiori-hackathon one named here.">
+<span class="id">D1</span><span class="status pass">PASS</span><span class="req">Deliverable: GitHub collaboration, repository owned by aiori-hackathon and named for the team</span>
+<div class="meta">evidence <code>README.md`, `A3-PS036-TC529.pdf</code> · prove <code>curl -s https://api.github.com/repos/aiori-hackathon/A3-PS036-TC529 | jq -r '&quot;owner=\(.owner.login) name=\(.name) private=\(.private)&quot;'</code></div>
+</div>
+<div class="row" title="caveat: The PDF is tracked and its slide titles cover abstract, background, literature, solution, architecture, deployment and bibliography. The template PDF is not in the repository, so a section-by-section comparison is not mechanically proved.">
+<span class="id">D2</span><span class="status partial">PARTIAL</span><span class="req">Deliverable: a PDF in the repository following the proposed structure</span>
+<div class="meta">evidence <code>A3-PS036-TC529.pdf`, `README.md</code> · prove <code>file A3-PS036-TC529.pdf</code></div>
+</div>
+<div class="row" title="caveat: The handout, pseudocode and walkthrough are in the repository and linked from the README; the mentor session itself happens outside the repository and cannot be proved here.">
+<span class="id">D3</span><span class="status partial">PARTIAL</span><span class="req">Deliverable: prototype demonstration with a pseudocode snippet to the mentor</span>
+<div class="meta">evidence <code>docs/PSEUDOCODE.md`, `docs/MENTOR-HANDOUT.md</code> · prove <code>grep -o 'docs/PSEUDOCODE.md|docs/DEMO-PROTOTYPE.md' README.md</code></div>
+</div>
+</div>
+</section>
+<footer>Empirical benchmark evidence only: no formal security proof, guarantee or certification is claimed. Edit the audit table, then run <code>cargo xtask criteria-card</code>; <code>--check</code> fails when this card is stale.</footer>
+</body>
+</html>

@@ -18,6 +18,7 @@ mod charts;
 mod check_pins;
 mod commit_graph;
 mod consolidate;
+mod criteria_card;
 mod dataset_digests;
 mod deck_delta;
 mod deck_facts;
@@ -57,6 +58,7 @@ use charts::{cmd_charts, ChartsArgs};
 use check_pins::CheckPinsArgs;
 use commit_graph::{cmd_commit_graph, CommitGraphArgs};
 use consolidate::{cmd_consolidate, ConsolidateArgs};
+use criteria_card::{cmd_criteria_card, CriteriaCardArgs};
 use dataset_digests::{cmd_dataset_digests, DatasetDigestsArgs};
 use deck_delta::{cmd_deck_delta, DeckDeltaArgs};
 use deck_facts::{cmd_deck_facts, DeckFactsArgs};
@@ -243,6 +245,11 @@ enum Commands {
     DeckFacts(DeckFactsArgs),
     /// Diff a plain-text deck dump against the quote sheet.
     DeckDelta(DeckDeltaArgs),
+    /// Render the one-page PS-036 criteria card from docs/CRITERIA-AUDIT.md.
+    ///
+    /// Every status, evidence path and proving command is read from the audit
+    /// table; `--check` fails when the committed card is stale.
+    CriteriaCard(CriteriaCardArgs),
     /// Compare the headline ratios of two hosts' consolidated results and
     /// print each pair with its relative difference and host facts.
     ReplicateCompare(ReplicateCompareArgs),
@@ -495,6 +502,7 @@ fn main() -> Result<()> {
         Commands::Charts(args) => cmd_charts(args),
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DeckDelta(args) => cmd_deck_delta(args),
+        Commands::CriteriaCard(args) => cmd_criteria_card(args),
         Commands::ReplicateCompare(args) => cmd_replicate_compare(args),
         Commands::ReplicateSummary(args) => cmd_replicate_summary(args),
         Commands::DnsCache(args) => cmd_dns_cache(args),
