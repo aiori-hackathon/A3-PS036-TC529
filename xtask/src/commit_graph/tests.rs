@@ -473,7 +473,11 @@ fn a_shallow_clone_is_rejected_with_an_actionable_message() {
     let error = ensure_full_history(&clone).expect_err("a shallow clone has no full history");
     let message = error.to_string();
     assert!(message.contains("shallow"), "{message}");
-    assert!(message.contains("unshallow"), "{message}");
+    assert!(message.contains("git fetch --unshallow"), "{message}");
+    assert!(
+        message.contains("fetch-depth 0"),
+        "the refusal must name the CI checkout setting: {message}"
+    );
     assert!(generate(&clone, &config(), Some("HEAD")).is_ok());
     assert!(is_shallow(&clone).expect("shallow probe"));
 }
@@ -1123,6 +1127,14 @@ fn an_unreachable_public_source_names_the_offline_local_option() {
     let error = acquire_history(repo.path(), &config, HistorySource::Public)
         .expect_err("an unreachable source cannot be read");
     let message = error.to_string();
+    assert!(
+        message.contains(&format!("cannot reach {}:", config.source_url)),
+        "the message must name the URL it could not reach: {message}"
+    );
+    assert!(
+        message.contains("use `--source local` for a throwaway preview"),
+        "{message}"
+    );
     assert!(message.contains("--source local"), "{message}");
     assert!(
         message.contains("must not be committed"),

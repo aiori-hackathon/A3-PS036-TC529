@@ -233,16 +233,13 @@ source "$TMP/setup-env.sh"
 
 # Environment contract of the pinned setup action. Keep this marker in sync
 # with the action: the workflow tests fail when a variable is missing here.
-# ci-setup-rust-toolchain-env: CARGO_INCREMENTAL CARGO_PROFILE_DEV_DEBUG CARGO_TERM_COLOR RUST_BACKTRACE RUSTFLAGS CARGO_UNSTABLE_SPARSE_REGISTRY CARGO_REGISTRIES_CRATES_IO_PROTOCOL
 if [[ ! -v RUSTFLAGS && -n "$SETUP_RUSTFLAGS" ]]; then
   export RUSTFLAGS="$SETUP_RUSTFLAGS"
 fi
-[[ -v CARGO_INCREMENTAL ]] || export CARGO_INCREMENTAL=0
-[[ -v CARGO_PROFILE_DEV_DEBUG ]] || export CARGO_PROFILE_DEV_DEBUG=0
-[[ -v CARGO_TERM_COLOR ]] || export CARGO_TERM_COLOR=always
-[[ -v RUST_BACKTRACE ]] || export RUST_BACKTRACE=short
-[[ -v CARGO_UNSTABLE_SPARSE_REGISTRY ]] || export CARGO_UNSTABLE_SPARSE_REGISTRY=true
-[[ -v CARGO_REGISTRIES_CRATES_IO_PROTOCOL ]] || export CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+# Everything else (zone, locale, the action's remaining variables, git identity)
+# comes from the single file the workflow also reads.
+# shellcheck source=scripts/ci/env.sh
+source "$REPO_ROOT/scripts/ci/env.sh"
 
 printf 'ci-local: setup-rust-toolchain env: RUSTFLAGS=%s CARGO_INCREMENTAL=%s RUST_BACKTRACE=%s\n' \
   "${RUSTFLAGS:-<unset>}" "$CARGO_INCREMENTAL" "$RUST_BACKTRACE"

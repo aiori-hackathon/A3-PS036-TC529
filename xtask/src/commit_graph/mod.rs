@@ -573,9 +573,22 @@ fn local_day(timestamp: i64, offset_minutes: i32) -> i64 {
     local.div_euclid(86_400)
 }
 
+/// A `git` command that reads history through the repository's own data only:
+/// global and system configuration is ignored, so a developer's
+/// `diff.algorithm`, log-signature or quoting settings cannot change the
+/// generated document. Local repository configuration is still read.
+fn history_git() -> Command {
+    let mut command = Command::new("git");
+    command
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_TERMINAL_PROMPT", "0");
+    command
+}
+
 /// Run one git command in `root`, returning stdout on success.
 fn run_git(root: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let mut command = Command::new("git");
+    let mut command = history_git();
     command.arg("-C").arg(root).args(args);
     let output = proc::run(
         &mut command,
@@ -598,7 +611,8 @@ pub(crate) fn ensure_full_history(root: &Path) -> Result<()> {
         bail!(
             "this checkout is a shallow clone, so its history is incomplete; \
              the commit graph cannot be built from it. Run `git fetch --unshallow` \
-             (or clone without --depth) and try again."
+             (or clone without --depth) and try again. A continuous-integration \
+             checkout must use fetch-depth 0."
         );
     }
     Ok(())
@@ -644,7 +658,7 @@ pub(crate) fn normalize_remote(raw: &str) -> String {
 /// True when this checkout's `origin` is the configured public repository, so
 /// its own history is already the public history.
 pub(crate) fn is_public_checkout(root: &Path, config: &CommitGraphConfig) -> Result<bool> {
-    let mut command = Command::new("git");
+    let mut command = history_git();
     command
         .arg("-C")
         .arg(root)
@@ -668,12 +682,11 @@ pub(crate) fn commit_exists(path: &Path, sha: &str) -> Result<bool> {
         return Ok(false);
     }
     let revision = format!("{sha}^{{commit}}");
-    let mut command = Command::new("git");
+    let mut command = history_git();
     command
         .arg("-C")
         .arg(path)
-        .args(["cat-file", "-e", &revision])
-        .env("GIT_TERMINAL_PROMPT", "0");
+        .args(["cat-file", "-e", &revision]);
     let output = proc::run_raw(&mut command, Duration::from_secs(60), "git cat-file")
         .context("failed to run git")?;
     Ok(output.status.success())
@@ -684,26 +697,32 @@ pub(crate) fn is_ancestor(path: &Path, sha: &str) -> Result<bool> {
     if sha.len() != 40 || !sha.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Ok(false);
     }
-    let mut command = Command::new("git");
+    let mut command = history_git();
     command
         .arg("-C")
         .arg(path)
-        .args(["merge-base", "--is-ancestor", sha, "HEAD"])
-        .env("GIT_TERMINAL_PROMPT", "0");
+        .args(["merge-base", "--is-ancestor", sha, "HEAD"]);
     let output = proc::run_raw(&mut command, Duration::from_secs(60), "git merge-base")
         .context("failed to run git")?;
     Ok(output.status.success())
 }
 
+/// A `git` command that talks to a remote without trusting any local
+/// configuration: global and system files are ignored, so a user's
+/// `url.*.insteadOf` rewrite or credential helper cannot change the URL, and
+/// the process can never stop for a prompt.
+fn credential_free_git() -> Command {
+    let mut command = history_git();
+    command
+        .args(["-c", "credential.helper="])
+        .env("GCM_INTERACTIVE", "Never");
+    command
+}
+
 /// Run `git` in the bare cache without any credential prompt.
 fn run_git_offline(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
-    let mut command = Command::new("git");
-    command
-        .arg("-C")
-        .arg(path)
-        .args(args)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "Never");
+    let mut command = credential_free_git();
+    command.arg("-C").arg(path).args(args);
     let output = proc::run_raw(
         &mut command,
         Duration::from_secs(600),
@@ -725,7 +744,7 @@ fn run_git_offline(path: &Path, args: &[&str]) -> Result<Vec<u8>> {
 fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
     let cache = cache_path(root, config);
     let bare = cache.exists() && {
-        let mut command = Command::new("git");
+        let mut command = history_git();
         command
             .arg("-C")
             .arg(&cache)
@@ -749,12 +768,12 @@ fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
             ],
         ) {
             bail!(
-                "cannot refresh the public history from {}: {error}\n\
+                "cannot reach {}: {error}\n\
                  The committed commit graph must describe the public repository, never this \
                  checkout's private log.\n\
-                 If the network is unavailable, run `cargo xtask commit-graph --source local` to \
-                 build a graph from this checkout for inspection only. An offline graph describes \
-                 this local history and must not be committed.",
+                 If the network is unavailable, use `--source local` for a throwaway preview: \
+                 `cargo xtask commit-graph --source local` reads this checkout. An offline graph \
+                 describes this local history and must not be committed.",
                 config.source_url
             );
         }
@@ -771,23 +790,21 @@ fn ensure_cache(root: &Path, config: &CommitGraphConfig) -> Result<PathBuf> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("failed to create {}", parent.display()))?;
     }
-    let mut command = Command::new("git");
+    let mut command = credential_free_git();
     command
         .args(["clone", "--bare", "--quiet", &config.source_url])
-        .arg(&cache)
-        .env("GIT_TERMINAL_PROMPT", "0")
-        .env("GCM_INTERACTIVE", "Never");
+        .arg(&cache);
     let output = proc::run_raw(&mut command, Duration::from_secs(600), "git clone")
         .context("failed to run git clone")?;
     if !output.status.success() {
         let detail = String::from_utf8_lossy(&output.stderr).trim().to_string();
         bail!(
-            "cannot read the public history from {}: {detail}\n\
+            "cannot reach {}: {detail}\n\
              The committed commit graph must describe the public repository, never this \
              checkout's private log.\n\
-             If the network is unavailable, run `cargo xtask commit-graph --source local` to \
-             build a graph from this checkout for inspection only. An offline graph describes \
-             this local history and must not be committed.",
+             If the network is unavailable, use `--source local` for a throwaway preview: \
+             `cargo xtask commit-graph --source local` reads this checkout. An offline graph \
+             describes this local history and must not be committed.",
             config.source_url
         );
     }

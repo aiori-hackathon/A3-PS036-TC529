@@ -3,7 +3,10 @@
 //! cannot quietly break the layout rules.
 
 use super::super::text::{Font, TextBox, Typeface};
-use super::super::{CommitGraph, CommitGraphConfig, StyleConfig};
+use super::super::{
+    format_date, AuthorEntry, BusiestDay, CommitGraph, CommitGraphConfig, DayEntry, GraphMilestone,
+    GraphRange, GraphTotals, MilestoneStatus, StreakRange, StyleConfig,
+};
 use super::*;
 use roxmltree::{Document, Node};
 use std::collections::{BTreeMap, BTreeSet};
@@ -1575,7 +1578,7 @@ fn flag_labels_prefer_the_staggered_levels_then_cover_the_band() {
     let pole_top = 255.12;
     let baselines = flag_label_baselines(pole_top);
     assert_eq!(baselines[0], pole_top - 8.0, "the first staggered level");
-    assert_eq!(baselines[1], pole_top - 26.0, "the second staggered level");
+    assert_eq!(baselines[1], pole_top - 30.0, "the second staggered level");
     for baseline in &baselines {
         let gap = pole_top - baseline;
         assert!(
@@ -1595,6 +1598,147 @@ fn flag_labels_prefer_the_staggered_levels_then_cover_the_band() {
             pole_top - pair[1]
         );
     }
+}
+
+/// A graph whose plotted range ends on `end`, with one commit on every day and
+/// the supplied milestones. Layout tests use it when the committed card no
+/// longer exercises the date relationship under test.
+fn synthetic_graph(end: &str, days: usize, milestones: Vec<GraphMilestone>) -> CommitGraph {
+    let end_days = parse_iso_date(end).expect("a valid end date");
+    let start_days = end_days - days as i64 + 1;
+    let start = format_date(start_days);
+    let per_day: Vec<DayEntry> = (0..days)
+        .map(|index| DayEntry {
+            date: format_date(start_days + index as i64),
+            commits: if index + 1 == days { 3 } else { 1 },
+            added: 20,
+            removed: 4,
+            authors: vec!["Pratyay Mukherjee".to_string()],
+        })
+        .collect();
+    let total: u64 = per_day.iter().map(|day| day.commits).sum();
+    let lines_added: u64 = per_day.iter().map(|day| day.added).sum();
+    let lines_removed: u64 = per_day.iter().map(|day| day.removed).sum();
+    CommitGraph {
+        schema_version: 4,
+        as_of_sha: "0123456789abcdef0123456789abcdef01234567".to_string(),
+        as_of_date: end.to_string(),
+        pending_refresh: false,
+        pending_date: None,
+        timezone: "Asia/Kolkata".to_string(),
+        range: GraphRange {
+            start: start.clone(),
+            end: end.to_string(),
+        },
+        totals: GraphTotals {
+            commits: total,
+            first_commit_date: start.clone(),
+            last_commit_date: end.to_string(),
+            busiest_day: BusiestDay {
+                date: end.to_string(),
+                commits: 3,
+            },
+            longest_streak_range: StreakRange {
+                start: start.clone(),
+                end: end.to_string(),
+            },
+            refresh_commits: 0,
+            active_days: days as u64,
+            longest_streak: days as u64,
+            current_streak: days as u64,
+            lines_added,
+            lines_removed,
+            files_touched: total * 2,
+        },
+        per_day,
+        per_author: vec![AuthorEntry {
+            display: "Pratyay Mukherjee".to_string(),
+            commits: total,
+        }],
+        milestones,
+        config_hash: "0".repeat(64),
+    }
+}
+
+fn upcoming(date: &str, label: &str, short: &str) -> GraphMilestone {
+    GraphMilestone {
+        date: date.to_string(),
+        label: label.to_string(),
+        short: short.to_string(),
+        future: true,
+        status: MilestoneStatus::Upcoming,
+    }
+}
+
+/// The chart end coming within a few days of an upcoming milestone used to push
+/// its pole so close to `data_right` that the centred label crossed the filled
+/// staircase's right-hand edge, and every candidate baseline was rejected.
+#[test]
+fn a_future_milestone_label_never_crosses_the_staircase_edge() {
+    let graph = synthetic_graph(
+        "2026-11-17",
+        53,
+        vec![
+            upcoming("2026-11-18", "IIEST", "Reg"),
+            upcoming("2026-12-17", "Finals", "Finals"),
+        ],
+    );
+    let svg = render_full(&graph, &Palette::default(), &style())
+        .expect("a wide card with an upcoming milestone one day after its range end");
+    let document = parse(&svg);
+    let marks = nontext_marks(&document);
+    let groups = text_groups(&document);
+    let mut boxes = Vec::new();
+    for name in ["milestone-1", "milestone-2"] {
+        let group = groups
+            .iter()
+            .find(|group| group.name == name)
+            .unwrap_or_else(|| panic!("{name} is missing from the card"));
+        let box_ = (group.x, group.y, group.width, group.height);
+        for mark in marks.iter().filter(|mark| mark.kind == "fill-edge") {
+            assert!(
+                !mark.intersects(&box_),
+                "{} reaches over the staircase edge: {:?}",
+                group.name,
+                box_
+            );
+        }
+        boxes.push(TextBox {
+            x: group.x,
+            y: group.y,
+            width: group.width,
+            height: group.height,
+        });
+    }
+    let gap = boxes[0].gap(&boxes[1]);
+    assert!(
+        gap >= 8.0 - 1e-9,
+        "the two upcoming labels are only {gap:.1} px apart"
+    );
+}
+
+#[test]
+fn the_placement_failure_names_the_command_that_fixes_it() {
+    let graph = synthetic_graph(
+        "2026-11-17",
+        53,
+        vec![upcoming(
+            "2026-11-18",
+            "A regional milestone whose flag label is far too wide to draw",
+            "A regional milestone whose label is too wide",
+        )],
+    );
+    let error = render_full(&graph, &Palette::default(), &style())
+        .expect_err("a label wider than the runway must be refused");
+    let message = error.to_string();
+    assert!(
+        message.contains("cargo xtask commit-graph"),
+        "the refusal must name the command that fixes it: {message}"
+    );
+    assert!(
+        message.contains("docs/readme-config.toml"),
+        "the refusal must name the file to edit: {message}"
+    );
 }
 
 #[test]

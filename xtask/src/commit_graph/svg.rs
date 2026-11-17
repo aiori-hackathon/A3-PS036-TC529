@@ -1657,14 +1657,19 @@ fn draw_flags(
         let pole_top = base_y - if done { 18.0 } else { 22.0 };
         let text = flag_text(milestone)?;
         let width = canvas.width(Typeface::Mono, &text, 13.0, 0.0)?;
-        // A label centred on a pole at the runway's right edge would overflow
-        // the card; pull the pole inward by half the label so the label stays
-        // centred instead of being clamped away from it. The runway is not to
-        // scale, so the pole position is free.
+        // A label is centred on its pole, so a pole at the runway's left edge
+        // would push the text back over the staircase, and one at the right
+        // edge would push it past the card. Keep the pole inside the band
+        // where the centred label clears the filled plot on one side and the
+        // card margin on the other. The runway is not to scale, so the pole
+        // position is free; a label wider than the band fails placement with
+        // the actionable message below instead of being drawn over the plot.
         let base_x = if done {
             base_x
         } else {
-            base_x.min(geom.right - 2.0 - width / 2.0)
+            let safe_left = geom.data_right + 8.0 + width / 2.0;
+            let safe_right = (geom.right - 2.0 - width / 2.0).max(safe_left);
+            base_x.clamp(safe_left, safe_right)
         };
         flags.push(FlagGeom {
             index,
@@ -1708,7 +1713,8 @@ fn draw_flags(
         let Some((x, baseline, box_)) = placed else {
             bail!(
                 "commit-graph milestone label `{}` cannot be placed directly above its pole; \
-                 shorten its `short` label or widen the card",
+                 shorten its `short` label in docs/readme-config.toml or widen the card, then \
+                 rerun `cargo xtask commit-graph --source public`",
                 flag.text
             );
         };
@@ -1743,14 +1749,16 @@ fn draw_flags(
 
 /// Baselines to try for a milestone label, in preference order.
 ///
-/// The first two are the staggered levels the card was designed around. The
-/// rest fill the legal band from four to just under thirty pixels above the
-/// pole. As the plotted date range grows the staircase slides under a label
-/// whose width is fixed, so a pair of fixed levels can stop fitting even
-/// though the card still has room; searching the band keeps generation
-/// deterministic and inside the documented gap rule.
+/// The first two are the staggered levels the card was designed around: eight
+/// pixels above the pole, and thirty, which leaves an eight-pixel ink gap when
+/// two upcoming labels have to stack because their poles sit close together.
+/// The rest fill the legal band from four to just under forty-five pixels above
+/// the pole. As the plotted date range grows the staircase slides under a label
+/// whose width is fixed, so a pair of fixed levels can stop fitting even though
+/// the card still has room; searching the band keeps generation deterministic
+/// and inside the documented gap rule.
 fn flag_label_baselines(pole_top: f64) -> Vec<f64> {
-    let mut baselines = vec![pole_top - 8.0, pole_top - 26.0];
+    let mut baselines = vec![pole_top - 8.0, pole_top - 30.0];
     let mut gap = 4.0;
     while gap < 45.0 {
         let baseline = pole_top - gap;

@@ -28,18 +28,14 @@ jobs:
           # provenance is content-based and does not require its recorded commit.
           fetch-depth: 0
 
+      - name: Load the CI environment
+        run: ./scripts/ci/env.sh --github-env
+
       - name: Fetch remote branches and tags
-        run: git fetch origin +refs/heads/*:refs/remotes/origin/*
+        run: ./scripts/ci/fetch-remotes.sh
 
       - name: Environment report
-        run: |
-          echo "git HEAD: $(git rev-parse HEAD)"
-          echo "shallow clone: $(git rev-parse --is-shallow-repository)"
-          if [ "${CLIMB_REPO_ROLE:-}" = "private" ]; then
-            echo "sample-check mode: require-commit (CLIMB_REPO_ROLE=private)"
-          else
-            echo "sample-check mode: content identity; the recorded commit is checked only when present"
-          fi
+        run: ./scripts/ci/environment-report.sh
 
       - name: Install Rust toolchain from rust-toolchain.toml
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
@@ -56,48 +52,40 @@ jobs:
           shared-key: viewer
 
       - name: Check formatting
-        run: cargo fmt --all -- --check
+        run: ./scripts/ci/format.sh
 
       - name: Lint viewer-scope crates with clippy
-        run: |
-          set -o pipefail
-          mkdir -p target/test-logs
-          cargo clippy -p climb-dns -p climb-analytical -p climb-tui -p xtask --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-viewer.log
-          cargo clippy -p climb-report --no-default-features --all-targets -- -D warnings 2>&1 | tee target/test-logs/clippy-report.log
+        run: ./scripts/ci/clippy-viewer.sh
 
       - name: Feature matrix (check and clippy)
-        run: cargo run -p xtask --no-default-features -- feature-matrix --check-only
+        run: ./scripts/ci/feature-matrix-check.sh
 
       - name: Fetch main branch
-        run: git fetch origin main
+        run: ./scripts/ci/fetch-main.sh
 
       - name: Check committed sample pair
-        run: cargo run -p xtask --no-default-features -- sample-check
+        run: ./scripts/ci/sample-check.sh
 
       - name: Test viewer-scope crates
-        run: |
-          set -o pipefail
-          mkdir -p target/test-logs
-          cargo test -p climb-dns -p climb-analytical -p climb-tui --no-default-features --all-targets 2>&1 | tee target/test-logs/viewer-dns-analytical-tui.log
-          cargo test -p climb-report --no-default-features --all-targets 2>&1 | tee target/test-logs/viewer-report.log
+        run: ./scripts/ci/test-viewer.sh
 
       - name: Verify viewer build has no native dependencies
-        run: ./scripts/check-viewer-build.sh
+        run: ./scripts/ci/viewer-build.sh
 
       - name: Check source hygiene
-        run: cargo run -p xtask --no-default-features -- source-hygiene
+        run: ./scripts/ci/source-hygiene.sh
 
       - name: Check supply-chain pins
-        run: cargo run -p xtask --no-default-features -- check-pins
+        run: ./scripts/ci/check-pins.sh
 
       - name: Lint Mermaid diagrams
-        run: cargo run -p xtask --no-default-features -- mermaid-lint
+        run: ./scripts/ci/mermaid-lint.sh
 
       - name: Check relative links in README and docs
-        run: cargo run -p xtask --no-default-features -- link-check
+        run: ./scripts/ci/link-check.sh
 
       - name: Lint workflow files
-        run: cargo run -p xtask --no-default-features -- workflows
+        run: ./scripts/ci/workflows.sh
 
       - name: Upload failing viewer logs
         if: failure()
@@ -122,6 +110,9 @@ jobs:
           # provenance is content-based and does not require its recorded commit.
           fetch-depth: 0
 
+      - name: Load the CI environment
+        run: ./scripts/ci/env.sh --github-env
+
       - name: Install Rust toolchain from rust-toolchain.toml
         uses: actions-rust-lang/setup-rust-toolchain@1fbea72663f6d4c03efaab13560c8a24cfd2a7cc # v1.9.0
         with:
@@ -137,9 +128,7 @@ jobs:
 
       - name: Build and extract pinned native toolchain
         if: steps.mtl-cache.outputs.cache-hit != 'true'
-        run: |
-          docker build -f docker/Dockerfile.build -t climb-builder:phase1 .
-          ./docker/extract-libs.sh climb-builder:phase1
+        run: ./scripts/ci/native-toolchain.sh
 
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
@@ -147,22 +136,19 @@ jobs:
           shared-key: native
 
       - name: Build workspace
-        run: cargo build --workspace
+        run: ./scripts/ci/build-workspace.sh
 
       - name: Test workspace
-        run: |
-          set -o pipefail
-          mkdir -p target/test-logs
-          cargo test --workspace 2>&1 | tee target/test-logs/workspace.log
+        run: ./scripts/ci/test-workspace.sh
 
       - name: Check documentation against quote sheet and artifacts
-        run: cargo run -p xtask -- docs-check
+        run: ./scripts/ci/docs-check.sh
 
       - name: Verify published numbers from raw rows
-        run: cargo run -p xtask -- verify-numbers
+        run: ./scripts/ci/verify-numbers.sh
 
       - name: Build audit pack
-        run: cargo run -p xtask -- audit-pack --reuse
+        run: ./scripts/ci/audit-pack.sh
 
       - name: Upload failing native logs
         if: failure()

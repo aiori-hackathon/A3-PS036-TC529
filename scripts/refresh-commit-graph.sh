@@ -8,6 +8,10 @@
 # refresh commit that will carry it, the staged count is one more than the
 # commit count at the stamped as-of commit.
 #
+# Exit status 10 means "the artifacts were regenerated and staged": that is a
+# success here, and the next step is to commit them. Any other non-zero status
+# is a failure and stages nothing. Exit 0 means the card is already current.
+#
 # This script stages the files, prints the staged summary, and stops. It never
 # commits and never pushes: the human reviews the staged change and writes the
 # commit message. `scripts/publish.sh` does the whole cycle in one step and is
@@ -16,7 +20,32 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-cargo xtask commit-graph --source public
+xtask_cmd=(cargo xtask)
+if [ -n "${CLIMB_XTASK:-}" ]; then
+  # One executable path, never a command line: paths may contain spaces.
+  xtask_cmd=("$CLIMB_XTASK")
+fi
+
+status=0
+output="$("${xtask_cmd[@]}" commit-graph --auto --source public 2>&1)" || status=$?
+printf '%s\n' "$output"
+
+case "$status" in
+  0)
+    echo ""
+    echo "The committed card already describes the public tip; nothing was staged."
+    exit 0
+    ;;
+  10)
+    echo ""
+    echo "The refresh regenerated the artifacts and staged them (exit 10)."
+    ;;
+  *)
+    echo "error: the generator failed (exit $status); nothing was staged." >&2
+    echo "Fix the failure above, then run scripts/refresh-commit-graph.sh again." >&2
+    exit "$status"
+    ;;
+esac
 
 public_sha=$(sed -n 's/^  "as_of_sha": "\([0-9a-f]\{40\}\)",$/\1/p' docs/media/commit-graph.json)
 if [ -z "$public_sha" ]; then
@@ -35,7 +64,7 @@ echo "  commits: $as_of_count reachable from that commit"
 echo "  ref:     ${public_ref:-<none; the commit is not the tip of a branch>}"
 echo "  card:    $card_count commits, counting the refresh commit that will carry it"
 
-# Stage only the generated artifacts and the README permalink it rewrites.
+# Stage exactly the generated artifacts and the README permalink it rewrites.
 git add -- docs/media/commit-graph.json docs/media/commit-graph.svg docs/media/commit-graph-narrow.svg docs/media/commit-graph-compact.svg docs/media/commit-graph-compact-narrow.svg README.md
 
 echo ""

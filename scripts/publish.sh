@@ -70,8 +70,19 @@ echo "publish: log $log_file"
 
 if [ -n "$(git status --porcelain)" ]; then
   echo "error: the working tree is not clean; publish only committed work." >&2
-  git status --short >&2
-  echo "Commit or stash the changes above, then run this script again." >&2
+  echo "Offending paths:" >&2
+  git status --porcelain -uall | cut -c4- | sed 's/^/  /' >&2
+  echo "The only paths a publish may create are the graph artifacts and the README permalink:" >&2
+  for allowed in \
+    docs/media/commit-graph.json \
+    docs/media/commit-graph.svg \
+    docs/media/commit-graph-narrow.svg \
+    docs/media/commit-graph-compact.svg \
+    docs/media/commit-graph-compact-narrow.svg \
+    README.md; do
+    echo "  $allowed" >&2
+  done
+  echo "Commit or stash the paths above, then run scripts/publish.sh again." >&2
   exit 1
 fi
 
@@ -196,6 +207,7 @@ elif [ "$auto_status" -eq 10 ]; then
   fi
 else
   echo "error: the generator failed (exit $auto_status)." >&2
+  echo "Fix it with: cargo xtask commit-graph --auto --source public" >&2
   exit 1
 fi
 

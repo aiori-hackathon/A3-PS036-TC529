@@ -299,3 +299,26 @@ sweep in §4 uses that copy with `--as-of` values from the public cache
   the `self_count` pair in §4, which changes only that rule.
 - The proposed fix was validated in the scratch worktree by rendering and measuring the
   output; it has not been committed, and no test was added yet.
+
+## 11. Follow-up: the fix landed
+
+The pole is now clamped into the band where its centred label clears both the filled plot and
+the card margin (`data_right + 8 + width/2` to `right - 2 - width/2`), and the second staggered
+baseline is 30 px above the pole, which leaves an 8 px ink gap when two upcoming labels have to
+stack. A label wider than the band is refused with a message that names the file to edit and the
+command to rerun. The regression test
+`a_future_milestone_label_never_crosses_the_staircase_edge` renders a synthetic card whose range
+ends one day before an upcoming milestone and asserts that neither milestone box intersects a
+`cg-fill` segment and that the two labels keep 8 px; it failed on the unfixed renderer with the
+reported message and passes now. The committed cards were regenerated from public tip
+`3d5f057` (146 commits, 147 counted with the pending refresh), with the regional milestone on
+19 November.
+
+Proving the clean-clone case exposed one more environment dependence, not covered above: the
+history read inherited the developer's global git configuration, so `diff.algorithm=histogram`
+changed `lines_added`, `lines_removed` and every per-day `added`/`removed` value. The generator
+now reads history with global and system configuration disabled, and
+`a_user_gitconfig_cannot_change_the_generated_document` generates the same document twice, once
+with an empty home directory and once with a `.gitconfig` that marks every path as binary, and
+requires identical bytes.
+

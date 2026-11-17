@@ -595,12 +595,12 @@ jobs:
     }
 
     #[test]
-    fn ci_local_exports_every_variable_the_setup_action_sets() {
-        let script = committed_file("scripts/ci-local.sh");
+    fn ci_scripts_export_every_variable_the_setup_action_sets() {
+        let script = committed_file("scripts/ci/env.sh");
         let marker = script
             .lines()
             .find(|line| line.contains("ci-setup-rust-toolchain-env:"))
-            .expect("ci-local must carry the setup-action environment contract marker");
+            .expect("scripts/ci/env.sh must carry the setup-action environment contract marker");
         let names: Vec<String> = marker
             .split_once("ci-setup-rust-toolchain-env:")
             .expect("marker prefix")
@@ -617,14 +617,85 @@ jobs:
         actual.sort();
         assert_eq!(
             actual, expected,
-            "ci-local.sh does not export the same variables as the setup action; \
-             update the marker and the export block together"
+            "scripts/ci/env.sh does not export the same variables as the setup action; \
+             update the marker and the printf block together"
         );
         for name in SETUP_ACTION_ENV {
-            let export = format!("export {name}=");
+            let assignment = format!("\"{name}=${{{name}:-");
             assert!(
-                script.contains(&export),
-                "ci-local.sh names {name} but never exports it (`{export}`)"
+                script.contains(&assignment),
+                "scripts/ci/env.sh names {name} but never sets it (`{assignment}`)"
+            );
+        }
+    }
+
+    /// The environment must live in one file that both the workflow and the
+    /// step scripts read, so a local run cannot differ from the runner.
+    #[test]
+    fn the_ci_environment_comes_from_one_file() {
+        let workflow = committed_workflow("ci.yml");
+        assert!(
+            workflow.contains("./scripts/ci/env.sh --github-env"),
+            "the workflow must load the shared environment file"
+        );
+        for script in [
+            "format",
+            "clippy-viewer",
+            "test-workspace",
+            "docs-check",
+            "native-toolchain",
+        ] {
+            let text = committed_file(&format!("scripts/ci/{script}.sh"));
+            assert!(
+                text.contains("scripts/ci/env.sh"),
+                "scripts/ci/{script}.sh must source the shared environment file"
+            );
+        }
+        let local = committed_file("scripts/ci-local.sh");
+        assert!(
+            local.contains("scripts/ci/env.sh"),
+            "the local replica must source the same environment file"
+        );
+    }
+
+    /// Every `run:` step of both CI jobs must be a call into `scripts/ci/`,
+    /// so the workflow holds no logic of its own that a local run cannot
+    /// reproduce.
+    #[test]
+    fn the_ci_jobs_call_scripts_instead_of_running_commands_inline() {
+        let text = committed_workflow("ci.yml");
+        for line in text.lines() {
+            let trimmed = line.trim();
+            let Some(command) = trimmed.strip_prefix("run: ") else {
+                continue;
+            };
+            assert!(
+                command.starts_with("./scripts/ci/"),
+                "the workflow runs a command inline instead of calling scripts/ci/: {command}"
+            );
+        }
+    }
+
+    /// The commit-graph history checks need the full public history. A shallow
+    /// checkout silently skips them, so both jobs must ask for `fetch-depth: 0`.
+    #[test]
+    fn both_ci_jobs_check_out_full_history() {
+        let text = committed_workflow("ci.yml");
+        let steps: Vec<&str> = text.split("      - name:").collect();
+        let checkouts: Vec<&&str> = steps
+            .iter()
+            .filter(|step| step.contains("actions/checkout@"))
+            .collect();
+        assert_eq!(
+            checkouts.len(),
+            2,
+            "expected one checkout step per CI job, found {}",
+            checkouts.len()
+        );
+        for step in checkouts {
+            assert!(
+                step.contains("fetch-depth: 0"),
+                "a CI checkout does not ask for the full history: {step}"
             );
         }
     }
@@ -649,7 +720,13 @@ jobs:
     #[test]
     fn the_viewer_job_lints_every_target_it_tests() {
         let text = committed_workflow("ci.yml");
-        let report_clippy = text
+        assert!(
+            text.contains("./scripts/ci/clippy-viewer.sh")
+                && text.contains("./scripts/ci/test-viewer.sh"),
+            "the viewer job must call the clippy and test scripts"
+        );
+        let clippy = committed_file("scripts/ci/clippy-viewer.sh");
+        let report_clippy = clippy
             .lines()
             .find(|line| line.contains("cargo clippy -p climb-report"))
             .expect("the report lint line");
@@ -661,7 +738,8 @@ jobs:
             report_clippy.contains("--no-default-features"),
             "the report lint and test feature sets must agree: {report_clippy}"
         );
-        let report_test = text
+        let tests = committed_file("scripts/ci/test-viewer.sh");
+        let report_test = tests
             .lines()
             .find(|line| line.contains("cargo test -p climb-report"))
             .expect("the report test line");

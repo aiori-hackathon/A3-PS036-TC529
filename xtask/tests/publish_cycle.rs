@@ -178,6 +178,10 @@ if [ "${{1:-}}" = "feature-matrix" ]; then
   echo "feature-matrix: fake matrix passed"
   exit 0
 fi
+if [ -n "${{FAKE_AUTO_EXIT:-}}" ]; then
+  echo "Error: commit-graph milestone label cannot be placed"
+  exit "${{FAKE_AUTO_EXIT}}"
+fi
 if [ ! -f {state:?} ]; then
   : > {state:?}
   mkdir -p docs/media
@@ -222,6 +226,20 @@ fn publish_with(fixture: &Fixture, sync_exit: u8, extra: &[&str]) -> Output {
         .env("CLIMB_SYNC_SCRIPT", &fixture.sync_script)
         .env("CLIMB_XTASK", &fixture.xtask_script)
         .env("SYNC_EXIT", sync_exit.to_string())
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .expect("run publish.sh")
+}
+
+fn publish_with_generator_exit(fixture: &Fixture, status: u8) -> Output {
+    Command::new("bash")
+        .arg(script())
+        .args(["--skip-ci"])
+        .current_dir(&fixture.repo)
+        .env("CLIMB_SYNC_SCRIPT", &fixture.sync_script)
+        .env("CLIMB_XTASK", &fixture.xtask_script)
+        .env("FAKE_AUTO_EXIT", status.to_string())
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
@@ -293,13 +311,60 @@ fn a_sync_gate_failure_aborts_before_the_refresh_commit() {
 fn a_dirty_tree_is_refused_before_anything_is_pushed() {
     let fixture = fixture("dirty", 3);
     write(&fixture.repo, "dirty.txt", "uncommitted\n");
+    write(&fixture.repo, "docs/media/commit-graph.svg", "<svg/>\n");
     let output = publish(&fixture, 0);
     let text = combined(&output);
     assert!(!output.status.success());
     assert!(text.contains("not clean"), "{text}");
     assert!(
+        text.contains("Offending paths:") && text.contains("  dirty.txt"),
+        "the refusal must list every offending path: {text}"
+    );
+    for allowed in [
+        "docs/media/commit-graph.json",
+        "docs/media/commit-graph.svg",
+        "docs/media/commit-graph-narrow.svg",
+        "docs/media/commit-graph-compact.svg",
+        "docs/media/commit-graph-compact-narrow.svg",
+        "README.md",
+    ] {
+        assert!(
+            text.contains(allowed),
+            "the refusal must list the allowed set, missing {allowed}: {text}"
+        );
+    }
+    assert!(
+        text.contains("scripts/publish.sh again"),
+        "the refusal must name the command that retries it: {text}"
+    );
+    assert!(
         !fixture.sync_log.exists(),
         "the sync never runs on a dirty tree"
+    );
+}
+
+#[test]
+fn a_generator_failure_aborts_and_names_the_fix() {
+    let fixture = fixture("generator-failure", 3);
+    let output = publish_with_generator_exit(&fixture, 1);
+    let text = combined(&output);
+    assert!(!output.status.success(), "{text}");
+    assert!(
+        text.contains("the generator failed (exit 1)"),
+        "the failure must report the generator's status: {text}"
+    );
+    assert!(
+        text.contains("cargo xtask commit-graph --auto --source public"),
+        "the failure must name the command that fixes it: {text}"
+    );
+    assert_eq!(
+        git_ok(&fixture.repo, &["log", "-1", "--format=%s"]),
+        "work",
+        "no refresh commit is created"
+    );
+    assert!(
+        git_ok(&fixture.repo, &["status", "--porcelain"]).is_empty(),
+        "a failed generator stages nothing"
     );
 }
 

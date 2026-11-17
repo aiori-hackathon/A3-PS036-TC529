@@ -88,6 +88,73 @@ fn hook(repo: &Path, name: &str) -> PathBuf {
 }
 
 #[test]
+fn the_pre_push_hook_treats_ten_as_a_failure_not_a_staged_refresh() {
+    let repo = TempRepo::new("pre-push-exit");
+    let installed = install(&repo.root, &[]);
+    assert!(installed.status.success(), "{}", combined(&installed));
+
+    let bin = repo.root.join("fake-bin");
+    std::fs::create_dir_all(&bin).expect("create the fake bin directory");
+    let calls = repo.root.join("generator-calls.log");
+    let fake_cargo = bin.join("cargo");
+    std::fs::write(
+        &fake_cargo,
+        format!(
+            "#!/bin/bash\nprintf '%s\\n' \"$*\" >> {log}\nexit \"${{FAKE_EXIT:-0}}\"\n",
+            log = calls.display()
+        ),
+    )
+    .expect("write the fake cargo");
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(&fake_cargo)
+        .expect("metadata")
+        .permissions();
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&fake_cargo, permissions).expect("make the fake cargo executable");
+
+    let path = format!(
+        "{}:{}",
+        bin.display(),
+        std::env::var("PATH").unwrap_or_else(|_| "/usr/bin:/bin".to_string())
+    );
+    for (status, success) in [(0, true), (1, false), (10, false)] {
+        let output = Command::new("bash")
+            .arg(hook(&repo.root, "pre-push"))
+            .current_dir(&repo.root)
+            .env("PATH", &path)
+            .env("FAKE_EXIT", status.to_string())
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null")
+            .output()
+            .expect("run the installed hook");
+        let text = combined(&output);
+        assert_eq!(
+            output.status.success(),
+            success,
+            "exit {status} must be treated as {}: {text}",
+            if success { "success" } else { "failure" }
+        );
+        if !success {
+            assert!(
+                text.contains(&format!("commit-graph check failed (exit {status})")),
+                "the hook must report the generator's status: {text}"
+            );
+            assert!(
+                text.contains("scripts/publish.sh"),
+                "the hook must name the command that fixes it: {text}"
+            );
+        }
+    }
+    let recorded = std::fs::read_to_string(&calls).expect("the fake generator recorded its calls");
+    assert!(
+        recorded
+            .lines()
+            .all(|line| line.contains("commit-graph --check")),
+        "the pre-push hook only ever runs the read-only check: {recorded}"
+    );
+}
+
+#[test]
 fn autopublish_installs_a_guarded_hook_and_remove_is_scoped() {
     let repo = TempRepo::new("autopublish");
     let foreign = hook(&repo.root, "commit-msg");
