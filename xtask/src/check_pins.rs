@@ -13,7 +13,11 @@
 //! 3. the short-SHA comments in `docker/Dockerfile.build`.
 //!
 //! The comparison is on the SHA prefix the Dockerfile names, so the comment
-//! stays readable while still being tied to the real commit.
+//! stays readable while still being tied to the real commit. The same command
+//! also enforces that every `FROM` is digest-pinned and that every local
+//! `COPY`/`ADD` source survives the Dockerfile's effective ignore file: an
+//! ignored source makes the build fail before the first `RUN`, which is a
+//! defect in the repository rather than in the registry or the runner.
 
 use anyhow::{bail, Context, Result};
 use clap::Args;
@@ -140,10 +144,13 @@ pub(crate) fn is_digest_pinned(image: &str) -> bool {
 
 /// Scan every `FROM` line in the supplied `(file name, text)` pairs. A bare
 /// tag (`debian:bookworm-slim`) can move; only a digest cannot. `scratch` is a
-/// reserved empty base and needs no digest. Pure, so the rule is unit-testable.
+/// reserved empty base and needs no digest, and a `FROM` that names an earlier
+/// stage in the same file reuses that stage rather than pulling an image.
+/// Pure, so the rule is unit-testable.
 pub(crate) fn scan_from_pins(files: &[(String, String)]) -> Vec<ImagePinViolation> {
     let mut violations = Vec::new();
     for (file, text) in files {
+        let mut stages: Vec<String> = Vec::new();
         for (idx, line) in text.lines().enumerate() {
             let trimmed = line.trim();
             let upper = trimmed.to_ascii_uppercase();
@@ -152,19 +159,28 @@ pub(crate) fn scan_from_pins(files: &[(String, String)]) -> Vec<ImagePinViolatio
             }
             // Dockerfile flags such as `--platform=linux/amd64` precede the
             // image reference and are not the image.
-            let image = trimmed[5..]
+            let mut tokens = trimmed[5..]
                 .split_whitespace()
-                .find(|token| !token.starts_with("--"))
-                .unwrap_or("");
-            if image.is_empty() || image.eq_ignore_ascii_case("scratch") {
-                continue;
-            }
-            if !is_digest_pinned(image) {
+                .filter(|token| !token.starts_with("--"));
+            let image = tokens.next().unwrap_or("");
+            let alias = match (tokens.next(), tokens.next()) {
+                (Some(keyword), Some(name)) if keyword.eq_ignore_ascii_case("AS") => Some(name),
+                _ => None,
+            };
+            let reuses_stage = stages.iter().any(|stage| stage.eq_ignore_ascii_case(image));
+            if !image.is_empty()
+                && !image.eq_ignore_ascii_case("scratch")
+                && !reuses_stage
+                && !is_digest_pinned(image)
+            {
                 violations.push(ImagePinViolation {
                     file: file.clone(),
                     line: idx + 1,
                     image: image.to_string(),
                 });
+            }
+            if let Some(alias) = alias {
+                stages.push(alias.to_string());
             }
         }
     }
@@ -321,6 +337,396 @@ fn compare_pins_with_checkout(
     mismatches
 }
 
+/// One local `COPY`/`ADD` source that the effective ignore file removes from
+/// the build context, so the instruction fails at build time with
+/// `"/<source>": not found`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BuildContextViolation {
+    pub(crate) file: String,
+    pub(crate) line: usize,
+    pub(crate) source: String,
+    pub(crate) ignore_file: String,
+}
+
+impl std::fmt::Display for BuildContextViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}:{}: COPY/ADD source `{}` is excluded from the build context by {}",
+            self.file, self.line, self.source, self.ignore_file
+        )
+    }
+}
+
+/// One parsed ignore rule: a path pattern and whether it re-includes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct IgnoreRule {
+    negated: bool,
+    segments: Vec<String>,
+}
+
+/// Parse an ignore file into rules. Blank lines and `#` comments are skipped,
+/// a leading `/` anchors nothing extra (every pattern is context-relative) and
+/// a trailing `/` only names a directory.
+fn parse_ignore(text: &str) -> Vec<IgnoreRule> {
+    text.lines()
+        .filter_map(|line| {
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') {
+                return None;
+            }
+            let (negated, pattern) = match trimmed.strip_prefix('!') {
+                Some(rest) => (true, rest.trim()),
+                None => (false, trimmed),
+            };
+            let pattern = pattern.trim_start_matches('/').trim_end_matches('/');
+            if pattern.is_empty() {
+                return None;
+            }
+            Some(IgnoreRule {
+                negated,
+                segments: pattern.split('/').map(str::to_string).collect(),
+            })
+        })
+        .collect()
+}
+
+/// `*` matches any run of characters inside one path segment, `?` matches one
+/// character, everything else is literal.
+fn segment_matches(pattern: &str, text: &str) -> bool {
+    let pattern: Vec<char> = pattern.chars().collect();
+    let text: Vec<char> = text.chars().collect();
+    let (mut p, mut t) = (0usize, 0usize);
+    let (mut star, mut resume) = (None, 0usize);
+    while t < text.len() {
+        if p < pattern.len() && (pattern[p] == '?' || pattern[p] == text[t]) {
+            p += 1;
+            t += 1;
+        } else if p < pattern.len() && pattern[p] == '*' {
+            star = Some(p);
+            resume = t;
+            p += 1;
+        } else if let Some(star_index) = star {
+            p = star_index + 1;
+            resume += 1;
+            t = resume;
+        } else {
+            return false;
+        }
+    }
+    p == pattern.len() || pattern[p..].iter().all(|c| *c == '*')
+}
+
+/// Match a pattern's segments against a path's segments. `**` consumes zero or
+/// more whole segments; every other segment uses [`segment_matches`].
+fn segments_match(pattern: &[String], path: &[String]) -> bool {
+    match pattern.split_first() {
+        None => path.is_empty(),
+        Some((head, rest)) if head == "**" => {
+            (0..=path.len()).any(|skip| segments_match(rest, &path[skip..]))
+        }
+        Some((head, rest)) => match path.split_first() {
+            Some((first, tail)) => segment_matches(head, first) && segments_match(rest, tail),
+            None => false,
+        },
+    }
+}
+
+/// True when the rules exclude `path`. A rule matches the path itself or any
+/// parent directory (excluding a directory excludes its contents), and the
+/// last matching rule wins, so a later `!` re-includes.
+fn is_ignored(rules: &[IgnoreRule], path: &str) -> bool {
+    let parts: Vec<String> = path
+        .split('/')
+        .filter(|part| !part.is_empty() && *part != ".")
+        .map(str::to_string)
+        .collect();
+    let mut ignored = false;
+    for rule in rules {
+        let matches = (1..=parts.len()).any(|end| segments_match(&rule.segments, &parts[..end]));
+        if matches {
+            ignored = !rule.negated;
+        }
+    }
+    ignored
+}
+
+/// True when a `COPY`/`ADD` source is read from the local build context. A URL,
+/// an absolute path and an earlier stage (`--from=`) are not.
+fn reads_local_context(source: &str) -> bool {
+    !source.is_empty()
+        && !source.starts_with('/')
+        && !source.contains("://")
+        && !source.starts_with("git@")
+}
+
+/// Every `(line, source)`: local `COPY`/`ADD` source arguments in a Dockerfile.
+/// Line continuations are joined; `--from` copies are skipped; the JSON array
+/// form is parsed. The final argument is the destination.
+fn copy_sources(text: &str) -> Vec<(usize, Vec<String>)> {
+    let mut out = Vec::new();
+    for (line, logical) in logical_lines(text) {
+        let trimmed = logical.trim_start();
+        let Some(instruction) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        if !instruction.eq_ignore_ascii_case("COPY") && !instruction.eq_ignore_ascii_case("ADD") {
+            continue;
+        }
+        let mut rest = trimmed[instruction.len()..].trim_start();
+        let mut from_stage = false;
+        while let Some(flag) = rest.split_whitespace().next() {
+            if !flag.starts_with("--") {
+                break;
+            }
+            if flag.starts_with("--from") {
+                from_stage = true;
+            }
+            rest = rest[flag.len()..].trim_start();
+        }
+        if from_stage {
+            continue;
+        }
+        let mut arguments: Vec<String> = if rest.starts_with('[') {
+            match serde_json::from_str::<Vec<String>>(rest) {
+                Ok(values) => values,
+                Err(_) => continue,
+            }
+        } else {
+            rest.split_whitespace().map(str::to_string).collect()
+        };
+        // The last argument is the destination, never a context read.
+        arguments.pop();
+        let sources = arguments
+            .into_iter()
+            .filter(|source| reads_local_context(source))
+            .collect::<Vec<_>>();
+        if !sources.is_empty() {
+            out.push((line, sources));
+        }
+    }
+    out
+}
+
+/// Effective ignore file for a Dockerfile: `docker/<Dockerfile>.dockerignore`
+/// when present (BuildKit honours it instead of the context-wide file), else
+/// the repository `.dockerignore`.
+fn effective_ignore(root: &Path, dockerfile: &str) -> Result<(String, String)> {
+    let name = dockerfile.rsplit('/').next().unwrap_or(dockerfile);
+    let specific = root.join("docker").join(format!("{name}.dockerignore"));
+    match std::fs::read_to_string(&specific) {
+        Ok(text) => Ok((format!("docker/{name}.dockerignore"), text)),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            let context = root.join(".dockerignore");
+            let text = match std::fs::read_to_string(&context) {
+                Ok(text) => text,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+                Err(error) => {
+                    return Err(error)
+                        .with_context(|| format!("failed to read {}", context.display()))
+                }
+            };
+            Ok((".dockerignore".to_string(), text))
+        }
+        Err(error) => Err(error).with_context(|| format!("failed to read {}", specific.display())),
+    }
+}
+
+/// Every local `COPY`/`ADD` source that its Dockerfile's effective ignore file
+/// removes from the build context. The build then fails before any `RUN` with
+/// `"/<source>": not found`, which is a defect in the checked-in files, not a
+/// registry or runner problem.
+pub(crate) fn scan_build_context(root: &Path) -> Result<Vec<BuildContextViolation>> {
+    let mut violations = Vec::new();
+    for (file, text) in dockerfiles(root)? {
+        let (ignore_file, ignore_text) = effective_ignore(root, &file)?;
+        let rules = parse_ignore(&ignore_text);
+        for (line, sources) in copy_sources(&text) {
+            for source in sources {
+                if is_ignored(&rules, &source) {
+                    violations.push(BuildContextViolation {
+                        file: file.clone(),
+                        line,
+                        source,
+                        ignore_file: ignore_file.clone(),
+                    });
+                }
+            }
+        }
+    }
+    Ok(violations)
+}
+
+/// One `FROM` stage of the toolchain Dockerfile and the destinations its
+/// `COPY`/`ADD` instructions write.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Stage {
+    name: Option<String>,
+    base: String,
+    copies: Vec<String>,
+}
+
+/// Split a Dockerfile into stages, keeping the destinations each stage writes.
+fn dockerfile_stages(text: &str) -> Vec<Stage> {
+    let mut stages: Vec<Stage> = Vec::new();
+    for (_, logical) in logical_lines(text) {
+        let trimmed = logical.trim_start();
+        let Some(keyword) = trimmed.split_whitespace().next() else {
+            continue;
+        };
+        let keyword_upper = keyword.to_ascii_uppercase();
+        let rest = trimmed[keyword.len()..].trim_start();
+        if keyword_upper == "FROM" {
+            let mut tokens = rest.split_whitespace().filter(|t| !t.starts_with("--"));
+            let Some(base) = tokens.next() else {
+                continue;
+            };
+            let name = match (tokens.next(), tokens.next()) {
+                (Some(kw), Some(name)) if kw.eq_ignore_ascii_case("AS") => Some(name.to_string()),
+                _ => None,
+            };
+            stages.push(Stage {
+                name,
+                base: base.to_string(),
+                copies: Vec::new(),
+            });
+            continue;
+        }
+        if keyword_upper != "COPY" && keyword_upper != "ADD" {
+            continue;
+        }
+        let mut rest = rest;
+        while let Some(flag) = rest.split_whitespace().next() {
+            if !flag.starts_with("--") {
+                break;
+            }
+            rest = rest[flag.len()..].trim_start();
+        }
+        let destination = if rest.starts_with('[') {
+            serde_json::from_str::<Vec<String>>(rest)
+                .ok()
+                .and_then(|values| values.into_iter().last())
+        } else {
+            rest.split_whitespace().last().map(str::to_string)
+        };
+        if let (Some(stage), Some(destination)) = (stages.last_mut(), destination) {
+            stage.copies.push(destination);
+        }
+    }
+    stages
+}
+
+/// Paths that `docker/extract-libs.sh` copies out of the built image.
+fn extraction_paths(script: &str) -> Vec<String> {
+    script
+        .lines()
+        .filter_map(|line| {
+            let (_, rest) = line.split_once("docker cp \"${container_id}:")?;
+            let (path, _) = rest.split_once('"')?;
+            Some(path.to_string())
+        })
+        .collect()
+}
+
+/// True when `docker create` is given a command after the image reference. A
+/// scratch image needs a placeholder; the container is never started.
+fn create_has_command(script: &str) -> bool {
+    script
+        .lines()
+        .filter(|line| line.contains("docker create"))
+        .any(|line| {
+            let Some((_, rest)) = line.split_once("\"${IMAGE}\"") else {
+                return false;
+            };
+            let trailing = rest.trim_end_matches([')', '"', '\'', ';', ' ']);
+            !trailing.trim().is_empty()
+        })
+}
+
+/// True when the default (last) stage's filesystem is the builder stage's,
+/// directly or through a chain of stage aliases.
+fn default_stage_is_builder(stages: &[Stage]) -> bool {
+    let Some(last) = stages.last() else {
+        return false;
+    };
+    let mut base = last.base.as_str();
+    let mut seen = 0;
+    loop {
+        if base == "builder" || stages.last().and_then(|s| s.name.as_deref()) == Some("builder") {
+            return true;
+        }
+        match stages
+            .iter()
+            .find(|stage| stage.name.as_deref() == Some(base))
+        {
+            Some(stage) => {
+                if stage.base == "builder" {
+                    return true;
+                }
+                base = stage.base.as_str();
+            }
+            None => return false,
+        }
+        seen += 1;
+        if seen > stages.len() {
+            return false;
+        }
+    }
+}
+
+/// Contract between the toolchain Dockerfile and `docker/extract-libs.sh`: the
+/// image that a plain `docker build` produces (the last stage) must contain the
+/// paths the script copies, and a scratch default stage must be created with a
+/// placeholder command. Both failures were observed on the real image before
+/// this check existed.
+pub(crate) fn scan_extraction(dockerfile: &str, script: &str) -> Vec<String> {
+    let mut violations = Vec::new();
+    let paths = extraction_paths(script);
+    if paths.is_empty() {
+        violations.push(
+            "docker/extract-libs.sh reads no `docker cp \"${container_id}:<path>\"` source"
+                .to_string(),
+        );
+        return violations;
+    }
+    let stages = dockerfile_stages(dockerfile);
+    let Some(last) = stages.last() else {
+        violations.push("the toolchain Dockerfile has no FROM stage".to_string());
+        return violations;
+    };
+    let builder_backed = default_stage_is_builder(&stages);
+    for path in &paths {
+        let provided = if last.base == "scratch" {
+            last.copies
+                .iter()
+                .any(|dest| path == dest || path.starts_with(&format!("{dest}/")))
+        } else if builder_backed {
+            path.starts_with("/usr/local/")
+        } else {
+            false
+        };
+        if !provided {
+            violations.push(format!(
+                "docker/extract-libs.sh copies `{path}` but the default image stage (base `{}`, name `{}`) does not provide it; a plain `docker build` builds the last stage, so make the builder stage last or copy from the artifact tree",
+                last.base,
+                last.name.as_deref().unwrap_or("-")
+            ));
+        }
+    }
+    if last.base == "scratch" && !create_has_command(script) {
+        violations.push(
+            "the default image stage is `scratch`, which `docker create \"${IMAGE}\"` cannot create without a placeholder command".to_string(),
+        );
+    }
+    violations
+}
+
+/// True for a Dockerfile's file name. A per-Dockerfile ignore file sits beside
+/// it and shares the prefix, but it is not a build definition.
+fn is_dockerfile_name(name: &str) -> bool {
+    name.starts_with("Dockerfile") && !name.ends_with(".dockerignore")
+}
+
 /// Read every `docker/Dockerfile*` as `(relative name, text)`, sorted by name.
 fn dockerfiles(root: &Path) -> Result<Vec<(String, String)>> {
     let dir = root.join("docker");
@@ -336,7 +742,7 @@ fn dockerfiles(root: &Path) -> Result<Vec<(String, String)>> {
         let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
             continue;
         };
-        if !name.starts_with("Dockerfile") {
+        if !is_dockerfile_name(name) {
             continue;
         }
         let text = std::fs::read_to_string(&path)
@@ -358,6 +764,12 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         failures.push(violation.to_string());
     }
 
+    // Every local COPY/ADD source must survive the Dockerfile's effective
+    // ignore file, or the build fails before any RUN step.
+    for violation in scan_build_context(root)? {
+        failures.push(violation.to_string());
+    }
+
     // The toolchain image installs build tools directly from apt; those
     // direct packages must carry an explicit version.
     if let Some((_, build)) = files
@@ -374,6 +786,14 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let dockerfile_path = root.join("docker").join("Dockerfile.build");
     let dockerfile = std::fs::read_to_string(&dockerfile_path)
         .with_context(|| format!("failed to read {}", dockerfile_path.display()))?;
+
+    // The extraction step must read paths the default build target produces.
+    let extract_path = root.join("docker").join("extract-libs.sh");
+    let extract_script = std::fs::read_to_string(&extract_path)
+        .with_context(|| format!("failed to read {}", extract_path.display()))?;
+    for violation in scan_extraction(&dockerfile, &extract_script) {
+        failures.push(violation);
+    }
 
     let git_available = crate::sample_check::git_repository_present(root);
     if !git_available {
@@ -548,6 +968,29 @@ mod tests {
     }
 
     #[test]
+    fn a_dockerignore_file_is_not_a_dockerfile() {
+        assert!(is_dockerfile_name("Dockerfile.build"));
+        assert!(is_dockerfile_name("Dockerfile"));
+        assert!(!is_dockerfile_name("Dockerfile.build.dockerignore"));
+        assert!(!is_dockerfile_name("compose.build.yml"));
+    }
+
+    #[test]
+    fn a_from_an_earlier_stage_needs_no_digest() {
+        let files = vec![(
+            "docker/Dockerfile.build".to_string(),
+            "FROM alpine@sha256:bfe7ceb9f09ec0566c48fb93356e45a47a00be5a1dd14fa5b909e7709c66b034 AS builder\nFROM builder AS default\n"
+                .to_string(),
+        )];
+        assert!(scan_from_pins(&files).is_empty());
+        let unknown = vec![(
+            "docker/Dockerfile.build".to_string(),
+            "FROM builder AS default\n".to_string(),
+        )];
+        assert_eq!(scan_from_pins(&unknown).len(), 1);
+    }
+
+    #[test]
     fn a_bare_tag_from_is_a_violation() {
         let files = vec![(
             "docker/Dockerfile.tui".to_string(),
@@ -677,6 +1120,11 @@ mod tests {
             dir.join("docker/Dockerfile.build"),
         )
         .expect("copy the toolchain Dockerfile");
+        std::fs::copy(
+            root.join("docker/extract-libs.sh"),
+            dir.join("docker/extract-libs.sh"),
+        )
+        .expect("copy the extraction script");
         std::fs::write(dir.join("environment.json"), ENVIRONMENT).expect("write the fingerprint");
 
         assert!(!crate::sample_check::git_repository_present(&dir));
@@ -720,6 +1168,161 @@ mod tests {
         assert!(
             checked >= 3,
             "expected every OpenSSL image, found {checked}"
+        );
+    }
+
+    /// Regression: the repository-wide `.dockerignore` excludes `third_party/`
+    /// for the viewer image, so a builder that compiles the pinned submodules
+    /// needs its own ignore file. Without it the build stops at the first
+    /// `COPY third_party/...` with `"/third_party/...": not found`.
+    #[test]
+    fn every_dockerfile_copy_source_is_in_its_build_context() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let violations = scan_build_context(root).expect("the build contexts are readable");
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    #[test]
+    fn an_ignored_copy_source_is_reported() {
+        let text = "FROM debian@sha256:abc\nCOPY third_party/MTL /src/MTL\n";
+        let rules = parse_ignore("target\nthird_party\n");
+        let sources = copy_sources(text);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].1, vec!["third_party/MTL".to_string()]);
+        assert!(is_ignored(&rules, &sources[0].1[0]));
+    }
+
+    #[test]
+    fn a_negated_rule_reincludes_a_copy_source() {
+        let rules = parse_ignore("third_party\n!third_party/MTL\n");
+        assert!(is_ignored(&rules, "third_party/liboqs"));
+        assert!(!is_ignored(&rules, "third_party/MTL"));
+    }
+
+    #[test]
+    fn a_double_star_rule_matches_nested_and_root_paths() {
+        // Docker's `**/` also matches zero directories, so `**/*.log` covers a
+        // log file at the context root as well as one below a directory.
+        let rules = parse_ignore("**/*.log\n");
+        assert!(is_ignored(&rules, "target/ci/docker.log"));
+        assert!(is_ignored(&rules, "docker.log"));
+        let single = parse_ignore("*.log\n");
+        assert!(is_ignored(&single, "docker.log"));
+        assert!(!is_ignored(&single, "target/docker.log"));
+    }
+
+    #[test]
+    fn a_directory_rule_also_excludes_its_contents() {
+        let rules = parse_ignore("third_party\n");
+        assert!(is_ignored(&rules, "third_party"));
+        assert!(is_ignored(&rules, "third_party/MTL/README.md"));
+        assert!(!is_ignored(&rules, "crates/third_party"));
+    }
+
+    #[test]
+    fn copy_from_an_earlier_stage_is_not_read_from_the_context() {
+        let text = "COPY --from=builder --chown=0:0 /usr/local/lib /out/lib\n";
+        assert!(copy_sources(text).is_empty());
+    }
+
+    #[test]
+    fn the_json_form_of_copy_is_checked_too() {
+        let text = "COPY [\"third_party/MTL\", \"/src/MTL\"]\n";
+        let sources = copy_sources(text);
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].1, vec!["third_party/MTL".to_string()]);
+        assert!(is_ignored(
+            &parse_ignore("third_party\n"),
+            "third_party/MTL"
+        ));
+    }
+
+    #[test]
+    fn urls_and_absolute_paths_are_not_context_reads() {
+        assert!(!reads_local_context("https://example.test/archive.tar.gz"));
+        assert!(!reads_local_context("/usr/local/lib"));
+        assert!(!reads_local_context("git@example.test:repo.git"));
+        assert!(reads_local_context("third_party/liboqs"));
+        assert!(reads_local_context("."));
+    }
+
+    /// The extraction script reads `/usr/local/{include,lib}`; a plain
+    /// `docker build` builds the last stage, so the last stage must be the
+    /// builder. Before this contract the last stage was the scratch artifact
+    /// tree, and `docker create` failed with "no command specified".
+    #[test]
+    fn the_toolchain_extraction_reads_a_path_the_default_stage_provides() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let dockerfile = std::fs::read_to_string(root.join("docker/Dockerfile.build"))
+            .expect("toolchain Dockerfile is committed");
+        let script = std::fs::read_to_string(root.join("docker/extract-libs.sh"))
+            .expect("extraction script is committed");
+        let violations = scan_extraction(&dockerfile, &script);
+        assert!(violations.is_empty(), "{violations:#?}");
+        assert_eq!(
+            extraction_paths(&script),
+            vec!["/usr/local/include", "/usr/local/lib"]
+        );
+    }
+
+    #[test]
+    fn an_extraction_from_a_scratch_default_stage_is_reported() {
+        let dockerfile = "\
+FROM debian@sha256:abc AS builder
+FROM scratch AS final
+COPY --from=builder /usr/local/lib /out/lib
+";
+        let script = "container_id=\"$(docker create \"${IMAGE}\")\"\n\
+docker cp \"${container_id}:/usr/local/lib\" \"${DEST}/lib\"\n";
+        let violations = scan_extraction(dockerfile, script);
+        assert_eq!(violations.len(), 2, "{violations:#?}");
+        assert!(violations[0].contains("/usr/local/lib"), "{violations:#?}");
+        assert!(violations[0].contains("scratch"), "{violations:#?}");
+        assert!(
+            violations[1].contains("placeholder command"),
+            "{violations:#?}"
+        );
+    }
+
+    #[test]
+    fn a_scratch_default_stage_with_the_artifact_tree_and_a_command_passes() {
+        let dockerfile = "\
+FROM debian@sha256:abc AS builder
+FROM scratch AS final
+COPY --from=builder /usr/local/lib /out/lib
+COPY --from=builder /usr/local/include /out/include
+";
+        let script = "container_id=\"$(docker create \"${IMAGE}\" /out)\"\n\
+docker cp \"${container_id}:/out/lib\" \"${DEST}/lib\"\n\
+docker cp \"${container_id}:/out/include\" \"${DEST}/include\"\n";
+        assert!(
+            scan_extraction(dockerfile, script).is_empty(),
+            "{:#?}",
+            scan_extraction(dockerfile, script)
+        );
+        assert!(create_has_command(script));
+        assert!(!create_has_command(
+            "container_id=\"$(docker create \"${IMAGE}\")\"\n"
+        ));
+    }
+
+    #[test]
+    fn a_default_stage_that_is_not_the_builder_is_reported() {
+        let dockerfile = "\
+FROM debian@sha256:abc AS builder
+FROM debian@sha256:abc AS runtime
+COPY --from=builder /usr/local/lib /usr/local/lib
+";
+        let script = "docker cp \"${container_id}:/usr/local/lib\" \"${DEST}/lib\"\n";
+        let violations = scan_extraction(dockerfile, script);
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+        assert!(
+            violations[0].contains("does not provide"),
+            "{violations:#?}"
         );
     }
 }

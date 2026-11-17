@@ -99,9 +99,22 @@ RUN autoreconf --install \
 WORKDIR /
 
 # ── Stage 2: clean artifact-only stage ──────────────────────────────────
+# Opt-in: `docker build --target final`. The default target is the builder
+# stage at the end of this file, because the extraction step reads
+# /usr/local/{include,lib} out of that image.
 # Extract with:  docker build --target final -t climb-libs . \
-#                  && docker create --name climb-out climb-libs \
+#                  && docker create --name climb-out climb-libs /out \
 #                  && docker cp climb-out:/out . && docker rm climb-out
+#                (the created container is never started; a scratch image
+#                 still needs a placeholder command)
 FROM scratch AS final
 COPY --from=builder /usr/local/lib     /out/lib
 COPY --from=builder /usr/local/include /out/include
+
+# ── Default build target ────────────────────────────────────────────────
+# Docker builds the last stage when no --target is given. docker/extract-libs.sh
+# reads /usr/local/{include,lib} out of the built image and needs a runnable
+# container to create, so name the builder stage last: the plain
+# `docker build -f docker/Dockerfile.build -t climb-builder:phase1 .` used by
+# the README and CI produces it. Use `--target final` for the artifact-only tree.
+FROM builder AS default
