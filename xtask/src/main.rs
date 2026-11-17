@@ -13,6 +13,8 @@ use climb_report::html::{check_report, relative_href, render_html};
 use climb_report::{parse_group_id, render_text_summary, scan_criterion, summarize, ClimbResults};
 
 mod audit_pack;
+#[cfg(test)]
+mod build_deps;
 #[cfg(feature = "native")]
 mod charts;
 mod check_pins;

@@ -119,9 +119,9 @@ jobs:
           cache: false
           rustflags: "-D warnings"
 
-      - name: Cache extracted native toolchain (.mtl-install)
+      - name: Restore extracted native toolchain (.mtl-install)
         id: mtl-cache
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .mtl-install
           key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh', '.gitmodules') }}
@@ -130,10 +130,22 @@ jobs:
         if: steps.mtl-cache.outputs.cache-hit != 'true'
         run: ./scripts/ci/native-toolchain.sh
 
+      # Saved in its own step, so the extraction survives a later failure in
+      # the same job instead of being discarded with the post-job cache.
+      - name: Save extracted native toolchain (.mtl-install)
+        if: steps.mtl-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: .mtl-install
+          key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh', '.gitmodules') }}
+
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: native
+
+      - name: Install documented system packages
+        run: ./scripts/ci/system-deps.sh
 
       - name: Build workspace
         run: ./scripts/ci/build-workspace.sh

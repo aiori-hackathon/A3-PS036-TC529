@@ -644,6 +644,7 @@ jobs:
             "test-workspace",
             "docs-check",
             "native-toolchain",
+            "system-deps",
         ] {
             let text = committed_file(&format!("scripts/ci/{script}.sh"));
             assert!(

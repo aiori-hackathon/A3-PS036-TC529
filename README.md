@@ -229,6 +229,26 @@ cargo run -p climb-tui
 To verify the same path from a cold checkout that copies nothing, run
 `scripts/clean-clone-fresh.sh --full` instead; `scripts/clean-clone-fresh.sh --viewer-only`
 is the fast variant that needs no native libraries.
+
+### Prerequisites — the system packages the build links against
+
+A stock Ubuntu 24.04 needs four packages before `cargo build --workspace` can
+link. They are not optional build conveniences: each one is there because a
+dependency's build script probes for it. `docs/BUILD-DEPS.md` names the crate
+behind each package and the error it prevents.
+
+<!-- build-deps:begin -->
+```
+build-essential
+pkg-config
+libfontconfig-dev
+libclang-dev
+```
+<!-- build-deps:end -->
+
+Install every line of that block with
+`sudo apt-get install -y --no-install-recommends <package>`; the native CI job
+runs the same install from the same list before it builds.
 <!-- quickstart:end -->
 
 The first command clones the repository with its pinned submodules; the second

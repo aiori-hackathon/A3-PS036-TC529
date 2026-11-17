@@ -15,6 +15,7 @@
 # Usage:
 #   bash scripts/ci-local.sh              # run the viewer steps in a worktree
 #   bash scripts/ci-local.sh --public     # run them in a public-export replica
+#   bash scripts/ci-local.sh --native     # run the native job, runner-shaped
 #   bash scripts/ci-local.sh --list       # print the parsed steps, run nothing
 #   bash scripts/ci-local.sh --keep       # keep the worktree after the run
 #
@@ -23,12 +24,25 @@
 # hashes differ exactly as they do on GitHub, and runs the same viewer steps
 # there. This is the mode that catches a history-dependent check.
 #
+# `--native` runs the `native` job. The host keeps the one shape a runner has
+# that this machine lacks (Docker), and reproduces the rest: the workflow's
+# `run:` steps are parsed from the same file, a step whose script calls `docker`
+# runs on the host, every other step runs in an `ubuntu:24.04` container pinned
+# by digest with the runner image's package baseline, the pinned Rust toolchain,
+# the workflow's environment, `TZ=UTC`, `LANG=C.UTF-8`, no developer git
+# identity, and `--network=host` (this machine cannot create bridge networks).
+# The workspace is a fresh `git clone --no-local --recurse-submodules` of the
+# public export under `~/tmp`, and `.mtl-install` is extracted from the pinned
+# image into that clone rather than borrowed from the developer checkout.
+#
 # Environment:
 #   CLIMB_CI_WORKFLOW      workflow file (default: .github/workflows/ci.yml)
-#   CLIMB_CI_JOB           job name (default: viewer)
+#   CLIMB_CI_JOB           job name (default: viewer, or native with --native)
 #   CLIMB_CI_WORKTREE_DIR  worktree path (default: ~/tmp/climb-ci-local)
 #   CLIMB_PUBLIC_EXPORT    public replica path (default: ~/tmp/public-export)
 #   CLIMB_SYNC_SCRIPT      publishing sync script (default: tools/sync-aiori.sh)
+#   CLIMB_CI_NATIVE_CLONE  native clone path (default: ~/tmp/climb-ci-native)
+#   CLIMB_CI_NATIVE_IMAGE  rehearsal base image (default: pinned ubuntu:24.04)
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
@@ -37,9 +51,40 @@ WORKFLOW="${CLIMB_CI_WORKFLOW:-$REPO_ROOT/.github/workflows/ci.yml}"
 JOB="${CLIMB_CI_JOB:-viewer}"
 WORKTREE="${CLIMB_CI_WORKTREE_DIR:-$HOME/tmp/climb-ci-local}"
 PUBLIC_EXPORT="${CLIMB_PUBLIC_EXPORT:-$HOME/tmp/public-export}"
+NATIVE_CLONE="${CLIMB_CI_NATIVE_CLONE:-$HOME/tmp/climb-ci-native}"
+# The runner's own image, pinned the same way the workflow pins its actions.
+# `ubuntu:24.04` resolved to this index digest on 2026-11-17; the amd64
+# manifest inside it is sha256:77eb101c607d6e3d4f5ad0c8a02c2136c689b98aba1f359e6502ba517e5c57ec.
+NATIVE_IMAGE="${CLIMB_CI_NATIVE_IMAGE:-docker.io/library/ubuntu:24.04@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8}"
+NATIVE_CONTAINER="${CLIMB_CI_NATIVE_CONTAINER:-climb-ci-native-$$}"
+NATIVE_STARTED=0
+# The packages the GitHub-hosted `ubuntu-24.04` image already carries, taken
+# from actions/runner-images' Ubuntu 24.04 software list
+# (https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md,
+# Image Version 20261111.370.1, fetched 2026-11-17): GCC/G++ 13, Clang 16/17/18,
+# CMake 3.31.6, Ninja 1.13.2, Perl 5.38.2, Git 2.56.1. `pkg-config` is in the
+# list because the failing runner log shows it running and failing to find
+# fontconfig, which means it was installed. The packages a build needs and this
+# list omits are what the rehearsal must reproduce as the failure.
+RUNNER_BASELINE=(
+  build-essential
+  ca-certificates
+  clang
+  cmake
+  curl
+  git
+  libclang-dev
+  ninja-build
+  perl
+  pkg-config
+  python3
+  sudo
+  wget
+)
 LIST_ONLY=0
 KEEP=0
 PUBLIC=0
+NATIVE=0
 
 die() {
   printf 'ci-local: %s\n' "$*" >&2
@@ -51,13 +96,19 @@ for arg in "$@"; do
     --list) LIST_ONLY=1 ;;
     --keep) KEEP=1 ;;
     --public) PUBLIC=1 ;;
+    --native) NATIVE=1 ;;
     -h|--help)
-      sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'
+      sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
       ;;
     *) die "unknown argument: $arg" ;;
   esac
 done
+
+# `--native` selects the native job unless the caller named one explicitly.
+if [[ "$NATIVE" -eq 1 && -z "${CLIMB_CI_JOB:-}" ]]; then
+  JOB=native
+fi
 
 [[ -f "$WORKFLOW" ]] || die "workflow not found: $WORKFLOW"
 command -v python3 >/dev/null || die "python3 is required to parse $WORKFLOW"
@@ -65,7 +116,10 @@ command -v python3 >/dev/null || die "python3 is required to parse $WORKFLOW"
 TMP="$(mktemp -d)"
 cleanup() {
   rm -rf "$TMP"
-  if [[ "$KEEP" -eq 0 && "$LIST_ONLY" -eq 0 && "$PUBLIC" -eq 0 ]]; then
+  if [[ "$NATIVE_STARTED" -eq 1 ]]; then
+    docker rm -f "$NATIVE_CONTAINER" >/dev/null 2>&1 || true
+  fi
+  if [[ "$KEEP" -eq 0 && "$LIST_ONLY" -eq 0 && ! ( "$PUBLIC" -eq 1 && "$NATIVE" -eq 0 ) ]]; then
     git -C "$REPO_ROOT" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
     rm -rf "$WORKTREE"
   fi
@@ -112,6 +166,7 @@ if current is not None:
 
 os.makedirs(outdir, exist_ok=True)
 names = []
+skipped = []
 index = 0
 for block in blocks:
     text = "\n".join(block)
@@ -122,6 +177,7 @@ for block in blocks:
     run_match = re.search(r"^        run:\s*(.*)$", text, re.MULTILINE)
     if run_match is None:
         # `uses:` step: performed by the runner, nothing to run locally.
+        skipped.append(name)
         continue
     first = run_match.group(1)
     if first not in ("", "|", ">"):
@@ -149,6 +205,8 @@ with open(os.path.join(outdir, "steps"), "w", encoding="utf-8") as handle:
 print(f"ci-local: parsed {len(names)} run step(s) for job `{job}`")
 for row in names:
     print("  " + row.split("\t", 1)[1])
+for name in skipped:
+    print(f"  GitHub action, not run: {name}")
 PY
 
 if [[ "$LIST_ONLY" -eq 1 ]]; then
@@ -346,9 +404,103 @@ prepare_public_export() {
   WORKTREE="$PUBLIC_EXPORT"
 }
 
-if [[ "$PUBLIC" -eq 1 ]]; then
+# --- native rehearsal -----------------------------------------------------
+# A fresh clone of the public export with its pinned submodules, so nothing in
+# this checkout (a stale `.mtl-install`, an ignored file, a local Cargo target)
+# can make the rehearsal pass or fail for a reason the runner does not have.
+native_clone_from_export() {
+  command -v docker >/dev/null || die "docker is required for --native"
+  case "$NATIVE_CLONE" in
+    "$REPO_ROOT"/*) die "the native clone must live outside the repository: $NATIVE_CLONE" ;;
+  esac
+  rm -rf "$NATIVE_CLONE"
+  mkdir -p "$(dirname "$NATIVE_CLONE")"
+  printf 'ci-local: cloning the public export into %s (--no-local, --recurse-submodules)\n' \
+    "$NATIVE_CLONE"
+  git clone --no-local --recurse-submodules "$PUBLIC_EXPORT" "$NATIVE_CLONE" >/dev/null
+  WORKTREE="$NATIVE_CLONE"
+}
+
+# Start the container and give it the runner image's package baseline and the
+# pinned toolchain. The steps run as a user whose uid matches the caller's, so
+# the clone is owned by the user that reads it, exactly as a runner's checkout
+# is, and `git` reports no ownership mismatch. That user gets passwordless
+# `sudo`, which the runner image provides and the base image does not.
+# `--network=host` is this machine's limitation, not the runner's; see
+# docs/CI-NATIVE-REHEARSAL.md.
+start_native_container() {
+  local uid gid
+  uid="$(id -u)"
+  gid="$(id -g)"
+  docker rm -f "$NATIVE_CONTAINER" >/dev/null 2>&1 || true
+  docker run -d --name "$NATIVE_CONTAINER" --network=host --hostname climb-ci \
+    -v "$NATIVE_CLONE":/workspace -w /workspace \
+    "$NATIVE_IMAGE" sleep infinity >/dev/null
+  NATIVE_STARTED=1
+  printf 'ci-local: container %s from %s\n' "$NATIVE_CONTAINER" "$NATIVE_IMAGE"
+
+  printf 'ci-local: installing the runner image package baseline (%s)\n' \
+    "${RUNNER_BASELINE[*]}"
+  docker exec --user 0 -e DEBIAN_FRONTEND=noninteractive "$NATIVE_CONTAINER" \
+    bash -euo pipefail -c \
+    'apt-get update -qq && apt-get install -y --no-install-recommends "$@"' \
+    ci-baseline "${RUNNER_BASELINE[@]}" >/dev/null
+  docker exec "$NATIVE_CONTAINER" bash -c \
+    'for package in "$@"; do dpkg-query -W "$package"; done' \
+    ci-baseline "${RUNNER_BASELINE[@]}"
+
+  # The runner image ships a passwordless `sudo`; the base image needs the
+  # package before the entry can be written.
+  docker exec --user 0 "$NATIVE_CONTAINER" bash -euo pipefail -c '
+    uid="$1"
+    name="$(getent passwd "$uid" | cut -d: -f1)"
+    if [ -z "$name" ]; then
+      name=runner
+      useradd --uid "$uid" --create-home --shell /bin/bash "$name"
+    fi
+    printf "%s ALL=(ALL) NOPASSWD:ALL\n" "$name" > /etc/sudoers.d/ci-runner
+    chmod 0440 /etc/sudoers.d/ci-runner
+  ' ci-user "$uid"
+  NATIVE_HOME="$(docker exec --user 0 "$NATIVE_CONTAINER" getent passwd "$uid" \
+    | cut -d: -f6)"
+  [[ -n "$NATIVE_HOME" ]] || die "the container has no home directory for uid $uid"
+
+  # The pinned setup action installs rustup and then the toolchain named by
+  # rust-toolchain.toml, with that file's components, as the runner user.
+  docker exec --user "$uid:$gid" -e "HOME=$NATIVE_HOME" "$NATIVE_CONTAINER" \
+    bash -euo pipefail -c \
+    'curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --profile minimal --default-toolchain none' >/dev/null
+  local channel
+  channel="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\(.*\)"/\1/p' \
+    "$NATIVE_CLONE/rust-toolchain.toml")"
+  [[ -n "$channel" ]] || die "rust-toolchain.toml carries no channel"
+  docker exec --user "$uid:$gid" -e "HOME=$NATIVE_HOME" "$NATIVE_CONTAINER" \
+    bash -euo pipefail -c \
+    ". "$NATIVE_HOME/.cargo/env" && rustup toolchain install $channel --profile minimal \
+      --component rustfmt,clippy,rust-analyzer && rustup default $channel" >/dev/null
+  docker exec --user "$uid:$gid" -e "HOME=$NATIVE_HOME" "$NATIVE_CONTAINER" \
+    bash -c ". \"$NATIVE_HOME/.cargo/env\" && rustc --version && cargo --version"
+}
+
+# A step whose script invokes Docker runs on the host, because this machine has
+# the one dependency a container cannot provide to itself.
+native_step_uses_docker() {
+  local number="$1" target
+  target="$(sed -n 's|.*\(\./scripts/ci/[A-Za-z0-9_-]*\.sh\).*|\1|p' "$TMP/$number.sh" \
+    | head -n 1)"
+  [[ -n "$target" ]] || return 1
+  grep -qE '(^|[[:space:]])docker[[:space:]]' "$NATIVE_CLONE/$target"
+}
+
+if [[ "$PUBLIC" -eq 1 || "$NATIVE" -eq 1 ]]; then
   prepare_public_export
-else
+fi
+
+if [[ "$NATIVE" -eq 1 ]]; then
+  native_clone_from_export
+  start_native_container
+elif [[ "$PUBLIC" -eq 0 ]]; then
   # --- clean worktree -----------------------------------------------------
   case "$WORKTREE" in
     "$REPO_ROOT"/*) die "the worktree must live outside the repository: $WORKTREE" ;;
@@ -380,6 +532,10 @@ else
 fi
 
 printf 'ci-local: worktree %s (no target/, no .mtl-install/)\n' "$WORKTREE"
+if [[ "$NATIVE" -eq 1 ]]; then
+  printf 'ci-local: workspace %s (fresh clone of the public export, its own target/)\n' \
+    "$WORKTREE"
+fi
 
 # --- execute every parsed step in order -----------------------------------
 # The public replica mirrors CI, where the private role marker is never set.
@@ -388,10 +544,50 @@ if [[ "$PUBLIC" -eq 1 ]]; then
   step_env=(env -u CLIMB_REPO_ROLE)
 fi
 failed=0
+# The container gets the environment the workflow publishes before its first
+# step. The host passes no developer git identity; the CI scripts source
+# `scripts/ci/env.sh` in both places, which is where CI's own identity comes
+# from, and the container has no `~/.gitconfig`.
+native_env_args=()
+if [[ "$NATIVE" -eq 1 ]]; then
+  while IFS= read -r env_line; do
+    native_env_args+=(-e "$env_line")
+  done < <(bash "$REPO_ROOT/scripts/ci/env.sh")
+  native_env_args+=(-e "CARGO_TARGET_DIR=/workspace/target")
+  native_env_args+=(-e "HOME=$NATIVE_HOME")
+  native_env_args+=(-e "PATH=$NATIVE_HOME/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+  # A host step that builds an image needs the host network on this machine,
+  # which cannot create Docker bridge networks. The runner uses the default
+  # bridge and leaves the variable unset.
+  export CLIMB_DOCKER_NETWORK="${CLIMB_DOCKER_NETWORK:-host}"
+fi
 while IFS=$'\t' read -r number name; do
   [[ -n "$number" ]] || continue
   printf '\n==> [%s] %s\n' "$number" "$name"
-  if ! ( cd "$WORKTREE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ); then
+  if [[ "$NATIVE" -eq 1 ]]; then
+    log="$TMP/native-$number.log"
+    if native_step_uses_docker "$number"; then
+      printf 'ci-local: host step (its script invokes docker)\n'
+      if ! ( cd "$NATIVE_CLONE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ) \
+        2>&1 | tee "$log"; then
+        failed=1
+        printf 'ci-local: step [%s] %s FAILED (host)\n' "$number" "$name" >&2
+        printf 'ci-local: last 60 lines:\n' >&2
+        tail -n 60 "$log" >&2
+        break
+      fi
+    else
+      printf 'ci-local: container step in %s\n' "$NATIVE_CONTAINER"
+      if ! docker exec -i --user "$(id -u):$(id -g)" "${native_env_args[@]}" \
+        -w /workspace "$NATIVE_CONTAINER" bash -s < "$TMP/$number.sh" 2>&1 | tee "$log"; then
+        failed=1
+        printf 'ci-local: step [%s] %s FAILED (container)\n' "$number" "$name" >&2
+        printf 'ci-local: last 60 lines:\n' >&2
+        tail -n 60 "$log" >&2
+        break
+      fi
+    fi
+  elif ! ( cd "$WORKTREE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ); then
     failed=1
     printf 'ci-local: step [%s] %s FAILED\n' "$number" "$name" >&2
     break
@@ -399,8 +595,17 @@ while IFS=$'\t' read -r number name; do
 done < "$TMP/steps"
 
 if [[ "$failed" -ne 0 ]]; then
-  printf '\nci-local: FAILED — the viewer workflow would fail on this tree\n' >&2
+  if [[ "$NATIVE" -eq 1 ]]; then
+    printf '\nci-local: FAILED — the native workflow would stop at step [%s]\n' "$number" >&2
+  else
+    printf '\nci-local: FAILED — the viewer workflow would fail on this tree\n' >&2
+  fi
   exit 1
+fi
+
+if [[ "$NATIVE" -eq 1 ]]; then
+  printf '\nci-local: every native step passed in the runner-shaped container\n'
+  exit 0
 fi
 
 # --- full feature matrix ---------------------------------------------------
