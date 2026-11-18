@@ -1,11 +1,15 @@
 # Fact gaps
 
-Every number the new copy needs that has no fact id in the committed
-`site/src/data/generated/facts.json` today. The prototype is the design
-authority, so its copy is the target; the numbers below are the ones the new
-sections introduce (or the prototype states with no fact behind it). Nothing
-here is implemented in MS0: this is the work list for the build-time fact
-registry.
+Every number the new copy needs that had no fact id in the committed
+`site/src/data/generated/facts.json` when the skin was planned. The prototype
+is the design authority, so its copy is the target; the numbers below are the
+ones the new sections introduce (or the prototype states with no fact behind
+it). MS0 recorded the work list; the build-time registry now produces every id
+below. Seven ids were added while building the ledger and the stability
+spread (`F-sign-spread-median`, `F-sign-spread-min`, `F-sign-spread-max`,
+`F-sign-spread-runs`, `F-dns-rtt-multiple-plain-50`,
+`F-dns-rtt-multiple-condensed-50` and `F-claims-generated`), so the register is
+larger than the original list.
 
 Sources named in the last column:
 
@@ -26,6 +30,7 @@ Sources named in the last column:
 | `F-dns-rtt-plain-50` | DNS replay panel: the plain response at an emulated 50 ms RTT | `/dns_rtt/cells/8/median_ms` (200 samples, udp-then-tcp, full RRSIG) | pointer: `FactSpec { id: "F-dns-rtt-plain-50", value: Pointer("/dns_rtt/cells/8/median_ms") }` | Measured | the cell exists and is recorded, but no fact spec exposes it; the copy currently has no slot for a latency figure |
 | `F-dns-rtt-condensed-50` | same panel, the condensed response at 50 ms | `/dns_rtt/cells/9/median_ms` (200 samples, udp, condensed RRSIG) | pointer: same shape as above | Measured | same; the pair is the point of the panel (201.06 ms against 50.48 ms at the recorded tip) |
 | `F-dns-rtt-samples` | same panel: the sample count per cell | `/dns_rtt/min_samples_per_cell` | pointer | Constant | the number is recorded with the run and is a design constant, not a result; it needs an id so the copy can print it |
+| `F-dns-rtt-target` | Results ledger: the emulated target the multiples are against | `/dns_rtt/cells/8/delay_ms` | pointer | Constant | the target is an experiment input recorded with the cell; the page prints it from the artifact |
 | `F-ladder-cache-measured` | Ladder cache panel: bytes the resolver holds after the first pass | `/cache_use/ladder_analytical/0/measured_bytes` (medium, r = 10000) | pointer | Measured | recorded, not exposed; the panel is new in the skin |
 | `F-ladder-cache-analytical` | same panel, the closed-form estimate | `/cache_use/ladder_analytical/0/analytical_bytes` | pointer | Analytical | same |
 | `F-ladder-cache-ratio` | same panel, measured over analytical | `/cache_use/ladder_analytical/0/measured_over_analytical` | pointer | Derived | same; the ratio is what the panel argues |
@@ -40,6 +45,13 @@ Sources named in the last column:
 | `F-claims-derived` | Verify: claims by class | `claims.json`, `class == "derived"` | generator: same variant | Generated | 41 at the recorded tip |
 | `F-claims-analytical` | Verify: claims by class | `claims.json`, `class == "analytical"` | generator: same variant | Generated | 526 at the recorded tip |
 | `F-claims-extrapolated` | Verify: claims by class | `claims.json`, `class == "extrapolated"` | generator: same variant | Generated | 18 at the recorded tip |
+| `F-claims-generated` | Verify: claims by class | `claims.json`, `class == "generated"` | generator: same variant | Generated | 4 at the recorded tip |
+| `F-dns-rtt-multiple-plain-50` | Results ledger: round trips for the plain response at 50 ms | `/dns_rtt/cells/8/median_rtt_multiple` | pointer | Measured | the quote sheet records the multiple and classifies it Measured |
+| `F-dns-rtt-multiple-condensed-50` | same row, the condensed response | `/dns_rtt/cells/9/median_rtt_multiple` | pointer | Measured | same; 1.01 against 4.021 |
+| `F-sign-spread-median` | Results ledger: the signing speed-up's spread | `/derived/stability/runs/0/median` | pointer | Derived | the stability block holds the median of five runs |
+| `F-sign-spread-min` | same row, the minimum | `/derived/stability/runs/0/min` | pointer | Derived | same |
+| `F-sign-spread-max` | same row, the maximum | `/derived/stability/runs/0/max` | pointer | Derived | same |
+| `F-sign-spread-runs` | same row, the run count | `/derived/stability/runs/0/n_runs` | pointer | Measured | five runs, recorded |
 
 The recorded-tip values in the last column come from the committed
 `claims.json` and the committed results artifact read during this phase. They
@@ -82,16 +94,13 @@ from a token or are not numbers a reader reads as a result.
 ## 4. What the gate enforces now
 
 `scripts/site-check.py docs` reads this document and the checker's `FACT_IDS`
-table and fails when:
+table and fails when a fact id here is not declared in the checker (so a gap
+cannot be invented in prose). Every entry now has a producer, so no checker
+entry starts `GAP:`; the rule still catches a registered gap that is missing
+from this document.
 
-- a fact id here is not declared in the checker (so a gap cannot be invented in
-  prose), or
-- a checker entry whose source starts `GAP:` is not described here (so a
-  registered gap cannot be forgotten).
-
-`scripts/site-check.py copy` fails when any of these ids appears in `copy.md`
-before its producer exists, because a `GAP:` entry prints as
-`not in the artifact (GAP: …)` and the copy line then carries no resolvable
-value. The intended order is: add the fact spec, regenerate
-`site/src/data/generated/facts.json` with `cargo xtask site-data`, then write the
-copy line.
+`scripts/site-check.py copy` resolves every id used in `copy.md` against the
+artifact, or against the recorded generator for an id that is not a field
+(claims by class, the two message means). The order is: add the fact spec,
+regenerate `site/src/data/generated/facts.json` with `cargo xtask site-data`,
+then write the copy line.

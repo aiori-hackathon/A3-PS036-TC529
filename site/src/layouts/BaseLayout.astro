@@ -2,6 +2,8 @@
 import '../styles/global.css';
 import '../styles/climb.css';
 import Fact from '../components/Fact.astro';
+import provenance from '../data/generated/provenance.json';
+import { SCOPE_SENTENCE } from '../lib/limits';
 
 interface Props {
   title: string;
@@ -198,6 +200,10 @@ const keywords: { text: string; fact?: string }[] = [
           <div>
             <h3>Project</h3>
             <ul>
+              <li><a href="/tui">Dashboard</a></li>
+              <li><a href="/report">Report</a></li>
+              <li><a href="/verify">Verify</a></li>
+              <li><a href="/reproduce">Reproduce</a></li>
               <li><a href={repository} rel="noopener">GitHub repository</a></li>
               <li>
                 <a href={`${repository}/blob/main/A3-PS036-TC529.pdf`} rel="noopener">
@@ -244,8 +250,10 @@ const keywords: { text: string; fact?: string }[] = [
             </ul>
           </div>
         </div>
+        <p class="scope">{SCOPE_SENTENCE}</p>
         <div class="fb">
           <span>MIT licence. <Fact id="F-claims-count" bare /> verified.</span>
+          <span>Artifact commit <code>{provenance.commit_short}</code>.</span>
           <span>Experimental research benchmark. No formal security guarantee is claimed.</span>
         </div>
       </div>

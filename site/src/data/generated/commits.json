@@ -1,8 +1,8 @@
 {
-  "content_sha256": "ebaa3287add3f66a1e6b2f6229033cf912180ffc02464b0a6f44b2de36d55f8f",
+  "content_sha256": "c6d5c70d3b81efb155d0f133b857de4ca191a2ae92ce16930def36e1531b7676",
   "graph": {
     "as_of_date": "2026-11-18",
-    "as_of_sha": "0ad1781d4cacb2eb9e2074acc9f210ee9d629de9",
+    "as_of_sha": "49618e0b252f628ad7ce6d4106864f74a6d86c6c",
     "config_hash": "e98b1544202736b8a70f4a25502602276aaf35ef9c7288a89461b956eae08041",
     "milestones": [
       {
@@ -38,7 +38,7 @@
     "pending_refresh": true,
     "per_author": [
       {
-        "commits": 153,
+        "commits": 157,
         "display": "Pratyay Mukherjee"
       }
     ],
@@ -479,13 +479,13 @@
         "removed": 275
       },
       {
-        "added": 906,
+        "added": 3424,
         "authors": [
           "Pratyay Mukherjee"
         ],
-        "commits": 4,
+        "commits": 8,
         "date": "2026-11-18",
-        "removed": 138
+        "removed": 295
       }
     ],
     "range": {
@@ -500,19 +500,19 @@
         "commits": 14,
         "date": "2026-11-13"
       },
-      "commits": 154,
+      "commits": 158,
       "current_streak": 4,
-      "files_touched": 1890,
+      "files_touched": 1921,
       "first_commit_date": "2026-09-26",
       "last_commit_date": "2026-11-18",
-      "lines_added": 258228,
-      "lines_removed": 58919,
+      "lines_added": 260746,
+      "lines_removed": 59076,
       "longest_streak": 14,
       "longest_streak_range": {
         "end": "2026-10-24",
         "start": "2026-10-11"
       },
-      "refresh_commits": 10
+      "refresh_commits": 12
     }
   },
   "schema_version": 1,

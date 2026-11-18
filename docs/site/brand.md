@@ -195,7 +195,7 @@ uses both, so the budgets replace the old "no backdrop-filter" rule.
 | Layer | Classes that may blur | Blur | Why it is allowed |
 | --- | --- | --- | --- |
 | Header | `#hd` | `blur(16px) saturate(1.8) brightness(1.05)` | one floating bar; text is `--cr` at 12.95:1 worst case |
-| Result rows and panels | `.led li`, `.tm li`, `.tr>div`, `.lim`, `.dg`, `.arch` | `blur(16px) saturate(1.7) brightness(1.06)` | each is a content panel over the orb field; scrimmed to 78 % |
+| Result rows and panels | `.led li`, `.tm li`, `.tr>div`, `.lim`, `.dg`, `.arch`, `.dash` | `blur(16px) saturate(1.7) brightness(1.06)` | each is a content panel over the orb field; scrimmed to 78 % |
 | Ladder rows and detail | `.c`, `.l`, `.dt` | `blur(6px)` | small floating controls inside the ladder; 55 % fill plus scrim |
 
 No other selector may declare `backdrop-filter`. `scripts/site-check.py docs`

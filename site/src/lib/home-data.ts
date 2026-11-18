@@ -1,13 +1,13 @@
 /**
  * The home page's interactive copy, assembled at build time.
  *
- * The prototype typed the explorer branches, the configuration captions and
- * the capability descriptions into an inline script. They are data now: the
- * page emits this object in a non-executable JSON block and the script reads
- * it. Every number is interpolated from the fact register, so a stale value
- * cannot sit in a string, and `cargo xtask site-check` still rejects a typed
- * benchmark number in the source.
+ * The curated text lives in `src/data/ladder-explorer.json`; every number in
+ * it is a `{{F-…}}` placeholder that resolves through the fact register. The
+ * page emits the resolved object in a non-executable JSON block and the script
+ * reads it, so a stale value cannot sit in a string and the typed-number guard
+ * still rejects a literal in source.
  */
+import explorerFile from '../data/ladder-explorer.json';
 import { getFact } from './facts';
 
 const display = (id: string): string => getFact(id).display;
@@ -24,154 +24,75 @@ const bytes = (id: string): string => {
   return `${fact.display} ${fact.unit}`;
 };
 
+const PLACEHOLDER = /\{\{(F-[a-z0-9]+(?:-[a-z0-9]+)*)\}\}/g;
+
+/** Resolve every `{{F-…}}` placeholder, failing the build on an unknown id. */
+export function resolveFactText(text: string): string {
+  return text.replace(PLACEHOLDER, (_match, id: string) => display(id));
+}
+
 export const evidenceLabels = {
   m: 'Measured',
   d: 'Derived',
   a: 'Analytical',
+  x: 'Extrapolated',
   n: '',
 } as const;
 
 export type EvidenceLetter = keyof typeof evidenceLabels;
 
-/** [leaf title, evidence letter, description, reproducing command] */
-export type ExplorerLeaf = [string, EvidenceLetter, string, string];
+export interface ExplorerLeaf {
+  readonly title: string;
+  readonly class: EvidenceLetter;
+  readonly baseline: string;
+  readonly facts: readonly string[];
+  readonly claimGroup: string | null;
+  readonly text: string;
+  readonly command: string;
+  readonly verify: string;
+}
 
-/** [branch title, leaves] */
-export type ExplorerBranch = [string, ExplorerLeaf[]];
+export interface ExplorerBranch {
+  readonly title: string;
+  readonly card: string;
+  readonly command: string;
+  readonly leaves: readonly ExplorerLeaf[];
+}
 
-export const explorer: ExplorerBranch[] = [
-  [
-    'Signing performance',
-    [
-      [
-        'SLH-DSA signing',
-        'm',
-        'Criterion benchmark groups time signing for plain SLH-DSA (A) and MTL with and without amortisation (B, C).',
-        'cargo xtask bench-all',
-      ],
-      [
-        'Batch speed-up',
-        'd',
-        `Medium dataset, C vs A: ${ratio('F-sign-medium-c-vs-a')}. Per-message cost multiplied by message count, not a whole-batch run.`,
-        'cargo xtask deck-facts',
-      ],
-    ],
-  ],
-  [
-    'Verification performance',
-    [
-      [
-        'Per-message verify',
-        'm',
-        'Verification cost per message under each configuration.',
-        'cargo xtask bench-all',
-      ],
-      [
-        'Trusted cached ladder',
-        'd',
-        `With a verifier that trusts an already-checked ladder, C vs A is ${ratio('F-verify-medium-c-vs-a')}.`,
-        'cargo xtask deck-facts',
-      ],
-    ],
-  ],
-  [
-    'Wire efficiency',
-    [
-      [
-        'Wire bytes, Medium',
-        'm',
-        `A: ${bytes('F-wire-medium-a')}. B: ${bytes('F-wire-medium-b')}. C: ${bytes('F-wire-medium-c')}.`,
-        'cargo xtask wire-report',
-      ],
-      [
-        'Wire reduction',
-        'd',
-        `C vs A is ${percent('F-wire-medium-c-vs-a')}, computed from the measured bytes. C vs B is ${percent('F-wire-medium-c-vs-b')}.`,
-        'cargo xtask wire-report',
-      ],
-      [
-        'UDP payload fit',
-        'a',
-        `A closed-form model in climb-analytical. In configuration C, ${display('F-udp-c-fit')} modelled response profiles fit the ${display('F-udp-payload')}-byte payload.`,
-        'cargo xtask wire-report',
-      ],
-    ],
-  ],
-  [
-    'Memory analysis',
-    [
-      [
-        'Memory probe',
-        'm',
-        'Memory probes in climb-bench record real usage.',
-        'cargo xtask memory-report',
-      ],
-      [
-        'Measured vs model',
-        'd',
-        `Small dataset: measured memory is ${ratio('F-mem-small-ratio')} the analytical estimate.`,
-        'cargo xtask memory-report',
-      ],
-    ],
-  ],
-  [
-    'Ladder visualisation',
-    [
-      [
-        'Ladder verification',
-        'n',
-        'Checks a recorded ladder fixture from the data folder.',
-        'cargo xtask ladder-verify',
-      ],
-      [
-        'Terminal dashboard',
-        'n',
-        'climb-tui shows ladder shape, results and the Integrity tab. It opens on committed sample results.',
-        'cargo run -p climb-tui',
-      ],
-    ],
-  ],
-  [
-    'DNS packet replay',
-    [
-      [
-        'Recorded capture',
-        'd',
-        `Live response for www.climb.example. A: condensed vs full is a ${percent('F-dns-www-a')} reduction, baseline B.`,
-        'cargo xtask dns-demo',
-      ],
-      [
-        'Live pipeline',
-        'n',
-        'Patched NSD and Unbound in local Docker capture real wire bytes. Local only, no Internet deployment.',
-        'cargo xtask dns-demo',
-      ],
-    ],
-  ],
-  [
-    'Integrity and provenance',
-    [
-      [
-        'Claims registry',
-        'n',
-        'Every claim embeds a JSON pointer into the results, its expected value and a pass or fail mark.',
-        'cargo xtask report --check',
-      ],
-      [
-        'Docs drift check',
-        'n',
-        'Fails if any number in the README or docs is not in the quote sheet.',
-        'cargo xtask docs-check',
-      ],
-      [
-        'Release bundle',
-        'n',
-        'Report, results, fixtures, SHA256SUMS and a PROVENANCE.txt naming the commit.',
-        'cargo xtask package',
-      ],
-    ],
-  ],
-];
+const LETTERS = new Set<EvidenceLetter>(['m', 'd', 'a', 'x', 'n']);
+
+function evidenceLetter(value: string, where: string): EvidenceLetter {
+  if (!LETTERS.has(value as EvidenceLetter)) {
+    throw new Error(`${where}: unknown evidence letter \`${value}\``);
+  }
+  return value as EvidenceLetter;
+}
+
+/**
+ * Resolve the curated data once. Every fact id is looked up even when it only
+ * appears in the `facts` list, so a stale id fails `astro build`.
+ */
+export const explorer: ExplorerBranch[] = explorerFile.branches.map((branch, branchIndex) => ({
+  title: branch.title,
+  card: resolveFactText(branch.card),
+  command: branch.command,
+  leaves: branch.leaves.map((leaf, leafIndex) => {
+    const where = `ladder-explorer branch ${branchIndex}, leaf ${leafIndex}`;
+    for (const id of leaf.facts) {
+      getFact(id);
+    }
+    return {
+      title: leaf.title,
+      class: evidenceLetter(leaf.class, where),
+      baseline: leaf.baseline,
+      facts: leaf.facts,
+      claimGroup: leaf.claimGroup,
+      text: resolveFactText(leaf.text),
+      command: leaf.command,
+      verify: leaf.verify,
+    };
+  }),
+}));
 
 /** [tab and panel title, panel copy, diagram caption, diagram group id] */
 export type Config = [string, string, string, string];
@@ -180,54 +101,37 @@ export const configs: Config[] = [
   [
     'A: one full signature per RRset',
     'No ladder. The DNSSEC status quo before any MTL wrapper.',
-    'one full signature each',
+    `one full signature each, ${bytes('F-message-bytes-a')}`,
     'gA',
   ],
   [
     'B: full MTL signature per message',
     'Every message carries its condensed path joined to the whole ladder.',
-    'path plus full ladder, repeated',
+    `path plus full ladder, repeated, ${bytes('F-message-bytes-b')} mean`,
     'gB',
   ],
   [
     'C: one ladder, many short paths',
     'The ladder is signed once for the batch. Each message carries only its path.',
-    'shared ladder, short path each',
+    `shared ladder, short path each, ${bytes('F-message-bytes-c')} mean`,
     'gC',
   ],
 ];
 
-/** [description, reproducing command] in explorer order. */
-export const capabilities: [string, string][] = [
-  [
-    'Criterion timings of SLH-DSA signing, with and without MTL.',
-    'cargo xtask bench-all',
-  ],
-  [
-    'Per-message verification, including a trusted cached ladder.',
-    'cargo xtask bench-all',
-  ],
-  [
-    'Wire-size and DNS packet analysis plus an analytical UDP-fit model.',
-    'cargo xtask wire-report',
-  ],
-  [
-    'Measured memory compared with a closed-form model.',
-    'cargo xtask memory-report',
-  ],
-  [
-    'Ladder shape and condensed paths in the terminal dashboard.',
-    'cargo run -p climb-tui',
-  ],
-  [
-    'A recorded capture from patched NSD and Unbound, replayed locally.',
-    'cargo xtask dns-demo',
-  ],
-  [
-    'Claims registry, drift checks and a checksummed release bundle.',
-    'cargo xtask report --check',
-  ],
-];
+/** The seven capability cards, in explorer order. */
+export const capabilities = explorer.map((branch) => ({
+  title: branch.title,
+  card: branch.card,
+  command: branch.command,
+}));
+
+/** The three message labels, resolved for the diagram's static legend. */
+export const messageLabels = {
+  plain: bytes('F-message-bytes-a'),
+  condensed: bytes('F-message-bytes-c'),
+  signedLadder: bytes('F-ladder-signed-medium'),
+  pathMin: bytes('F-condensed-path-bytes'),
+} as const;
 
 export const sections = [
   'Top',
@@ -236,6 +140,7 @@ export const sections = [
   'Ladder',
   'How it works',
   'Architecture',
+  'Dashboard',
   'Transparency',
   'Team',
 ];
@@ -243,7 +148,8 @@ export const sections = [
 export const homeData = {
   explorer,
   configs,
-  capabilities,
   sections,
   evidence: evidenceLabels,
 };
+
+export { display, ratio, percent, bytes };

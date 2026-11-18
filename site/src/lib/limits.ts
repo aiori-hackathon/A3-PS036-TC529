@@ -239,6 +239,9 @@ export function buildLimitItems(methodology: string, copy: string): LimitItem[] 
 const METHODOLOGY = readFileSync(METHODOLOGY_PATH, 'utf8');
 const COPY = readFileSync(COPY_PATH, 'utf8');
 
+/** The scope sentence, read from the copy deck once at build time. */
+export const SCOPE_SENTENCE = scopeSentence(COPY);
+
 /** The accordion content, parsed once per build from the committed files. */
 export function loadLimitItems(): LimitItem[] {
   return buildLimitItems(METHODOLOGY, COPY);

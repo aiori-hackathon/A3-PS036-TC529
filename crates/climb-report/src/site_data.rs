@@ -117,6 +117,14 @@ enum FactValue {
     Constant { value: f64, pointer: &'static str },
     /// The `passed of total` count of the claims registry.
     ClaimsCount,
+    /// One pointer divided by another, rendered with a fixed decimal count.
+    Quotient {
+        numerator: &'static str,
+        denominator: &'static str,
+        decimals: usize,
+    },
+    /// The number of claims whose recorded class matches this name.
+    ClaimsClass(&'static str),
 }
 
 struct FactSpec {
@@ -129,7 +137,7 @@ struct FactSpec {
 }
 
 /// The fact ids the copy deck uses. Each id names evidence, not presentation.
-const FACT_SPECS: [FactSpec; 18] = [
+const FACT_SPECS: [FactSpec; 43] = [
     FactSpec {
         id: "F-wire-medium-c-vs-a",
         kind: FactKind::Percent,
@@ -286,12 +294,233 @@ const FACT_SPECS: [FactSpec; 18] = [
         class: "generated",
         baseline: "n/a",
     },
+    // Run-to-run spread of the signing model ratio. The headline ratio and the
+    // spread are different quantities: the spread is the per-run primitive
+    // model ratio, not a re-run of the headline benchmark.
+    FactSpec {
+        id: "F-sign-spread-median",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/derived/stability/runs/0/median"),
+        unit: "×",
+        class: "derived",
+        baseline: "A",
+    },
+    FactSpec {
+        id: "F-sign-spread-min",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/derived/stability/runs/0/min"),
+        unit: "×",
+        class: "derived",
+        baseline: "A",
+    },
+    FactSpec {
+        id: "F-sign-spread-max",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/derived/stability/runs/0/max"),
+        unit: "×",
+        class: "derived",
+        baseline: "A",
+    },
+    FactSpec {
+        id: "F-sign-spread-runs",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/derived/stability/runs/0/n_runs"),
+        unit: "runs",
+        class: "measured",
+        baseline: "n/a",
+    },
+    // DNS round-trip cells at the 50 ms emulated target. The multiple is the
+    // median divided by the target, so a value near 1 means one round trip.
+    FactSpec {
+        id: "F-dns-rtt-plain-50",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/dns_rtt/cells/8/median_ms"),
+        unit: "ms",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-dns-rtt-condensed-50",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/dns_rtt/cells/9/median_ms"),
+        unit: "ms",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-dns-rtt-samples",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/dns_rtt/min_samples_per_cell"),
+        unit: "samples",
+        class: "constant",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-dns-rtt-target",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/dns_rtt/cells/8/delay_ms"),
+        unit: "ms",
+        class: "constant",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-dns-rtt-multiple-plain-50",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/dns_rtt/cells/8/median_rtt_multiple"),
+        unit: "×",
+        class: "measured",
+        baseline: "A",
+    },
+    FactSpec {
+        id: "F-dns-rtt-multiple-condensed-50",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/dns_rtt/cells/9/median_rtt_multiple"),
+        unit: "×",
+        class: "measured",
+        baseline: "C",
+    },
+    // Ladder cache: what the resolver holds after the first pass, against the
+    // closed-form estimate, and the size of the signed ladder itself.
+    FactSpec {
+        id: "F-ladder-cache-measured",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/cache_use/ladder_analytical/0/measured_bytes"),
+        unit: "B",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-ladder-cache-analytical",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/cache_use/ladder_analytical/0/analytical_bytes"),
+        unit: "B",
+        class: "analytical",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-ladder-cache-ratio",
+        kind: FactKind::Ratio,
+        value: FactValue::Pointer("/cache_use/ladder_analytical/0/measured_over_analytical"),
+        unit: "×",
+        class: "derived",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-ladder-signed-medium",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/cache_use/ladder_analytical/0/signed_ladder_bytes"),
+        unit: "B",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-ladder-signed-small",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/cache_use/ladder_analytical/1/signed_ladder_bytes"),
+        unit: "B",
+        class: "measured",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-breakeven-bytes",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/derived/reuse/1/breakeven_reuse_bytes"),
+        unit: "×",
+        class: "derived",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-breakeven-signing",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/derived/reuse/1/breakeven_reuse_time"),
+        unit: "×",
+        class: "derived",
+        baseline: "n/a",
+    },
+    // Mean bytes one message carries in each configuration. A is a recorded
+    // signature length; B and C are totals divided by the message count.
+    FactSpec {
+        id: "F-message-bytes-a",
+        kind: FactKind::Count,
+        value: FactValue::Pointer("/wire_size/1/plain_signature_len_bytes"),
+        unit: "B",
+        class: "measured",
+        baseline: "A",
+    },
+    FactSpec {
+        id: "F-message-bytes-b",
+        kind: FactKind::Count,
+        value: FactValue::Quotient {
+            numerator: "/wire_size/1/without_mtl_total_bytes",
+            denominator: "/wire_size/1/message_count",
+            decimals: 1,
+        },
+        unit: "B",
+        class: "derived",
+        baseline: "B",
+    },
+    FactSpec {
+        id: "F-message-bytes-c",
+        kind: FactKind::Count,
+        value: FactValue::Quotient {
+            numerator: "/wire_size/1/with_mtl_total_bytes",
+            denominator: "/wire_size/1/message_count",
+            decimals: 1,
+        },
+        unit: "B",
+        class: "derived",
+        baseline: "C",
+    },
+    // Claims by recorded class. These are properties of the registry, counted
+    // when the claims document is built, not fields of the results artifact.
+    FactSpec {
+        id: "F-claims-measured",
+        kind: FactKind::Count,
+        value: FactValue::ClaimsClass("measured"),
+        unit: "claims",
+        class: "generated",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-claims-derived",
+        kind: FactKind::Count,
+        value: FactValue::ClaimsClass("derived"),
+        unit: "claims",
+        class: "generated",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-claims-analytical",
+        kind: FactKind::Count,
+        value: FactValue::ClaimsClass("analytical"),
+        unit: "claims",
+        class: "generated",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-claims-extrapolated",
+        kind: FactKind::Count,
+        value: FactValue::ClaimsClass("extrapolated"),
+        unit: "claims",
+        class: "generated",
+        baseline: "n/a",
+    },
+    FactSpec {
+        id: "F-claims-generated",
+        kind: FactKind::Count,
+        value: FactValue::ClaimsClass("generated"),
+        unit: "claims",
+        class: "generated",
+        baseline: "n/a",
+    },
 ];
 
 /// Where a fact value came from, for the `source` field.
 fn fact_source(value: &FactValue) -> &'static str {
     match value {
-        FactValue::ClaimsCount => "docs/sample-output/climb-results.json (claims registry)",
+        FactValue::ClaimsCount | FactValue::ClaimsClass(_) => {
+            "docs/sample-output/climb-results.json (claims registry)"
+        }
         FactValue::Ladder { .. } => DEFAULT_LADDER,
         FactValue::Constant { .. } => "crates/climb-analytical/src/udp_fit.rs",
         _ => DEFAULT_RESULTS,
@@ -314,6 +543,51 @@ pub fn format_count(value: f64) -> String {
 #[must_use]
 pub fn format_ratio(value: f64) -> String {
     crate::numbers::fmt_ratio(value)
+}
+
+/// Format a value with a fixed number of decimals and a grouped integer part.
+#[must_use]
+pub fn format_decimal(value: f64, decimals: usize) -> String {
+    if !value.is_finite() {
+        return "\u{2014}".to_string();
+    }
+    let text = format!("{value:.decimals$}");
+    let negative = text.starts_with('-');
+    let rest = text.strip_prefix('-').unwrap_or(&text);
+    let (integer, fraction) = match rest.split_once('.') {
+        Some((integer, fraction)) => (integer, Some(fraction)),
+        None => (rest, None),
+    };
+    let digits = integer.trim_start_matches('0');
+    let digits = if digits.is_empty() { "0" } else { digits };
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, character) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(character);
+    }
+    if negative {
+        grouped.insert(0, '-');
+    }
+    match fraction {
+        Some(fraction) => format!("{grouped}.{fraction}"),
+        None => grouped,
+    }
+}
+
+/// Count the claims document's rows by their recorded evidence class.
+#[must_use]
+pub fn claims_class_counts(claims: &Value) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    if let Some(rows) = claims.get("claims").and_then(Value::as_array) {
+        for row in rows {
+            if let Some(class) = row.get("class").and_then(Value::as_str) {
+                *counts.entry(class.to_string()).or_insert(0) += 1;
+            }
+        }
+    }
+    counts
 }
 
 /// Prefix an extrapolated value with the approximation mark.
@@ -556,6 +830,7 @@ pub fn build_facts(
     quote_sheet: Option<&str>,
     claims_passed: usize,
     claims_total: usize,
+    claims_by_class: &BTreeMap<String, usize>,
 ) -> Result<Value, ReportError> {
     let rows = quote_sheet.map(parse_quote_sheet).unwrap_or_default();
     let mut facts = Vec::new();
@@ -621,6 +896,32 @@ pub fn build_facts(
                 "html::claims".to_string(),
                 fact_source(&spec.value),
             ),
+            FactValue::Quotient {
+                numerator,
+                denominator,
+                ..
+            } => {
+                let top = number_at(results, numerator)?;
+                let bottom = number_at(results, denominator)?;
+                if bottom == 0.0 {
+                    return Err(malformed(
+                        Path::new(DEFAULT_RESULTS),
+                        format!("{} divides by zero at {denominator}", spec.id),
+                    ));
+                }
+                (
+                    json!(top / bottom),
+                    None,
+                    format!("quotient::{numerator}::{denominator}"),
+                    fact_source(&spec.value),
+                )
+            }
+            FactValue::ClaimsClass(class) => (
+                json!(claims_by_class.get(*class).copied().unwrap_or(0)),
+                None,
+                format!("html::claims::class={class}"),
+                fact_source(&spec.value),
+            ),
         };
 
         let mut unit = spec.unit.to_string();
@@ -668,7 +969,10 @@ pub fn build_facts(
         let display = match spec.kind {
             FactKind::Ratio => raw_number.map(format_ratio),
             FactKind::Percent => raw_number.map(format_percent),
-            FactKind::Count => raw_number.map(format_count),
+            FactKind::Count => raw_number.map(|value| match &spec.value {
+                FactValue::Quotient { decimals, .. } => format_decimal(value, *decimals),
+                _ => format_count(value),
+            }),
             FactKind::Text => raw.as_str().map(str::to_string),
             FactKind::CountOf => match (raw_number, denominator) {
                 (Some(fit), Some(total)) => {
@@ -684,6 +988,10 @@ pub fn build_facts(
             )
         })?;
         let display = with_approximation(&class, display);
+        let decimals = match &spec.value {
+            FactValue::Quotient { decimals, .. } => Some(*decimals),
+            _ => None,
+        };
 
         facts.push(json!({
             "id": spec.id,
@@ -696,6 +1004,7 @@ pub fn build_facts(
             "kind": spec.kind.as_str(),
             "raw": raw,
             "denominator": denominator,
+            "decimals": decimals,
         }));
     }
 
@@ -1438,10 +1747,18 @@ pub fn render(root: &Path) -> Result<Vec<(String, String)>, ReportError> {
         .and_then(Value::as_u64)
         .unwrap_or(0) as usize;
     let total = claims_doc.get("total").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let claims_by_class = claims_class_counts(&claims_doc);
 
     let ladder_path = root.join(DEFAULT_LADDER);
     let ladder_raw = read_json(&ladder_path)?;
-    let facts = build_facts(&results, &ladder_raw, quote_sheet.as_deref(), passed, total)?;
+    let facts = build_facts(
+        &results,
+        &ladder_raw,
+        quote_sheet.as_deref(),
+        passed,
+        total,
+        &claims_by_class,
+    )?;
     let provenance_text =
         read_text(&root.join(DEFAULT_PROVENANCE))?.ok_or_else(|| ReportError::Io {
             path: root.join(DEFAULT_PROVENANCE),
@@ -1610,7 +1927,7 @@ mod tests {
         ids.sort_unstable();
         ids.dedup();
         assert_eq!(ids.len(), FACT_SPECS.len());
-        assert_eq!(ids.len(), 18);
+        assert_eq!(ids.len(), 43);
     }
 
     #[test]
@@ -1618,7 +1935,15 @@ mod tests {
         let results = results();
         let ladder = fixture_value();
         let quote = read_text(&root().join(DEFAULT_QUOTE_SHEET)).expect("quote sheet read");
-        let facts = build_facts(&results, &ladder, quote.as_deref(), 852, 852).expect("facts");
+        let facts = build_facts(
+            &results,
+            &ladder,
+            quote.as_deref(),
+            852,
+            852,
+            &BTreeMap::new(),
+        )
+        .expect("facts");
         let find = |id: &str| -> &Value {
             facts
                 .get("facts")
@@ -1693,13 +2018,153 @@ mod tests {
                 .and_then(Value::as_str),
             Some("852 of 852")
         );
+        // The DNS cells, the ladder cache, the break-even crossing and the
+        // per-message means the new sections print.
+        assert_eq!(
+            find("F-dns-rtt-plain-50")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("201.1")
+        );
+        assert_eq!(
+            find("F-dns-rtt-condensed-50")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("50.48")
+        );
+        assert_eq!(
+            find("F-dns-rtt-multiple-plain-50")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("4.021")
+        );
+        assert_eq!(
+            find("F-dns-rtt-multiple-condensed-50")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("1.01")
+        );
+        assert_eq!(
+            find("F-ladder-cache-measured")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("16,912")
+        );
+        assert_eq!(
+            find("F-ladder-cache-analytical")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("8,120")
+        );
+        assert_eq!(
+            find("F-ladder-cache-ratio")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("2.083")
+        );
+        assert_eq!(
+            find("F-ladder-signed-small")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("8,056")
+        );
+        assert_eq!(
+            find("F-breakeven-signing")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("2")
+        );
+        assert_eq!(
+            find("F-message-bytes-a")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("7,856")
+        );
+        assert_eq!(
+            find("F-message-bytes-b")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("8,329.5")
+        );
+        assert_eq!(
+            find("F-message-bytes-c")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("274.3")
+        );
+        assert_eq!(
+            find("F-sign-spread-median")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("9,407")
+        );
+        assert_eq!(
+            find("F-sign-spread-min")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("9,394")
+        );
+        assert_eq!(
+            find("F-sign-spread-max")
+                .get("display")
+                .and_then(Value::as_str),
+            Some("9,419")
+        );
+    }
+
+    #[test]
+    fn claims_class_counts_match_the_claims_document() {
+        let documents = render(&root()).expect("render");
+        let document = |name: &str| -> Value {
+            let text = documents
+                .iter()
+                .find(|(file, _)| file == name)
+                .map(|(_, text)| text)
+                .expect("document present");
+            serde_json::from_str(text).expect("document parses")
+        };
+        let facts = document("facts.json");
+        let claims = document("claims.json");
+        let expected = claims_class_counts(&claims);
+        for (class, id) in [
+            ("measured", "F-claims-measured"),
+            ("derived", "F-claims-derived"),
+            ("analytical", "F-claims-analytical"),
+            ("extrapolated", "F-claims-extrapolated"),
+            ("generated", "F-claims-generated"),
+        ] {
+            let row = facts
+                .get("facts")
+                .and_then(Value::as_array)
+                .and_then(|rows| {
+                    rows.iter()
+                        .find(|row| row.get("id").and_then(Value::as_str) == Some(id))
+                })
+                .expect("claims class fact present");
+            let count = expected.get(class).copied().unwrap_or(0);
+            assert_eq!(row.get("raw").and_then(Value::as_u64), Some(count as u64));
+            let display = format_count(count as f64);
+            assert_eq!(
+                row.get("display").and_then(Value::as_str),
+                Some(display.as_str())
+            );
+        }
+    }
+
+    #[test]
+    fn fixed_decimals_group_the_integer_part() {
+        assert_eq!(format_decimal(8329.5296, 1), "8,329.5");
+        assert_eq!(format_decimal(274.3352, 1), "274.3");
+        assert_eq!(format_decimal(0.0, 1), "0.0");
+        assert_eq!(format_decimal(-1234.5, 2), "-1,234.50");
     }
 
     #[test]
     fn hero_byte_facts_point_at_the_eight_leaf_recorded_row() {
         let results = results();
         let ladder = fixture_value();
-        let facts = build_facts(&results, &ladder, None, 852, 852).expect("facts");
+        let facts =
+            build_facts(&results, &ladder, None, 852, 852, &BTreeMap::new()).expect("facts");
         let rows = facts
             .get("facts")
             .and_then(Value::as_array)

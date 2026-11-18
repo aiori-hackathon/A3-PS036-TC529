@@ -1,0 +1,261 @@
+{
+  "branches": [
+    {
+      "title": "Signing performance",
+      "card": "Criterion timings of SLH-DSA signing, with and without MTL.",
+      "command": "cargo xtask bench-all",
+      "leaves": [
+        {
+          "title": "SLH-DSA signing",
+          "class": "m",
+          "baseline": "A, B, C",
+          "facts": [],
+          "claimGroup": "signing-timing",
+          "text": "Criterion benchmark groups time signing for plain SLH-DSA (A) and MTL with and without amortisation (B, C).",
+          "command": "cargo xtask bench-all",
+          "verify": "/verify"
+        },
+        {
+          "title": "Batch speed-up",
+          "class": "d",
+          "baseline": "A",
+          "facts": [
+            "F-sign-medium-c-vs-a",
+            "F-sign-spread-median",
+            "F-sign-spread-min",
+            "F-sign-spread-max",
+            "F-sign-spread-runs"
+          ],
+          "claimGroup": null,
+          "text": "Medium dataset, C vs A: {{F-sign-medium-c-vs-a}}\u00d7. Across {{F-sign-spread-runs}} stability runs the median is {{F-sign-spread-median}}\u00d7 ({{F-sign-spread-min}}\u2013{{F-sign-spread-max}}\u00d7). Per-message cost multiplied by message count, not a whole-batch run.",
+          "command": "cargo xtask deck-facts",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Verification performance",
+      "card": "Per-message verification, including a trusted cached ladder.",
+      "command": "cargo xtask bench-all",
+      "leaves": [
+        {
+          "title": "Per-message verify",
+          "class": "m",
+          "baseline": "A, B, C",
+          "facts": [],
+          "claimGroup": "verify-timing",
+          "text": "Verification cost per message under each configuration.",
+          "command": "cargo xtask bench-all",
+          "verify": "/verify"
+        },
+        {
+          "title": "Trusted cached ladder",
+          "class": "d",
+          "baseline": "A",
+          "facts": ["F-verify-medium-c-vs-a"],
+          "claimGroup": null,
+          "text": "With a verifier that trusts an already-checked ladder, C vs A is {{F-verify-medium-c-vs-a}}\u00d7.",
+          "command": "cargo xtask deck-facts",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Wire efficiency",
+      "card": "Wire-size and DNS packet analysis plus an analytical UDP-fit model.",
+      "command": "cargo xtask wire-report",
+      "leaves": [
+        {
+          "title": "Wire bytes, Medium",
+          "class": "m",
+          "baseline": "A, B, C",
+          "facts": ["F-wire-medium-a", "F-wire-medium-b", "F-wire-medium-c"],
+          "claimGroup": null,
+          "text": "A: {{F-wire-medium-a}} B. B: {{F-wire-medium-b}} B. C: {{F-wire-medium-c}} B.",
+          "command": "cargo xtask wire-report",
+          "verify": "/verify"
+        },
+        {
+          "title": "Wire reduction",
+          "class": "d",
+          "baseline": "A and B",
+          "facts": ["F-wire-medium-c-vs-a", "F-wire-medium-c-vs-b"],
+          "claimGroup": null,
+          "text": "C vs A is {{F-wire-medium-c-vs-a}}%, computed from the measured bytes. C vs B is {{F-wire-medium-c-vs-b}}%.",
+          "command": "cargo xtask wire-report",
+          "verify": "/verify"
+        },
+        {
+          "title": "UDP payload fit",
+          "class": "a",
+          "baseline": "C",
+          "facts": ["F-udp-c-fit", "F-udp-c-total", "F-udp-payload"],
+          "claimGroup": null,
+          "text": "A closed-form model in climb-analytical. In configuration C, {{F-udp-c-fit}} modelled response profiles fit the {{F-udp-payload}}-byte payload.",
+          "command": "cargo xtask wire-report",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Memory and cache use",
+      "card": "Answer cache and ladder cache, measured against the analytical model.",
+      "command": "cargo xtask memory-report",
+      "leaves": [
+        {
+          "title": "Memory probe",
+          "class": "m",
+          "baseline": "n/a",
+          "facts": [],
+          "claimGroup": "memory-probe",
+          "text": "Memory probes in climb-bench record real usage.",
+          "command": "cargo xtask memory-report",
+          "verify": "/verify"
+        },
+        {
+          "title": "Measured against model",
+          "class": "d",
+          "baseline": "B",
+          "facts": ["F-mem-small-ratio"],
+          "claimGroup": null,
+          "text": "Small dataset: measured memory is {{F-mem-small-ratio}}\u00d7 the analytical estimate.",
+          "command": "cargo xtask memory-report",
+          "verify": "/verify"
+        },
+        {
+          "title": "Ladder cache",
+          "class": "d",
+          "baseline": "measured and analytical",
+          "facts": ["F-ladder-cache-measured", "F-ladder-cache-analytical", "F-ladder-cache-ratio"],
+          "claimGroup": null,
+          "text": "After the first pass the resolver holds {{F-ladder-cache-measured}} B against an analytical {{F-ladder-cache-analytical}} B, a ratio of {{F-ladder-cache-ratio}}\u00d7.",
+          "command": "cargo xtask memory-report",
+          "verify": "/verify"
+        },
+        {
+          "title": "Signed ladder size",
+          "class": "m",
+          "baseline": "n/a",
+          "facts": ["F-ladder-signed-medium", "F-ladder-signed-small"],
+          "claimGroup": null,
+          "text": "The signed ladder is {{F-ladder-signed-medium}} B for the Medium batch and {{F-ladder-signed-small}} B for the Small batch.",
+          "command": "cargo xtask memory-report",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Network latency",
+      "card": "Round-trip counts from the emulated-RTT sweep on the local bridge.",
+      "command": "cargo xtask dns-demo",
+      "leaves": [
+        {
+          "title": "NSD at an emulated 50 ms",
+          "class": "m",
+          "baseline": "A and C",
+          "facts": [
+            "F-dns-rtt-multiple-condensed-50",
+            "F-dns-rtt-multiple-plain-50",
+            "F-dns-rtt-plain-50",
+            "F-dns-rtt-condensed-50",
+            "F-dns-rtt-samples"
+          ],
+          "claimGroup": null,
+          "text": "NSD answers the condensed response in {{F-dns-rtt-multiple-condensed-50}}\u00d7 the emulated RTT ({{F-dns-rtt-condensed-50}} ms) against {{F-dns-rtt-multiple-plain-50}}\u00d7 for the full response ({{F-dns-rtt-plain-50}} ms), over {{F-dns-rtt-samples}} samples per cell. Emulated RTT, local bridge, not Internet latency.",
+          "command": "cargo xtask dns-demo",
+          "verify": "/verify"
+        },
+        {
+          "title": "Reference Unbound",
+          "class": "n",
+          "baseline": "n/a",
+          "facts": [],
+          "claimGroup": "unbound-full",
+          "text": "The reference Unbound build serves full responses in both modes, so its multiple is not a condensed win.",
+          "command": "cargo xtask dns-demo",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Break-even sweep",
+      "card": "The reuse count where C's bytes and time cross A's.",
+      "command": "cargo xtask deck-facts",
+      "leaves": [
+        {
+          "title": "Break-even reuse",
+          "class": "d",
+          "baseline": "A",
+          "facts": ["F-breakeven-bytes", "F-breakeven-signing"],
+          "claimGroup": null,
+          "text": "For the Medium dataset, C's bytes and time cross A at {{F-breakeven-bytes}} reuses (bytes) and {{F-breakeven-signing}} reuses (time).",
+          "command": "cargo xtask deck-facts",
+          "verify": "/verify"
+        },
+        {
+          "title": "Sweep shape",
+          "class": "d",
+          "baseline": "A",
+          "facts": [],
+          "claimGroup": "reuse-sweep",
+          "text": "The sweep covers reuse counts from one to the batch size; the recorded curve is in the results artifact.",
+          "command": "cargo xtask deck-facts",
+          "verify": "/verify"
+        }
+      ]
+    },
+    {
+      "title": "Integrity and provenance",
+      "card": "Claims registry, drift checks and a checksummed release bundle.",
+      "command": "cargo xtask report --check",
+      "leaves": [
+        {
+          "title": "Claims registry",
+          "class": "n",
+          "baseline": "n/a",
+          "facts": ["F-claims-count"],
+          "claimGroup": "claims-registry",
+          "text": "Every claim embeds a JSON pointer into the results, its expected value and a pass or fail mark. {{F-claims-count}} pass.",
+          "command": "cargo xtask report --check",
+          "verify": "/verify"
+        },
+        {
+          "title": "Claims by class",
+          "class": "n",
+          "baseline": "n/a",
+          "facts": [
+            "F-claims-measured",
+            "F-claims-derived",
+            "F-claims-analytical",
+            "F-claims-extrapolated",
+            "F-claims-generated"
+          ],
+          "claimGroup": "claims-classes",
+          "text": "Measured {{F-claims-measured}}, derived {{F-claims-derived}}, analytical {{F-claims-analytical}}, extrapolated {{F-claims-extrapolated}} and generated {{F-claims-generated}} claims.",
+          "command": "cargo xtask report --check",
+          "verify": "/verify"
+        },
+        {
+          "title": "Docs drift check",
+          "class": "n",
+          "baseline": "n/a",
+          "facts": [],
+          "claimGroup": "docs-drift",
+          "text": "Fails if any number in the README or the docs is not in the quote sheet.",
+          "command": "cargo xtask docs-check",
+          "verify": "/verify"
+        },
+        {
+          "title": "Release bundle",
+          "class": "n",
+          "baseline": "n/a",
+          "facts": [],
+          "claimGroup": "release-bundle",
+          "text": "Report, results, fixtures, SHA256SUMS and a PROVENANCE.txt naming the commit.",
+          "command": "cargo xtask package",
+          "verify": "/verify"
+        }
+      ]
+    }
+  ]
+}

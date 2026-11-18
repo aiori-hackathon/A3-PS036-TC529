@@ -20,12 +20,16 @@ if(!document.getElementById('gc'))return;
 var DATA=JSON.parse(document.getElementById('climb-data').textContent),EV=DATA.evidence,T=DATA.explorer;
 var lad=$('#lad'),sv=$('#sv'),cp=$('#cp'),lv=$('#lv'),dt=$('#dt'),rt=$('#rt'),NS='http://www.w3.org/2000/svg',ac=0,al=0,hc=-1,hl=-1,rev=0,pc=[],pl=[],ps2=[];
 function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;')}
-T.forEach(function(c,i){var b=document.createElement('button');b.className='c';b.style.setProperty('--i',i);b.innerHTML='<span>'+c[0]+'</span><b>'+c[1].length+'</b>';
+function move(list,active,key){var n=null,last=list.length;if(key=='ArrowDown'||key=='ArrowRight')n=(active+1)%last;if(key=='ArrowUp'||key=='ArrowLeft')n=(active+last-1)%last;if(key=='Home')n=0;if(key=='End')n=last-1;return n}
+T.forEach(function(c,i){var b=document.createElement('button');b.className='c';b.type='button';b.id='cap-'+i;b.style.setProperty('--i',i);b.innerHTML='<span>'+c.title+'</span><b>'+c.leaves.length+'</b>';b.setAttribute('aria-controls','lv dt');b.setAttribute('aria-pressed',i==ac);b.tabIndex=i==ac?0:-1;
  b.onclick=function(){ac=i;al=0;render(1)};b.onmouseenter=function(){hc=i;hv()};b.onmouseleave=function(){hc=-1;hv()};cp.appendChild(b)});
 function hv(){pc.forEach(function(p,i){p.classList.toggle('hv',i==hc&&i!=ac)});pl.forEach(function(p,j){p.classList.toggle('hv',j==hl&&j!=al)})}
-function render(a){[].forEach.call(cp.children,function(b,i){b.setAttribute('aria-pressed',i==ac)});lv.innerHTML='';hl=-1;
- T[ac][1].forEach(function(l,j){var b=document.createElement('button');b.className='l';b.setAttribute('aria-pressed',j==al);b.innerHTML='<span>'+l[0]+'</span><span class="ev '+l[1]+'">'+EV[l[1]]+'</span>';b.onclick=function(){al=j;render(0)};b.onmouseenter=function(){hl=j;hv()};b.onmouseleave=function(){hl=-1;hv()};lv.appendChild(b)});
- var l=T[ac][1][al];dt.innerHTML='<span class="cr">'+T[ac][0]+'</span><h3>'+l[0]+'</h3><span class="ev '+l[1]+'">'+EV[l[1]]+'</span><p>'+esc(l[2])+'</p><div class="cmd"><code>'+l[3]+'</code><button type="button" data-c="'+l[3]+'">Copy</button></div>';draw(a)}
+function render(a){[].forEach.call(cp.children,function(b,i){b.setAttribute('aria-pressed',i==ac);b.tabIndex=i==ac?0:-1});lv.innerHTML='';hl=-1;
+ T[ac].leaves.forEach(function(l,j){var b=document.createElement('button');b.className='l';b.type='button';b.id='leaf-'+j;b.setAttribute('aria-pressed',j==al);b.setAttribute('aria-controls','dt');b.tabIndex=j==al?0:-1;b.innerHTML='<span>'+esc(l.title)+'</span><span class="ev '+l.class+'">'+(EV[l.class]||'')+'</span>';
+  b.onclick=function(){al=j;render(0)};b.onkeydown=function(e){if(e.key=='Escape'){e.preventDefault();cp.children[ac].focus();return}if(e.key=='Enter'||e.key==' '){e.preventDefault();al=j;render(0);lv.children[j].focus();return}var n=move(T[ac].leaves,j,e.key);if(n===null)return;e.preventDefault();al=n;render(0);lv.children[n].focus()};b.onmouseenter=function(){hl=j;hv()};b.onmouseleave=function(){hl=-1;hv()};lv.appendChild(b)});
+ var l=T[ac].leaves[al],base=l.baseline&&l.baseline!='n/a'?'<p class="base">Baseline '+esc(l.baseline)+' · <a href="'+esc(l.verify)+'">Verify this claim</a></p>':'<p class="base"><a href="'+esc(l.verify)+'">Verify this claim</a></p>';
+ dt.innerHTML='<span class="cr">'+esc(T[ac].title)+'</span><h3>'+esc(l.title)+'</h3><span class="ev '+l.class+'">'+(EV[l.class]||'')+'</span><p>'+esc(l.text)+'</p>'+base+'<div class="cmd"><code>'+esc(l.command)+'</code><button type="button" data-c="'+esc(l.command)+'">Copy</button></div>';draw(a)}
+cp.onkeydown=function(e){var i=[].indexOf.call(cp.children,document.activeElement);if(i<0)return;if(e.key=='Escape'){e.preventDefault();lv.children[al].focus();return}var n=move(T,i,e.key);if(n===null)return;e.preventDefault();ac=n;al=0;render(0);cp.children[n].focus()};
 function st(x1,y1,x2,y2){var m=(x1+x2)/2;return'M'+x1+' '+y1+'C'+m+' '+y1+' '+m+' '+y2+' '+x2+' '+y2}
 var dotRaf=0;function travel(path,dot){cancelAnimationFrame(dotRaf);var L=path.getTotalLength(),t0=0;function step(now){t0=t0||now;var q=path.getPointAtLength(((now-t0)%2600)/2600*L);dot.setAttribute('cx',q.x);dot.setAttribute('cy',q.y);dotRaf=requestAnimationFrame(step)}dotRaf=requestAnimationFrame(step)}
 function draw(a){cancelAnimationFrame(dotRaf);sv.innerHTML='';pc=[];pl=[];ps2=[];if(innerWidth<=900)return;var o=lad.getBoundingClientRect();
@@ -39,14 +43,13 @@ function draw(a){cancelAnimationFrame(dotRaf);sv.innerHTML='';pc=[];pl=[];ps2=[]
  if(!rm&&!lite()){var d=document.createElementNS(NS,'circle');d.setAttribute('r',3.5);d.setAttribute('class','pd');d.setAttribute('data-path',pc[ac].getAttribute('d'));sv.appendChild(d);travel(pc[ac],d)}
  void sv.getBoundingClientRect();if(rev)ps2.forEach(function(p){p.style.strokeDashoffset=0});hv()}
 function revLad(){rev=1;ps2.forEach(function(p){p.style.strokeDashoffset=0})}
-var D=DATA.capabilities,cds=$('#cds');
-D.forEach(function(d,i){var b=document.createElement('button');b.className='cd';b.type='button';b.innerHTML='<span class="k">('+'abcdefg'[i]+')</span><h3>'+T[i][0]+'</h3><p>'+d[0]+'</p><span class="mo">'+d[1]+'</span>';b.onclick=function(){ac=i;al=0;render(1);$('#ladder').scrollIntoView({behavior:rm?'auto':'smooth'})};cds.appendChild(b)});
-cds.insertAdjacentHTML('beforeend','<a class="cd or" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener"><span>All seven capabilities are in the open repository.</span><b>View on GitHub ↗</b></a>');
+var cds=$('#cds');
+[].forEach.call(cds.querySelectorAll('.cd[data-branch]'),function(b){b.onclick=function(){ac=+b.dataset.branch;al=0;render(1);$('#ladder').scrollIntoView({behavior:rm?'auto':'smooth'});cp.children[ac].focus()}});
 render(1);new ResizeObserver(function(){draw()}).observe(lad);
 /* configurations */
 var HW=DATA.configs,tabs=$$('[role=tab]'),bars=$$('.bar');
 function sel(k,f){tabs.forEach(function(t,j){t.setAttribute('aria-selected',j==k);t.tabIndex=j==k?0:-1;bars[j].classList.toggle('on',j==k);$('#'+HW[j][3]).style.display=j!=k?'none':''});$('#ph').textContent=HW[k][0];$('#pp').textContent=HW[k][1];$('#gt').textContent=HW[k][2];if(f)tabs[k].focus()}
-tabs.forEach(function(t,k){t.onclick=function(){sel(k)};t.onkeydown=function(e){if(e.key=='ArrowRight')sel((k+1)%3,1);if(e.key=='ArrowLeft')sel((k+2)%3,1)}});sel(0);
+tabs.forEach(function(t,k){t.onclick=function(){sel(k)};t.onkeydown=function(e){var n=move(tabs,k,e.key);if(n===null)return;e.preventDefault();sel(n,1)}});sel(0);
 /* one reveal: figures count up, bars fill */
 function count(el){var n=+el.dataset.n,d=+el.dataset.d,t0=0,f=function(t){t0=t0||t;var p=Math.min((t-t0)/1400,1);el.textContent=(n*(1-Math.pow(1-p,3))).toLocaleString('en',{minimumFractionDigits:d,maximumFractionDigits:d});if(p<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
 if(!rm){$$('.fill').forEach(function(b){b.style.width=0});$$('[data-n]').forEach(function(e){e.textContent='0'})}

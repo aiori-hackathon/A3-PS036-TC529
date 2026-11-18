@@ -29,6 +29,8 @@ export interface Fact {
   readonly kind: FactKind;
   readonly raw: number | string | null;
   readonly denominator: number | null;
+  /** Fixed decimal places for a generator-computed count, or null. */
+  readonly decimals: number | null;
 }
 
 export class UnknownFactError extends Error {
@@ -104,13 +106,21 @@ export function formatCount(value: number): string {
   return groupIntegerPart(String(Math.round(value)));
 }
 
+/** A count with a fixed number of decimals and a grouped integer part. */
+export function formatDecimal(value: number, decimals: number): string {
+  if (!Number.isFinite(value)) {
+    return '—';
+  }
+  return groupIntegerPart(value.toFixed(decimals));
+}
+
 function approximation(className: FactClass, text: string): string {
   return className === 'extrapolated' ? `≈${text}` : text;
 }
 
 /** Render a fact's value from its raw number using the shared conventions. */
 export function formatFactValue(
-  fact: Pick<Fact, 'kind' | 'raw' | 'denominator' | 'class'>,
+  fact: Pick<Fact, 'kind' | 'raw' | 'denominator' | 'class' | 'decimals'>,
 ): string {
   let text: string;
   switch (fact.kind) {
@@ -121,7 +131,12 @@ export function formatFactValue(
       text = typeof fact.raw === 'number' ? formatPercent(fact.raw) : '—';
       break;
     case 'count':
-      text = typeof fact.raw === 'number' ? formatCount(fact.raw) : '—';
+      text =
+        typeof fact.raw === 'number'
+          ? fact.decimals === null
+            ? formatCount(fact.raw)
+            : formatDecimal(fact.raw, fact.decimals)
+          : '—';
       break;
     case 'count_of':
       text =

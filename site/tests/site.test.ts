@@ -26,6 +26,7 @@ vi.mock('gsap/ScrollTrigger', () => ({
 import {
   UnknownFactError,
   allFacts,
+  formatDecimal,
   formatFactValue,
   formatPercent,
   formatRatio,
@@ -47,6 +48,7 @@ import {
   renderInline,
   scopeSentence,
 } from '../src/lib/limits';
+import { explorer } from '../src/lib/home-data';
 import {
   byteRaceModel,
   condensedWidthPercent,
@@ -219,10 +221,18 @@ describe('facts', () => {
   });
 
   it('formats every registered fact to its generated display value', () => {
-    expect(allFacts()).toHaveLength(18);
+    expect(allFacts()).toHaveLength(43);
     for (const fact of allFacts()) {
+      expect(fact.decimals === null || typeof fact.decimals === 'number', fact.id).toBe(true);
       expect(formatFactValue(fact), fact.id).toBe(fact.display);
     }
+  });
+
+  it('formats a quotient count with its fixed decimals', () => {
+    expect(formatDecimal(8329.5296, 1)).toBe('8,329.5');
+    expect(formatDecimal(274.3352, 1)).toBe('274.3');
+    expect(getFact('F-message-bytes-b').display).toBe('8,329.5');
+    expect(getFact('F-message-bytes-c').display).toBe('274.3');
   });
 
   it('derives the hero byte facts from the recorded eight-leaf ladder tree', () => {
@@ -254,10 +264,22 @@ describe('fact formatter', () => {
 
   it('marks an extrapolated value with the approximation sign', () => {
     expect(
-      formatFactValue({ kind: 'ratio', raw: 992.4, denominator: null, class: 'extrapolated' }),
+      formatFactValue({
+        kind: 'ratio',
+        raw: 992.4,
+        denominator: null,
+        class: 'extrapolated',
+        decimals: null,
+      }),
     ).toBe('≈992.4');
     expect(
-      formatFactValue({ kind: 'ratio', raw: 992.4, denominator: null, class: 'derived' }),
+      formatFactValue({
+        kind: 'ratio',
+        raw: 992.4,
+        denominator: null,
+        class: 'derived',
+        decimals: null,
+      }),
     ).toBe('992.4');
   });
 });
@@ -827,9 +849,11 @@ describe('production build', () => {
     expect(html).toContain('Post-quantum DNSSEC, measured.');
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
     const executable = scripts.filter((tag) => !/type="application\/json"/.test(tag));
-    expect(executable).toHaveLength(1);
-    expect(executable[0]).toContain('src=');
-    expect(executable[0]).toContain('type="module"');
+    expect(executable.length).toBeGreaterThanOrEqual(1);
+    for (const tag of executable) {
+      expect(tag).toContain('src=');
+      expect(tag).toContain('type="module"');
+    }
     // The one non-executable block is the explorer's data, not code.
     expect(scripts.filter((tag) => /type="application\/json"/.test(tag))).toHaveLength(1);
     expect(html).toContain('id="climb-data"');
@@ -848,7 +872,7 @@ describe('production build', () => {
     expect(html).toContain('id="of"');
   });
 
-  it('emits the eight sections, the four result facts, the ladder and the tab switch', () => {
+  it('emits the nine sections, the five result facts, the ladder and the tab switch', () => {
     const html = readFileSync(join(dist, 'index.html'), 'utf8');
     for (const id of [
       'results',
@@ -856,17 +880,19 @@ describe('production build', () => {
       'ladder',
       'how',
       'architecture',
+      'dashboard',
       'transparency',
       'team',
     ]) {
       expect(html).toContain(`id="${id}"`);
     }
-    expect([...html.matchAll(/class="nm"/g)]).toHaveLength(4);
+    expect([...html.matchAll(/class="nm"/g)]).toHaveLength(5);
     for (const id of [
       'F-wire-medium-c-vs-a',
       'F-sign-medium-c-vs-a',
       'F-verify-medium-c-vs-a',
       'F-udp-c-fit',
+      'F-dns-rtt-multiple-condensed-50',
     ]) {
       expect(html).toContain(`data-fact-id="${id}"`);
     }
@@ -875,8 +901,9 @@ describe('production build', () => {
     expect(html).toContain('id="gt"');
     expect(html).toContain('id="dt"');
     expect(html).toContain('id="climb-data"');
+    expect(html).toContain('data-tui-window');
     // The stale prototype values never reach the page.
-    for (const stale of ['9,405', '215.3', '1.90', '771 of 771']) {
+    for (const stale of ['9,405', '215.3', '1.90', '771']) {
       expect(html, stale).not.toContain(stale);
     }
     expect(html).toContain(getFact('F-claims-count').display);
@@ -886,5 +913,61 @@ describe('production build', () => {
     expect(html).toContain(
       scopeSentence(readFileSync(join(siteRoot, '..', 'docs/site/copy.md'), 'utf8')),
     );
+  });
+
+  it('renders every fact slot at its generated display value', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    const used = new Set(
+      [...html.matchAll(/data-fact-id="([^"]+)"/g)].map((match) => match[1] ?? '').filter(Boolean),
+    );
+    expect(used.size).toBeGreaterThan(10);
+    for (const id of used) {
+      const display = getFact(id);
+      // A `count_of` fact is split across two fact slots on the ledger row:
+      // the "11" comes from this fact and the "12" from its denominator.
+      const expected =
+        display.kind === 'count_of' ? display.display.split(' ')[0] : display.display;
+      const escaped = (expected ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(
+        `data-fact-id="${id}"[^>]*>(?:<span class="fact-value"[^>]*>)?${escaped}`,
+      );
+      expect(pattern.test(html), `${id} should render ${expected}`).toBe(true);
+    }
+  });
+
+  it('names every workspace member in the architecture diagram and no other crate', () => {
+    const cargo = readFileSync(join(siteRoot, '..', 'Cargo.toml'), 'utf8');
+    const members = [...cargo.matchAll(/"((?:crates\/)?[a-z0-9-]+)"/g)]
+      .map((match) => match[1] ?? '')
+      .filter((member) => member.startsWith('crates/') || member === 'xtask')
+      .map((member) => member.replace(/^crates\//, ''));
+    expect(members).toHaveLength(9);
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    const diagram = /data-crates="([^"]*)"/.exec(html);
+    expect(diagram).not.toBeNull();
+    const named = (diagram?.[1] ?? '').split(/\s+/).filter(Boolean).sort();
+    expect(named).toEqual([...members].sort());
+    for (const member of members) {
+      expect(html, member).toContain(`>${member}<`);
+    }
+  });
+
+  it('resolves every explorer leaf and leaves no placeholder in the data block', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    expect(html).not.toContain('{{F-');
+    for (const branch of explorer) {
+      expect(branch.leaves.length).toBeGreaterThan(0);
+      for (const leaf of branch.leaves) {
+        expect(leaf.command.length).toBeGreaterThan(0);
+        expect(leaf.verify).toBe('/verify');
+        expect(leaf.baseline.length).toBeGreaterThan(0);
+        expect(leaf.facts.length > 0 || leaf.claimGroup !== null).toBe(true);
+        for (const id of leaf.facts) {
+          expect(() => getFact(id)).not.toThrow();
+        }
+        expect(leaf.text).not.toContain('{{');
+      }
+    }
+    expect(explorer).toHaveLength(7);
   });
 });

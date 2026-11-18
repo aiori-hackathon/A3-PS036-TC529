@@ -262,10 +262,10 @@ describe('the window is wired into the site', () => {
     expect(page).toContain("import commands from '../data/tui-commands.json'");
   });
 
-  it('keeps the embedded window on its own route, not the home page', () => {
-    // The home route is the skin's eight sections; the dashboard window has
-    // its own route (/tui), which the test above covers.
-    expect(home).not.toContain('TuiWindow');
+  it('embeds the idle-loaded window on the home route and keeps the full route', () => {
+    // The home window waits for the reader; the full route above loads on idle.
+    expect(home).toContain('<TuiWindow mode="home" />');
+    expect(home).toContain('id="dashboard"');
     expect(home).toContain('id="ladder"');
   });
 });

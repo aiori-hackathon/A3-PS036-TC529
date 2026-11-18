@@ -2,8 +2,11 @@
 import BaseLayout from '../layouts/BaseLayout.astro';
 import BandCanvas from '../components/BandCanvas.astro';
 import Fact from '../components/Fact.astro';
+import TuiWindow from '../components/TuiWindow.astro';
+import team from '../data/team.json';
 import { getFact } from '../lib/facts';
-import { homeData } from '../lib/home-data';
+import { capabilities, homeData } from '../lib/home-data';
+import { SCOPE_SENTENCE } from '../lib/limits';
 
 const raw = (id: string): number => {
   const value = getFact(id).raw;
@@ -17,6 +20,17 @@ const barC = ((wireC / wireB) * 100).toFixed(1);
 const fit = getFact('F-udp-c-fit');
 const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
 
+const crates = [
+  'climb-mtl-sys',
+  'climb-mtl',
+  'climb-dns',
+  'climb-analytical',
+  'climb-bench',
+  'climb-report',
+  'climb-tui',
+  'climb-web',
+  'xtask',
+];
 ---
 
 <BaseLayout
@@ -41,15 +55,16 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
       <div>
         <h1>Post-quantum DNSSEC, measured.</h1>
         <p class="ld">
-          Measuring how Merkle Tree Ladder amortisation changes the performance and wire
-          efficiency of post-quantum DNSSEC signing with SLH-DSA.
+          Measuring how Merkle Tree Ladder amortisation changes the performance and wire efficiency
+          of post-quantum DNSSEC signing with SLH-DSA.
         </p>
         <div class="cta">
-          <a class="btn p" href="#results">Explore the benchmark</a>
-          <a
-            class="btn"
-            href="https://github.com/aiori-hackathon/A3-PS036-TC529"
-            rel="noopener">View on GitHub</a>
+          <a class="btn p" href="#results">
+            Explore the benchmark
+          </a>
+          <a class="btn" href="https://github.com/aiori-hackathon/A3-PS036-TC529" rel="noopener">
+            View on GitHub
+          </a>
         </div>
         <p class="mt">
           AIORI-3 Hackathon, problem statement PS-036. Experimental research benchmark.
@@ -63,8 +78,8 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
       <div class="sh">
         <h2>Results</h2>
         <p>
-          Every figure carries its evidence class and baseline. Values come from the
-          repository’s recorded artifacts, Medium dataset.
+          Every figure carries its evidence class and baseline. Values come from the repository’s
+          recorded artifacts, Medium dataset.
         </p>
       </div>
       <ol class="led">
@@ -74,7 +89,8 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
             <Fact id="F-wire-medium-c-vs-a" bare count />%
           </span>
           <p>
-            Wire reduction, C vs A. From measured bytes:&#32;<Fact id="F-wire-medium-c" bare /> B vs <Fact id="F-wire-medium-a" bare /> B.
+            Wire reduction, C vs A. From measured bytes:&#32;
+            <Fact id="F-wire-medium-c" bare /> B vs <Fact id="F-wire-medium-a" bare /> B.
           </p>
         </li>
         <li>
@@ -82,7 +98,12 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
           <span class="nm">
             <Fact id="F-sign-medium-c-vs-a" bare count />×
           </span>
-          <p>Signing speed-up, C vs A. Per-message cost scaled to batch size.</p>
+          <p>
+            Signing speed-up, C vs A. Across <Fact id="F-sign-spread-runs" bare /> stability runs
+            the median is <Fact id="F-sign-spread-median" bare />× (
+            <Fact id="F-sign-spread-min" bare />–<Fact id="F-sign-spread-max" bare />
+            ×). Per-message cost scaled to batch size.
+          </p>
         </li>
         <li>
           <span class="ev d">Derived</span>
@@ -94,10 +115,33 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
         <li>
           <span class="ev a">Analytical</span>
           <span class="nm">
-            <span data-fact-id="F-udp-c-fit" data-fact-class={fit.class} data-n={String(fit.raw)} data-d="0">{fit.display.split(' ')[0]}</span>&#32;of&#32;<Fact id="F-udp-c-total" bare />
+            <span
+              data-fact-id="F-udp-c-fit"
+              data-fact-class={fit.class}
+              data-n={String(fit.raw)}
+              data-d="0"
+            >
+              {fit.display.split(' ')[0]}
+            </span>
+            &#32;of&#32;
+            <Fact id="F-udp-c-total" bare />
           </span>
           <p>
-            Modelled UDP response profiles that fit the&#32;<Fact id="F-udp-payload" bare />-byte payload in configuration C.
+            Modelled UDP response profiles that fit the&#32;
+            <Fact id="F-udp-payload" bare />
+            -byte payload in configuration C.
+          </p>
+        </li>
+        <li>
+          <span class="ev m">Measured</span>
+          <span class="nm">
+            <Fact id="F-dns-rtt-multiple-condensed-50" bare />×
+          </span>
+          <p>
+            NSD round trips at an emulated <Fact id="F-dns-rtt-target" bare /> ms RTT, condensed
+            against <Fact id="F-dns-rtt-multiple-plain-50" bare />× plain. Emulated RTT, local
+            bridge, not Internet latency. The reference Unbound build serves full responses in both
+            modes.
           </p>
         </li>
       </ol>
@@ -105,15 +149,24 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
         <span class="ev m">Measured: recorded directly</span>
         <span class="ev d">Derived: computed from measurements</span>
         <span class="ev a">Analytical: closed-form model</span>
+        <span class="ev x">Extrapolated: unit cost × count</span>
       </div>
       <p class="note">
-        Definitions in <a
+        Definitions in{' '}
+        <a
           href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md"
-          rel="noopener">docs/METHODOLOGY.md</a
-        >. Full table in <a
+          rel="noopener"
+        >
+          docs/METHODOLOGY.md
+        </a>
+        . Full table in{' '}
+        <a
           href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/deck-facts.md"
-          rel="noopener">docs/deck-facts.md</a
-        >.
+          rel="noopener"
+        >
+          docs/deck-facts.md
+        </a>
+        .
       </p>
     </div>
   </section>
@@ -125,11 +178,24 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
       <div class="sh">
         <h2>Capabilities</h2>
         <p>
-          Seven things the benchmark measures, each reproducible from one command. Select a
-          card to open it in the ladder.
+          Seven things the benchmark measures, each reproducible from one command. Select a card to
+          open it in the ladder.
         </p>
       </div>
-      <div class="cds" id="cds"></div>
+      <div class="cds" id="cds">
+        {capabilities.map((capability, index) => (
+          <button class="cd" type="button" data-branch={String(index)}>
+            <span class="k">({String.fromCharCode(97 + index)})</span>
+            <h3>{capability.title}</h3>
+            <p>{capability.card}</p>
+            <span class="mo">{capability.command}</span>
+          </button>
+        ))}
+        <a class="cd or" href="/tui">
+          <span>Open the dashboard</span>
+          <b>Recorded terminal dashboard ↗</b>
+        </a>
+      </div>
     </div>
   </section>
 
@@ -138,16 +204,18 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
       <div class="sh">
         <h2>Explore the ladder</h2>
         <p>
-          Choose a capability to open its branches, then a leaf to see its evidence class and
-          the command that reproduces it.
+          Choose a capability to open its branches, then a leaf to see its evidence class and the
+          command that reproduces it.
         </p>
       </div>
       <div class="lad" id="lad">
         <svg id="sv" aria-hidden="true"></svg>
-        <div class="rt" id="rt">CLIMB<small>ladder</small></div>
+        <div class="rt" id="rt">
+          CLIMB<small>ladder</small>
+        </div>
         <div class="cp" id="cp" role="group" aria-label="Capabilities"></div>
         <div class="lv" id="lv" role="group" aria-label="Branches"></div>
-        <article class="dt" id="dt" aria-live="polite"></article>
+        <article class="dt" id="dt" aria-live="polite" aria-atomic="true"></article>
       </div>
     </div>
   </section>
@@ -164,41 +232,49 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
         </p>
       </div>
       <div class="tb" role="tablist" aria-label="Configurations">
-        <button role="tab" id="t0" aria-selected="true">A · Plain SLH-DSA</button>
-        <button role="tab" id="t1" aria-selected="false" tabindex="-1">
+        <button role="tab" id="t0" aria-selected="true" aria-controls="panel">
+          A · Plain SLH-DSA
+        </button>
+        <button role="tab" id="t1" aria-selected="false" aria-controls="panel" tabindex="-1">
           B · MTL, no amortisation
         </button>
-        <button role="tab" id="t2" aria-selected="false" tabindex="-1">
+        <button role="tab" id="t2" aria-selected="false" aria-controls="panel" tabindex="-1">
           C · MTL amortised
         </button>
       </div>
       <div class="hw">
-        <div role="tabpanel" aria-live="polite">
+        <div role="tabpanel" id="panel" aria-live="polite">
           <h3 id="ph"></h3>
           <p id="pp"></p>
           <div class="bars" id="bars">
-            <p><span class="ev m">Measured</span> Wire bytes, Medium dataset</p>
+            <p>
+              <span class="ev m">Measured</span> Wire bytes, Medium dataset
+            </p>
             <div class="bar">
               <span>A</span>
               <div class="trk">
                 <div class="fill" data-w={barA}></div>
-                <span class="val" style="right:8px"><Fact id="F-wire-medium-a" bare /> B</span>
+                <span class="val" style="right:8px">
+                  <Fact id="F-wire-medium-a" bare /> B
+                </span>
               </div>
             </div>
             <div class="bar">
               <span>B</span>
               <div class="trk">
                 <div class="fill" data-w="100"></div>
-                <span class="val" style="right:8px"><Fact id="F-wire-medium-b" bare /> B</span>
+                <span class="val" style="right:8px">
+                  <Fact id="F-wire-medium-b" bare /> B
+                </span>
               </div>
             </div>
             <div class="bar">
               <span>C</span>
               <div class="trk">
                 <div class="fill" data-w={barC}></div>
-                <span class="val" style={`left:calc(${barC}% + 8px)`}
-                  ><Fact id="F-wire-medium-c" bare /> B</span
-                >
+                <span class="val" style={`left:calc(${barC}% + 8px)`}>
+                  <Fact id="F-wire-medium-c" bare /> B
+                </span>
               </div>
             </div>
           </div>
@@ -217,9 +293,15 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
               <rect x="260" y="96" width="80" height="26"></rect>
             </g>
             <g fill="#a9a398" text-anchor="middle">
-              <text x="60" y="113">message 1</text>
-              <text x="180" y="113">message 2</text>
-              <text x="300" y="113">message 3</text>
+              <text x="60" y="113">
+                message 1
+              </text>
+              <text x="180" y="113">
+                message 2
+              </text>
+              <text x="300" y="113">
+                message 3
+              </text>
             </g>
             <g id="gA" fill="#f2ede4">
               <rect x="20" y="130" width="80" height="48"></rect>
@@ -252,7 +334,8 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
                 d="M60 96V69H300V96M180 69V42"
                 stroke="#ff5400"
                 stroke-width="2"
-                fill="none"></path>
+                fill="none"
+              ></path>
               <g fill="#ff5400">
                 <rect x="20" y="130" width="80" height="12"></rect>
                 <rect x="140" y="130" width="80" height="12"></rect>
@@ -261,10 +344,32 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
             </g>
             <text id="gt" x="180" y="204" text-anchor="middle" fill="#a9a398"></text>
             <rect x="82" y="216" width="8" height="8" fill="#f2ede4"></rect>
-            <text x="96" y="224" fill="#a9a398">signature or ladder</text>
+            <text x="96" y="224" fill="#a9a398">
+              signature or ladder
+            </text>
             <rect x="210" y="216" width="8" height="8" fill="#ff5400"></rect>
-            <text x="224" y="224" fill="#a9a398">condensed path</text>
+            <text x="224" y="224" fill="#a9a398">
+              condensed path
+            </text>
           </svg>
+          <ul class="dg-legend">
+            <li>
+              <span class="ev m">Measured</span> Plain signature{' '}
+              <Fact id="F-message-bytes-a" bare /> B
+            </li>
+            <li>
+              <span class="ev m">Measured</span> Signed ladder{' '}
+              <Fact id="F-ladder-signed-medium" bare /> B
+            </li>
+            <li>
+              <span class="ev m">Measured</span> Condensed path minimum{' '}
+              <Fact id="F-condensed-path-bytes" bare /> B
+            </li>
+            <li>
+              <span class="ev d">Derived</span> Mean per message: B{' '}
+              <Fact id="F-message-bytes-b" bare /> B · C <Fact id="F-message-bytes-c" bare /> B
+            </li>
+          </ul>
         </div>
       </div>
     </div>
@@ -277,51 +382,119 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
       <div class="sh">
         <h2>Architecture</h2>
         <p>
-          A Rust workspace links OpenSSL, liboqs and libMTL, benchmarks with Criterion, and
-          captures live DNS from patched NSD and Unbound in Docker.
+          A Rust workspace links OpenSSL, liboqs and libMTL, benchmarks with Criterion, and captures
+          live DNS from patched NSD and Unbound in Docker.
         </p>
       </div>
       <div class="arch">
         <svg
-          viewBox="0 0 900 250"
+          viewBox="0 0 920 300"
           role="img"
-          aria-label="Native libraries and DNS pipeline feed the Rust workspace, which feeds consolidated results, report, dashboard and quote sheet"
+          aria-label="Pinned OpenSSL, liboqs, libMTL and Docker inputs feed the nine-crate Rust workspace, which produces the results artifact, the report, the TUI dashboard and the site pages"
           font-family="Geist,sans-serif"
-          font-size="13"
+          font-size="12"
           fill="#f2ede4"
+          data-crates={crates.join(' ')}
         >
+          <text x="84" y="20" text-anchor="middle" fill="#a9a398">
+            Pinned inputs
+          </text>
+          <text x="396" y="20" text-anchor="middle" fill="#a9a398">
+            Rust workspace — nine members
+          </text>
+          <text x="820" y="20" text-anchor="middle" fill="#a9a398">
+            Artifacts
+          </text>
           <g fill="#0d0f13" stroke="rgba(242,237,228,.22)">
-            <rect x="10" y="20" width="150" height="40" rx="4"></rect>
-            <rect x="10" y="75" width="150" height="40" rx="4"></rect>
-            <rect x="10" y="130" width="150" height="40" rx="4"></rect>
-            <rect x="10" y="185" width="150" height="40" rx="4"></rect>
-            <rect x="230" y="40" width="170" height="60" rx="4"></rect>
-            <rect x="230" y="130" width="170" height="60" rx="4"></rect>
-            <rect x="470" y="85" width="170" height="70" rx="4" stroke="#ff5400"></rect>
-            <rect x="710" y="30" width="170" height="50" rx="4"></rect>
-            <rect x="710" y="105" width="170" height="50" rx="4"></rect>
-            <rect x="710" y="180" width="170" height="50" rx="4"></rect>
+            <rect x="8" y="40" width="152" height="34" rx="4"></rect>
+            <rect x="8" y="92" width="152" height="34" rx="4"></rect>
+            <rect x="8" y="144" width="152" height="34" rx="4"></rect>
+            <rect x="8" y="196" width="152" height="34" rx="4"></rect>
+            <rect x="230" y="36" width="132" height="38" rx="4"></rect>
+            <rect x="378" y="36" width="132" height="38" rx="4"></rect>
+            <rect x="526" y="36" width="132" height="38" rx="4"></rect>
+            <rect x="230" y="104" width="132" height="38" rx="4"></rect>
+            <rect x="378" y="104" width="132" height="38" rx="4"></rect>
+            <rect x="526" y="104" width="132" height="38" rx="4" stroke="#ff5400"></rect>
+            <rect x="230" y="172" width="132" height="38" rx="4"></rect>
+            <rect x="378" y="172" width="132" height="38" rx="4"></rect>
+            <rect x="526" y="172" width="132" height="38" rx="4"></rect>
+            <rect x="730" y="40" width="180" height="34" rx="4"></rect>
+            <rect x="730" y="92" width="180" height="34" rx="4"></rect>
+            <rect x="730" y="144" width="180" height="34" rx="4"></rect>
+            <rect x="730" y="196" width="180" height="34" rx="4"></rect>
           </g>
           <g stroke="rgba(255,84,0,.6)" stroke-width="1.4" fill="none">
-            <path
-              d="M160 40H195V70H230M160 95H195V70M160 150H195V160H230M160 205H195V160"></path>
-            <path d="M400 70H435V120H470M400 160H435V120"></path>
-            <path d="M640 120H675V55H710M640 120H710M640 120H675V205H710"></path>
+            <path d="M160 57H195V55H230M160 109H195V94H230M160 161H195V132H230M160 213H195V190H230"></path>
+            <path d="M362 55H378"></path>
+            <path d="M658 55H700V57H730M658 123H700V109H730M658 191H700V161H730M596 210V250H700V213H730"></path>
           </g>
           <g text-anchor="middle">
-            <text x="85" y="45">OpenSSL</text>
-            <text x="85" y="100">liboqs</text>
-            <text x="85" y="155">libMTL</text>
-            <text x="85" y="210">Docker build</text>
-            <text x="315" y="66">Rust workspace</text>
-            <text x="315" y="84" fill="#a9a398">Criterion benchmarks</text>
-            <text x="315" y="156">NSD + Unbound</text>
-            <text x="315" y="174" fill="#a9a398">DNS capture</text>
-            <text x="555" y="116">consolidate</text>
-            <text x="555" y="134" fill="#a9a398">climb-results.json</text>
-            <text x="795" y="60">HTML report</text>
-            <text x="795" y="135">TUI dashboard</text>
-            <text x="795" y="210">deck-facts.md</text>
+            <text x="84" y="61">
+              OpenSSL
+            </text>
+            <text x="84" y="113">
+              liboqs
+            </text>
+            <text x="84" y="165">
+              libMTL
+            </text>
+            <text x="84" y="217">
+              Docker build
+            </text>
+            <text x="296" y="59">
+              climb-mtl-sys
+            </text>
+            <text x="444" y="59">
+              climb-mtl
+            </text>
+            <text x="592" y="59">
+              climb-dns
+            </text>
+            <text x="296" y="127">
+              climb-analytical
+            </text>
+            <text x="444" y="127">
+              climb-bench
+            </text>
+            <text x="592" y="127">
+              climb-report
+            </text>
+            <text x="296" y="195">
+              climb-tui
+            </text>
+            <text x="444" y="195">
+              climb-web
+            </text>
+            <text x="592" y="195">
+              xtask
+            </text>
+            <text x="820" y="61">
+              climb-results.json
+            </text>
+            <text x="820" y="113">
+              report.html
+            </text>
+            <text x="820" y="165">
+              TUI dashboard
+            </text>
+            <text x="820" y="217">
+              site pages
+            </text>
+          </g>
+          <g fill="#a9a398" font-size="11">
+            <text x="230" y="88">
+              FFI and safe wrapper
+            </text>
+            <text x="378" y="156">
+              harness and models
+            </text>
+            <text x="378" y="224">
+              dashboards and automation
+            </text>
+            <text x="730" y="250">
+              same artifacts the site reads
+            </text>
           </g>
         </svg>
       </div>
@@ -330,21 +503,36 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
 
   <BandCanvas mode="1" />
 
+  <section id="dashboard">
+    <div class="w">
+      <div class="sh">
+        <h2>Dashboard</h2>
+        <p>
+          The recorded run, rendered in the browser from the committed artifacts. It loads when you
+          reach it and needs no server.
+        </p>
+      </div>
+      <div class="dash">
+        <TuiWindow mode="home" />
+      </div>
+    </div>
+  </section>
+
   <section id="transparency">
     <div class="w">
       <div class="sh">
         <h2>Transparency</h2>
         <p>
-          Nothing on this page is typed in by hand. Each number is read from a recorded artifact
-          and checked against a claims registry.
+          Nothing on this page is typed in by hand. Each number is read from a recorded artifact and
+          checked against a claims registry.
         </p>
       </div>
       <div class="tr">
         <div>
           <h3>Reproducible datasets</h3>
           <p>
-            Deterministic datasets in <Fact id="F-wire-sizes" bare /> sizes and repeated trials.
-            One command, <code>cargo xtask reproduce</code>, rebuilds the artifact chain.
+            Deterministic datasets in <Fact id="F-wire-sizes" bare /> sizes and repeated trials. One
+            command, <code>cargo xtask reproduce</code>, rebuilds the artifact chain.
           </p>
         </div>
         <div>
@@ -357,27 +545,32 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
         <div>
           <h3>Claims registry</h3>
           <p>
-            Each claim stores its JSON pointer, expected value and pass or fail mark. The README
-            badge reports <Fact id="F-claims-count" bare /> verified.
+            Each claim stores its JSON pointer, expected value and pass or fail mark.{' '}
+            <Fact id="F-claims-count" bare /> verified: <Fact id="F-claims-measured" bare />{' '}
+            measured, <Fact id="F-claims-derived" bare /> derived,{' '}
+            <Fact id="F-claims-analytical" bare /> analytical,{' '}
+            <Fact id="F-claims-extrapolated" bare /> extrapolated and{' '}
+            <Fact id="F-claims-generated" bare /> generated.
           </p>
         </div>
       </div>
       <div class="lim">
         <h3>Known experimental limits</h3>
         <p>
-          Results are empirical. No formal security guarantee, proof or certification is claimed
-          for MTL mode, SLH-DSA or any component. They cover one parameter set
-          (<Fact id="F-parameter-set" bare />), one reference implementation and one
-          laptop-class machine. Native SLH-DSA is not SIMD-tuned in the pinned build. This website presents
-          recorded results and a client-side dashboard. The DNSSEC and PQC benchmark itself is not
-          deployed on the Internet; the DNS testbed runs locally.
+          Results are empirical. No formal security guarantee, proof or certification is claimed for
+          MTL mode, SLH-DSA or any component. They cover one parameter set (
+          <Fact id="F-parameter-set" bare />
+          ), one reference implementation and one laptop-class machine. Native SLH-DSA is not
+          SIMD-tuned in the pinned build. {SCOPE_SENTENCE}
         </p>
       </div>
       <a
         class="lk"
         href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md"
-        rel="noopener">Read the methodology ↗</a
+        rel="noopener"
       >
+        Read the methodology ↗
+      </a>
     </div>
   </section>
 
@@ -387,24 +580,21 @@ const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
     <div class="w">
       <div class="sh">
         <h2>Team CLIMB</h2>
-        <p>AIORI-3 Hackathon, problem statement PS-036, team code A3-PS036-TC529.</p>
+        <p>
+          {team.event}, problem statement {team.problem}, team code {team.team}.
+        </p>
       </div>
       <ul class="tm">
-        <li>
-          <h3>Pratyay Mukherjee</h3>
-          <span>Team Lead and Developer</span>
-          <a href="https://github.com/profm0r14rty" rel="noopener">GitHub profile ↗</a>
-        </li>
-        <li>
-          <h3>Mohit Kumar Yadav</h3>
-          <span>Lead Researcher, UI and Logo Designer</span>
-          <a href="https://github.com/Mohh12glitch" rel="noopener">GitHub profile ↗</a>
-        </li>
-        <li>
-          <h3>Dr. Maibam Devi</h3>
-          <span>Faculty Mentor</span>
-          <a href="https://www.nfsu.ac.in/Faculty/profile/664" rel="noopener">NFSU profile ↗</a>
-        </li>
+        {team.members.map((member) => (
+          <li>
+            <h3>{member.name}</h3>
+            <span>{member.role}</span>
+            <a href={member.link.href} rel="noopener">
+              {member.link.label}
+              {member.link.label === 'GitHub' ? ' profile' : ''} ↗
+            </a>
+          </li>
+        ))}
       </ul>
     </div>
   </section>

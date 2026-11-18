@@ -677,7 +677,7 @@ test.describe('animation parity', () => {
 
   test('13 ladder band: three rungs, packets only while visible', async ({ page, browser }) => {
     await open(page);
-    await page.locator('#how').scrollIntoViewIfNeeded();
+    await page.locator('.bd canvas[data-m="1"]').first().scrollIntoViewIfNeeded();
     await page.waitForTimeout(200);
     const ladder = (await pidsForMode(page, '1'))[0] ?? null;
     const before = await totalFills(page, ladder);
@@ -1075,7 +1075,9 @@ test.describe('animation parity', () => {
     }
 
     await page.locator('.arch').scrollIntoViewIfNeeded();
-    await page.waitForTimeout(2000);
+    // The nine packets start on the prototype's staggered offsets; the last
+    // one begins at 2.1 s, so sample after every packet has had time to move.
+    await page.waitForTimeout(2600);
     const arch = await packetPositions(page, '.arch circle');
     expect(arch).toHaveLength(9);
     expect(arch.every((packet) => packet.d !== '')).toBe(true);
@@ -1199,7 +1201,7 @@ test.describe('no JavaScript', () => {
     await page.waitForTimeout(1500);
     await expect(page.locator('html')).not.toHaveClass(/\bjs\b/);
     await expect(page.locator('h1')).toHaveText('Post-quantum DNSSEC, measured.');
-    await expect(page.locator('#results li')).toHaveCount(4);
+    await expect(page.locator('#results li')).toHaveCount(5);
     const hidden = await page.locator('body *').evaluateAll((els: Element[]) =>
       els.filter((el) => {
         const style = getComputedStyle(el);
@@ -1214,6 +1216,7 @@ test.describe('no JavaScript', () => {
 
 test.describe('home audit', () => {
   test('has no axe violations', async ({ page }) => {
+    test.setTimeout(60_000);
     if (PROTOTYPE) test.skip(true, 'the prototype is a design file, not an audited page');
     const external = await page.context().browser()!.newContext({ bypassCSP: true });
     const audited = await external.newPage();

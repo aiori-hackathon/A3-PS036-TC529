@@ -89,11 +89,6 @@ const full = mode === 'page';
       </div>
 
       <noscript>
-        <style>
-          [data-tui-overlay] > :not(noscript) {
-            display: none;
-          }
-        </style>
         <p class="tui-window__paused-line">
           This window needs JavaScript. The terminal dashboard runs without it: see “Run it locally”.
         </p>
@@ -298,9 +293,14 @@ const full = mode === 'page';
     }
 
     // The home window is an invitation, not an ambush: it never downloads the
-    // module while the reader is still in the hero, and a data-saving reader
-    // gets the button instead.
-    if (saveData || window.matchMedia('(prefers-reduced-data: reduce)').matches) {
+    // module while the reader is still in the hero, and a data-saving or
+    // reduced-motion reader gets the button instead. The dashboard redraws on
+    // its own loop, so it is atmosphere for the purposes of that preference.
+    if (
+      saveData ||
+      window.matchMedia('(prefers-reduced-data: reduce)').matches ||
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ) {
       continue;
     }
     onIdle(() => {

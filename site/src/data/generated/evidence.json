@@ -36,7 +36,7 @@
       "sha256": "a5f542682600361df98e28ea10a158587f5723718bb19bed3c84c7ac4ce0e45e"
     }
   ],
-  "content_sha256": "6534fe07232514278c7871fadd09f262ad98c35144942d1eeda5b02aaf2270bd",
+  "content_sha256": "c54e8bfa8a6f32805f63b809901695ee536273a94770989d22eb88e697337861",
   "published_base": "/evidence",
   "report": {
     "available": true,
@@ -56,9 +56,9 @@
   "schema_version": 1,
   "site_documents": [
     {
-      "bytes": 6115,
+      "bytes": 15586,
       "file": "facts.json",
-      "sha256": "2a9cd92572e0c95b96d84017ee1a6db63504ca2c4f8a0c090ca0570c660a7af1"
+      "sha256": "4d229f272d4febf6c9252035f938b2e0965ae22157bc831f7bf95879412404f9"
     },
     {
       "bytes": 196084,
@@ -81,9 +81,9 @@
       "sha256": "8c10b7123c93e8bbfe7394b2621543461202735bd2b694b64a686dfb8c2c10e7"
     },
     {
-      "bytes": 10454,
+      "bytes": 10455,
       "file": "commits.json",
-      "sha256": "f66356f7471e0c578776e37afc5cddeff83df675c50fdfce9da7e2d557f3b2bb"
+      "sha256": "65dceacb781f2804f01170e8e8a89b1179168e6c0e417aba22cf8b98b65c8b85"
     }
   ],
   "source": "docs/sample-output",
