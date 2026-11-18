@@ -6,8 +6,10 @@
 /* climb-main.js — verbatim from prototype (docs/site/prototype/climb-site.html).
    Logic, constants and order are unchanged. The only edits are the data
    hand-off (T, the configuration captions and the card copy arrive in a JSON
-   block), a guard for the shared layout, and the removal of SMIL: the ladder
-   dot is now placed on its path by requestAnimationFrame. */
+   block), a guard for the shared layout, and the replacement of SMIL: the
+   diagram, architecture and ladder packets are placed on their own paths by
+   requestAnimationFrame, so reduced motion and lite mode can stop them. */
+import { lite } from '../lib/lite';
 
 (function(){document.documentElement.classList.add('js');var bst=1;
 var rm=matchMedia('(prefers-reduced-motion: reduce)').matches,$=function(s){return document.querySelector(s)},$$=function(s){return[].slice.call(document.querySelectorAll(s))};
@@ -34,7 +36,7 @@ function draw(a){cancelAnimationFrame(dotRaf);sv.innerHTML='';pc=[];pl=[];ps2=[]
  var r=pt(rt,1);[].forEach.call(cp.children,function(b,i){pc.push(add(r,pt(b,0),i==ac,0,i*.08))});
  var c=pt(cp.children[ac],1);[].forEach.call(lv.children,function(b,j){pl.push(add(c,pt(b,0),j==al,a,.1+j*.1))});
  add(pt(lv.children[al],1),pt(dt,0),1,a,.4);
- if(!rm){var d=document.createElementNS(NS,'circle');d.setAttribute('r',3.5);d.setAttribute('class','pd');d.setAttribute('data-path',pc[ac].getAttribute('d'));sv.appendChild(d);travel(pc[ac],d)}
+ if(!rm&&!lite()){var d=document.createElementNS(NS,'circle');d.setAttribute('r',3.5);d.setAttribute('class','pd');d.setAttribute('data-path',pc[ac].getAttribute('d'));sv.appendChild(d);travel(pc[ac],d)}
  void sv.getBoundingClientRect();if(rev)ps2.forEach(function(p){p.style.strokeDashoffset=0});hv()}
 function revLad(){rev=1;ps2.forEach(function(p){p.style.strokeDashoffset=0})}
 var D=DATA.capabilities,cds=$('#cds');
@@ -102,6 +104,32 @@ function fl(){var y=scrollY;sv2+=((y-sy)-sv2)*.12;sy=y;bst=1+Math.min(Math.abs(s
  fp.forEach(function(p){p.y-=p.z*(.18+sv2*.35);if(p.y<-6)p.y=FH+6;if(p.y>FH+6)p.y=-6;var s=p.o?1.6:1;f.fillStyle=p.o?'rgba(254,127,0,'+p.a+')':'rgba(242,237,228,'+p.a+')';f.fillRect(p.x,p.y,s,s+Math.abs(sv2)*p.z*.6)});
  bu=bu.filter(function(b){return b.l>0});bu.forEach(function(b){b.x+=b.vx;b.y+=b.vy;b.vy-=.02;b.vx*=.98;b.l-=.012;f.fillStyle='rgba('+b.c+','+(b.l*.8).toFixed(2)+')';f.fillRect(b.x,b.y,b.s,b.s)});requestAnimationFrame(fl)}
 if(!rm)fl();
+
+/* diagram and architecture packets: the prototype's SMIL motion, placed by
+   script along the same paths. One loop drives both sets; a set advances only
+   while its drawing is on screen, nothing runs while the tab is hidden, and
+   leaving the page removes every circle this created. */
+var pk=[],pkSets=[],pkRaf=0,pkLast=0,pkHelp=0,pkIO=0;
+function pkGeometry(d){if(!pkHelp){pkHelp=document.createElementNS(NS,'svg');pkHelp.setAttribute('width',0);pkHelp.setAttribute('height',0);pkHelp.setAttribute('aria-hidden','true');pkHelp.style.cssText='position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden';document.body.appendChild(pkHelp)}var p=document.createElementNS(NS,'path');p.setAttribute('d',d);pkHelp.appendChild(p);return p}
+function pkPlace(k,t){var u=t<k.begin?0:((t-k.begin)%k.dur)/k.dur,q=k.path.getPointAtLength(u*k.len);k.el.setAttribute('cx',q.x.toFixed(2));k.el.setAttribute('cy',q.y.toFixed(2))}
+function pkAdd(host,d,begin,dur,fill,set){var c=document.createElementNS(NS,'circle'),g=pkGeometry(d),k={el:c,path:g,len:g.getTotalLength(),dur:dur,begin:begin,set:set};c.setAttribute('r',3);c.setAttribute('fill',fill);c.setAttribute('class','pk');c.setAttribute('data-path',d);host.appendChild(c);pkPlace(k,0);pk.push(k)}
+function pkRunning(){return pkSets.some(function(s){return s.on})}
+function pkStart(){if(pkRaf||document.hidden||!pkRunning())return;pkLast=performance.now();pkRaf=requestAnimationFrame(pkLoop)}
+function pkStop(){if(pkRaf)cancelAnimationFrame(pkRaf);pkRaf=0}
+function pkLoop(now){pkRaf=0;var dt=(now-pkLast)/1000;pkLast=now;pkSets.forEach(function(s){if(s.on)s.t+=dt});pk.forEach(function(k){pkPlace(k,k.set.t)});pkStart()}
+function pkCleanup(){pkStop();if(pkIO){pkIO.disconnect();pkIO=0}pk.forEach(function(k){k.el.remove()});pk=[];pkSets=[];if(pkHelp){pkHelp.remove();pkHelp=0}}
+function pkBuild(){if(pk.length||rm||lite())return;
+ var dg=$('#gC'),asv=$('.arch svg'),roots=[];
+ function setFor(root){var s={root:root,on:false,t:0};pkSets.push(s);roots.push(root);return s}
+ if(dg&&dg.dataset.packets){var ds=setFor(dg.closest('svg'));dg.dataset.packets.split(';').forEach(function(spec){var a=spec.split('@');pkAdd(dg,a[0],+a[1],+dg.dataset.packetDur,'#fff',ds)})}
+ if(asv){var as=setFor(asv);$$('.arch path').forEach(function(p,gi){p.getAttribute('d').split(/(?=M)/).forEach(function(d,j){pkAdd(p.parentNode,d,j*.5+gi*.3,2.6,'#ff5400',as)})})}
+ if(!roots.length)return;
+ pkIO=new IntersectionObserver(function(es){es.forEach(function(e){pkSets.forEach(function(s){if(s.root==e.target)s.on=e.isIntersecting})});if(pkRunning())pkStart();else pkStop()});
+ roots.forEach(function(r){pkIO.observe(r)})}
+addEventListener('pagehide',pkCleanup);
+addEventListener('pageshow',function(){pkBuild()});
+addEventListener('visibilitychange',function(){if(document.hidden)pkStop();else pkStart()});
+pkBuild();
 
 /* section bands: 0 = hashes climbing a Merkle tree, 1 = packets hopping a ladder */
 function band(cv,mode){var g=cv.getContext('2d'),W=0,H=0,dp=1,pk=[],lit=[],xs=[],ys=[],lv=3,pa=[],vis=false,last=0,nx=0,raf=0,SP=46;

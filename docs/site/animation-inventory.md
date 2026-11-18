@@ -29,14 +29,14 @@ or its reduced-motion state drift; the file that will own it is named in
 | 12 | Merkle band | `.bd canvas[data-m="0"]` | the canvas is at least partly visible | `8` leaves below `520px`, else `16`; levels `log2(n)`; spawn `380ms`; packet cap `8`; packet speed `110`; lit decay `1.1`; node size `3+l*1.2`; trail `9` dots at `6` px spacing | one frame per animation frame | `sz()` draws one static frame, then returns before the loop | parity: 16 leaves produce 3 levels and 15 edges, and 8 leaves at a 500 px canvas |
 | 13 | Ladder band | `.bd canvas[data-m="1"]` | the canvas is at least partly visible | `3` rungs; column spacing `SP=46`; spawn `650ms`; packet speed `70+50` random; reroute chance `.45`; trail length `30`; rung y `H*(.26+r*.24)`; packet cap `8` | one frame per animation frame | one static frame, no packets | parity: three rungs at the documented y ratios, and no packet after the first frame under reduced motion |
 | 14 | Ladder connector draw-in | `#sv`, `.lad path` | the ladder enters the viewport (`revLad`) | `pathLength=1`; `stroke-dashoffset` `1` → `0`; node radius `3.5`; delays `0` then `i*.08` per capability, `.1+j*.1` per branch, `.4` to the detail pane; bezier midpoint `(x1+x2)/2`; width breakpoint `900` | `stroke-dashoffset 1.2s cubic-bezier(.5,0,.2,1)`, `stroke .3s`, `stroke-width .3s` | paths are released to offset `0` with no transition | parity: the path count is capabilities + branches + 1, every path ends at offset `0`, and no path is drawn at or below `900` px |
-| 15 | Ladder travelling dot | `.pd` | after the connector draw-in | radius `3.5`; one dot on the selected capability's path; prototype used `animateMotion dur=2.6s` (replaced, see below) | `2.6s` loop | not created | parity: exactly one dot exists, its path is `pc[ac]`, and none exists under reduced motion |
+| 15 | Ladder travelling dot | `.pd` | after the connector draw-in | radius `3.5`; one dot on the selected capability's path, placed by script with `getPointAtLength` on that path; lap `2.6s` | one lap per `2.6s`, looped by `requestAnimationFrame` | not created | parity: exactly one dot exists, its path is `pc[ac]`, two samples `400ms` apart differ and stay within `2px` of the path, and none exists under reduced motion or lite mode |
 | 16 | Ladder ring rotation | `.rt` | paint, always on | `::before` inset `-20px`, `::after` inset `-40px` dotted; `sp 50s` forward and `80s` reversed | `linear infinite` | `animation:none`; both rings stay at rotation `0` | parity: two pseudo-element rings exist with the two durations, and no rotation animation runs under reduced motion |
 | 17 | Ladder row stagger | `.c`, `.l` | the ladder gets `.in` at `threshold:.15` | `--i` is the row index; opacity delay `calc(var(--i,0)*70ms + .3s)`; hover `translateX(5px)` | `opacity .7s`, `border-color .25s`, `box-shadow .25s`, `transform .25s`, `background .25s` | opacity `1`, no transform, no delay | parity: row `i` has delay `i*70+300` ms, and the hover translate is absent under reduced motion |
 | 18 | Glass pointer light | `#hd`, `.led li` | pointer movement over a panel | panel radial `280px`, header radial `420px`; `--mx`/`--my` in px from the panel's top-left; `--sp` `.05` at rest, `.16` on hover; specular clipped to the top `44px` | one rAF per move event; no transition | no listener; `--sp` stays `.05` | parity: `--mx` equals the pointer offset inside the panel, the specular rect is at most `44px` tall, and no listener is attached under reduced motion or in lite mode |
 | 19 | Copy confirmation | `.cmd button` | a click on `[data-c]` | label `Copy` → `Copied`; reset after `1400ms`; the clipboard receives `dataset.c` verbatim | state change only | same state change, no transition | parity: the button reads `Copied` for `1.4s`, returns to `Copy`, and the clipboard text equals the command |
 | 20 | Capability card notch and command | `.cd` | hover or keyboard focus | notch `polygon(0 0,calc(100% - 72px) 0,calc(100% - 56px) 18px,100% 18px,100% 100%,0 100%)`; fill `--cr` → `#fff`; command `max-height:40px`, `padding:6px 8px`; `@media(hover:none)` opens it permanently | `background .3s`, `max-height/opacity/padding .35s` | fill and command state change with no transition | parity: the notch polygon is byte-identical, and a touch device shows the command without hover |
 | 21 | Configuration switch | `.tb`, `.fill`, `#gA`, `#gB`, `#gC`, `#gt` | tab click, Arrow Left/Right, Home/End; `sel(0)` on load | three configurations; roving `tabindex`; `aria-selected`; group display toggles; bar widths from the byte facts; caption text from the table | bar `1s cubic-bezier(.2,.7,.2,1)`; the rest is a state change | bar width set immediately; no tab transition | parity: the selected tab, the visible diagram group and the caption agree for A, B and C, and Arrow Right wraps `2` → `0` |
-| 22 | Diagram and architecture flow | `.arch path`, `.arch rect`, `.dg .fw` | paint, always on | arch dash `4 6`; diagram dash `5 5`; `fl 1.2s`, `fw .9s`, `pl 2.6s`; grow `grw .7s` with delays `.12s` and `.24s`; hover fill `#1a0f09`, stroke `#ff5400` | `linear infinite`, `ease-in-out infinite`, `cubic-bezier(.2,.7,.2,1)` for the grow | every `animation:none`; dashes and fills stay at their static values | parity: the two dash patterns, the three keyframe names (`grw`, `fw`, `pl`) and a static diagram under reduced motion |
+| 22 | Diagram and architecture flow | `.arch path`, `.arch rect`, `.dg .fw` | paint, always on while the drawing is on screen | arch dash `4 6`; diagram dash `5 5`; `fl 1.2s`, `fw .9s`, `pl 2.6s`; grow `grw .7s` with delays `.12s` and `.24s`; hover fill `#1a0f09`, stroke `#ff5400`; packets placed by script: `3` in the diagram (`r 3`, white, `2s`, begins `0`, `.35s`, `.7s`) and `9` in the architecture (`r 3`, `#ff5400`, `2.6s`, begin `j*.5+gi*.3`s, one per path segment) | `linear infinite`, `ease-in-out infinite`, `cubic-bezier(.2,.7,.2,1)` for the grow; packets loop once per duration | every `animation:none`; no packet is created; dashes and fills stay at their static values | parity: the two dash patterns, the three keyframe names (`grw`, `fw`, `pl`), `3` + `9` packets that move, stay within `2px` of their path and are absent under reduced motion and lite mode, and a static diagram under reduced motion |
 
 ## Coverage
 
@@ -65,20 +65,29 @@ The mapping, so a new declaration cannot slip in unrecorded:
 | L346–372 | hero grid and orbit field | 2, 3 |
 | L375–387 | index rail geometry and scroll spy | 5 |
 | L388–396 | scroll field and heading burst | 6, 7 |
-| L399 | architecture SMIL packets | 22 (removed) |
+| L264 | diagram packets (three circles, `dur=2s`) | 22 (restored, JS) |
+| L399 | architecture packets (nine circles, `dur=2.6s`) | 22 (restored, JS) |
 | L401–421 | the two band canvases | 12, 13 |
 | L426–428 | glass pointer light | 18 |
 
-## Effects that are not ported as motion
+## SMIL replaced by script
 
-| Prototype | Why | What the port does |
+The prototype's three `animateMotion` uses are kept as motion, but not as SMIL:
+a media query cannot stop SMIL, so each packet is a plain `<circle>` moved by
+script along the same path, with the same radius, colour, duration and begin
+offset. They are created only when reduced motion is not set and lite mode is
+off, each set advances only while its drawing is on screen, nothing advances
+while the tab is hidden, and leaving the page removes every circle and helper
+path. No `<animateMotion>` exists in the source or the built page.
+
+| Prototype | Why not SMIL | What the port does |
 | --- | --- | --- |
-| `animateMotion` in the diagram (`dur="2s"`, `begin=".35s"`/`".7s"`, line 264) | SMIL cannot be stopped by a reduced-motion media query, and the audit found it kept moving for a reduced-motion reader | the three packets are removed; the diagram shows the three message bars with their condensed-path segments and the static caption. The information is in the caption and the bars, not in the dots |
-| `animateMotion` travelling dot (line 329) | same | row 15 redraws the dot on the connector canvas and skips it under reduced motion |
-| `animateMotion` architecture packets (line 399) | same | row 22 keeps the dashed paths and the pulse; the packets are removed |
+| diagram packets (`dur="2s"`, `begin="0"`/`".35s"`/`".7s"`, line 264) | SMIL cannot be stopped by a reduced-motion media query, and the audit found it kept moving for a reduced-motion reader | restored, JS: three `r=3` white circles follow `M180 42V69H60V96`, `M180 42V96` and `M180 42V69H300V96`, one lap per `2s` with begins `0`, `.35s`, `.7s` (row 22) |
+| travelling dot (line 329) | same | restored, JS: row 15 places one `r=3.5` dot on `pc[ac]` by `getPointAtLength`, one lap per `2.6s` |
+| architecture packets (line 399) | same | restored, JS: one `r=3`, `#ff5400` circle per path segment (nine in all), one lap per `2.6s`, begin `j*.5+gi*.3`s (row 22) |
 | menu open/close (line 301) | it is a display toggle, not an animation | a class toggle; the only transition is the panel's own |
 | tab selection (line 339) | a state change | `aria-selected` and a background, no motion |
 
-Removing the three SMIL uses is a deliberate deviation from the prototype,
-required by the reduced-motion rule; it is recorded in
-`docs/site/skin-plan.md` §8.
+All 22 effects are therefore present. Three of them (rows 15, 22 and the
+diagram's share of row 22) are drawn by script instead of SMIL, which the
+reduced-motion rule requires; the motion itself is the prototype's.

@@ -118,9 +118,11 @@ Rules:
   is instantiated five times and the orbit pair is one component. The checker
   counts `<canvas` in `site/src` and fails above five.
 - At most **four** animation loops run at once: the hero loop (grid plus
-  orbits), the scroll field, and one loop per band that is currently visible.
-  The bands are 160 px dividers, so two are visible at most in practice, and
-  every loop stops when its canvas leaves the viewport.
+  orbits), the scroll field, one loop per band that is currently visible, and
+  one shared packet loop while a diagram is on screen. The bands are 160 px
+  dividers, so two are visible at most in practice; the diagram and the bands
+  are in different sections, so the packet loop replaces a band's slot rather
+  than adding one. Every loop stops when its canvas leaves the viewport.
 - Every band canvas runs only while it is intersecting the viewport; the
   `IntersectionObserver` that reveals it also starts and stops the loop.
 - The hero canvases pause as soon as the hero leaves the viewport.
@@ -135,8 +137,8 @@ Selected when any of: `navigator.connection.saveData`, `navigator.deviceMemory
 <= 2`, or `?lite=1`. It sets `data-lite="on"` on `<html>` before first paint and
 exposes a store the components read once at boot. In lite mode:
 
-- the orbs, the two ambient canvases, the five band canvases and the pointer
-  specular are not created;
+- the orbs, the two ambient canvases, the five band canvases, the diagram,
+  architecture and ladder packets, and the pointer specular are not created;
 - the glass keeps its scrim and gradient but drops `backdrop-filter`;
 - every value is final: no count-up, no reveal, no clip wipe, no ladder
   draw-in;
@@ -155,8 +157,9 @@ does not restate it. Four rules apply to all of them:
 
 - **No SMIL.** The prototype's `animateMotion` elements (the diagram packets,
   the ladder dot, the architecture packets) are replaced by the same motion
-  drawn on a canvas the page already owns, or by a static final state. The
-  checker fails on `<animateMotion` in `site/src`.
+  placed by script along the same paths (`getPointAtLength`), so reduced motion
+  and lite mode can stop it, or by a static final state. The checker fails on
+  an `animateMotion` element or its creation in `site/src`, scripts included.
 - **No animation may gate content.** Server HTML is complete; a hidden start
   state is armed only after the reduced-motion and lite checks.
 - **A scroll handler writes only transforms.** The page index and progress bar

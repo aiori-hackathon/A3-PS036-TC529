@@ -813,7 +813,7 @@ def check_docs() -> int:
 
     # 4. No SMIL in the site source; the prototype's animateMotion is removed.
     print("motion markup")
-    sources = sorted(path for path in SITE_SRC.rglob("*") if path.is_file() and path.suffix in {".astro", ".ts", ".css"})
+    sources = sorted(path for path in SITE_SRC.rglob("*") if path.is_file() and path.suffix in {".astro", ".ts", ".js", ".css"})
     smil = 0
     gradient_text = 0
     canvases = 0

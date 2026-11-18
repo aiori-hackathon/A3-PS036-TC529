@@ -15,7 +15,7 @@ Machine-readable status markers (read by `scripts/site-check.py docs`):
 csp-inline-styles: done-ms1
 lite-mode: pending-ms4
 fonts: done-ms1
-smil: removed
+smil: none (script-driven, done-ms1b)
 ```
 
 ## 1. Component and file map
@@ -262,7 +262,6 @@ also written next to the component that implements it.
 | `--ln` is the resting border of every control | `--edge` (paper at 48 %) is the resting border where the control has no other cue | `--ln` is 1.32–1.44:1, below the 3:1 boundary floor (brand §3) |
 | `--rose` is the Derived badge and the outer ladder ring | kept, but the mark is also half-filled and labelled | colour is never the only channel (design rule 9) |
 | four status hues in the previous palette | deleted; evidence is shape plus word | the prototype never had four hues; the skin follows it |
-| SMIL packets in the diagram, the ladder dot and the architecture | removed; static bars, a canvas dot, and dashed paths | a media query cannot stop SMIL (inventory, "not ported as motion") |
 | `#fx` scroll field and the hero canvases always animate | paused off-screen, absent in lite mode | canvas budget (design rule 14) |
 | fonts fetched from Google Fonts | self-hosted variable subsets | no third-party request, CSP `font-src 'self'` (skin-plan §5) |
 | wordmark and favicon are inline data URIs | tracked vector assets | cacheable, real alt text, smaller HTML |

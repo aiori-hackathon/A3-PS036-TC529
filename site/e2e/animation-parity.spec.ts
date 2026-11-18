@@ -113,6 +113,65 @@ async function open(page: any): Promise<void> {
   });
 }
 
+/** The same page with the lite switch on; the prototype has no such mode. */
+async function openLite(page: any): Promise<void> {
+  await page.addInitScript(instrument);
+  await page.goto('/?lite=1', { waitUntil: 'load' });
+  await expect(page.locator('html')).toHaveClass(/\bjs\b/, { timeout: 10_000 });
+  await page.evaluate(() => {
+    document.documentElement.style.scrollBehavior = 'auto';
+  });
+}
+
+interface Packet {
+  d: string;
+  x: number;
+  y: number;
+}
+
+/** The script-placed packets, with the path each one follows. */
+async function packetPositions(page: any, selector: string): Promise<Packet[]> {
+  return page.evaluate(
+    (sel: string) =>
+      [...document.querySelectorAll(sel)].map((el) => ({
+        d: el.getAttribute('data-path') ?? '',
+        x: Number(el.getAttribute('cx')),
+        y: Number(el.getAttribute('cy')),
+      })),
+    selector,
+  );
+}
+
+/**
+ * How far each point lies from its own path, in the drawing's user units.
+ * The point is on the path when the value is zero; the sampler walks the path
+ * at one unit per step, so the floor is half a step.
+ */
+async function distanceToPath(page: any, points: Packet[]): Promise<number[]> {
+  return page.evaluate((items: Packet[]) => {
+    const ns = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(ns, 'svg');
+    const path = document.createElementNS(ns, 'path');
+    svg.appendChild(path);
+    svg.style.cssText = 'position:absolute;left:-9999px;top:0;width:0;height:0;overflow:hidden';
+    document.body.appendChild(svg);
+    const gaps = items.map((point) => {
+      path.setAttribute('d', point.d);
+      const length = path.getTotalLength();
+      const steps = Math.max(64, Math.ceil(length));
+      let best = Number.POSITIVE_INFINITY;
+      for (let i = 0; i <= steps; i += 1) {
+        const sample = path.getPointAtLength((length * i) / steps);
+        const gap = Math.hypot(sample.x - point.x, sample.y - point.y);
+        if (gap < best) best = gap;
+      }
+      return best;
+    });
+    svg.remove();
+    return gaps;
+  }, points);
+}
+
 async function pidFor(page: any, selector: string): Promise<string | null> {
   return page.evaluate((sel: string) => {
     const canvas = document.querySelector(sel) as HTMLCanvasElement | null;
@@ -940,7 +999,7 @@ test.describe('animation parity', () => {
     expect(motion.growDuration).toBe('0.7s');
 
     if (!PROTOTYPE) {
-      await expect(page.locator('.arch circle')).toHaveCount(0);
+      await expect(page.locator('.arch circle')).toHaveCount(9);
     }
 
     const context = await browser.newContext({ reducedMotion: 'reduce' });
@@ -957,6 +1016,140 @@ test.describe('animation parity', () => {
     });
     expect(names).toEqual(['none', 'none', 'none', 'none']);
     await context.close();
+  });
+
+  test('15b travelling dot: 400 ms apart it moves and stays on its path, absent in lite mode', async ({
+    page,
+    browser,
+  }) => {
+    test.skip(PROTOTYPE, 'the design file animates the dot with SMIL, which sets no cx/cy attributes');
+    await open(page);
+    await page.locator('#ladder').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(700);
+    const dot = page.locator('#sv .pd');
+    await expect(dot).toHaveCount(1);
+    const sample = () =>
+      dot.evaluate((el) => ({
+        d: el.getAttribute('data-path') ?? '',
+        x: Number(el.getAttribute('cx')),
+        y: Number(el.getAttribute('cy')),
+      }));
+    const first = await sample();
+    await page.waitForTimeout(400);
+    const second = await sample();
+    expect(first.d).not.toBe('');
+    expect(Math.hypot(second.x - first.x, second.y - first.y)).toBeGreaterThan(1);
+    for (const gap of await distanceToPath(page, [first, second])) expect(gap).toBeLessThanOrEqual(2);
+
+    if (!PROTOTYPE) {
+      const context = await browser.newContext();
+      const light = await context.newPage();
+      await openLite(light);
+      await light.locator('#ladder').scrollIntoViewIfNeeded();
+      await light.waitForTimeout(400);
+      await expect(light.locator('#sv .pd')).toHaveCount(0);
+      await context.close();
+    }
+  });
+
+  test('22b diagram and architecture packets: 3 + 9 move on their paths, none under reduced motion or lite', async ({
+    page,
+    browser,
+  }) => {
+    test.skip(PROTOTYPE, 'the design file animates its packets with SMIL, which sets no cx/cy attributes');
+    await open(page);
+    await page.locator('.dg').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(900);
+    const diagram = await packetPositions(page, '.dg #gC circle');
+    expect(diagram).toHaveLength(3);
+    expect(diagram.every((packet) => packet.d !== '')).toBe(true);
+    await page.waitForTimeout(400);
+    const diagramLater = await packetPositions(page, '.dg #gC circle');
+    for (let i = 0; i < diagram.length; i += 1) {
+      expect(
+        Math.hypot(diagramLater[i]!.x - diagram[i]!.x, diagramLater[i]!.y - diagram[i]!.y),
+      ).toBeGreaterThan(1);
+    }
+    for (const gap of await distanceToPath(page, [...diagram, ...diagramLater])) {
+      expect(gap).toBeLessThanOrEqual(2);
+    }
+
+    await page.locator('.arch').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(2000);
+    const arch = await packetPositions(page, '.arch circle');
+    expect(arch).toHaveLength(9);
+    expect(arch.every((packet) => packet.d !== '')).toBe(true);
+    await page.waitForTimeout(400);
+    const archLater = await packetPositions(page, '.arch circle');
+    for (let i = 0; i < arch.length; i += 1) {
+      expect(Math.hypot(archLater[i]!.x - arch[i]!.x, archLater[i]!.y - arch[i]!.y)).toBeGreaterThan(
+        1,
+      );
+    }
+    for (const gap of await distanceToPath(page, [...arch, ...archLater])) {
+      expect(gap).toBeLessThanOrEqual(2);
+    }
+
+    const context = await browser.newContext({ reducedMotion: 'reduce' });
+    const still = await context.newPage();
+    await open(still);
+    await still.locator('.dg').scrollIntoViewIfNeeded();
+    await still.waitForTimeout(300);
+    await expect(still.locator('.dg #gC circle, .arch circle')).toHaveCount(0);
+    await context.close();
+
+    const liteContext = await browser.newContext();
+    const light = await liteContext.newPage();
+    await openLite(light);
+    await light.locator('.dg').scrollIntoViewIfNeeded();
+    await light.waitForTimeout(300);
+    await expect(light.locator('.dg #gC circle, .arch circle')).toHaveCount(0);
+    await liteContext.close();
+  });
+
+  test('22c packets pause off screen and while the tab is hidden, and leaving the page removes them', async ({
+    page,
+  }) => {
+    test.skip(PROTOTYPE, 'the design file runs its SMIL timeline with no visibility gate and no cleanup');
+    await open(page);
+    await page.locator('.arch').scrollIntoViewIfNeeded();
+    await page.waitForTimeout(1800);
+    const sample = () => packetPositions(page, '.arch circle');
+    const onScreenA = await sample();
+    await page.waitForTimeout(400);
+    const onScreenB = await sample();
+    expect(
+      onScreenA.some(
+        (point, i) => Math.hypot(onScreenB[i]!.x - point.x, onScreenB[i]!.y - point.y) > 1,
+      ),
+    ).toBe(true);
+
+    await page.evaluate(() => window.scrollTo(0, 0));
+    await page.waitForTimeout(400);
+    const offScreen = await sample();
+    await page.waitForTimeout(400);
+    expect(await sample()).toEqual(offScreen);
+
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+      document.querySelector('.arch')?.scrollIntoView();
+    });
+    await page.waitForTimeout(300);
+    const whileHidden = await sample();
+    await page.waitForTimeout(400);
+    expect(await sample()).toEqual(whileHidden);
+    await page.evaluate(() => {
+      delete (document as any).hidden;
+      document.dispatchEvent(new Event('visibilitychange', { bubbles: true }));
+    });
+    await page.waitForTimeout(400);
+    expect(await sample()).not.toEqual(whileHidden);
+
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
+    await expect(page.locator('.dg #gC circle, .arch circle')).toHaveCount(0);
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow')));
+    await expect(page.locator('.dg #gC circle, .arch circle')).toHaveCount(12);
   });
 });
 
@@ -981,6 +1174,7 @@ test.describe('reduced motion sweep', () => {
       return {
         hidden,
         dot: document.querySelectorAll('#sv .pd').length,
+        packets: document.querySelectorAll('.dg #gC circle, .arch circle').length,
         bars: [...document.querySelectorAll('.fill')].map((el) => (el as HTMLElement).style.width),
         data: [...document.querySelectorAll('.fill')].map((el) => (el as HTMLElement).dataset.w),
         offsets,
@@ -989,6 +1183,7 @@ test.describe('reduced motion sweep', () => {
     });
     expect(final.hidden).toBe(0);
     expect(final.dot).toBe(0);
+    if (!PROTOTYPE) expect(final.packets).toBe(0);
     expect(final.bars).toEqual(final.data.map((width) => `${width}%`));
     expect(new Set(final.offsets)).toEqual(new Set([0]));
     await context.close();
