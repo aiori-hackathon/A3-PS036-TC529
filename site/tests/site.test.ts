@@ -103,7 +103,7 @@ describe('tokens', () => {
     mar: '#4d1111',
     ln: 'rgba(242,237,228,.13)',
     edge: 'rgba(242,237,228,.48)',
-    'glass-scrim': 'rgba(7,8,10,.78)',
+    'glass-scrim': 'rgba(7,8,10,.36)',
   };
 
   it('declares every palette token in the skin stylesheet with the same value', () => {
@@ -117,6 +117,59 @@ describe('tokens', () => {
     for (const name of ['cr', 'mut', 'or', 'or2', 'rose'] as const) {
       expect(contrastRatio(brand[name] ?? ground, ground), name).toBeGreaterThanOrEqual(4.5);
     }
+  });
+
+  it('chooses the smallest glass scrim whose worst composite clears every floor', () => {
+    type Rgba = [number, number, number, number];
+    const parse = (value: string): Rgba => {
+      const hex = value.match(/^#([0-9a-f]{6})$/i);
+      if (hex) {
+        const digits = hex[1] ?? '';
+        return [
+          Number.parseInt(digits.slice(0, 2), 16),
+          Number.parseInt(digits.slice(2, 4), 16),
+          Number.parseInt(digits.slice(4, 6), 16),
+          1,
+        ];
+      }
+      const parts = (value.match(/[\d.]+/g) ?? []).map(Number);
+      const [red = 0, green = 0, blue = 0, alpha = 1] = parts;
+      return [red, green, blue, alpha];
+    };
+    const over = (top: Rgba, bottom: Rgba): Rgba => {
+      const alpha = top[3] + bottom[3] * (1 - top[3]);
+      const blend = (index: number): number =>
+        alpha === 0 ? 0 : (top[index]! * top[3] + bottom[index]! * bottom[3] * (1 - top[3])) / alpha;
+      return [blend(0), blend(1), blend(2), alpha];
+    };
+    const relative = (colour: Rgba): number => {
+      const channel = (value: number): number => {
+        const unit = value / 255;
+        return unit <= 0.04045 ? unit / 12.92 : ((unit + 0.055) / 1.055) ** 2.4;
+      };
+      return 0.2126 * channel(colour[0]) + 0.7152 * channel(colour[1]) + 0.0722 * channel(colour[2]);
+    };
+    const ratio = (foreground: string, backdrop: Rgba): number => {
+      const painted = over(parse(foreground), backdrop);
+      const first = relative(painted);
+      const second = relative(backdrop);
+      return (Math.max(first, second) + 0.05) / (Math.min(first, second) + 0.05);
+    };
+    const cool = over(parse('rgba(24,96,200,.46)'), parse(brand.ground ?? '#13161b'));
+    const gradient = parse('rgba(255,255,255,.085)');
+    const backdrop = (alpha: number): Rgba =>
+      over(gradient, over(parse(`rgba(7,8,10,${alpha})`), cool));
+    const passes = (alpha: number): boolean =>
+      ['cr', 'mut', 'or2', 'rose'].every(
+        (name) => ratio(brand[name] ?? '#000000', backdrop(alpha)) >= 4.5,
+      ) &&
+      ratio(brand.or ?? '#000000', backdrop(alpha)) >= 3 &&
+      ratio(brand.edge ?? '#000000', backdrop(alpha)) >= 3;
+    const steps = Array.from({ length: 14 }, (_, index) => index * 0.06);
+    const minimum = steps.find(passes);
+    expect(minimum, 'no 6 % step clears the glass floors').toBeDefined();
+    expect(Number(minimum?.toFixed(2))).toBe(Number.parseFloat((brand['glass-scrim'] ?? '').split(',').pop() ?? '0'));
+    expect(passes(0), 'the unscrimmed glass must fail').toBe(false);
   });
 
   it('declares swap and size-adjusted fallback metrics for both faces', () => {

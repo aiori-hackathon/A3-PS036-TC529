@@ -44,8 +44,8 @@ the deepest surface and the colour painted on a fill.
 | `--navy` | `#06234B` | **Logo gradient only.** 1.17–1.29:1 on the ground; never text. | line 9 |
 | `--mar` | `#4D1111` | **Logo and ladder-root gradient only.** 1.12–1.34:1; never text. | line 9 |
 | `--ln` | `rgba(242,237,228,.13)` | Decorative hairline: section rules, table separators, panel edges. 1.32–1.44:1, so it never becomes a control boundary. | line 9 |
-| `--edge` | `rgba(242,237,228,.48)` | An interactive boundary: input edges, resting control outlines that carry no other affordance. 4.31–4.45:1 on every surface, 4.13–4.17:1 on glass. | accessibility addition |
-| `--glass-scrim` | `rgba(7,8,10,.78)` | The ink layer under every glass panel, before the white gradient. | accessibility addition |
+| `--edge` | `rgba(242,237,228,.48)` | An interactive boundary: input edges, resting control outlines that carry no other affordance. 4.31–4.45:1 on every surface, 3.58–3.74:1 on glass. Kept only where the 3:1 boundary floor needs it. | accessibility addition |
+| `--glass-scrim` | `rgba(7,8,10,.36)` | The ink layer under every glass panel, before the white gradient. The smallest 6 % step that clears every text floor; see §3 and `docs/site/skin-diffs.md`. | accessibility addition |
 | `--orb-warm` | `rgba(255,84,0,.30)` | Background orb, warm, top left. | line 131 |
 | `--orb-cool` | `rgba(24,96,200,.46)` | Background orb, cool, right. It is the brightest wash and therefore the worst case for text on glass. | line 132 |
 | `--orb-rose` | `rgba(255,166,166,.16)` | Background orb, rose, bottom. | line 133 |
@@ -115,9 +115,14 @@ rose                10.74     9.72     8.94        -     4.5
 
 text on glass, worst case over each orb wash (scrim + gradient top)
 foreground       orb-warm orb-cool orb-rose   target
-cr                  13.06    12.95    13.15     4.5
-mut                  6.08     6.03     6.12     4.5
-or                   4.73     4.69     4.76     4.5
+cr                  10.22     9.99    10.62     4.5
+mut                  4.76     4.65     4.94     4.5
+or2                  4.68     4.57     4.86     4.5
+rose                 6.39     6.24     6.64     4.5
+
+large text on glass, worst case over each orb wash (scrim + gradient top)
+foreground       orb-warm orb-cool orb-rose   target
+or                   3.70     3.62     3.84     3.0
 
 card body text on the paper card
 card-body        on cr           10.75  pass
@@ -135,9 +140,9 @@ edge             on ink           4.42  pass
 edge             on ground        4.42  pass
 edge             on g1            4.31  pass
 edge             on well          4.45  pass
-edge             on glass:orb-warm      4.15  pass
-edge             on glass:orb-cool      4.13  pass
-edge             on glass:orb-rose      4.17  pass
+edge             on glass:orb-warm      3.64  pass
+edge             on glass:orb-cool      3.58  pass
+edge             on glass:orb-rose      3.74  pass
 
 decorative hairline and asset-only colours, never used as text or a boundary
 ln               on ink           1.32  FAIL (decorative only)
@@ -153,7 +158,7 @@ mar              on ground        1.21  FAIL (decorative only)
 mar              on g1            1.12  FAIL (decorative only)
 mar              on well          1.28  FAIL (decorative only)
 
-used pairs: 37, failures: 0
+used pairs: 43, failures: 0
 ```
 
 The `FAIL (decorative only)` lines are the checker asserting the rule: a token
@@ -167,9 +172,12 @@ starts passing by accident and the document's classification goes stale.
    linear-gradient(150deg,rgba(255,255,255,.085),rgba(255,255,255,.025) 55%,rgba(255,255,255,.055))`
    over a blurred backdrop. Over the cool orb that composite leaves muted text
    below 4.5:1 and orange below 3:1, and the hover specular (`.16`, line 143)
-   drops muted further below the floor. Adding the `--glass-scrim` ink layer at 78 % lifts the
-   worst case to 6.03:1 and 4.69:1. Rule: **a glass panel paints
-   `--glass-scrim` first**, then the gradient.
+   drops muted further below the floor. Adding the `--glass-scrim` ink layer at 36 % lifts the
+   stop-composite worst case to 4.65:1 for muted text and 3.62:1 for the large orange numeral
+   (`--or` is large text on glass; the dashboard's orange action sits on the TUI window's opaque
+   ink). 36 % is the smallest 6 % step that clears every floor; the pixel measurement in
+   `docs/site/skin-diffs.md` reports 4.71:1 body and 4.04:1 large at 390 px and
+   4.75:1 / 3.91:1 at 1440 px. Rule: **a glass panel paints `--glass-scrim` first**, then the gradient.
 2. **The specular.** The pointer-tracked white radial may not sit under text at
    all: at `.16` even the cream drops to 5.02:1 and muted text fails. Rule: the
    specular layer is clipped to the panel's top 44 px, above the content box, so
@@ -195,13 +203,13 @@ uses both, so the budgets replace the old "no backdrop-filter" rule.
 | Layer | Classes that may blur | Blur | Why it is allowed |
 | --- | --- | --- | --- |
 | Header | `#hd` | `blur(16px) saturate(1.8) brightness(1.05)` | one floating bar; text is `--cr` at 12.95:1 worst case |
-| Result rows and panels | `.led li`, `.tm li`, `.tr>div`, `.lim`, `.dg`, `.arch`, `.dash` | `blur(16px) saturate(1.7) brightness(1.06)` | each is a content panel over the orb field; scrimmed to 78 % |
+| Result rows and panels | `.led li`, `.tm li`, `.tr>div`, `.lim`, `.dg`, `.arch`, `.dash` | `blur(16px) saturate(1.7) brightness(1.06)` | each is a content panel over the orb field; scrimmed to 36 % |
 | Ladder rows and detail | `.c`, `.l`, `.dt` | `blur(6px)` | small floating controls inside the ladder; 55 % fill plus scrim |
 
 No other selector may declare `backdrop-filter`. `scripts/site-check.py docs`
 fails on a selector that is not in this table.
 
-**Panel stack, in paint order.** `--glass-scrim` (ink 78 %) → the glass
+**Panel stack, in paint order.** `--glass-scrim` (ink 36 %) → the glass
 gradient (§7) → the 1 px mask-composited edge → the specular, clipped to the
 top 44 px → content. The scrim is what makes the contrast numbers in §3 hold;
 it is not decoration.

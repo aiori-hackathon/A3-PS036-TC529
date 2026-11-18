@@ -25,7 +25,7 @@
 @font-face{font-family:"Bricolage Grotesque Fallback";src:local("Arial"),local("Arimo"),local("Liberation Sans"),local("Noto Sans");size-adjust:101.8%;ascent-override:93%;descent-override:27%;line-gap-override:0%}
 @font-face{font-family:"Geist Fallback";src:local("Arial"),local("Arimo"),local("Liberation Sans"),local("Noto Sans");size-adjust:100.3%;ascent-override:100.5%;descent-override:29.5%;line-gap-override:0%}
 
-:root{--ground:#13161b;--ink-card:#0b0b0d;--card-body:#33333a;--edge:rgba(242,237,228,.48);--glass-scrim:rgba(7,8,10,.78);--ink:#07080a;--navy:#06234b;--mar:#4d1111;--or:#ff5400;--or2:#fe7f00;--rose:#ffa6a6;--cr:#f2ede4;--mut:#a9a398;--ln:rgba(242,237,228,.13);--logo:url("/logo/climb-wordmark.svg");--fd:"Bricolage Grotesque","Bricolage Grotesque Fallback","Helvetica Neue",Arial,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
+:root{--ground:#13161b;--ink-card:#0b0b0d;--card-body:#33333a;--edge:rgba(242,237,228,.48);--glass-scrim:rgba(7,8,10,.36);--ink:#07080a;--navy:#06234b;--mar:#4d1111;--or:#ff5400;--or2:#fe7f00;--rose:#ffa6a6;--cr:#f2ede4;--mut:#a9a398;--ln:rgba(242,237,228,.13);--logo:url("/logo/climb-wordmark.svg");--fd:"Bricolage Grotesque","Bricolage Grotesque Fallback","Helvetica Neue",Arial,sans-serif;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:dark}
 *,*::before,*::after{box-sizing:inherit}
 html{scroll-behavior:smooth;scroll-padding-top:72px;background:var(--ink)}
 body{margin:0;color:var(--cr);font:400 16px/1.6 Geist,"Geist Fallback","Helvetica Neue",Arial,system-ui,sans-serif;-webkit-font-smoothing:antialiased}
@@ -156,9 +156,10 @@ html{background:#13161b}
 
 /* ---------- glass ---------- */
 :is(.led li,.tm li,.tr>div,.lim,.dg,.arch,.dash){position:relative;border:0;
- /* accessibility addition: an ink scrim under the glass keeps muted and orange
-    text above 4.5:1 over every orb wash, and the pointer specular is confined
-    to the panel's top 44 px so it never sits under a text run. */
+ /* accessibility addition: an ink scrim under the glass keeps muted text above
+    4.5:1 over every orb wash and the large orange numeral above 3:1. The scrim
+    is 36 %, the smallest 6 % step that clears both. The pointer specular is
+    confined to the panel's top 44 px so it never sits under a text run. */
  background:radial-gradient(280px circle at var(--mx,50%) var(--my,-30%),rgba(255,255,255,var(--sp,.05)),transparent 70%),linear-gradient(150deg,rgba(255,255,255,.085),rgba(255,255,255,.025) 55%,rgba(255,255,255,.055)),var(--glass-scrim);
  background-size:100% 44px,auto;background-repeat:no-repeat,no-repeat;
  -webkit-backdrop-filter:blur(16px) saturate(1.7) brightness(1.06);backdrop-filter:blur(16px) saturate(1.7) brightness(1.06);

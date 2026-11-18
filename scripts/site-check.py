@@ -77,7 +77,7 @@ TOKENS: dict[str, str] = {
     # boundaries and glass
     "ln": "rgba(242,237,228,.13)",
     "edge": "rgba(242,237,228,.48)",
-    "glass-scrim": "rgba(7,8,10,.78)",
+    "glass-scrim": "rgba(7,8,10,.36)",
     # orb washes (background only)
     "orb-warm": "rgba(255,84,0,.30)",
     "orb-cool": "rgba(24,96,200,.46)",
@@ -105,7 +105,12 @@ TEXT_ON_SURFACES: dict[str, tuple[str, ...]] = {
 }
 
 # Foregrounds that also sit on a glass panel, checked against every orb wash.
-TEXT_ON_GLASS = ("cr", "mut", "or")
+# `--rose` is the Derived mark, `--or2` the Extrapolated mark and hover state;
+# both are body-sized on glass. `--or` on glass is the 59 px ledger numeral
+# only (the dashboard's orange action sits on the TUI window's opaque ink), so
+# it takes the large-text floor rather than the normal-text one.
+TEXT_ON_GLASS = ("cr", "mut", "or2", "rose")
+LARGE_ON_GLASS = ("or",)
 
 # Fills carry the ink as their label; light text on any of them fails.
 FILLS = ("cr", "or", "or2")
@@ -223,10 +228,10 @@ def verdict(ratio: float, minimum: float) -> str:
     return "pass" if ratio >= minimum else "FAIL"
 
 
-def glass_backdrop(orb: str) -> Colour:
+def glass_backdrop(orb: str, scrim: str | None = None) -> Colour:
     """The brightest backdrop a glass panel can show over one orb wash."""
     base = over(parse_colour(TOKENS[orb]), parse_colour(TOKENS["ground"]))
-    base = over(parse_colour(TOKENS["glass-scrim"]), base)
+    base = over(parse_colour(scrim or TOKENS["glass-scrim"]), base)
     return over(GLASS_GRADIENT_TOP, base)
 
 
@@ -266,6 +271,20 @@ def print_contrast() -> int:
             if ratio < TEXT_MIN:
                 failures += 1
         row += "     %.1f" % TEXT_MIN
+        print(row)
+
+    print()
+    print("large text on glass, worst case over each orb wash (scrim + gradient top)")
+    print("%-16s" % "foreground" + "".join("%9s" % orb for orb in ORBS) + "   target")
+    for name in LARGE_ON_GLASS:
+        row = "%-16s" % name
+        for orb in ORBS:
+            ratio = contrast(TOKENS[name], glass_backdrop(orb))
+            row += "%9.2f" % ratio
+            pairs += 1
+            if ratio < LARGE_MIN:
+                failures += 1
+        row += "     %.1f" % LARGE_MIN
         print(row)
 
     print()
@@ -948,8 +967,17 @@ def selftest() -> int:
            contrast(TOKENS["mut"], over(GLASS_GRADIENT_TOP,
                                         over(parse_colour(TOKENS["orb-cool"]),
                                             parse_colour(TOKENS["ground"])))) < TEXT_MIN)
-    expect("orange text on glass clears 4.5:1 over every orb",
-           all(contrast(TOKENS["or"], glass_backdrop(orb)) >= TEXT_MIN for orb in ORBS))
+    expect("30 percent scrim leaves muted text below 4.5:1 over the cool orb",
+           contrast(TOKENS["mut"], glass_backdrop("orb-cool", "rgba(7,8,10,.30)")) < TEXT_MIN)
+    expect("the declared scrim clears muted text over the cool orb",
+           contrast(TOKENS["mut"], glass_backdrop("orb-cool")) >= TEXT_MIN)
+    expect("orange text on glass is large text and clears 3:1 over every orb",
+           all(contrast(TOKENS["or"], glass_backdrop(orb)) >= LARGE_MIN for orb in ORBS))
+    expect("orange text on glass would fail the normal-text floor",
+           all(contrast(TOKENS["or"], glass_backdrop(orb)) < TEXT_MIN for orb in ORBS))
+    expect("the body-sized marks on glass clear 4.5:1 over every orb",
+           all(contrast(TOKENS[name], glass_backdrop(orb)) >= TEXT_MIN
+               for name in ("or2", "rose") for orb in ORBS))
 
     print("prototype identity")
     expect("the digest helper matches the published SHA-256 of abc",

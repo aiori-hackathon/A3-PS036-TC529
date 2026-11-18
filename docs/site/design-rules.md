@@ -31,7 +31,7 @@ Rules 11–14 are new.
 | 9 | Colour is never the only channel | KEEP | Evidence is a mark shape (solid, half, dashed, dotted) plus a word. The four status hues are deleted, so the shape and the word are now the only channels and cannot be lost in a monochrome rendering. |
 | 10 | Numbers carry their evidence class and baseline | KEEP | Every number on a page still comes from a fact id through `Fact.astro`, with its chip and the baseline it is compared against. The skin changes the typography, not the provenance. |
 | 11 | Text on glass is contrast-tested by sampling the worst case over the orbs | NEW | The panel composite depends on what is behind it. A single token pair cannot prove legibility, so the checker samples the brightest orb wash, composites the scrim and the glass gradient, and asserts the used text pairs against that backdrop. |
-| 12 | A glass panel paints its scrim before its gradient | NEW | Without the ink scrim at 78 %, muted text over the cool orb falls below 4.5:1 (the selftest asserts it). The scrim is what makes §4 pass, so it is a rule, not a stylistic default. |
+| 12 | A glass panel paints its scrim before its gradient | NEW | Without the ink scrim at 36 %, muted text over the cool orb falls below 4.5:1 (the selftest asserts it). The scrim is what makes §4 pass, so it is a rule, not a stylistic default. |
 | 13 | Blur is a budget, not a default | NEW | Only the selectors in §3 may declare `backdrop-filter`; every other panel is opaque. The checker fails on a selector outside the allowlist. |
 | 14 | Five band canvases, running only while visible; lite mode exists | NEW | The prototype instantiates five section-band canvases plus three hero canvases and one scroll field. The budget caps simultaneous work, pauses off-screen loops, and defines a lite mode that removes the atmosphere on a constrained device. |
 
@@ -88,17 +88,22 @@ backdrop = orb (its own alpha) over --ground
          → rgba(255,255,255,.085) over that      (the gradient's top stop)
 ```
 
-and prints `cr`, `mut` and `or` against that backdrop plus the `--edge`
-boundary. The current worst case is the cool orb: `cr` 12.95:1, `mut` 6.03:1,
-`or` 4.69:1, `--edge` 4.13:1. The checker's selftest removes the scrim and
-asserts that muted text then fails, so the rule cannot be satisfied by deleting
-the scrim and editing the table.
+and prints `cr`, `mut`, `or2` and `rose` against that backdrop, `or` against the
+large-text floor (the 59 px ledger numeral is the only orange text on glass; the
+dashboard's orange action sits on the TUI window's opaque ink), plus the `--edge`
+boundary. The current worst case is the cool orb: `cr` 9.99:1, `mut` 4.65:1,
+`or` 3.62:1 as large text, `--edge` 3.58:1. The checker's selftest removes the
+scrim and asserts that muted text then fails, and that a 30 % scrim still fails,
+so the rule cannot be satisfied by deleting the scrim and editing the table.
 
 The method is a sample of the CSS colour stops, not a screenshot: no browser
-runs in the gate. The pixel-sampling version (a rendered frame, the brightest
-pixel under each text run) is the MS3 acceptance test in
-`docs/site/skin-plan.md`; until then this composite is the contract, and it is
-deliberately pessimistic (worst orb, top gradient stop, no dithering).
+runs in the gate, and the composite is deliberately pessimistic (worst orb, top
+gradient stop, no dithering). The real rule is
+`site/e2e/glass-contrast.spec.ts`: it renders the port and the prototype in
+Chromium, freezes the orbs, screenshots each glass panel, and computes the
+worst ratio under every text range. It chooses the smallest 6 % scrim step that
+passes on pixels; the composite above stays as the fast pre-check, and the
+measurement is recorded in `docs/site/skin-diffs.md`.
 
 ## 5. The canvas budget
 
