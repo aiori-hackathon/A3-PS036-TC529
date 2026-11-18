@@ -1,30 +1,47 @@
-/* Palette v2. Dark only: there is no light mode and no theme switch. */
+/*
+ * Tokens for the secondary routes.
+ *
+ * The home page's skin is `climb.css`, which carries the prototype's own
+ * custom properties verbatim. This file exposes the same palette, type and
+ * radius values to Tailwind so the report, verify, reproduce, method and
+ * dashboard routes keep their utilities. Dark only: there is no light theme.
+ *
+ * Names are the utility names those routes already use (`text-muted`,
+ * `border-slate`, `bg-raised`, …). The values are the prototype's, not the
+ * superseded palette. `slate`, `raised` and `surface` are retained as names
+ * because the routes use them for hairlines and surfaces.
+ */
 @theme {
   --color-ink: #07080a;
-  --color-surface: #0f1216;
-  --color-raised: #161a20;
+  --color-ground: #13161b;
+  --color-surface: #1b1e25;
+  --color-raised: #0d0f13;
   --color-paper: #f2ede4;
-  --color-text: #efeae1;
-  --color-muted: #9aa3ad;
+  --color-text: #f2ede4;
+  --color-muted: #a9a398;
   --color-orange: #ff5400;
-  --color-red: #ff1a1a;
-  --color-teal: #5cc8c2;
-  --color-slate: #3a4a66;
-  --color-slate-light: #6b7a93;
-  --color-measured: #3ddc97;
-  --color-derived: #6ea8ff;
-  --color-analytical: #b79cff;
-  --color-extrapolated: #f5d547;
+  --color-orange-bright: #fe7f00;
+  --color-rose: #ffa6a6;
 
-  --color-rule: var(--color-slate);
-  --color-boundary: var(--color-slate-light);
-  --color-focus: var(--color-teal);
+  /* Hairline and interactive boundary. The first is decorative, the second
+     clears the 3:1 non-text floor. */
+  --color-slate: rgba(242, 237, 228, 0.13);
+  --color-slate-light: rgba(242, 237, 228, 0.48);
+  --color-boundary: rgba(242, 237, 228, 0.48);
+  --color-rule: rgba(242, 237, 228, 0.13);
+  --color-focus: #fe7f00;
+
+  /* Evidence is shape plus word; colour is never the only channel. These are
+     the brand colours the marks use, not a second status palette. */
+  --color-measured: #f2ede4;
+  --color-derived: #ffa6a6;
+  --color-analytical: #a9a398;
+  --color-extrapolated: #fe7f00;
 
   --font-display:
-    'Instrument Serif', 'Instrument Serif Fallback', 'Iowan Old Style', 'Times New Roman', serif;
-  --font-body: 'Geist', 'Geist Fallback', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-mono:
-    'Geist Mono', 'Geist Mono Fallback', ui-monospace, 'SF Mono', 'Cascadia Mono', monospace;
+    'Bricolage Grotesque', 'Bricolage Grotesque Fallback', 'Helvetica Neue', Arial, sans-serif;
+  --font-body: 'Geist', 'Geist Fallback', 'Helvetica Neue', Arial, system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
 
   --text-xs: 0.75rem;
   --text-xs--line-height: 1.25rem;
@@ -47,87 +64,6 @@
   --text-6xl: 5rem;
   --text-6xl--line-height: 5rem;
 
-  --radius-panel: 0.75rem;
-  --radius-control: 0.375rem;
-}
-
-/* Instrument Serif: display face, regular and italic. */
-@font-face {
-  font-family: 'Instrument Serif';
-  src: url('/fonts/instrument-serif-regular-latin.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-@font-face {
-  font-family: 'Instrument Serif';
-  src: url('/fonts/instrument-serif-italic-latin.woff2') format('woff2');
-  font-weight: 400;
-  font-style: italic;
-  font-display: swap;
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* Geist: body and UI face, instanced at the one weight the site uses. */
-@font-face {
-  font-family: 'Geist';
-  src: url('/fonts/geist-regular-latin.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/* Geist Mono: data and code face. */
-@font-face {
-  font-family: 'Geist Mono';
-  src: url('/fonts/geist-mono-regular-latin.woff2') format('woff2');
-  font-weight: 400;
-  font-style: normal;
-  font-display: swap;
-  unicode-range:
-    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
-    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
-/*
- * Size-adjusted fallback faces. The size-adjust ratio is the webfont's x-height
- * divided by the reference face's x-height (Tinos for Times New Roman, Arimo
- * for Arial, Cousine for Courier New). The vertical overrides are the webfont's
- * own hhea metrics as a percentage of the em, so a swap keeps the same line
- * box: 111.12% = 0.510 / 0.45898, and 100.32% = 0.530 / 0.52832.
- */
-@font-face {
-  font-family: 'Instrument Serif Fallback';
-  src: local('Times New Roman'), local('Tinos'), local('Liberation Serif');
-  size-adjust: 111.12%;
-  ascent-override: 99%;
-  descent-override: 31%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'Geist Fallback';
-  src: local('Arial'), local('Arimo'), local('Liberation Sans');
-  size-adjust: 100.32%;
-  ascent-override: 100.5%;
-  descent-override: 29.5%;
-  line-gap-override: 0%;
-}
-
-@font-face {
-  font-family: 'Geist Mono Fallback';
-  src: local('Courier New'), local('Cousine'), local('Liberation Mono');
-  size-adjust: 100.32%;
-  ascent-override: 100.5%;
-  descent-override: 29.5%;
-  line-gap-override: 0%;
+  --radius-panel: 1.25rem;
+  --radius-control: 0.75rem;
 }

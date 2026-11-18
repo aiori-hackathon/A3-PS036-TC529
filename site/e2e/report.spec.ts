@@ -6,6 +6,9 @@ import { expect, test } from '@playwright/test';
 
 import { expectNoAxeViolations, settle } from './a11y';
 
+// axe is injected as a test script; the page's own CSP still ships to users.
+test.use({ bypassCSP: true });
+
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
 
 interface Evidence {

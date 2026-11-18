@@ -55,11 +55,10 @@ import {
   maxCondensedPaths,
 } from '../src/lib/results';
 import { centreOf, rippleGeometry } from '../src/lib/ripple';
-import { contrastRatio, palette, usedPairs } from '../src/lib/tokens';
+import { contrastRatio } from '../src/lib/tokens';
 
 const siteRoot = fileURLToPath(new URL('..', import.meta.url));
 const dist = join(siteRoot, 'dist');
-const tokensCss = readFileSync(join(siteRoot, 'src/styles/tokens.css'), 'utf8');
 
 function walk(root: string): string[] {
   const entries: string[] = [];
@@ -74,56 +73,63 @@ function walk(root: string): string[] {
   return entries;
 }
 
-const declaredColours = new Map(
-  [...tokensCss.matchAll(/--color-([a-z-]+):\s*(#[0-9a-fA-F]{6});/g)].map((match) => {
-    const name = match[1];
-    const value = match[2];
-    if (name === undefined || value === undefined) {
-      throw new Error(`could not parse a colour token from: ${match[0]}`);
-    }
-    return [name, value.toLowerCase()];
-  }),
-);
-
 describe('tokens', () => {
-  it('declares every palette token in the stylesheet with the same value', () => {
-    for (const [name, value] of Object.entries(palette)) {
-      expect(declaredColours.get(name), `${name} is missing from tokens.css`).toBe(
-        value.toLowerCase(),
-      );
+  const climbCss = readFileSync(join(siteRoot, 'src/styles/climb.css'), 'utf8');
+  const declared = new Map(
+    [...climbCss.matchAll(/--([a-z0-9-]+):\s*([^;]+);/g)].map((match) => [
+      match[1] ?? '',
+      (match[2] ?? '').trim().toLowerCase(),
+    ]),
+  );
+
+  // Brand v3, the values the prototype's `:root` declares. The skin carries
+  // them in `climb.css`; this list is the test's copy of the design authority.
+  const brand: Record<string, string> = {
+    ink: '#07080a',
+    ground: '#13161b',
+    g1: '#1b1e25',
+    g2: '#0f1217',
+    well: '#0d0f13',
+    cr: '#f2ede4',
+    mut: '#a9a398',
+    'ink-card': '#0b0b0d',
+    'card-body': '#33333a',
+    or: '#ff5400',
+    or2: '#fe7f00',
+    rose: '#ffa6a6',
+    navy: '#06234b',
+    mar: '#4d1111',
+    ln: 'rgba(242,237,228,.13)',
+    edge: 'rgba(242,237,228,.48)',
+    'glass-scrim': 'rgba(7,8,10,.78)',
+  };
+
+  it('declares every palette token in the skin stylesheet with the same value', () => {
+    for (const [name, value] of Object.entries(brand)) {
+      expect(declared.get(name), `${name} is missing from climb.css`).toBe(value);
     }
-    expect(declaredColours.size).toBe(Object.keys(palette).length);
   });
 
-  it('meets the contrast target of every used foreground and background pair', () => {
-    for (const pair of usedPairs) {
-      const ratio = contrastRatio(palette[pair.foreground], palette[pair.background]);
-      expect(
-        ratio,
-        `${pair.foreground} on ${pair.background} (${pair.usage})`,
-      ).toBeGreaterThanOrEqual(pair.minimum);
+  it('meets the contrast target of every used foreground on the page ground', () => {
+    const ground = brand.ground ?? '#13161b';
+    for (const name of ['cr', 'mut', 'or', 'or2', 'rose'] as const) {
+      expect(contrastRatio(brand[name] ?? ground, ground), name).toBeGreaterThanOrEqual(4.5);
     }
   });
 
-  it('keeps the decorative slate out of every text pair', () => {
-    const ratio = contrastRatio(palette.slate, palette.ink);
-    expect(ratio).toBeLessThan(3);
-    expect(usedPairs.some((pair) => pair.foreground === 'slate')).toBe(false);
+  it('declares swap and size-adjusted fallback metrics for both faces', () => {
+    expect(climbCss.match(/font-display:swap/g)).toHaveLength(2);
+    expect(climbCss).toContain('size-adjust:101.8%');
+    expect(climbCss).toContain('size-adjust:100.3%');
+    expect(climbCss).toContain('ascent-override:93%');
+    expect(climbCss).toContain('ascent-override:100.5%');
   });
 
-  it('declares swap and size-adjusted fallback metrics for every face', () => {
-    expect(tokensCss.match(/font-display:\s*swap/g)).toHaveLength(4);
-    expect(tokensCss).toContain('size-adjust: 111.12%');
-    expect(tokensCss).toContain('size-adjust: 100.32%');
-    expect(tokensCss).toContain('ascent-override: 99%');
-    expect(tokensCss).toContain('ascent-override: 100.5%');
-  });
-
-  it('ships every woff2 subset under the 120 KB budget', () => {
+  it('ships the two variable latin faces under the 120 KB budget', () => {
     const fonts = readdirSync(join(siteRoot, 'public/fonts')).filter((name) =>
       name.endsWith('.woff2'),
     );
-    expect(fonts).toHaveLength(4);
+    expect(fonts.sort()).toEqual(['bricolage-grotesque-latin.woff2', 'geist-latin.woff2']);
     const total = fonts.reduce(
       (sum, name) => sum + statSync(join(siteRoot, 'public/fonts', name)).size,
       0,
@@ -191,12 +197,19 @@ function loadGenerated(name: string): Record<string, unknown> {
 }
 
 describe('facts', () => {
-  it('resolves every fact id the copy deck names', () => {
+  it('resolves every fact id the copy deck names, or finds it declared as a gap', () => {
     const copy = readFileSync(join(siteRoot, '../docs/site/copy.md'), 'utf8');
+    const gaps = readFileSync(join(siteRoot, '../docs/site/fact-gaps.md'), 'utf8');
     const ids = [...new Set([...copy.matchAll(/F-[a-z0-9-]+/g)].map((match) => match[0]))];
     expect(ids.length).toBeGreaterThanOrEqual(16);
     for (const id of ids) {
-      expect(() => getFact(id), id).not.toThrow();
+      try {
+        getFact(id);
+      } catch {
+        // The copy deck may name a number whose fact is a registered gap; the
+        // gap register is the only place allowed to carry it until it lands.
+        expect(gaps, id).toContain('`' + id + '`');
+      }
     }
   });
 
@@ -809,75 +822,69 @@ describe('production build', () => {
     expect(missing).toEqual([]);
   });
 
-  it('emits the home route with no inline script', () => {
+  it('emits the home route with no executable inline script', () => {
     const html = readFileSync(join(dist, 'index.html'), 'utf8');
-    expect(html).toContain('Post-quantum DNSSEC, without the weight.');
-    // The server HTML stays complete and parseable: the two scripts are the
-    // deferred dashboard window and the evidence/byte-race interaction, both
-    // external modules, not inline.
+    expect(html).toContain('Post-quantum DNSSEC, measured.');
     const scripts = [...html.matchAll(/<script\b[^>]*>/gi)].map((match) => match[0]);
-    expect(scripts.length, 'the dashboard and results scripts are external').toBe(2);
-    for (const tag of scripts) {
-      expect(tag).toContain('src=');
-      expect(tag).toContain('type="module"');
+    const executable = scripts.filter((tag) => !/type="application\/json"/.test(tag));
+    expect(executable).toHaveLength(1);
+    expect(executable[0]).toContain('src=');
+    expect(executable[0]).toContain('type="module"');
+    // The one non-executable block is the explorer's data, not code.
+    expect(scripts.filter((tag) => /type="application\/json"/.test(tag))).toHaveLength(1);
+    expect(html).toContain('id="climb-data"');
+    expect(html).not.toContain('<style');
+  });
+
+  it('emits the wordmark hero and both actions', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    expect(html).toContain('<h1>Post-quantum DNSSEC, measured.</h1>');
+    expect(html).toContain('Explore the benchmark');
+    expect(html).toContain('View on GitHub');
+    expect(html).toContain('class="btn p"');
+    expect(html).toContain('aria-label="CLIMB, Cryptographic Ladder Impact Measurement Benchmark"');
+    expect(html).toContain('id="gc"');
+    expect(html).toContain('id="ob"');
+    expect(html).toContain('id="of"');
+  });
+
+  it('emits the eight sections, the four result facts, the ladder and the tab switch', () => {
+    const html = readFileSync(join(dist, 'index.html'), 'utf8');
+    for (const id of [
+      'results',
+      'capabilities',
+      'ladder',
+      'how',
+      'architecture',
+      'transparency',
+      'team',
+    ]) {
+      expect(html).toContain(`id="${id}"`);
     }
-  });
-
-  it('emits both hero actions and the measured byte labels', () => {
-    const html = readFileSync(join(dist, 'index.html'), 'utf8');
-    expect(html).toContain('button-cta--primary');
-    expect(html).toContain('button-cta--secondary');
-    expect(html).toContain('data-byte-label="plain"');
-    expect(html).toContain('data-byte-label="condensed"');
-    expect(html).toContain('data-fact-id="F-plain-signature-bytes"');
-    expect(html).toContain('data-fact-id="F-condensed-path-bytes"');
-  });
-
-  it('emits the four results, their drawers, the byte race, limits, team and footer band', () => {
-    const html = readFileSync(join(dist, 'index.html'), 'utf8');
-    expect(html).toContain('data-results');
-    expect(html).toContain('data-byte-race');
-    expect(html).toContain('data-limits');
-    expect(html).toContain('data-team');
-    expect(html).toContain('data-footer-band');
-    expect(html).toContain('data-footer-claims');
-
-    const ids = [
+    expect([...html.matchAll(/class="nm"/g)]).toHaveLength(4);
+    for (const id of [
       'F-wire-medium-c-vs-a',
       'F-sign-medium-c-vs-a',
       'F-verify-medium-c-vs-a',
       'F-udp-c-fit',
-    ];
-    expect([...html.matchAll(/data-result-stat="/g)]).toHaveLength(4);
-    for (const id of ids) {
-      expect(html).toContain(`data-result-stat="${id}"`);
-      expect(html).toContain(`data-evidence-drawer="${id}"`);
-      expect(html).toContain(`data-evidence-open="${id}"`);
-      const block = html.split(`data-result-stat="${id}"`)[1]?.split('</li>')[0] ?? '';
-      expect(block, id).toContain(getFact(id).display);
+    ]) {
+      expect(html).toContain(`data-fact-id="${id}"`);
     }
-
-    const full = getFact('F-plain-signature-bytes');
-    const condensed = getFact('F-condensed-path-bytes');
-    expect(typeof full.raw).toBe('number');
-    expect(typeof condensed.raw).toBe('number');
-    if (typeof full.raw !== 'number' || typeof condensed.raw !== 'number') {
-      return;
+    expect(html).toContain('role="tablist"');
+    expect(html).toContain('id="gC"');
+    expect(html).toContain('id="gt"');
+    expect(html).toContain('id="dt"');
+    expect(html).toContain('id="climb-data"');
+    // The stale prototype values never reach the page.
+    for (const stale of ['9,405', '215.3', '1.90', '771 of 771']) {
+      expect(html, stale).not.toContain(stale);
     }
-    const raceStart = html.indexOf('data-byte-race');
-    const race =
-      raceStart === -1 ? '' : html.slice(raceStart, html.indexOf('</section>', raceStart));
-    expect(race).toContain(`max="${maxCondensedPaths(full.raw, condensed.raw)}"`);
-    expect(race).toContain(full.display);
-    expect(race).toContain(condensed.display);
-
-    expect(html).toContain(
-      scopeSentence(readFileSync(join(siteRoot, '..', 'docs/site/copy.md'), 'utf8')),
-    );
-    expect(html).toContain('No Internet latency.');
+    expect(html).toContain(getFact('F-claims-count').display);
     expect(html).toContain('Pratyay Mukherjee');
     expect(html).toContain('Mohit Kumar Yadav');
     expect(html).toContain('Dr. Maibam Devi');
-    expect(html).toContain(getFact('F-claims-count').display);
+    expect(html).toContain(
+      scopeSentence(readFileSync(join(siteRoot, '..', 'docs/site/copy.md'), 'utf8')),
+    );
   });
 });

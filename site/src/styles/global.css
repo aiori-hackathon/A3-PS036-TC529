@@ -1,6 +1,11 @@
 @import 'tailwindcss';
 @import './tokens.css';
 
+/*
+ * Global base for the secondary routes. The home page's design is
+ * `climb.css`; this file deliberately carries no component skins, so the two
+ * can be loaded together without one overriding the other's classes.
+ */
 @layer base {
   :root {
     color-scheme: dark;
@@ -15,36 +20,6 @@
     text-rendering: optimizeLegibility;
   }
 
-  /*
-   * Lenis drives the window scroll itself, so native smooth scrolling would
-   * fight it. The attribute is set only after the device check passes.
-   */
-  html[data-smooth-scroll='on'] {
-    scroll-behavior: auto;
-  }
-
-  html.lenis,
-  html.lenis body {
-    height: auto;
-  }
-
-  .lenis.lenis-smooth {
-    scroll-behavior: auto !important;
-  }
-
-  .lenis.lenis-stopped {
-    overflow: hidden;
-  }
-
-  /*
-   * CSS-only animations pause with the tab as well as with the shared frame
-   * loop. The attribute is maintained by the visibility hook in the motion
-   * core.
-   */
-  html[data-motion-paused='true'] .marquee__track {
-    animation-play-state: paused;
-  }
-
   body {
     margin: 0;
     min-height: 100dvh;
@@ -56,7 +31,7 @@
   }
 
   :focus-visible {
-    outline: 3px solid var(--color-focus);
+    outline: 2px solid var(--color-focus);
     outline-offset: 3px;
     border-radius: 2px;
   }
@@ -65,29 +40,13 @@
   h2,
   h3 {
     font-family: var(--font-display);
-    font-weight: 400;
-    text-wrap: balance;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    line-height: 1.06;
   }
 }
 
 @layer components {
-  .skip-link {
-    position: absolute;
-    left: 1rem;
-    top: -100%;
-    z-index: 50;
-    border-radius: var(--radius-control);
-    background-color: var(--color-paper);
-    color: var(--color-ink);
-    padding: 0.5rem 0.875rem;
-    font-size: var(--text-sm);
-    font-weight: 500;
-  }
-
-  .skip-link:focus {
-    top: 1rem;
-  }
-
   .chip {
     display: inline-flex;
     align-items: center;
@@ -104,109 +63,5 @@
     border: 1px solid var(--color-boundary);
     border-radius: var(--radius-panel);
     background-color: var(--color-raised);
-  }
-
-  /*
-   * The ripple layer is a dynamically-created node, so its rules live in this
-   * global stylesheet rather than a component's scoped block. The ring is an
-   * outline, not a wash: it never sits over a value long enough to change its
-   * contrast, and `pointer-events: none` keeps the surface interactive.
-   */
-  .ripple-surface {
-    position: relative;
-    isolation: isolate;
-  }
-
-  .ripple-layer {
-    position: absolute;
-    inset: 0;
-    z-index: 3;
-    overflow: clip;
-    pointer-events: none;
-  }
-
-  .ripple-surface[data-tone='ink'] {
-    --ripple-colour: color-mix(in srgb, var(--color-teal) 25%, transparent);
-  }
-
-  .ripple-surface[data-tone='paper'] {
-    --ripple-colour: color-mix(in srgb, var(--color-orange) 25%, transparent);
-  }
-
-  .ripple-ring {
-    position: absolute;
-    width: var(--ripple-diameter);
-    height: var(--ripple-diameter);
-    border: 2px solid var(--ripple-colour);
-    border-radius: 999px;
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(0.12);
-    animation: climb-ripple 600ms cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
-  }
-
-  .ripple-flash {
-    position: absolute;
-    inset: 0;
-    background: var(--ripple-colour);
-  }
-}
-
-@keyframes climb-ripple {
-  from {
-    opacity: 0.9;
-    transform: translate(-50%, -50%) scale(0.12);
-  }
-
-  to {
-    opacity: 0;
-    transform: translate(-50%, -50%) scale(1.8);
-  }
-}
-
-/*
- * Cross-document view transitions: the browser animates navigation between
- * documents without a client-side router or any script. Astro emits static
- * pages, so this is the whole mechanism.
- */
-@view-transition {
-  navigation: auto;
-}
-
-::view-transition-old(root) {
-  animation: 250ms ease-out both climb-fade-out;
-}
-
-::view-transition-new(root) {
-  animation: 250ms ease-in both climb-fade-in;
-}
-
-@keyframes climb-fade-out {
-  to {
-    opacity: 0;
-  }
-}
-
-@keyframes climb-fade-in {
-  from {
-    opacity: 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-  }
-
-  ::view-transition-old(root),
-  ::view-transition-new(root) {
-    animation: none !important;
   }
 }

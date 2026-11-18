@@ -626,6 +626,52 @@ def inventory_rows(text: str) -> list[list[str]]:
     return rows
 
 
+def split_selector_list(text: str) -> list[str]:
+    """Split a selector list on its top-level commas only."""
+    parts: list[str] = []
+    depth = 0
+    current = ""
+    for character in text:
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+        if character == "," and depth == 0:
+            parts.append(current)
+            current = ""
+        else:
+            current += character
+    parts.append(current)
+    return [part.strip() for part in parts if part.strip()]
+
+
+def expand_selector(selector: str) -> list[str]:
+    """Expand a leading :is() group to the elements it names.
+
+    A state prefix (``.rf :is(#hd,.dg)``) qualifies a panel's appearance, not
+    which element blurs, so the prefix is dropped and the inner selectors are
+    returned. Only the leading :is() the stylesheet uses is handled; a nested
+    group would be a new shape and is deliberately not guessed at.
+    """
+    index = selector.find(":is(")
+    if index < 0:
+        return [selector]
+    start = index + len(":is(")
+    depth = 1
+    end = start
+    while end < len(selector) and depth > 0:
+        if selector[end] == "(":
+            depth += 1
+        elif selector[end] == ")":
+            depth -= 1
+        end += 1
+    inner = selector[start : end - 1]
+    expanded: list[str] = []
+    for part in split_selector_list(inner):
+        expanded.extend(expand_selector(part))
+    return expanded
+
+
 def blur_selectors(css_text: str) -> list[str]:
     """Selectors of every rule block that declares a backdrop-filter."""
     selectors: list[str] = []
@@ -634,9 +680,19 @@ def blur_selectors(css_text: str) -> list[str]:
             continue
         head = block.split("{")[0]
         cleaned = head.strip().strip(",").strip()
-        if cleaned:
-            selectors.append(cleaned)
+        for selector in split_selector_list(cleaned):
+            selectors.extend(expand_selector(selector))
     return selectors
+
+
+def inline_scripts(html: str) -> list[str]:
+    """Executable inline scripts. A JSON data block is not executable."""
+    return [
+        match.group(0)
+        for match in re.finditer(
+            r"<script(?![^>]*\bsrc=)(?![^>]*\btype=[\"']application/json[\"'])[^>]*>", html
+        )
+    ]
 
 
 def canvas_count(source: str) -> int:
@@ -830,11 +886,9 @@ def check_docs() -> int:
         failures += 1
     if DIST_INDEX.is_file():
         html = DIST_INDEX.read_text(encoding="utf-8")
-        inline_scripts = [
-            match.group(0) for match in re.finditer(r"<script(?![^>]*\bsrc=)[^>]*>", html)
-        ]
-        if inline_scripts:
-            print("  dist/index.html: %d inline script(s)" % len(inline_scripts))
+        found_inline = inline_scripts(html)
+        if found_inline:
+            print("  dist/index.html: %d inline script(s)" % len(found_inline))
             failures += 1
         if "<style" in html:
             if plan_status("csp-inline-styles"):
@@ -930,6 +984,16 @@ def selftest() -> int:
            blur_selectors(".a{backdrop-filter:blur(2px)}") == [".a"])
     expect("a rule with no backdrop-filter yields nothing",
            blur_selectors(".a{color:#fff}") == [])
+    expect("a grouped :is selector expands to its elements",
+           blur_selectors(":is(.a,.b){backdrop-filter:blur(2px)}") == [".a", ".b"])
+    expect("a state prefix does not hide a blur element",
+           blur_selectors(".rf :is(#hd,.dg){backdrop-filter:blur(2px)}") == ["#hd", ".dg"])
+    expect("a comma-separated blur rule is split",
+           blur_selectors(".c,.l{backdrop-filter:blur(6px)}") == [".c", ".l"])
+    expect("a JSON data block is not an executable inline script",
+           inline_scripts('<script type="application/json" id="d">{}</script>') == [])
+    expect("an executable inline script is found",
+           inline_scripts("<script>alert(1)</script>") == ["<script>"])
     expect("canvases are counted", canvas_count("<canvas></canvas><canvas/>") == 2)
     expect("the scope sentence is counted inside a copy block",
            scope_sentence_count("<!-- copy:begin id=x -->\n" + SCOPE_SENTENCE + "\n<!-- copy:end -->") == 1)

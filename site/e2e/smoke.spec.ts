@@ -4,9 +4,9 @@ test('the home route renders the headline and the primary action', async ({ page
   await page.goto('/');
 
   await expect(
-    page.getByRole('heading', { level: 1, name: 'Post-quantum DNSSEC, without the weight.' }),
+    page.getByRole('heading', { level: 1, name: 'Post-quantum DNSSEC, measured.' }),
   ).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open the dashboard' }).first()).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Explore the benchmark' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Skip to content' })).toHaveCount(1);
 });
 

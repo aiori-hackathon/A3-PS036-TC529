@@ -5,20 +5,23 @@
  */
 export const palette = {
   ink: '#07080A',
-  surface: '#0F1216',
-  raised: '#161A20',
+  ground: '#13161B',
+  surface: '#1B1E25',
+  raised: '#0D0F13',
   paper: '#F2EDE4',
-  text: '#EFEAE1',
-  muted: '#9AA3AD',
+  text: '#F2EDE4',
+  muted: '#A9A398',
   orange: '#FF5400',
-  red: '#FF1A1A',
-  teal: '#5CC8C2',
-  slate: '#3A4A66',
-  'slate-light': '#6B7A93',
-  measured: '#3DDC97',
-  derived: '#6EA8FF',
-  analytical: '#B79CFF',
-  extrapolated: '#F5D547',
+  'orange-bright': '#FE7F00',
+  rose: '#FFA6A6',
+  // The hairlines as they composite over the ground; the stylesheet keeps the
+  // translucent originals, and the Python contrast check samples those stops.
+  slate: '#2F3135',
+  'slate-light': '#7C7A75',
+  measured: '#F2EDE4',
+  derived: '#FFA6A6',
+  analytical: '#A9A398',
+  extrapolated: '#FE7F00',
 } as const;
 
 export type TokenName = keyof typeof palette;
@@ -34,113 +37,49 @@ const TEXT = 4.5;
 const BOUNDARY = 3;
 
 /**
- * Every foreground/background pair the built site actually paints. A pair that
- * is not listed here must not be introduced without adding it and its target.
+ * Every foreground/background pair the built pages paint. A pair that is not
+ * listed here must not be introduced without adding it and its target.
  */
 export const usedPairs: readonly UsedPair[] = [
   { foreground: 'text', background: 'ink', minimum: TEXT, usage: 'body copy' },
+  { foreground: 'text', background: 'ground', minimum: TEXT, usage: 'body copy on the slate' },
   { foreground: 'text', background: 'surface', minimum: TEXT, usage: 'header and footer copy' },
   { foreground: 'text', background: 'raised', minimum: TEXT, usage: 'card copy' },
   { foreground: 'paper', background: 'ink', minimum: TEXT, usage: 'display headline' },
   { foreground: 'muted', background: 'ink', minimum: TEXT, usage: 'captions and metadata' },
+  { foreground: 'muted', background: 'ground', minimum: TEXT, usage: 'captions on the slate' },
   { foreground: 'muted', background: 'surface', minimum: TEXT, usage: 'header metadata' },
   { foreground: 'muted', background: 'raised', minimum: TEXT, usage: 'card metadata' },
-  { foreground: 'orange', background: 'ink', minimum: TEXT, usage: 'eyebrow and inline link' },
-  { foreground: 'orange', background: 'surface', minimum: TEXT, usage: 'header link hover' },
-  { foreground: 'orange', background: 'raised', minimum: TEXT, usage: 'card link' },
-  {
-    foreground: 'teal',
-    background: 'ink',
-    minimum: TEXT,
-    usage: 'focus ring and secondary accent',
-  },
-  { foreground: 'teal', background: 'surface', minimum: TEXT, usage: 'header focus ring' },
-  { foreground: 'red', background: 'ink', minimum: TEXT, usage: 'alert accent' },
-  { foreground: 'measured', background: 'ink', minimum: TEXT, usage: 'measured chip on the page' },
-  {
-    foreground: 'measured',
-    background: 'surface',
-    minimum: TEXT,
-    usage: 'measured chip in the header',
-  },
-  { foreground: 'measured', background: 'raised', minimum: TEXT, usage: 'measured chip on a card' },
-  { foreground: 'derived', background: 'ink', minimum: TEXT, usage: 'derived chip on the page' },
-  {
-    foreground: 'derived',
-    background: 'surface',
-    minimum: TEXT,
-    usage: 'derived chip in the header',
-  },
-  { foreground: 'derived', background: 'raised', minimum: TEXT, usage: 'derived chip on a card' },
-  {
-    foreground: 'analytical',
-    background: 'ink',
-    minimum: TEXT,
-    usage: 'analytical chip on the page',
-  },
-  {
-    foreground: 'analytical',
-    background: 'surface',
-    minimum: TEXT,
-    usage: 'analytical chip in the header',
-  },
-  {
-    foreground: 'analytical',
-    background: 'raised',
-    minimum: TEXT,
-    usage: 'analytical chip on a card',
-  },
-  {
-    foreground: 'extrapolated',
-    background: 'ink',
-    minimum: TEXT,
-    usage: 'extrapolated chip on the page',
-  },
-  {
-    foreground: 'extrapolated',
-    background: 'surface',
-    minimum: TEXT,
-    usage: 'extrapolated chip in the header',
-  },
-  {
-    foreground: 'extrapolated',
-    background: 'raised',
-    minimum: TEXT,
-    usage: 'extrapolated chip on a card',
-  },
+  { foreground: 'orange', background: 'ink', minimum: TEXT, usage: 'accent and inline link' },
+  { foreground: 'orange', background: 'ground', minimum: TEXT, usage: 'accent on the slate' },
+  { foreground: 'orange', background: 'surface', minimum: TEXT, usage: 'header accent' },
+  { foreground: 'orange-bright', background: 'ink', minimum: TEXT, usage: 'focus ring' },
+  { foreground: 'orange-bright', background: 'ground', minimum: TEXT, usage: 'hover accent' },
+  { foreground: 'rose', background: 'ink', minimum: TEXT, usage: 'derived mark' },
+  { foreground: 'rose', background: 'ground', minimum: TEXT, usage: 'derived mark on the slate' },
   { foreground: 'ink', background: 'orange', minimum: TEXT, usage: 'label on the orange button' },
-  { foreground: 'ink', background: 'teal', minimum: TEXT, usage: 'label on a teal fill' },
+  { foreground: 'ink', background: 'orange-bright', minimum: TEXT, usage: 'label on the hover button' },
   { foreground: 'ink', background: 'measured', minimum: TEXT, usage: 'label on a measured fill' },
   { foreground: 'ink', background: 'derived', minimum: TEXT, usage: 'label on a derived fill' },
-  {
-    foreground: 'ink',
-    background: 'analytical',
-    minimum: TEXT,
-    usage: 'label on an analytical fill',
-  },
+  { foreground: 'ink', background: 'analytical', minimum: TEXT, usage: 'label on an analytical fill' },
   {
     foreground: 'ink',
     background: 'extrapolated',
     minimum: TEXT,
     usage: 'label on an extrapolated fill',
   },
+  { foreground: 'slate-light', background: 'ink', minimum: BOUNDARY, usage: 'control boundary' },
   {
     foreground: 'slate-light',
-    background: 'ink',
+    background: 'ground',
     minimum: BOUNDARY,
-    usage: 'interactive boundary on the page',
-  },
-  {
-    foreground: 'slate-light',
-    background: 'surface',
-    minimum: BOUNDARY,
-    usage: 'interactive boundary in the header',
+    usage: 'control boundary on the slate',
   },
   {
     foreground: 'slate-light',
     background: 'raised',
     minimum: BOUNDARY,
-    usage: 'interactive boundary on a card',
+    usage: 'control boundary in a well',
   },
 ];
 

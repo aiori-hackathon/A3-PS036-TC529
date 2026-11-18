@@ -193,6 +193,11 @@ export default defineConfig({
   site: 'http://localhost:4321',
   integrations: [devRoutes, dashboard],
   devToolbar: { enabled: false },
+  build: {
+    // Every stylesheet is an external file: the page's CSP allows style
+    // attributes for the diagram labels, but no <style> block.
+    inlineStylesheets: 'never',
+  },
   vite: {
     plugins: [tailwindcss()],
     build: {

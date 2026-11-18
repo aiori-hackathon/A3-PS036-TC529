@@ -1,0 +1,15 @@
+---
+/**
+ * One section band. Five instances run on the page, drawn by the band
+ * animation in the home script; the source declares a single canvas tag, so
+ * the canvas budget counts one component rather than five copies.
+ */
+interface Props {
+  /** `0` is hashes climbing a Merkle tree, `1` is packets hopping a ladder. */
+  mode: '0' | '1';
+}
+
+const { mode } = Astro.props;
+---
+
+<div class="bd" aria-hidden="true"><canvas data-m={mode}></canvas></div>

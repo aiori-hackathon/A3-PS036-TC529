@@ -1,119 +1,409 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
-import Button from '../components/Button.astro';
-import ByteRace from '../components/ByteRace.astro';
+import BandCanvas from '../components/BandCanvas.astro';
 import Fact from '../components/Fact.astro';
-import HeroArt from '../components/HeroArt.astro';
-import LimitsAccordion from '../components/LimitsAccordion.astro';
-import Marquee from '../components/Marquee.astro';
-import ResultsSection from '../components/ResultsSection.astro';
-import TeamSection from '../components/TeamSection.astro';
-import TuiWindow from '../components/TuiWindow.astro';
+import { getFact } from '../lib/facts';
+import { homeData } from '../lib/home-data';
 
-const heroFacts = [
-  {
-    id: 'F-wire-medium-c-vs-a',
-    label: 'Wire reduction, C against A',
-  },
-  {
-    id: 'F-sign-medium-c-vs-a',
-    label: 'Signing speed-up, C against A',
-  },
-  {
-    id: 'F-verify-medium-c-vs-a',
-    label: 'Verification speed-up, cached ladder, C against A',
-  },
-];
+const raw = (id: string): number => {
+  const value = getFact(id).raw;
+  return typeof value === 'number' ? value : 0;
+};
+const wireA = raw('F-wire-medium-a');
+const wireB = raw('F-wire-medium-b');
+const wireC = raw('F-wire-medium-c');
+const barA = ((wireA / wireB) * 100).toFixed(1);
+const barC = ((wireC / wireB) * 100).toFixed(1);
+const fit = getFact('F-udp-c-fit');
+const homeJson = JSON.stringify(homeData).replaceAll('<', '\\u003c');
 
-const marqueeItems = [
-  'Wire bytes',
-  'Signing',
-  'Verifying',
-  'Memory',
-  'UDP fit',
-  'Live DNS',
-  'Method',
-  'Reproduce',
-];
 ---
 
 <BaseLayout
-  title="CLIMB — post-quantum DNSSEC, measured"
-  description="Recording how Merkle Tree Ladder amortisation changes the size and cost of post-quantum DNSSEC signing with SLH-DSA."
+  title="CLIMB: Cryptographic Ladder Impact Measurement Benchmark"
+  description="CLIMB is a reproducible Rust benchmark measuring how Merkle Tree Ladder amortisation changes the performance and wire efficiency of post-quantum DNSSEC signing with SLH-DSA."
+  home
 >
-  <section class="mx-auto max-w-6xl px-4 pt-12 pb-16 sm:px-6 sm:pt-20 lg:pb-24">
-    <div class="grid items-center gap-12 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)] lg:gap-16">
-      <div data-hero-copy>
-        <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">
-          /01.00 PQC DNSSEC - MTL benchmark
-        </p>
-
-        <h1
-          class="mt-5 max-w-3xl font-display text-5xl leading-[0.95] text-paper sm:text-6xl"
-          data-hero-headline
-        >
-          Post-quantum DNSSEC, without the weight.
-        </h1>
-
-        <p class="mt-6 max-w-xl text-lg text-muted">
-          Measuring how Merkle Tree Ladder amortisation changes the size and the cost of
-          post-quantum DNSSEC signing with SLH-DSA.
-        </p>
-
-        <div class="mt-8 flex flex-wrap items-center gap-3">
-          <Button href="/dashboard">Open the dashboard</Button>
-          <Button href="/method" variant="secondary">
-            See the evidence
-          </Button>
-        </div>
-
-        <p class="mt-4 text-sm text-muted">
-          Recorded results, read from the committed artifact. This page is a viewer, not a service.
-        </p>
-
-        <ul
-          class="mt-10 grid gap-4 sm:grid-cols-3 sm:gap-6"
-          aria-label="Headline figures"
-          data-hero-facts
-        >
-          {heroFacts.map((item) => (
-            <li class="border-t border-slate pt-3">
-              <p class="font-mono text-xs tracking-[0.16em] text-muted uppercase">{item.label}</p>
-              <p class="mt-2">
-                <Fact id={item.id} />
-              </p>
-            </li>
-          ))}
-        </ul>
+  <section class="hero">
+    <canvas id="gc" aria-hidden="true"></canvas>
+    <div class="w hg">
+      <div class="lo">
+        <canvas id="ob" aria-hidden="true"></canvas>
+        <i
+          class="hl logo"
+          role="img"
+          aria-label="CLIMB, Cryptographic Ladder Impact Measurement Benchmark"
+        ></i>
+        <canvas id="of" aria-hidden="true"></canvas>
       </div>
-
-      <HeroArt class="lg:justify-self-end" />
     </div>
-  </section>
-
-  <Marquee items={marqueeItems} label="Sections of the record" />
-
-  <ResultsSection />
-  <ByteRace />
-  <LimitsAccordion />
-  <TeamSection />
-
-  <section class="mx-auto max-w-6xl px-4 pt-16 pb-20 sm:px-6" aria-labelledby="browser-window">
-    <div class="mb-5 flex flex-wrap items-end justify-between gap-3">
+    <div class="w intro">
       <div>
-        <p class="font-mono text-xs tracking-[0.16em] text-orange uppercase">/01.70 the window</p>
-        <h2 id="browser-window" class="mt-3 font-display text-3xl text-paper">
-          The dashboard, in the browser
-        </h2>
+        <h1>Post-quantum DNSSEC, measured.</h1>
+        <p class="ld">
+          Measuring how Merkle Tree Ladder amortisation changes the performance and wire
+          efficiency of post-quantum DNSSEC signing with SLH-DSA.
+        </p>
+        <div class="cta">
+          <a class="btn p" href="#results">Explore the benchmark</a>
+          <a
+            class="btn"
+            href="https://github.com/aiori-hackathon/A3-PS036-TC529"
+            rel="noopener">View on GitHub</a>
+        </div>
+        <p class="mt">
+          AIORI-3 Hackathon, problem statement PS-036. Experimental research benchmark.
+        </p>
       </div>
-      <p class="font-mono text-xs tracking-[0.12em] text-muted uppercase">no install · no server</p>
     </div>
-
-    <p class="mb-6 max-w-2xl text-base text-muted">
-      The same Rust dashboard the terminal runs, compiled to WebAssembly. It reads the recorded
-      artifacts and waits until you reach it before it loads.
-    </p>
-
-    <TuiWindow mode="home" />
   </section>
+
+  <section id="results">
+    <div class="w">
+      <div class="sh">
+        <h2>Results</h2>
+        <p>
+          Every figure carries its evidence class and baseline. Values come from the
+          repository’s recorded artifacts, Medium dataset.
+        </p>
+      </div>
+      <ol class="led">
+        <li>
+          <span class="ev d">Derived</span>
+          <span class="nm">
+            <Fact id="F-wire-medium-c-vs-a" bare count />%
+          </span>
+          <p>
+            Wire reduction, C vs A. From measured bytes:&#32;<Fact id="F-wire-medium-c" bare /> B vs <Fact id="F-wire-medium-a" bare /> B.
+          </p>
+        </li>
+        <li>
+          <span class="ev d">Derived</span>
+          <span class="nm">
+            <Fact id="F-sign-medium-c-vs-a" bare count />×
+          </span>
+          <p>Signing speed-up, C vs A. Per-message cost scaled to batch size.</p>
+        </li>
+        <li>
+          <span class="ev d">Derived</span>
+          <span class="nm">
+            <Fact id="F-verify-medium-c-vs-a" bare count />×
+          </span>
+          <p>Verification speed-up, C vs A, with a trusted cached ladder.</p>
+        </li>
+        <li>
+          <span class="ev a">Analytical</span>
+          <span class="nm">
+            <span data-fact-id="F-udp-c-fit" data-fact-class={fit.class} data-n={String(fit.raw)} data-d="0">{fit.display.split(' ')[0]}</span>&#32;of&#32;<Fact id="F-udp-c-total" bare />
+          </span>
+          <p>
+            Modelled UDP response profiles that fit the&#32;<Fact id="F-udp-payload" bare />-byte payload in configuration C.
+          </p>
+        </li>
+      </ol>
+      <div class="key">
+        <span class="ev m">Measured: recorded directly</span>
+        <span class="ev d">Derived: computed from measurements</span>
+        <span class="ev a">Analytical: closed-form model</span>
+      </div>
+      <p class="note">
+        Definitions in <a
+          href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md"
+          rel="noopener">docs/METHODOLOGY.md</a
+        >. Full table in <a
+          href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/deck-facts.md"
+          rel="noopener">docs/deck-facts.md</a
+        >.
+      </p>
+    </div>
+  </section>
+
+  <BandCanvas mode="0" />
+
+  <section id="capabilities">
+    <div class="w">
+      <div class="sh">
+        <h2>Capabilities</h2>
+        <p>
+          Seven things the benchmark measures, each reproducible from one command. Select a
+          card to open it in the ladder.
+        </p>
+      </div>
+      <div class="cds" id="cds"></div>
+    </div>
+  </section>
+
+  <section id="ladder">
+    <div class="w">
+      <div class="sh">
+        <h2>Explore the ladder</h2>
+        <p>
+          Choose a capability to open its branches, then a leaf to see its evidence class and
+          the command that reproduces it.
+        </p>
+      </div>
+      <div class="lad" id="lad">
+        <svg id="sv" aria-hidden="true"></svg>
+        <div class="rt" id="rt">CLIMB<small>ladder</small></div>
+        <div class="cp" id="cp" role="group" aria-label="Capabilities"></div>
+        <div class="lv" id="lv" role="group" aria-label="Branches"></div>
+        <article class="dt" id="dt" aria-live="polite"></article>
+      </div>
+    </div>
+  </section>
+
+  <BandCanvas mode="1" />
+
+  <section id="how">
+    <div class="w">
+      <div class="sh">
+        <h2>How it works</h2>
+        <p>
+          In C, one signed ladder is shared across a batch. Each response carries only a small
+          condensed authentication path, not the full ladder.
+        </p>
+      </div>
+      <div class="tb" role="tablist" aria-label="Configurations">
+        <button role="tab" id="t0" aria-selected="true">A · Plain SLH-DSA</button>
+        <button role="tab" id="t1" aria-selected="false" tabindex="-1">
+          B · MTL, no amortisation
+        </button>
+        <button role="tab" id="t2" aria-selected="false" tabindex="-1">
+          C · MTL amortised
+        </button>
+      </div>
+      <div class="hw">
+        <div role="tabpanel" aria-live="polite">
+          <h3 id="ph"></h3>
+          <p id="pp"></p>
+          <div class="bars" id="bars">
+            <p><span class="ev m">Measured</span> Wire bytes, Medium dataset</p>
+            <div class="bar">
+              <span>A</span>
+              <div class="trk">
+                <div class="fill" data-w={barA}></div>
+                <span class="val" style="right:8px"><Fact id="F-wire-medium-a" bare /> B</span>
+              </div>
+            </div>
+            <div class="bar">
+              <span>B</span>
+              <div class="trk">
+                <div class="fill" data-w="100"></div>
+                <span class="val" style="right:8px"><Fact id="F-wire-medium-b" bare /> B</span>
+              </div>
+            </div>
+            <div class="bar">
+              <span>C</span>
+              <div class="trk">
+                <div class="fill" data-w={barC}></div>
+                <span class="val" style={`left:calc(${barC}% + 8px)`}
+                  ><Fact id="F-wire-medium-c" bare /> B</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="dg">
+          <svg
+            viewBox="0 0 360 232"
+            role="img"
+            aria-label="Diagram of what each of three messages carries in the selected configuration"
+            font-family="Geist,sans-serif"
+            font-size="11"
+          >
+            <g fill="none" stroke="#a9a398">
+              <rect x="20" y="96" width="80" height="26"></rect>
+              <rect x="140" y="96" width="80" height="26"></rect>
+              <rect x="260" y="96" width="80" height="26"></rect>
+            </g>
+            <g fill="#a9a398" text-anchor="middle">
+              <text x="60" y="113">message 1</text>
+              <text x="180" y="113">message 2</text>
+              <text x="300" y="113">message 3</text>
+            </g>
+            <g id="gA" fill="#f2ede4">
+              <rect x="20" y="130" width="80" height="48"></rect>
+              <rect x="140" y="130" width="80" height="48"></rect>
+              <rect x="260" y="130" width="80" height="48"></rect>
+            </g>
+            <g id="gB">
+              <g fill="#ff5400">
+                <rect x="20" y="130" width="80" height="14"></rect>
+                <rect x="140" y="130" width="80" height="14"></rect>
+                <rect x="260" y="130" width="80" height="14"></rect>
+              </g>
+              <g fill="#f2ede4">
+                <rect x="20" y="146" width="80" height="38"></rect>
+                <rect x="140" y="146" width="80" height="38"></rect>
+                <rect x="260" y="146" width="80" height="38"></rect>
+              </g>
+            </g>
+            <g id="gC">
+              <rect x="30" y="14" width="300" height="28" fill="#f2ede4"></rect>
+              <text x="180" y="32" text-anchor="middle" fill="#07080a" font-weight="600">
+                one signed ladder
+              </text>
+              <path
+                class="fw"
+                d="M60 96V69H300V96M180 69V42"
+                stroke="#ff5400"
+                stroke-width="2"
+                fill="none"></path>
+              <g fill="#ff5400">
+                <rect x="20" y="130" width="80" height="12"></rect>
+                <rect x="140" y="130" width="80" height="12"></rect>
+                <rect x="260" y="130" width="80" height="12"></rect>
+              </g>
+            </g>
+            <text id="gt" x="180" y="204" text-anchor="middle" fill="#a9a398"></text>
+            <rect x="82" y="216" width="8" height="8" fill="#f2ede4"></rect>
+            <text x="96" y="224" fill="#a9a398">signature or ladder</text>
+            <rect x="210" y="216" width="8" height="8" fill="#ff5400"></rect>
+            <text x="224" y="224" fill="#a9a398">condensed path</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <BandCanvas mode="0" />
+
+  <section id="architecture">
+    <div class="w">
+      <div class="sh">
+        <h2>Architecture</h2>
+        <p>
+          A Rust workspace links OpenSSL, liboqs and libMTL, benchmarks with Criterion, and
+          captures live DNS from patched NSD and Unbound in Docker.
+        </p>
+      </div>
+      <div class="arch">
+        <svg
+          viewBox="0 0 900 250"
+          role="img"
+          aria-label="Native libraries and DNS pipeline feed the Rust workspace, which feeds consolidated results, report, dashboard and quote sheet"
+          font-family="Geist,sans-serif"
+          font-size="13"
+          fill="#f2ede4"
+        >
+          <g fill="#0d0f13" stroke="rgba(242,237,228,.22)">
+            <rect x="10" y="20" width="150" height="40" rx="4"></rect>
+            <rect x="10" y="75" width="150" height="40" rx="4"></rect>
+            <rect x="10" y="130" width="150" height="40" rx="4"></rect>
+            <rect x="10" y="185" width="150" height="40" rx="4"></rect>
+            <rect x="230" y="40" width="170" height="60" rx="4"></rect>
+            <rect x="230" y="130" width="170" height="60" rx="4"></rect>
+            <rect x="470" y="85" width="170" height="70" rx="4" stroke="#ff5400"></rect>
+            <rect x="710" y="30" width="170" height="50" rx="4"></rect>
+            <rect x="710" y="105" width="170" height="50" rx="4"></rect>
+            <rect x="710" y="180" width="170" height="50" rx="4"></rect>
+          </g>
+          <g stroke="rgba(255,84,0,.6)" stroke-width="1.4" fill="none">
+            <path
+              d="M160 40H195V70H230M160 95H195V70M160 150H195V160H230M160 205H195V160"></path>
+            <path d="M400 70H435V120H470M400 160H435V120"></path>
+            <path d="M640 120H675V55H710M640 120H710M640 120H675V205H710"></path>
+          </g>
+          <g text-anchor="middle">
+            <text x="85" y="45">OpenSSL</text>
+            <text x="85" y="100">liboqs</text>
+            <text x="85" y="155">libMTL</text>
+            <text x="85" y="210">Docker build</text>
+            <text x="315" y="66">Rust workspace</text>
+            <text x="315" y="84" fill="#a9a398">Criterion benchmarks</text>
+            <text x="315" y="156">NSD + Unbound</text>
+            <text x="315" y="174" fill="#a9a398">DNS capture</text>
+            <text x="555" y="116">consolidate</text>
+            <text x="555" y="134" fill="#a9a398">climb-results.json</text>
+            <text x="795" y="60">HTML report</text>
+            <text x="795" y="135">TUI dashboard</text>
+            <text x="795" y="210">deck-facts.md</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <BandCanvas mode="1" />
+
+  <section id="transparency">
+    <div class="w">
+      <div class="sh">
+        <h2>Transparency</h2>
+        <p>
+          Nothing on this page is typed in by hand. Each number is read from a recorded artifact
+          and checked against a claims registry.
+        </p>
+      </div>
+      <div class="tr">
+        <div>
+          <h3>Reproducible datasets</h3>
+          <p>
+            Deterministic datasets in <Fact id="F-wire-sizes" bare /> sizes and repeated trials.
+            One command, <code>cargo xtask reproduce</code>, rebuilds the artifact chain.
+          </p>
+        </div>
+        <div>
+          <h3>Pinned and fingerprinted</h3>
+          <p>
+            liboqs and libMTL are pinned submodules. <code>environment.json</code> records CPU,
+            kernel and toolchain.
+          </p>
+        </div>
+        <div>
+          <h3>Claims registry</h3>
+          <p>
+            Each claim stores its JSON pointer, expected value and pass or fail mark. The README
+            badge reports <Fact id="F-claims-count" bare /> verified.
+          </p>
+        </div>
+      </div>
+      <div class="lim">
+        <h3>Known experimental limits</h3>
+        <p>
+          Results are empirical. No formal security guarantee, proof or certification is claimed
+          for MTL mode, SLH-DSA or any component. They cover one parameter set
+          (<Fact id="F-parameter-set" bare />), one reference implementation and one
+          laptop-class machine. Native SLH-DSA is not SIMD-tuned in the pinned build. This website presents
+          recorded results and a client-side dashboard. The DNSSEC and PQC benchmark itself is not
+          deployed on the Internet; the DNS testbed runs locally.
+        </p>
+      </div>
+      <a
+        class="lk"
+        href="https://github.com/aiori-hackathon/A3-PS036-TC529/blob/main/docs/METHODOLOGY.md"
+        rel="noopener">Read the methodology ↗</a
+      >
+    </div>
+  </section>
+
+  <BandCanvas mode="0" />
+
+  <section id="team">
+    <div class="w">
+      <div class="sh">
+        <h2>Team CLIMB</h2>
+        <p>AIORI-3 Hackathon, problem statement PS-036, team code A3-PS036-TC529.</p>
+      </div>
+      <ul class="tm">
+        <li>
+          <h3>Pratyay Mukherjee</h3>
+          <span>Team Lead and Developer</span>
+          <a href="https://github.com/profm0r14rty" rel="noopener">GitHub profile ↗</a>
+        </li>
+        <li>
+          <h3>Mohit Kumar Yadav</h3>
+          <span>Lead Researcher, UI and Logo Designer</span>
+          <a href="https://github.com/Mohh12glitch" rel="noopener">GitHub profile ↗</a>
+        </li>
+        <li>
+          <h3>Dr. Maibam Devi</h3>
+          <span>Faculty Mentor</span>
+          <a href="https://www.nfsu.ac.in/Faculty/profile/664" rel="noopener">NFSU profile ↗</a>
+        </li>
+      </ul>
+    </div>
+  </section>
+
+  <script type="application/json" id="climb-data" set:html={homeJson}></script>
 </BaseLayout>

@@ -1,41 +1,68 @@
 ---
 import '../styles/global.css';
+import '../styles/climb.css';
 import Fact from '../components/Fact.astro';
 
 interface Props {
   title: string;
   description: string;
+  /** The home route adds the page-index rail; other routes keep the shell. */
+  home?: boolean;
 }
 
-const { title, description } = Astro.props;
+const { title, description, home = false } = Astro.props;
 const site = Astro.site ?? Astro.url;
 const canonical = new URL(Astro.url.pathname, site);
 const ogImage = new URL('/og-image.png', site);
-const path = Astro.url.pathname;
-
-const primaryNav = [
-  { label: 'Home', href: '/' },
-  { label: 'Dashboard', href: '/dashboard' },
-  { label: 'Calculator', href: '/calculator' },
-  { label: 'Report', href: '/report' },
-  { label: 'Verify', href: '/verify' },
-  { label: 'Method', href: '/method' },
-];
 
 const repository = 'https://github.com/aiori-hackathon/A3-PS036-TC529';
-const isCurrent = (href: string) => (href === '/' ? path === '/' : path.startsWith(href));
+const nav = [
+  { label: 'Results', href: '#results' },
+  { label: 'Capabilities', href: '#capabilities' },
+  { label: 'Ladder', href: '#ladder' },
+  { label: 'How it works', href: '#how' },
+  { label: 'Architecture', href: '#architecture' },
+  { label: 'Transparency', href: '#transparency' },
+  { label: 'Team', href: '#team' },
+];
+
+const keywords: { text: string; fact?: string }[] = [
+  { text: 'post-quantum' },
+  { text: 'SLH-DSA' },
+  { text: 'Merkle Tree Ladder' },
+  { text: 'DNSSEC' },
+  { text: 'amortisation' },
+  { text: 'condensed authentication path' },
+  { text: 'wire bytes' },
+  { text: '-byte UDP payload', fact: 'F-udp-payload' },
+  { text: 'libMTL' },
+  { text: 'liboqs' },
+  { text: 'Criterion' },
+  { text: 'reproducible' },
+  { text: 'evidence classes' },
+  { text: 'claims registry' },
+  { text: 'NSD and Unbound' },
+  { text: 'Rust' },
+];
 ---
 
 <!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover"
+    />
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="canonical" href={canonical} />
-    <meta name="theme-color" content="#07080A" />
+    <meta name="theme-color" content="#13161b" />
     <meta name="color-scheme" content="dark" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none'"
+    />
 
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
@@ -57,223 +84,176 @@ const isCurrent = (href: string) => (href === '/' ? path === '/' : path.startsWi
 
     <link
       rel="preload"
-      href="/fonts/instrument-serif-regular-latin.woff2"
+      href="/fonts/bricolage-grotesque-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin
     />
     <link
       rel="preload"
-      href="/fonts/geist-regular-latin.woff2"
+      href="/fonts/geist-latin.woff2"
       as="font"
       type="font/woff2"
       crossorigin
     />
   </head>
-  <body class="bg-ink font-body text-text">
-    <a class="skip-link" href="#main">
-      Skip to content
-    </a>
+  <body>
+    <a class="skip-link" href="#top">Skip to content</a>
 
-    <header class="border-b border-slate bg-surface">
-      <div class="mx-auto flex max-w-6xl flex-wrap items-center gap-x-8 gap-y-4 px-4 py-4 sm:px-6">
-        <a href="/" class="flex items-center gap-3" aria-label="CLIMB home">
-          <img
-            src="/logo/climb-logo-dark.svg"
-            alt="CLIMB"
-            width="1504"
-            height="912"
-            class="h-10 w-auto"
-          />
-        </a>
-
-        <nav aria-label="Primary" class="order-3 w-full sm:order-2 sm:w-auto">
-          <ul class="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
-            {primaryNav.map((item) => (
-              <li>
-                <a
-                  href={item.href}
-                  class="border-b-2 border-transparent py-1 text-text hover:border-orange hover:text-orange"
-                  aria-current={isCurrent(item.href) ? 'page' : undefined}
-                >
-                  {item.label}
-                </a>
-              </li>
-            ))}
-          </ul>
-        </nav>
-
-        <a
-          href={repository}
-          class="order-2 ml-auto rounded-control bg-orange px-4 py-2 text-sm font-medium text-ink hover:bg-paper sm:order-3"
-          rel="noreferrer"
+    <div class="orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+    <svg
+      width="0"
+      height="0"
+      style="position:absolute"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <defs>
+        <filter
+          id="lg"
+          x="-0.05"
+          y="-0.05"
+          width="1.1"
+          height="1.1"
+          color-interpolation-filters="sRGB"
         >
-          Open the repository
-        </a>
-      </div>
+          <feTurbulence
+            type="fractalNoise"
+            baseFrequency=".007 .011"
+            numOctaves="2"
+            seed="7"
+            result="n"
+          ></feTurbulence>
+          <feGaussianBlur in="n" stdDeviation="2" result="nb"></feGaussianBlur>
+          <feDisplacementMap
+            in="SourceGraphic"
+            in2="nb"
+            scale="22"
+            xChannelSelector="R"
+            yChannelSelector="G"
+          ></feDisplacementMap>
+        </filter>
+      </defs>
+    </svg>
+    <canvas id="fx" aria-hidden="true"></canvas>
+
+    <header id="hd">
+      <div class="w">
+        <a class="brand logo" href="/#top" aria-label="CLIMB home"></a>
+        <button id="mn" aria-expanded="false" aria-controls="nv">Menu</button>
+        <nav id="nv" aria-label="Primary">
+          {nav.map((item) => <a href={home ? item.href : `/${item.href}`}>{item.label}</a>)}
+          <a class="btn" href={repository} rel="noopener">GitHub</a>
+        </nav>
+      </div><i id="pb" aria-hidden="true"></i>
     </header>
 
-    <main id="main" tabindex="-1">
+    {home ? (
+      <aside id="sc" aria-label="Page index">
+        <div id="rl"></div><i id="ix"></i><span id="pr">0&#37;</span>
+      </aside>
+    ) : null}
+
+    <main id="top">
       <slot />
     </main>
 
-    <footer class="mt-24">
-      <a class="footer-band" href="/dashboard" data-footer-band>
-        <span class="footer-band__label">Open the dashboard</span>
-        <svg
-          class="footer-band__arrow"
-          viewBox="0 0 64 64"
-          width="64"
-          height="64"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="3"
-          aria-hidden="true"
-          focusable="false"
-        >
-          <path d="M10 32h42M38 18l14 14-14 14"></path>
-        </svg>
-      </a>
-
-      <div class="border-t border-slate bg-surface">
-        <div class="mx-auto grid max-w-6xl gap-10 px-4 py-12 sm:px-6 md:grid-cols-2 lg:grid-cols-4">
-          <div class="space-y-3">
-            <img
-              src="/logo/climb-logo-dark.svg"
-              alt="CLIMB"
-              width="1504"
-              height="912"
-              class="h-8 w-auto"
-            />
-            <p class="font-display text-2xl italic text-paper">Measured, not claimed.</p>
+    <footer id="ft">
+      <div class="w">
+        <div class="fh">
+          <h2>Sign once. Prove many.</h2>
+          <div class="gs">
+            <span>Clone it, rebuild every number, check the claims yourself.</span>
+            <div class="cmd">
+              <code>git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb</code>
+              <button
+                type="button"
+                data-c="git clone --recurse-submodules https://github.com/aiori-hackathon/A3-PS036-TC529 climb"
+              >
+                Copy
+              </button>
+            </div>
+            <a class="btn p" href={repository} rel="noopener">Open the repository</a>
           </div>
-
-          <div class="space-y-3 md:col-span-1">
-            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
-              Project
-            </h2>
-            <ul class="space-y-2 text-sm">
+        </div>
+        <ul class="kw" aria-label="Project keywords">
+          {keywords.map((word, index) => (
+            <li class={index % 4 === 0 ? 'r' : index % 4 === 2 ? 'o' : undefined}>
+              {word.fact === undefined ? (
+                word.text
+              ) : (
+                <><Fact id={word.fact} bare />{word.text}</>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div class="fg">
+          <div>
+            <h3>CLIMB</h3>
+            <p style="max-width:38ch">
+              Cryptographic Ladder Impact Measurement Benchmark. A reproducible look at what
+              Merkle Tree Ladder amortisation buys post-quantum DNSSEC.
+            </p>
+          </div>
+          <div>
+            <h3>Project</h3>
+            <ul>
+              <li><a href={repository} rel="noopener">GitHub repository</a></li>
               <li>
-                <a class="text-text hover:text-orange" href="/dashboard">
-                  Dashboard
+                <a href={`${repository}/blob/main/A3-PS036-TC529.pdf`} rel="noopener">
+                  Presentation deck (PDF)
                 </a>
               </li>
               <li>
-                <a class="text-text hover:text-orange" href="/calculator">
-                  Calculator
-                </a>
-              </li>
-              <li>
-                <a class="text-text hover:text-orange" href="/report">
-                  Report
-                </a>
-              </li>
-              <li>
-                <a class="text-text hover:text-orange" href="/verify">
-                  Verify
+                <a href="https://www.youtube.com/watch?v=gDHYamjWmtE" rel="noopener">
+                  Introduction video
                 </a>
               </li>
             </ul>
           </div>
-
-          <div class="space-y-3">
-            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
-              Method
-            </h2>
-            <ul class="space-y-2 text-sm">
+          <div>
+            <h3>Method</h3>
+            <ul>
               <li>
-                <a class="text-text hover:text-orange" href="/method">
-                  Method
+                <a href={`${repository}/blob/main/docs/METHODOLOGY.md`} rel="noopener">
+                  Research methodology
                 </a>
               </li>
               <li>
-                <a class="text-text hover:text-orange" href="/reproduce">
-                  Reproduce
+                <a href={`${repository}/blob/main/docs/BASELINES.md`} rel="noopener">
+                  Baselines A, B, C
                 </a>
               </li>
               <li>
-                <a class="text-text hover:text-orange" href="/commits">
-                  Commits
+                <a href={`${repository}/blob/main/docs/ARCHITECTURE.md`} rel="noopener">
+                  Documentation
                 </a>
               </li>
             </ul>
           </div>
-
-          <div class="space-y-3">
-            <h2 class="font-body text-xs font-medium tracking-widest text-muted uppercase">
-              Event
-            </h2>
-            <ul class="space-y-2 text-sm">
+          <div>
+            <h3>Event</h3>
+            <ul>
               <li>
-                <span class="text-text">AIORI-3 Hackathon</span>
+                <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" rel="noopener">
+                  AIORI-3 guidelines
+                </a>
               </li>
-              <li>
-                <span class="text-text">Problem statement PS-036</span>
-              </li>
-              <li>
-                <span class="text-text">Team A3-PS036-TC529</span>
-              </li>
+              <li>Track 2, Cyber Security</li>
+              <li>PS-036 · A3-PS036-TC529</li>
             </ul>
           </div>
         </div>
-
-        <div class="border-t border-slate">
-          <div class="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-6 text-sm text-muted sm:px-6">
-            <p>
-              This website presents recorded results and a client-side dashboard. The DNSSEC and PQC
-              benchmark itself is not deployed on the Internet; the DNS testbed runs locally.
-            </p>
-            <p class="flex flex-wrap items-baseline gap-x-2 gap-y-1" data-footer-claims>
-              <Fact id="F-claims-count" />
-              <span>verified in the claims registry.</span>
-            </p>
-            <p>
-              <a
-                class="text-orange underline underline-offset-2 hover:text-paper"
-                href={`${repository}/blob/main/LICENSE`}
-              >
-                MIT licence
-              </a>
-              . Results are empirical measurements; nothing here is a formal verification or a
-              certification.
-            </p>
-          </div>
+        <div class="fb">
+          <span>MIT licence. <Fact id="F-claims-count" bare /> verified.</span>
+          <span>Experimental research benchmark. No formal security guarantee is claimed.</span>
         </div>
       </div>
     </footer>
 
-    <style>
-      .footer-band {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 1.5rem;
-        padding: clamp(2rem, 6vw, 5rem) clamp(1rem, 4vw, 3rem);
-        background-color: var(--color-orange);
-        color: var(--color-ink);
-      }
-
-      .footer-band:hover {
-        background-color: var(--color-paper);
-      }
-
-      .footer-band__label {
-        font-family: var(--font-display);
-        font-size: clamp(2.75rem, 9vw, 8rem);
-        line-height: 0.9;
-        letter-spacing: -0.02em;
-      }
-
-      .footer-band__arrow {
-        flex: none;
-        width: clamp(2.5rem, 8vw, 6rem);
-        height: auto;
-        transition: transform 180ms ease-out;
-      }
-
-      .footer-band:hover .footer-band__arrow {
-        transform: translateX(0.5rem);
-      }
-    </style>
+    <script>
+      import '../scripts/climb-main.js';
+      import '../scripts/climb-glass.js';
+    </script>
   </body>
 </html>

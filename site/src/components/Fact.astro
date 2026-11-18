@@ -18,32 +18,52 @@ import { getFact } from '../lib/facts';
 interface Props {
   id: string;
   drawer?: boolean;
+  /**
+   * Render the value alone. The caller owns the unit, the evidence mark and
+   * the baseline (the home page's marks carry the class word beside it).
+   */
+  bare?: boolean;
+  /** Opt the value into the count-up: `data-n` and `data-d` in the value span. */
+  count?: boolean;
 }
 
-const { id, drawer = false } = Astro.props;
+const { id, drawer = false, bare = false, count = false } = Astro.props;
 const fact = getFact(id);
 const classLabel = fact.class.charAt(0).toUpperCase() + fact.class.slice(1);
 const provenance = fact.class === 'constant' || fact.class === 'generated';
 const colour = provenance ? 'var(--color-muted)' : `var(--color-${fact.class})`;
+const decimals = (fact.display.split('.')[1] ?? '').replace(/\D/g, '').length;
 ---
 
-<span
-  class="fact inline-flex flex-wrap items-baseline gap-x-1.5"
-  data-fact-id={fact.id}
-  data-fact-class={fact.class}
->
-  <span class="fact-value font-mono text-text">{fact.display}</span>
-  {fact.unit !== '—' && fact.unit !== '' ? (
-    <span class="fact-unit text-sm text-muted">{fact.unit}</span>
-  ) : null}
-  {drawer ? (
-    <EvidenceChip id={fact.id} label={classLabel} />
-  ) : (
-    <span class="chip" style={`color: ${colour};`}>
-      {classLabel}
+{bare ? (
+  <span class="fact" data-fact-id={fact.id} data-fact-class={fact.class}>
+    <span
+      class="fact-value"
+      data-n={count ? String(fact.raw) : undefined}
+      data-d={count ? String(decimals) : undefined}
+    >
+      {fact.display}
     </span>
-  )}
-  {fact.baseline !== 'n/a' ? (
-    <span class="fact-baseline text-sm text-muted">vs {fact.baseline}</span>
-  ) : null}
-</span>
+  </span>
+) : (
+  <span
+    class="fact inline-flex flex-wrap items-baseline gap-x-1.5"
+    data-fact-id={fact.id}
+    data-fact-class={fact.class}
+  >
+    <span class="fact-value font-mono text-text">{fact.display}</span>
+    {fact.unit !== '—' && fact.unit !== '' ? (
+      <span class="fact-unit text-sm text-muted">{fact.unit}</span>
+    ) : null}
+    {drawer ? (
+      <EvidenceChip id={fact.id} label={classLabel} />
+    ) : (
+      <span class="chip" style={`color: ${colour};`}>
+        {classLabel}
+      </span>
+    )}
+    {fact.baseline !== 'n/a' ? (
+      <span class="fact-baseline text-sm text-muted">vs {fact.baseline}</span>
+    ) : null}
+  </span>
+)}

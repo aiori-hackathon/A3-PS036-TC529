@@ -12,9 +12,9 @@ Effects: `docs/site/animation-inventory.md`. Missing numbers:
 Machine-readable status markers (read by `scripts/site-check.py docs`):
 
 ```
-csp-inline-styles: pending-ms1
+csp-inline-styles: done-ms1
 lite-mode: pending-ms4
-fonts: pending-ms1
+fonts: done-ms1
 smil: removed
 ```
 

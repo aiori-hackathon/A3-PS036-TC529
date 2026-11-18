@@ -262,9 +262,10 @@ describe('the window is wired into the site', () => {
     expect(page).toContain("import commands from '../data/tui-commands.json'");
   });
 
-  it('puts the embedded window after the hero on the home route', () => {
-    expect(home).toContain('TuiWindow');
-    expect(home).toContain('mode="home"');
-    expect(home.indexOf('<TuiWindow')).toBeGreaterThan(home.indexOf('<HeroArt'));
+  it('keeps the embedded window on its own route, not the home page', () => {
+    // The home route is the skin's eight sections; the dashboard window has
+    // its own route (/tui), which the test above covers.
+    expect(home).not.toContain('TuiWindow');
+    expect(home).toContain('id="ladder"');
   });
 });
