@@ -1,5 +1,11 @@
 # Prototype palette to site tokens
 
+> **Superseded by `docs/site/brand.md`.** This document maps the prototype to the
+> previous palette (v2) and records what that palette would have kept, dropped or
+> retokenised. The design authority is now the prototype itself, and its palette
+> is brand v3 in `docs/site/brand.md`. Read this file as the audit trail, not as
+> the token set: where the two disagree, `brand.md` wins.
+
 Source: `docs/site/prototype/climb-site.html` (429 lines). Colour values below are copied
 literally from the file; contrast ratios are computed with the WCAG 2.x sRGB formula (see
 `docs/site/prototype-audit.md` §5). No browser was used to sample gradients.

@@ -1,100 +1,196 @@
 # Site design rules
 
-The anti-slop checklist for the CLIMB website. Every rule here is a gate, not a
-preference: a screen that breaks one is not finished. Each rule states what it
-forbids, why, and a **pass test** — something a reviewer can point at, or a
-check the build can run, so "looks fine to me" is not the verdict.
+The gate list for the CLIMB skin. Every rule states what it forbids, why, and a
+**pass test** a reviewer can point at or the build can run, so "looks fine to
+me" is not a verdict. Tokens come from `docs/site/brand.md`, routes from
+`docs/site/ia.md`, words from `docs/site/copy.md`, effects from
+`docs/site/animation-inventory.md`.
 
-The rules assume the tokens in `docs/site/brand.md`, the routes in
-`docs/site/ia.md` and the words in `docs/site/copy.md`. A rule that names a
-token means the token, never a raw hex.
+This revision moves the design authority to `docs/site/prototype/climb-site.html`.
+The prototype is the source of truth for class names, DOM structure, timings and
+easings; the rules below are the constraints the port must satisfy while
+keeping that design. Where a rule and the prototype disagree, the rule wins only
+where accessibility, CSP, reduced motion or a stated budget requires it, and the
+deviation is recorded in `docs/site/skin-plan.md` §8.
 
-## 1. The checklist
+## 1. Rule verdicts against the previous set
 
-| # | Rule | Forbidden | Pass test |
+Ten rules existed before. Each is kept, changed or removed for a stated reason.
+Rules 11–14 are new.
+
+| # | Rule | Verdict | Reason |
 | --- | --- | --- | --- |
-| 1 | One idea in the hero | A hero that states the product, the feature list and a call to action at once | The hero has one headline, one supporting line and at most two actions. Reading only the headline tells the reader what was measured. |
-| 2 | No gradient text | Any `background-clip: text` fill, or text painted with more than one colour | Search the stylesheet for `background-clip` and `text-fill-color`; zero hits. Every glyph is one flat token colour. |
-| 3 | No glass cards in a grid | Translucent, blurred "glassmorphism" panels, especially tiled | A panel background is a flat surface token (`bg-1`, `bg-2`, `bg-3`). Search for `backdrop-filter`; zero hits. |
-| 4 | No identical three-column feature rows | A row of three equal cards with an icon, a heading and a sentence, repeated down the page | No route repeats the same three-up card block more than once, and no two feature rows share a layout. A section that needs three items uses a table, a list or one wide figure instead. |
-| 5 | One deliberate decorative element per page | Competing flourishes: a gradient orb, a glow, a particle field and a grid overlay on the same screen | The page names its single decorative element (for example the ladder motif in the home hero) and every other element carries information. Removing the one element leaves the page working and calmer. |
-| 6 | No icon packs | A downloaded icon set, a sprite sheet, or a glyph font | Icons are drawn from the site's own SVG set and use only token colours. A page with no icon is fine; a page with ten different stroke styles is not. |
-| 7 | At most two accent colours per screen | Orange, teal, violet, green and blue all fighting on one view | The accents are `accent-orange` and `secondary-teal`. The four evidence colours are status colours, not accents, and are counted separately (they are labelled, patterned and small). |
-| 8 | Motion explains, guides or confirms — and can be turned off | Decorative motion, parallax, an entrance animation that delays the content, or any animation with no `prefers-reduced-motion` branch | Every animation has a stated job (show a value change, move focus, confirm a copy) and a reduced-motion state that removes it or reduces it to a non-animated change. |
-| 9 | Colour is never the only channel | A status shown by hue alone | Each evidence class ships with a fill pattern and a written chip (`Measured`, `Derived`, `Analytical`, `Extrapolated`), so it survives a monochrome or colour-blind reading. |
-| 10 | Numbers carry their evidence | A bare figure, or a figure with no baseline | Every number on the page comes from a fact id and shows its evidence chip and the baseline it is compared against. A number a reader cannot trace is a bug. |
+| 1 | One idea in the hero | CHANGE | The hero is now the wordmark at full width with a small intro beneath it: one headline, one lede, two actions, one metadata line. The single idea survives; its composition is the prototype's, not a text block beside the artwork. |
+| 2 | No gradient text | KEEP | The prototype never fills type with a gradient, and flat cream on ink is what makes the numerals legible at 17.18:1. Unchanged, and now checked in source rather than by eye. |
+| 3 | No glass cards in a grid | REMOVE | Glass is the design: floating result rows, panels and the header. The failure this rule prevented (blurred tiles lowering contrast) is answered precisely by the glass budget in §3 and the worst-case sampling in §4, which are stronger than a ban. |
+| 4 | No identical three-column feature rows | KEEP | One three-up row (`Transparency`) appears once; no route repeats it. The seven capability cards and the sixteen ladder branches are an index with distinct content, not a template of icons. |
+| 5 | One deliberate decorative element per page | REMOVE | The page has three named kinds of atmosphere (orbs, three hero canvases, one scroll field, five section bands) and a bounded light system. A count of "one" was the wrong instrument; §5 caps canvases, pauses them when off-screen, names each one's job, and gives lite mode a switch that removes them. |
+| 6 | No icon packs | KEEP | Every mark is drawn in the site's own SVG or CSS (the evidence disc, the notch, the ladder nodes). No icon font, no sprite sheet. |
+| 7 | At most two accent colours per screen | CHANGE | Orange has two steps (`--or`, `--or2`) that are one hue and count as one accent. `--rose` is not an accent: it is the Derived evidence tint, always accompanied by a half-filled disc and the word. Teal, red, violet, green and blue are gone from the UI. |
+| 8 | Motion has a job and a reduced-motion state | KEEP | Strengthened: every one of the 22 effects has a named job, a reduced-motion state and a parity assertion in the inventory. An effect with no state fails the build, not the review. |
+| 9 | Colour is never the only channel | KEEP | Evidence is a mark shape (solid, half, dashed, dotted) plus a word. The four status hues are deleted, so the shape and the word are now the only channels and cannot be lost in a monochrome rendering. |
+| 10 | Numbers carry their evidence class and baseline | KEEP | Every number on a page still comes from a fact id through `Fact.astro`, with its chip and the baseline it is compared against. The skin changes the typography, not the provenance. |
+| 11 | Text on glass is contrast-tested by sampling the worst case over the orbs | NEW | The panel composite depends on what is behind it. A single token pair cannot prove legibility, so the checker samples the brightest orb wash, composites the scrim and the glass gradient, and asserts the used text pairs against that backdrop. |
+| 12 | A glass panel paints its scrim before its gradient | NEW | Without the ink scrim at 78 %, muted text over the cool orb falls below 4.5:1 (the selftest asserts it). The scrim is what makes §4 pass, so it is a rule, not a stylistic default. |
+| 13 | Blur is a budget, not a default | NEW | Only the selectors in §3 may declare `backdrop-filter`; every other panel is opaque. The checker fails on a selector outside the allowlist. |
+| 14 | Five band canvases, running only while visible; lite mode exists | NEW | The prototype instantiates five section-band canvases plus three hero canvases and one scroll field. The budget caps simultaneous work, pauses off-screen loops, and defines a lite mode that removes the atmosphere on a constrained device. |
 
-## 2. Why these, in one paragraph
+## 2. The checklist a screen must pass
 
-The site's job is to make a small set of measured claims legible and
-checkable. The failure mode for a page like this is decoration that competes
-with the data: gradient text that makes a figure hard to read, glass panels
-that lower contrast, a three-up card row that turns four distinct results into
-a template, an icon pack that adds a second visual language. Each rule removes
-one way the page can look like a marketing site instead of a record. The
-tokens in `docs/site/brand.md` already fix the palette and the type; these
-rules fix the composition.
+1. The hero states one thing and offers at most two actions (rule 1).
+2. No `background-clip:text`, no `text-fill-color`; one flat colour per glyph
+   (rule 2).
+3. Every panel is either on the blur allowlist or opaque (rules 3, 13).
+4. No repeated three-up feature row (rule 4).
+5. Every canvas is one of the named ones, is paused when off-screen, and shows
+   its final frame under reduced motion and lite mode (rules 5, 8, 14).
+6. Every effect in the inventory exists, with its selector and constant, and has
+   a reduced-motion state (rule 8).
+7. Evidence is a shape and a word, never a hue alone (rule 9).
+8. Every number has a fact id, a chip and a baseline (rule 10).
+9. Text on a glass panel clears 4.5:1 against the sampled worst case (rules 11,
+   12).
+10. At most two orange steps and one status tint are visible (rule 7).
 
-## 3. The one decorative element
+## 3. The glass budget
 
-The home route has exactly one deliberate decoration: the artwork in the
-hero. A wide block of hand-placed shards stands for one plain SLH-DSA
-signature; a slim orange bar beside it stands for one condensed MTL path; a
-thin rose-to-slate rule under the bar is the wordmark's ladder foot. The
-picture is inert and carries no figure of its own: its two byte labels are
-ordinary HTML rendered from the fact register, and the SVG is hidden from
-assistive technology. It is the only ornament on the route. Every other route
-has none. If a second flourish appears anywhere, rule 5 fails.
+Glass is allowed on these selectors and nowhere else. The value is the blur
+declaration copied from the prototype; the reason is the text that sits on it.
 
-## 4. Motion
+| Selector | Blur | Text it must carry |
+| --- | --- | --- |
+| `#hd` | `blur(16px) saturate(1.8) brightness(1.05)` | navigation, the wordmark, one action |
+| `.led li` | `blur(16px) saturate(1.7) brightness(1.06)` | the four headline figures, their chips and baselines |
+| `.tm li` | same | team rows |
+| `.tr>div` | same | the three transparency cards |
+| `.lim` | same | the known-limits paragraph |
+| `.dg` | same | the three-message diagram and its legend |
+| `.arch` | same | the architecture diagram |
+| `.c`, `.l` | `blur(6px)` | capability and branch buttons |
+| `.dt` | `blur(6px)` | the ladder detail pane |
 
-These animations are in scope, and no others. Each one states its job:
+Panel paint order: `--glass-scrim` → the white gradient → the 1 px masked edge
+→ the specular, clipped to the top 44 px → content. The specular is clipped
+because at `.16` it drops muted text below the floor; the clip keeps it out of the
+text box, so the sampled region is the scrim plus the gradient.
 
-- **The value change.** When a fact enters the viewport, its numeral counts up
-  to the recorded value so the reader sees the size of the number rather than
-  a value that silently replaced another. The last frame is always the text
-  the server rendered. Reduced motion: the value is final with no count.
-- **The reveal.** A block that enters the viewport fades up once so a long
-  page reads in sequence instead of arriving as one slab. It is never a gate:
-  the server HTML is complete and visible, and the hidden start state is armed
-  only after the device check. Reduced motion: the block is shown immediately.
-- **The load counter.** On a first visit the preloader counts to 100 while the
-  faces and the hero image settle. It is capped below 1.5 seconds, has a CSS
-  and no-script failsafe, is skipped on a repeat visit in the same session, and
-  never receives pointer events. Reduced motion: it is never shown.
-- **The scroll progress line.** A two-pixel orange line shows how much of the
-  document remains. It is decorative position feedback, hidden from assistive
-  technology. Reduced motion: it still updates, without a transition.
-- **The hero draw-in.** The hero artwork draws once on first paint so the two
-  shapes read as a size comparison before the eye reaches the labels. The
-  server HTML is already the complete picture; only a reader who has not asked
-  for reduced motion sees the brief draw. Reduced motion: the complete artwork
-  with no animation.
-- **The marquee.** A single strip of topic labels loops to show that the list
-  continues. The duplicate group is hidden from assistive technology and the
-  strip pauses on hover or keyboard focus. Reduced motion: the items wrap as a
-  static list.
-- **The copy confirmation.** The verify and reproduce routes confirm a copied
-  command with a short state change on the button. Reduced motion: the label
-  changes with no transition.
-- **Smooth scrolling.** Wheel scrolling is eased on a fine pointer so long
-  documents keep their place. It is disabled on touch devices, where the
-  platform's own scrolling is better, and under reduced motion. No scroll
-  handler reads layout: every scroll-driven write touches only a transform.
+Neumorphic controls (buttons, wells, tabs, tracks, keyword chips, the index
+label) never blur: they are the tactile layer, and a blurred control would put
+the light system on top of the content system.
 
-Every job is "explain", "guide" or "confirm". Nothing is decorative, and no
-animation blocks the reader from content: the preloader's hard limit is a
-release, not a delay.
+## 4. Text on glass is sampled, not assumed
 
-## 5. How a reviewer checks a screen
+`python3 scripts/site-check.py contrast` computes, for each orb:
 
-1. Cover the copy: does the page still show one idea per section (rules 1, 4)?
-2. Search the stylesheet: `background-clip`, `backdrop-filter` (rules 2, 3).
-3. Count accents and count the decorative elements (rules 5, 7).
-4. Turn on `prefers-reduced-motion` and re-run every animation (rule 8).
-5. Read every figure and find its fact id, chip and baseline (rules 9, 10).
+```
+backdrop = orb (its own alpha) over --ground
+         → --glass-scrim over that
+         → rgba(255,255,255,.085) over that      (the gradient's top stop)
+```
 
-A screen that passes all five passes the checklist. The checks that a test can
-run mechanically — the contrast table and the copy scan — live in
-`scripts/site-check.py`; the rest are review gates recorded here so a later
-session applies the same standard.
+and prints `cr`, `mut` and `or` against that backdrop plus the `--edge`
+boundary. The current worst case is the cool orb: `cr` 12.95:1, `mut` 6.03:1,
+`or` 4.69:1, `--edge` 4.13:1. The checker's selftest removes the scrim and
+asserts that muted text then fails, so the rule cannot be satisfied by deleting
+the scrim and editing the table.
+
+The method is a sample of the CSS colour stops, not a screenshot: no browser
+runs in the gate. The pixel-sampling version (a rendered frame, the brightest
+pixel under each text run) is the MS3 acceptance test in
+`docs/site/skin-plan.md`; until then this composite is the contract, and it is
+deliberately pessimistic (worst orb, top gradient stop, no dithering).
+
+## 5. The canvas budget
+
+| Canvas | Instances | Job | State under reduced motion | State in lite mode |
+| --- | --- | --- | --- | --- |
+| `#gc` hero grid | 1 | shows the wordmark radiating into the grid; a click sends one ripple | one static frame, no loop, no pointer listener | hidden |
+| `#ob`/`#of` hero orbits | 2 | a particle field split around the logo so the mark sits inside it | one static frame | hidden |
+| `#fx` scroll field | 1 | drifting particles whose speed follows the scroll; a burst on a heading | not started | hidden |
+| `.bd canvas[data-m="0"]` | 3 | hashes climbing a Merkle tree | one static frame | hidden |
+| `.bd canvas[data-m="1"]` | 2 | packets hopping the ladder rungs | one static frame | hidden |
+
+Rules:
+
+- At most **nine** canvas elements exist on the page: one hero grid, two orbit
+  canvases (the logo sandwich), one scroll field and five section bands. They
+  are declared by at most **five** `<canvas>` tags, because the band component
+  is instantiated five times and the orbit pair is one component. The checker
+  counts `<canvas` in `site/src` and fails above five.
+- At most **four** animation loops run at once: the hero loop (grid plus
+  orbits), the scroll field, and one loop per band that is currently visible.
+  The bands are 160 px dividers, so two are visible at most in practice, and
+  every loop stops when its canvas leaves the viewport.
+- Every band canvas runs only while it is intersecting the viewport; the
+  `IntersectionObserver` that reveals it also starts and stops the loop.
+- The hero canvases pause as soon as the hero leaves the viewport.
+- A canvas is `aria-hidden="true"` and carries no figure. If it shows a number,
+  the number is HTML with a fact id.
+- No canvas may be created outside the component that owns it, and no loop may
+  run without a visibility gate and a reduced-motion branch.
+
+## 6. Lite mode
+
+Selected when any of: `navigator.connection.saveData`, `navigator.deviceMemory
+<= 2`, or `?lite=1`. It sets `data-lite="on"` on `<html>` before first paint and
+exposes a store the components read once at boot. In lite mode:
+
+- the orbs, the two ambient canvases, the five band canvases and the pointer
+  specular are not created;
+- the glass keeps its scrim and gradient but drops `backdrop-filter`;
+- every value is final: no count-up, no reveal, no clip wipe, no ladder
+  draw-in;
+- the page keeps its layout, its facts and its evidence marks.
+
+The hook is the contract: MS1–MS3 components read `lite()` instead of testing a
+media query inline, so enabling the mode is a one-line change and the
+inventory's lite column is already populated. The mode is specified here and in
+`docs/site/skin-plan.md` §7; the switch lands last.
+
+## 7. Motion in scope
+
+The 22 effects, their jobs and their reduced-motion states are the table in
+`docs/site/animation-inventory.md`; that table is the authority and this section
+does not restate it. Four rules apply to all of them:
+
+- **No SMIL.** The prototype's `animateMotion` elements (the diagram packets,
+  the ladder dot, the architecture packets) are replaced by the same motion
+  drawn on a canvas the page already owns, or by a static final state. The
+  checker fails on `<animateMotion` in `site/src`.
+- **No animation may gate content.** Server HTML is complete; a hidden start
+  state is armed only after the reduced-motion and lite checks.
+- **A scroll handler writes only transforms.** The page index and progress bar
+  are the only scroll-driven writes; the hero's particle field reads scroll
+  velocity from a value the same frame computed.
+- **Every effect has a final state.** Under reduced motion the effect shows its
+  last frame, not a blank one.
+
+## 8. How a reviewer checks a screen
+
+1. Run `python3 scripts/site-check.py` and read the four sections.
+2. Cover the copy: does the page still say one thing per section (rules 1, 4)?
+3. Search the stylesheet: `background-clip`, `backdrop-filter` (rules 2, 3, 13).
+4. Count canvases, then scroll every one out of view and confirm its loop
+   stopped (rules 5, 14).
+5. Set `prefers-reduced-motion: reduce`, reload, and confirm every figure,
+   bar, ladder and diagram is in its final state (rule 8).
+6. Set `?lite=1`, reload, and confirm the atmosphere is gone and the facts
+   remain (rule 14, §6).
+7. Read every figure and find its fact id, chip and baseline (rules 9, 10).
+8. Read one glass panel over the cool orb and confirm the scrim is painted
+   (rules 11, 12).
+
+## 9. What is checked mechanically
+
+| Check | Where |
+| --- | --- |
+| Token table matches `docs/site/brand.md`; shadows verbatim; 20 colour tokens | `scripts/site-check.py docs`, run by `cargo xtask site-check` |
+| 36 used contrast pairs, including glass worst case and the boundary | `scripts/site-check.py contrast` |
+| Banned words, unbacked numbers, unresolved fact ids, missing chips, scope sentence | `scripts/site-check.py copy` |
+| 22 inventory rows, every keyframe named, every selector present in the prototype, reduced-motion state, parity assertion | `scripts/site-check.py docs` |
+| No gradient text, no SMIL, blur allowlist, canvas count, CSP settings | `scripts/site-check.py docs` |
+| No typed benchmark number in `site/src` | `site/src/lib/guard.ts`, run by `cargo xtask site-check` |
+| Fact-gap register agrees with the checker's registry | `scripts/site-check.py docs` |
+
+The rest of the checklist is a review gate recorded here so a later session
+applies the same standard.
