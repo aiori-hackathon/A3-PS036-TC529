@@ -485,6 +485,60 @@ The workflow's `Environment report` step prints the checked-out commit, whether
 the clone is shallow and which sample-check mode ran, so a future failure
 explains its own history conditions.
 
+## CI jobs
+
+`.github/workflows/ci.yml` has two jobs, and the second waits for the first.
+Every `run:` step is a call into `scripts/ci/`, so the workflow file stays a
+list of names and the commands have one home.
+
+| Job | What a green run proves | Approximate duration | Rehearse locally |
+|---|---|---|---|
+| `viewer` (no native libraries) | the viewer-scope crates are formatted, lint clean under `-D warnings`, build in every feature combination the matrix covers, and pass their tests; the committed sample pair is self-consistent; the viewer build links no native library; source hygiene, supply-chain pins, Mermaid, relative links and the workflow files themselves are clean | five minutes | `bash scripts/ci-local.sh` for the working tree, or `bash scripts/ci-local.sh --public` for the published export (the gate the Dependabot and history rewrites make different from a plain checkout) |
+| `native` (pinned Docker toolchain) | the pinned libMTL/liboqs toolchain builds from the recipe, the documented system packages are enough to compile the workspace, the whole workspace test suite passes, the documentation agrees with the quote sheet and the artifacts, every published number re-derives from its raw rows, and the audit pack's gates pass | nine minutes, after the viewer job | `bash scripts/ci-local.sh --native` (runs the job's steps in a digest-pinned `ubuntu:24.04` container shaped like the runner; see `docs/CI-NATIVE-REHEARSAL.md`) |
+
+Both jobs are bounded: the job and every step carry `timeout-minutes`, the
+workflow cancels a superseded run on the same ref, the token is `contents:
+read`, and a failing job uploads its logs as an artifact. The `native` job runs
+on every push and pull request today; it is not a manual or on-demand job. The
+other workflows are small by comparison: `security.yml` runs `cargo audit` and
+`cargo deny check` (rehearse with those two commands), `site.yml` runs the site's
+lint, typecheck, unit tests and build (`cd site && npm ci && npm run check`), and
+`deploy.yml` is described in the next section.
+
+## The private repository
+
+The development repository (`profm0r14rty/CLIMB`) carries the same four workflow
+files and runs the same jobs; the public repository is built from it by the
+publishing sync. What differs:
+
+- **Secrets.** `ci.yml`, `security.yml` and `site.yml` read no secret at all.
+  `deploy.yml` reads `DEPLOY_SSH_KEY`, `DEPLOY_KNOWN_HOSTS` and optionally the
+  two Cloudflare secrets, and it is the only workflow allowed to; its job
+  condition also restricts it to the public repository, so it is skipped — not
+  failed — in the private one.
+- **Submodule access.** The pinned `third_party/MTL` fork is a public
+  repository, so `submodules: true` needs no extra credential in either
+  repository. A private submodule would need a token in the checkout step.
+- **Minutes.** Runs in the private repository draw on the account's included
+  GitHub Actions minutes; runs in the public repository are free. One push
+  costs roughly fifteen minutes of runner time (the CI run, plus the site and
+  security workflows).
+- **Checkout contents.** The private checkout carries the planning files that
+  the publishing sync withholds, so `docs-check`'s path/identity hygiene scans
+  them there. A path recorded from a runner home directory in one of those
+  files fails the private `native` job while the public export, which does not
+  carry the file, passes.
+- **Dependabot.** `.github/dependabot.yml` is private-only: the sync removes it
+  from every published commit, so the public repository has no Dependabot
+  configuration, no Dependabot branch and no Dependabot pull request. The
+  workflow lint treats its absence in a published checkout as the expected
+  state.
+
+To stop the private repository running the workflows, the one setting is
+**Settings → Actions → General → Actions permissions → Disable actions**
+(`gh api -X PUT repos/profm0r14rty/CLIMB/actions/permissions -F enabled=false`).
+The public repository's runs are the ones the badge and the submission rely on.
+
 ## Runner images, Node runtimes and the local CI replica
 
 Every workflow pins a concrete runner image (`ubuntu-24.04`) instead of the
@@ -493,26 +547,28 @@ compiler, linker or container versions a green run was measured on. The
 `workflows` lint and its tests reject `ubuntu-latest` in `ci.yml` and
 `site.yml`.
 
-GitHub is retiring the Node 20 runtime for JavaScript actions. A run on the
-current pins prints a deprecation annotation for the actions that still declare
-`using: node20`; it does not fail the job, but the runtime will eventually be
-forced to Node 24. The pinned actions fall into two groups:
+GitHub is retiring the Node 20 runtime for JavaScript actions. Runs 44216360738
+and 44216360854 carried the deprecation annotation for the three actions that
+still declared `using: node20`; it does not fail a job, but the runtime is
+already forced to Node 24 and the annotations are noise on every run. The pins
+now all declare Node 24:
 
-| Action and pin | Runtime in `action.yml` | Needs a bump? |
-|---|---|---|
-| `actions/checkout` `v4.4.0` | `node20` | yes — `v7.0.1` declares `node24` |
-| `actions/cache` `v4.3.0` | `node20` | yes — `v6.1.0` declares `node24` |
-| `actions/upload-artifact` `v4.6.2` | `node20` | yes — `v7.0.2` declares `node24` |
-| `actions/setup-node` `v7.1.0` | `node24` | no |
-| `Swatinem/rust-cache` `v2.9.3` | `node24` | no |
-| `actions-rust-lang/setup-rust-toolchain` `v1.9.0` | composite (no JavaScript runtime) | no |
+| Action and pin | Runtime in `action.yml` |
+|---|---|
+| `actions/checkout` `v7.0.1` | `node24` |
+| `actions/cache` `v6.1.0` (`restore` and `save`) | `node24` |
+| `actions/upload-artifact` `v7.0.2` | `node24` |
+| `actions/setup-node` `v7.1.0` | `node24` |
+| `Swatinem/rust-cache` `v2.9.3` | `node24` |
+| `actions-rust-lang/setup-rust-toolchain` `v1.9.0` | composite (no JavaScript runtime) |
 
-The versions in the right-hand column are the newest tags at the time this table
-was written; they are named as targets, not pinned. A bump must replace the
-full forty-character commit SHA in every workflow that uses the action (the
-`workflows` lint rejects a tag), then rerun both CI jobs before the new pins are
-trusted. `trunk` and `wrangler` are installed by `cargo` and `npx`, not by an
-action, so they have no Node-action runtime of their own.
+The runtime is read from each repository's `action.yml` at the pinned commit,
+and the version comment on the `uses:` line names the release that commit
+carries. A bump must replace the full forty-character commit SHA in every
+workflow that uses the action (the `workflows` lint rejects a tag), then rerun
+both CI jobs before the new pins are trusted. `trunk` and `wrangler` are
+installed by `cargo` and `npx`, not by an action, so they have no Node-action
+runtime of their own.
 
 `scripts/ci-local.sh` reproduces the toolchain action's environment instead of
 inheriting whatever the developer's shell has. It reads the workflow's explicit

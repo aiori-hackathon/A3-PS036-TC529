@@ -21,7 +21,10 @@ portal = "https://portal.aiori.in/aiori-3/hackathon-guideline/"
 video = "https://www.youtube.com/watch?v=gDHYamjWmtE"
 rust = "https://www.rust-lang.org/"
 claims = "docs/deck-facts.md"
-actions = "https://github.com/aiori-hackathon/A3-PS036-TC529/actions"
+# The CI badge opens the workflow it reports on, not the list of every run in
+# the repository: a reader who clicks it should land on the run history of
+# `ci.yml` itself.
+actions = "https://github.com/aiori-hackathon/A3-PS036-TC529/actions/workflows/ci.yml"
 
 # The brand palette, designed for the team wordmark and recorded in
 # docs/media/brand.toml. A badge names one of these keys in its colour

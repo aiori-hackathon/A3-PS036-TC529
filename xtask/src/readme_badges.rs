@@ -877,9 +877,13 @@ logo = "githubactions"
             .expect("the badge block carries a CI badge");
         assert_eq!(ci.row, Row::Proof);
         assert!(
-            ci.href.ends_with("/actions"),
-            "the CI badge must link to the Actions page: {}",
+            ci.href.ends_with("/actions/workflows/ci.yml"),
+            "the CI badge must open the workflow it reports on: {}",
             ci.href
+        );
+        assert!(
+            root.join(".github/workflows/ci.yml").is_file(),
+            "the badge names a workflow the repository does not carry"
         );
     }
 

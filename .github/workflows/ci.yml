@@ -5,6 +5,9 @@ on:
     branches:
       - main
   pull_request:
+  # A red run can be replayed on the same commit, and the native job can be
+  # exercised without pushing a commit that only exists to trigger it.
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -25,7 +28,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
           # Full public history for the commit-graph checks. The sample's
@@ -111,7 +114,7 @@ jobs:
 
       - name: Upload failing viewer logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: viewer-test-logs
           path: target/test-logs/*.log
@@ -128,7 +131,7 @@ jobs:
       contents: read
     steps:
       - name: Checkout repository with submodules
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: true
           # Full public history for the commit-graph checks. The sample's
@@ -152,7 +155,7 @@ jobs:
 
       - name: Restore extracted native toolchain (.mtl-install)
         id: mtl-cache
-        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mtl-install
           # The extracted prefix is a function of the build recipe and of the
@@ -168,7 +171,7 @@ jobs:
       # the same job instead of being discarded with the post-job cache.
       - name: Save extracted native toolchain (.mtl-install)
         if: steps.mtl-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .mtl-install
           key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh') }}-${{ steps.submodules.outputs.sha }}
@@ -207,14 +210,14 @@ jobs:
 
       - name: Upload failing native logs
         if: failure()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: native-test-logs
           path: target/test-logs/*.log
           if-no-files-found: ignore
 
       - name: Upload audit pack artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: audit-pack
           path: target/audit-pack.md

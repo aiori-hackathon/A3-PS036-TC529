@@ -602,6 +602,48 @@ jobs:
         })
     }
 
+    /// A run that went red on a commit has to be replayable on that commit, and
+    /// the native job has to be startable without a commit that exists only to
+    /// trigger it.
+    #[test]
+    fn the_ci_workflow_can_be_dispatched_by_hand() {
+        let text = committed_workflow("ci.yml");
+        let triggers = text
+            .split("\njobs:")
+            .next()
+            .expect("the workflow has an `on:` block before `jobs:`");
+        assert!(
+            triggers.lines().any(|line| line == "  workflow_dispatch:"),
+            "ci.yml cannot be started by hand:\n{triggers}"
+        );
+    }
+
+    /// The Dependabot configuration belongs to the private development
+    /// repository, and the publishing sync withholds it from every published
+    /// commit. A checkout that carries none of the private planning notes is a
+    /// published one, so finding the file there means it leaked into the
+    /// public export.
+    #[test]
+    fn a_published_checkout_does_not_carry_the_dependabot_configuration() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let notes = format!("PROGRESS{}", ".md");
+        if root.join(&notes).exists() {
+            // The development checkout: Dependabot is enabled here on purpose.
+            assert!(
+                root.join(".github/dependabot.yml").exists(),
+                "the development checkout lost its Dependabot configuration"
+            );
+            return;
+        }
+        assert!(
+            !root.join(".github/dependabot.yml").exists(),
+            "this checkout carries the private planning notes nowhere, so it is a published \
+             export and must not carry .github/dependabot.yml"
+        );
+    }
+
     /// Each job installs the toolchain the same way, because the local replica
     /// parses one job at a time: a job that omitted an input would run locally
     /// with a different environment than the runner gives it.
