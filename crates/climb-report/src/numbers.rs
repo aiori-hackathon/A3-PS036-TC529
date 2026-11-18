@@ -902,6 +902,15 @@ pub fn render_headline_block(
     Ok(out)
 }
 
+/// The short scope statement printed on a one-page evidence surface.
+///
+/// It states only what the benchmark is: empirical measurement. It makes no
+/// security, verification or certification claim. The longer
+/// [`SCOPE_SENTENCE`] qualifies the individual rows for the full headline
+/// table.
+pub const SCOPE_NOTE: &str = "This sheet reports empirical measurements only. \
+It is not a security proof, a formal verification, or a certification of any kind.";
+
 /// Scope note under the headline table. No unapproved digits: `1,232` and
 /// `n=5` have no result unit and are not scanned as results.
 pub const SCOPE_SENTENCE: &str = "**Scope.** Live DNS bytes were measured over TCP in a local capture; the UDP-fit rows are an analytical payload model, not a measurement; signing and verifying speed-ups are derived from per-message measurements. The DNS-latency rows are a `tc netem` delay on the local Docker bridge, not Internet latency, and the Unbound control served the full response in both modes, so its multiple is not a condensed win. No row in this table is extrapolated by the `N × per-message` identity; the OneK and Large comparisons in the artifact are. The spread column is the median (min–max) of the per-run primitive model ratio over n=5 runs, not a re-run of the headline benchmark.";

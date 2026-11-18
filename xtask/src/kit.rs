@@ -51,10 +51,11 @@ const FIXTURES: [&str; 2] = [
     "data/ladder-verification.recorded.json",
 ];
 /// Documents the kit ships, as `(source, name in the kit)`.
-const DOCS: [(&str, &str); 4] = [
+const DOCS: [(&str, &str); 5] = [
     ("docs/PITCH.md", "PITCH.md"),
     ("docs/QA.md", "QA.md"),
     ("docs/DEMO-FALLBACKS.md", "DEMO-FALLBACKS.md"),
+    ("docs/EVIDENCE-SHEET.html", "EVIDENCE-SHEET.html"),
     ("docs/KIT.md", "KIT.md"),
 ];
 /// The live-pipeline images, packed when they exist locally.
@@ -319,7 +320,7 @@ What is here
   report/      results, the self-checked HTML report, every chart, plus the
                bundle's own SHA256SUMS and PROVENANCE.txt
   deck/        the submission deck PDF
-  docs/        PITCH.md, QA.md, DEMO-FALLBACKS.md and KIT.md
+  docs/        PITCH.md, QA.md, DEMO-FALLBACKS.md, EVIDENCE-SHEET.html and KIT.md
   docker/      optional compressed live-pipeline images, when packed
 
 Measured payload sizes

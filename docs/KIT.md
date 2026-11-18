@@ -40,7 +40,7 @@ half-written drive.
 | `data/` | the recorded DNS capture and the recorded ladder-verification fixture |
 | `report/` | the committed results document, its HTML report, every chart, and the bundle's own `SHA256SUMS` and `PROVENANCE.txt` |
 | `deck/climb-deck.pdf` | the submission deck |
-| `docs/` | `PITCH.md`, `QA.md`, `DEMO-FALLBACKS.md` and this page |
+| `docs/` | `PITCH.md`, `QA.md`, `DEMO-FALLBACKS.md`, `EVIDENCE-SHEET.html` and this page |
 | `docker/` | optional: the compressed live-pipeline images, when they were present at packing time |
 | `verify.sh` | checks every file on the drive against `SHA256SUMS`, then checks the report bundle against its own manifest |
 | `SHA256SUMS` | the kit manifest: one digest and one relative path per file, excluding the manifest itself |
@@ -61,7 +61,7 @@ Prepare the night before, then verify on the morning of the session.
 - [ ] Presentation adapters: HDMI, USB-C and any venue-specific dongle.
 - [ ] Mouse and a spare cable.
 - [ ] Printed deck.
-- [ ] Printed evidence sheet: the quote sheet and the criteria card.
+- [ ] Printed evidence sheet: `EVIDENCE-SHEET.html` and the criteria card.
 - [ ] Two USB drives, both carrying the same kit and both verified.
 - [ ] A second laptop, or a confirmed fallback machine, when the venue allows it.
 - [ ] The kit's printed `README.txt` in the bag, not only on the drive.

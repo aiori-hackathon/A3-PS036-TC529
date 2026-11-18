@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="generator" content="cargo xtask evidence-sheet">
+<title>CLIMB — evidence sheet</title>
+<style>
+@page { size: A4 portrait; margin: 11mm; }
+* { box-sizing: border-box; }
+body { margin: 0; color: #14161a; background: #fff; font: 9pt/1.35 "DejaVu Sans", Arial, sans-serif; }
+header { display: flex; justify-content: space-between; gap: 8mm; border-bottom: 1.6pt solid #14161a; padding-bottom: 2.5mm; }
+.kicker { margin: 0 0 1mm; color: #a33f00; font: 700 7pt/1.2 "DejaVu Sans Mono", monospace; letter-spacing: .14em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 19pt; line-height: 1.05; letter-spacing: .01em; }
+.sub { margin: .8mm 0 0; color: #4a4f57; font-size: 8.5pt; }
+.stamp { text-align: right; color: #4a4f57; font-size: 7.5pt; }
+.stamp code { font-size: 7pt; }
+table.numbers { width: 100%; border-collapse: collapse; margin-top: 4mm; }
+table.numbers th { text-align: left; font-size: 7pt; text-transform: uppercase; letter-spacing: .08em; color: #4a4f57; border-bottom: .6pt solid #b9bec6; padding: 0 2mm 1.4mm 0; }
+table.numbers td { vertical-align: top; padding: 2.7mm 2mm 2.7mm 0; border-bottom: .5pt solid #d9dce1; }
+td.value { width: 45mm; font-size: 19pt; font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.label { font-weight: 650; }
+.meta { margin-top: .5mm; color: #4a4f57; font-size: 7pt; }
+.meta code { font-size: 6.6pt; }
+.pill { display: inline-block; border: .6pt solid #14161a; border-radius: 999px; padding: .2mm 1.6mm; font-size: 6.8pt; font-weight: 800; letter-spacing: .04em; }
+.pill.derived { color: #0b4f8a; border-color: #0b4f8a; }
+.pill.analytical { color: #6b3b00; border-color: #6b3b00; }
+.pill.measured { color: #0b6b3a; border-color: #0b6b3a; }
+.pill.extrapolated { color: #6b2a6b; border-color: #6b2a6b; }
+.base { display: inline-block; min-width: 5mm; text-align: center; border: .8pt solid #14161a; font-weight: 800; padding: .2mm 1.4mm; }
+.grid { display: grid; grid-template-columns: 1.35fr 1fr; gap: 6mm; margin-top: 4mm; }
+section h2 { margin: 0 0 1.4mm; font-size: 7.6pt; text-transform: uppercase; letter-spacing: .08em; border-bottom: .5pt solid #b9bec6; padding-bottom: .8mm; }
+.legend { margin: 0; padding: 0; list-style: none; }
+.legend li { margin: 0 0 1.4mm; display: flex; gap: 2mm; break-inside: avoid; }
+.legend .base { flex: 0 0 auto; align-self: flex-start; }
+.scope { border: 1pt solid #14161a; padding: 2.5mm; background: #f5f3ee; font-weight: 650; }
+footer { margin-top: 4mm; border-top: .8pt solid #14161a; padding-top: 1.8mm; color: #4a4f57; font-size: 7pt; }
+footer p { margin: 0 0 1mm; }
+footer code { font-size: 6.6pt; color: #14161a; }
+@media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+</style>
+</head>
+<body>
+<header>
+<div>
+<p class="kicker">PS-036 · post-quantum DNSSEC · MTL benchmark</p>
+<h1>CLIMB — evidence sheet</h1>
+<p class="sub">Five numbers of record, each with its evidence class, its baseline and the artifact field it comes from.</p>
+</div>
+<div class="stamp">artifact <code>docs/sample-output/climb-results.json</code><br>generated <code>2026-11-13T01:31:46+05:30</code><br>schema <code>1.0</code></div>
+</header>
+<table class="numbers">
+<thead><tr><th>Value</th><th>What it is</th><th>Class</th><th>Baseline</th></tr></thead>
+<tbody>
+<tr><td class="value">96.508 %</td><td><span class="label">Wire reduction, Medium — C vs A</span><div class="meta"><code>/comparisons/2/wire_reduction_c_vs_a_percent</code></div></td><td><span class="pill derived">DERIVED</span></td><td><span class="base">A</span></td></tr>
+<tr><td class="value">9,434 ×</td><td><span class="label">Signing speed-up, Medium — C vs A</span><div class="meta"><code>/comparisons/2/signing_speedup_c_vs_a</code></div></td><td><span class="pill derived">DERIVED</span></td><td><span class="base">A</span></td></tr>
+<tr><td class="value">77.34 ×</td><td><span class="label">Verifying speed-up, Medium, trust cached ladder — C vs A</span><div class="meta"><code>/comparisons/2/verifying_speedup_cached_vs_a</code></div></td><td><span class="pill derived">DERIVED</span></td><td><span class="base">A</span></td></tr>
+<tr><td class="value">11 of 12 rows</td><td><span class="label">UDP fit, 12 analytical rows — C (MTL amortised) modelled responses fitting the 1,232-byte UDP payload</span><div class="meta"><code>/derived/udp_fit/aggregate/2/fit_rows</code></div></td><td><span class="pill analytical">ANALYTICAL</span></td><td><span class="base">C</span></td></tr>
+<tr><td class="value">97.307 %</td><td><span class="label">Live DNS response, www.climb.example. A — reduction, condensed vs full</span><div class="meta"><code>/dns_pipeline/reduction_percent_www_a</code></div></td><td><span class="pill derived">DERIVED</span></td><td><span class="base">B</span></td></tr>
+</tbody>
+</table>
+<div class="grid">
+<section>
+<h2>Baselines compared</h2>
+<ul class="legend">
+<li><span class="base">A</span><span>plain SLH-DSA: one full signature per message, no ladder</span></li>
+<li><span class="base">B</span><span>MTL without amortisation: one complete MTL signature per message</span></li>
+<li><span class="base">C</span><span>MTL amortised: one signed ladder per batch and a condensed path per message</span></li>
+</ul>
+</section>
+<section>
+<h2>Scope</h2>
+<p class="scope">This sheet reports empirical measurements only. It is not a security proof, a formal verification, or a certification of any kind.</p>
+</section>
+</div>
+<footer>
+<p><strong>Repository:</strong> <a href="https://github.com/aiori-hackathon/A3-PS036-TC529">https://github.com/aiori-hackathon/A3-PS036-TC529</a></p>
+<p>Generated by <code>cargo xtask evidence-sheet</code> from <code>docs/sample-output/climb-results.json</code>. Every value, class and baseline is recomputed from the artifact's raw rows by <code>climb-report::numbers</code>; nothing on this page is typed by hand. <code>--check</code> fails when this page is stale.</p>
+</footer>
+</body>
+</html>

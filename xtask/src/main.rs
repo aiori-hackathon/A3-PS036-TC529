@@ -30,6 +30,7 @@ mod dns_cache;
 mod dns_demo;
 mod dns_rtt;
 mod docs_check;
+mod evidence_sheet;
 mod feature_matrix;
 mod final_run;
 mod groups;
@@ -72,6 +73,7 @@ use dns_cache::{cmd_dns_cache, DnsCacheArgs};
 use dns_demo::{cmd_dns_demo, DnsDemoArgs};
 use dns_rtt::{cmd_dns_rtt, DnsRttArgs};
 use docs_check::{cmd_docs_check, cmd_mermaid_lint, DocsCheckArgs, MermaidLintArgs};
+use evidence_sheet::{cmd_evidence_sheet, EvidenceSheetArgs};
 use feature_matrix::{cmd_feature_matrix, FeatureMatrixArgs};
 use final_run::FinalRunArgs;
 use groups::{BenchTarget, DatasetSize, GROUPS};
@@ -256,6 +258,12 @@ enum Commands {
     /// Every status, evidence path and proving command is read from the audit
     /// table; `--check` fails when the committed card is stale.
     CriteriaCard(CriteriaCardArgs),
+    /// Render the one-page A4 evidence sheet from the committed results.
+    ///
+    /// The five headline numbers, their labels, evidence classes, baselines
+    /// and JSON pointers are recomputed by `climb-report::numbers`; `--check`
+    /// fails when the committed sheet is stale.
+    EvidenceSheet(EvidenceSheetArgs),
     /// Compare the headline ratios of two hosts' consolidated results and
     /// print each pair with its relative difference and host facts.
     ReplicateCompare(ReplicateCompareArgs),
@@ -529,6 +537,7 @@ fn main() -> Result<()> {
         Commands::DeckFacts(args) => cmd_deck_facts(args),
         Commands::DeckDelta(args) => cmd_deck_delta(args),
         Commands::CriteriaCard(args) => cmd_criteria_card(args),
+        Commands::EvidenceSheet(args) => cmd_evidence_sheet(args),
         Commands::ReplicateCompare(args) => cmd_replicate_compare(args),
         Commands::ReplicateSummary(args) => cmd_replicate_summary(args),
         Commands::DnsCache(args) => cmd_dns_cache(args),

@@ -32,7 +32,7 @@ fn run_script(script: &Path, cwd: &Path) -> std::process::Output {
 #[test]
 fn the_kit_layout_carries_every_promised_component() {
     assert_eq!(FIXTURES.len(), 2);
-    assert_eq!(DOCS.len(), 4);
+    assert_eq!(DOCS.len(), 5);
     assert_eq!(DOCKER_IMAGES.len(), 4);
     let readme = render_readme(&[("site/dist".to_string(), 2048)]);
     for needle in [
