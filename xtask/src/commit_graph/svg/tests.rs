@@ -1867,6 +1867,48 @@ fn plot_annotations_need_no_pole_clearance_but_milestone_labels_still_do() {
     );
 }
 
+/// A two-day streak that ends at the right edge of a long range has a bracket
+/// narrower than its label. The renderer used to refuse the whole card, which
+/// made the generator fail on any day that produced such a streak.
+#[test]
+fn a_short_streak_at_the_end_of_the_range_still_gets_a_label() {
+    let mut graph = synthetic_graph("2026-11-18", 53, Vec::new());
+    let days = graph.per_day.len();
+    graph.totals.longest_streak = 2;
+    graph.totals.current_streak = 2;
+    graph.totals.longest_streak_range = StreakRange {
+        start: graph.per_day[days - 2].date.clone(),
+        end: graph.per_day[days - 1].date.clone(),
+    };
+    let svg = render_full(&graph, &Palette::default(), &style())
+        .expect("a two-day streak at the chart end still gets a label");
+    let document = parse(&svg);
+    let group = document
+        .descendants()
+        .find(|node| node.attribute("data-name") == Some("annotations"))
+        .expect("the annotations group");
+    let runs: Vec<(f64, f64, f64, f64)> = group
+        .descendants()
+        .filter(|node| node.attribute("class") == Some("cg-run"))
+        .map(bbox)
+        .collect();
+    assert_eq!(
+        runs.len(),
+        2,
+        "the annotations group carries busiest and streak"
+    );
+    // Wide-card chart constants from Layout::wide: the labels stay inside the
+    // card's right margin (808 px) even when the bracket itself is too short.
+    for (x, _, width, _) in runs {
+        assert!(x >= 32.0, "a label starts at {x:.1}, left of the margin");
+        assert!(
+            x + width <= 808.0,
+            "a label ends at {:.1}, past the right margin",
+            x + width
+        );
+    }
+}
+
 #[test]
 fn streak_label_is_left_aligned_over_its_bracket_and_clear_of_the_busiest_label() {
     let graph = committed_graph();

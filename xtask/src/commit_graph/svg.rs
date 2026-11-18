@@ -1450,7 +1450,7 @@ fn draw_annotations(
     let start_index = (streak_start - start).max(0) as usize;
     let end_index = (streak_end - start).max(0) as usize;
     let bracket_y = bars.baseline - bars.max_height - 6.0;
-    let (bracket_x0, _bracket_x1) = if start_index < geom.days {
+    let (bracket_x0, bracket_x1) = if start_index < geom.days {
         (
             geom.centre(start_index),
             geom.centre(end_index.min(geom.days - 1))
@@ -1475,38 +1475,49 @@ fn draw_annotations(
         size,
         0.0,
     )?;
-    // The streak label is left-aligned over its bracket and must keep at least
-    // sixteen pixels from the busiest label.
+    // The streak label sits left-aligned over its bracket and must keep at
+    // least sixteen pixels from the busiest label. A streak that ends at the
+    // right edge of the plot has a bracket too short for the label, so the
+    // label is tried right-aligned to the bracket, then clamped inside the
+    // plot area, before the renderer refuses.
     let streak = format!("{}-day streak", graph.totals.longest_streak);
-    let streak_x = bracket_x0;
+    let streak_width = canvas.width(Typeface::Mono, &streak, size, 0.0)?;
+    let streak_xs = [
+        bracket_x0,
+        bracket_x1 - streak_width,
+        geom.right - streak_width - 2.0,
+    ];
     let mut placed_streak: Option<(f64, f64, TextBox)> = None;
-    for offset in [8.0, 16.0, 24.0, 32.0, 40.0, 41.0, 48.0, 56.0] {
-        let streak_baseline = bracket_y - offset;
-        let box_ = canvas.font.line_box(
-            Typeface::Mono,
-            &streak,
-            streak_x,
-            streak_baseline,
-            size,
-            0.0,
-        )?;
-        if box_.x < margin - 0.01 || box_.right() > geom.right + 0.01 {
-            continue;
+    'candidates: for candidate in streak_xs {
+        let streak_x = candidate.max(margin + 2.0);
+        for offset in [8.0, 16.0, 24.0, 32.0, 40.0, 41.0, 48.0, 56.0] {
+            let streak_baseline = bracket_y - offset;
+            let box_ = canvas.font.line_box(
+                Typeface::Mono,
+                &streak,
+                streak_x,
+                streak_baseline,
+                size,
+                0.0,
+            )?;
+            if box_.x < margin - 0.01 || box_.right() > geom.right + 0.01 {
+                continue;
+            }
+            if box_.gap(&busiest_box) < 16.0 {
+                continue;
+            }
+            if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
+                continue;
+            }
+            if occupied
+                .iter()
+                .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
+            {
+                continue;
+            }
+            placed_streak = Some((streak_x, streak_baseline, box_));
+            break 'candidates;
         }
-        if box_.gap(&busiest_box) < 16.0 {
-            continue;
-        }
-        if canvas.marks.iter().any(|mark| mark.intersects(&box_)) {
-            continue;
-        }
-        if occupied
-            .iter()
-            .any(|other| box_.intersects(other) || box_.gap(other) < 2.0)
-        {
-            continue;
-        }
-        placed_streak = Some((streak_x, streak_baseline, box_));
-        break;
     }
     let Some((streak_x, streak_baseline, _)) = placed_streak else {
         bail!("commit-graph streak label `{streak}` has no collision-free place over its bracket");

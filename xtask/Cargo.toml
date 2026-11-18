@@ -43,5 +43,12 @@ climb-mtl-sys = { path = "../crates/climb-mtl-sys", optional = true }  # direct 
 climb-report = { path = "../crates/climb-report", default-features = false }
 climb-tui = { path = "../crates/climb-tui", default-features = false }
 regex-lite = "0.1"
+
+[target.'cfg(unix)'.dependencies]
+# `killpg` on the process group a bounded child was spawned into, so a timeout
+# stops the grandchildren the child started. `xtask` forbids unsafe code, so the
+# signal call goes through this safe wrapper instead of a raw libc call.
+nix = { version = "0.31", features = ["signal"] }
+
 [dev-dependencies]
 tempfile = "3"

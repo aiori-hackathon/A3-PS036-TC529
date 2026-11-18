@@ -91,6 +91,69 @@ die() {
   exit 1
 }
 
+# The publishing sync rewrites every published blob with literal rules before
+# the mirror is pushed, and it also removes the private planning files. An
+# overlay copies files straight from the working tree, so without this pass a
+# dirty tree would be tested with text the published tree never carries, and a
+# check that depends on the rewrite would pass locally and fail on the mirror.
+# The rules are read from the file next to the sync script; only the literal
+# `from==>to` form is applied, and any other form is refused rather than
+# silently skipped.
+publication_rules_file() {
+  local rules="${CLIMB_REDACTION_FILE:-}"
+  if [[ -z "$rules" && -n "${SYNC_SCRIPT:-}" ]]; then
+    rules="$(dirname "$SYNC_SCRIPT")/aiori-redactions.txt"
+  fi
+  [[ -n "$rules" ]] || die \
+    "cannot locate the publication rewrite rules; set CLIMB_REDACTION_FILE"
+  [[ -f "$rules" ]] || die "publication rewrite rules not found: $rules"
+  printf '%s\n' "$rules"
+}
+
+apply_publication_rewrite() {
+  local tree="$1" rules="$2"
+  python3 - "$tree" "$rules" <<'PY'
+import os
+import sys
+
+tree, rules_path = sys.argv[1], sys.argv[2]
+rules = []
+with open(rules_path, encoding="utf-8") as handle:
+    for number, line in enumerate(handle, 1):
+        line = line.rstrip("\n")
+        if not line or line.lstrip().startswith("#"):
+            continue
+        if "==>" not in line:
+            sys.exit(f"ci-local: {rules_path}:{number}: a rewrite rule without `==>`")
+        source, _, replacement = line.partition("==>")
+        if source.startswith(("regex:", "glob:")):
+            sys.exit(
+                f"ci-local: {rules_path}:{number}: this replica applies literal rules only, "
+                f"not `{source.split(':', 1)[0]}:`"
+            )
+        rules.append((source.encode(), replacement.encode()))
+
+rewritten = 0
+for root, dirs, files in os.walk(tree):
+    dirs[:] = [name for name in dirs if name != ".git"]
+    for name in files:
+        path = os.path.join(root, name)
+        with open(path, "rb") as handle:
+            data = handle.read()
+        updated = data
+        for source, replacement in rules:
+            if source in updated:
+                updated = updated.replace(source, replacement)
+        if updated != data:
+            with open(path, "wb") as handle:
+                handle.write(updated)
+            rewritten += 1
+print(
+    f"ci-local: applied {len(rules)} publication rewrite rule(s) to {rewritten} overlaid file(s)"
+)
+PY
+}
+
 for arg in "$@"; do
   case "$arg" in
     --list) LIST_ONLY=1 ;;
@@ -108,6 +171,13 @@ done
 # `--native` selects the native job unless the caller named one explicitly.
 if [[ "$NATIVE" -eq 1 && -z "${CLIMB_CI_JOB:-}" ]]; then
   JOB=native
+fi
+
+# The rewrite pass is also reachable on its own, so the fidelity test can run it
+# against a fixture tree without a Docker toolchain or a public export.
+if [[ -n "${CLIMB_REDACT_TREE:-}" ]]; then
+  apply_publication_rewrite "$CLIMB_REDACT_TREE" "$(publication_rules_file)"
+  exit 0
 fi
 
 [[ -f "$WORKFLOW" ]] || die "workflow not found: $WORKFLOW"
@@ -323,6 +393,7 @@ prepare_public_export() {
   fi
   [[ -n "$sync_script" && -x "$sync_script" ]] || die \
     "cannot find the publishing sync script; set CLIMB_SYNC_SCRIPT to its path"
+  SYNC_SCRIPT="$sync_script"
   command -v git-filter-repo >/dev/null || die \
     "git-filter-repo is required for --public (the publishing sync uses it)"
 
@@ -373,6 +444,9 @@ prepare_public_export() {
       --exclude '.github/dependabot.yml' \
       --exclude 'third_party' \
       "$REPO_ROOT/" "$PUBLIC_EXPORT/"
+    # The overlay copied the working tree verbatim; the published blobs carry
+    # the rewrite, so apply the same rules before this tree is committed.
+    apply_publication_rewrite "$PUBLIC_EXPORT" "$(publication_rules_file)"
   fi
 
   git -C "$PUBLIC_EXPORT" add -A
@@ -561,38 +635,61 @@ if [[ "$NATIVE" -eq 1 ]]; then
   # bridge and leaves the variable unset.
   export CLIMB_DOCKER_NETWORK="${CLIMB_DOCKER_NETWORK:-host}"
 fi
+durations=()
 while IFS=$'\t' read -r number name; do
   [[ -n "$number" ]] || continue
   printf '\n==> [%s] %s\n' "$number" "$name"
+  started=$SECONDS
+  status=0
+  where=""
   if [[ "$NATIVE" -eq 1 ]]; then
     log="$TMP/native-$number.log"
     if native_step_uses_docker "$number"; then
+      where="host"
       printf 'ci-local: host step (its script invokes docker)\n'
-      if ! ( cd "$NATIVE_CLONE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ) \
-        2>&1 | tee "$log"; then
-        failed=1
-        printf 'ci-local: step [%s] %s FAILED (host)\n' "$number" "$name" >&2
-        printf 'ci-local: last 60 lines:\n' >&2
-        tail -n 60 "$log" >&2
-        break
-      fi
+      ( cd "$NATIVE_CLONE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ) \
+        2>&1 | tee "$log" || status=$?
     else
+      where="container"
       printf 'ci-local: container step in %s\n' "$NATIVE_CONTAINER"
-      if ! docker exec -i --user "$(id -u):$(id -g)" "${native_env_args[@]}" \
-        -w /workspace "$NATIVE_CONTAINER" bash -s < "$TMP/$number.sh" 2>&1 | tee "$log"; then
-        failed=1
-        printf 'ci-local: step [%s] %s FAILED (container)\n' "$number" "$name" >&2
-        printf 'ci-local: last 60 lines:\n' >&2
-        tail -n 60 "$log" >&2
-        break
-      fi
+      docker exec -i --user "$(id -u):$(id -g)" "${native_env_args[@]}" \
+        -w /workspace "$NATIVE_CONTAINER" bash -s < "$TMP/$number.sh" 2>&1 | tee "$log" \
+        || status=$?
     fi
-  elif ! ( cd "$WORKTREE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ); then
+  else
+    ( cd "$WORKTREE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ) || status=$?
+  fi
+  elapsed=$((SECONDS - started))
+  durations+=("$number"$'\t'"$name"$'\t'"$elapsed")
+  printf 'ci-local: [%s] took %ss\n' "$number" "$elapsed"
+  # Disk headroom on a runner is small; the two steps that fill it are measured.
+  if [[ "$NATIVE" -eq 1 && ( "$name" == "Build workspace" || "$name" == "Test workspace" ) ]]; then
+    printf 'ci-local: disk after %s:\n' "$name"
+    docker exec "$NATIVE_CONTAINER" df -h /workspace
+    docker exec "$NATIVE_CONTAINER" du -sh /workspace/target /workspace/.mtl-install
+  fi
+  if [[ "$status" -ne 0 ]]; then
     failed=1
-    printf 'ci-local: step [%s] %s FAILED\n' "$number" "$name" >&2
+    if [[ "$NATIVE" -eq 1 ]]; then
+      printf 'ci-local: step [%s] %s FAILED (%s)\n' "$number" "$name" "$where" >&2
+      printf 'ci-local: last 60 lines:\n' >&2
+      tail -n 60 "$log" >&2
+    else
+      printf 'ci-local: step [%s] %s FAILED\n' "$number" "$name" >&2
+    fi
     break
   fi
 done < "$TMP/steps"
+
+# The per-step durations are the budget evidence: a warm native job is the sum
+# of these plus the actions the runner performs.
+if [[ "${#durations[@]}" -gt 0 ]]; then
+  printf '\nci-local: step durations\n'
+  for row in "${durations[@]}"; do
+    IFS=$'\t' read -r number name seconds <<< "$row"
+    printf '  [%s] %-50s %4ss\n' "$number" "$name" "$seconds"
+  done
+fi
 
 if [[ "$failed" -ne 0 ]]; then
   if [[ "$NATIVE" -eq 1 ]]; then

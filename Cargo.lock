@@ -4039,6 +4039,7 @@ dependencies = [
  "climb-mtl-sys",
  "climb-report",
  "climb-tui",
+ "nix 0.31.3",
  "regex-lite",
  "roxmltree",
  "serde",

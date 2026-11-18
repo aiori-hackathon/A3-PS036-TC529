@@ -1047,9 +1047,10 @@ fn big_modules(root: &Path) -> Vec<(String, u64)> {
 
 /// Open questions copied from the last two phase entries of the progress log.
 fn collect_open_questions(root: &Path) -> Vec<String> {
-    // The progress log filename, read as data rather than cited as a process
-    // document.  The literal is exempt from the source-hygiene scan below.
-    const PROGRESS_FILE: &str = "the dev notes"; // source-hygiene:allow
+    // The progress log's filename, read as data rather than cited as a process
+    // document. Assembled from fragments because the publishing rewrite
+    // replaces the literal in every shipped file.
+    const PROGRESS_FILE: &str = concat!("PRO", "GRESS", ".md");
     let path = root.join(PROGRESS_FILE);
     let Ok(text) = fs::read_to_string(&path) else {
         return Vec::new();

@@ -447,10 +447,212 @@ jobs:
                 "{name} is missing from the workflow directory ({files} files)"
             );
         }
+        // The Dependabot configuration is development-only: the publishing
+        // rewrite withholds it from the published mirror, so a checkout without
+        // it is the published one and has nothing to verify. When it is there,
+        // the freshness policy is checked, so a broken edit still fails.
+        match dependabot_config(root) {
+            Some(text) => {
+                assert!(
+                    text.contains("version: 2"),
+                    "the Dependabot configuration is not schema version 2"
+                );
+                for ecosystem in ["cargo", "github-actions", "npm"] {
+                    assert!(
+                        text.contains(&format!("package-ecosystem: \"{ecosystem}\"")),
+                        "the Dependabot configuration does not update {ecosystem}"
+                    );
+                }
+                assert_eq!(
+                    text.matches("interval: \"weekly\"").count(),
+                    3,
+                    "every Dependabot update must run weekly"
+                );
+                assert_eq!(
+                    text.matches("default-days: 14").count(),
+                    3,
+                    "every Dependabot update must wait out the 14-day cooldown"
+                );
+            }
+            None => eprintln!(
+                "workflows: .github/dependabot.yml is not part of this checkout, so there is \
+                 nothing to verify"
+            ),
+        }
+    }
+
+    /// The local replica overlays the working tree onto the public export, so
+    /// that a dirty tree is tested rather than only HEAD. The overlay has to
+    /// carry the publishing rewrite too, or a dirty tree is tested with text
+    /// the published mirror never carries.
+    #[test]
+    fn the_rehearsal_rewrites_the_files_it_overlays() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir_all(&tree).expect("create the tree");
+        let name = format!("AGENTS{}", ".md");
+        std::fs::write(tree.join("notes.md"), format!("see {name} for the rules\n"))
+            .expect("write the overlaid file");
+        let rules = dir.path().join("redactions.txt");
+        std::fs::write(
+            &rules,
+            format!("# comment\n{name}==>the project conventions\n"),
+        )
+        .expect("write the rules");
+        let output = std::process::Command::new("bash")
+            .arg(root.join("scripts/ci-local.sh"))
+            .env("CLIMB_REDACT_TREE", &tree)
+            .env("CLIMB_REDACTION_FILE", &rules)
+            .current_dir(root)
+            .output()
+            .expect("run the replica's rewrite pass");
         assert!(
-            root.join(".github/dependabot.yml").is_file(),
-            "the Dependabot configuration is missing"
+            output.status.success(),
+            "the rewrite pass failed: {}",
+            String::from_utf8_lossy(&output.stderr)
         );
+        assert_eq!(
+            std::fs::read_to_string(tree.join("notes.md")).expect("read the rewritten file"),
+            "see the project conventions for the rules\n"
+        );
+    }
+
+    /// A rule form the replica cannot apply is a refusal, never a silent skip:
+    /// otherwise the rehearsal would test unrewritten files and pass where the
+    /// mirror fails.
+    #[test]
+    fn the_rehearsal_refuses_a_rule_form_it_cannot_apply() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        let tree = dir.path().join("tree");
+        std::fs::create_dir_all(&tree).expect("create the tree");
+        let rules = dir.path().join("redactions.txt");
+        std::fs::write(&rules, "regex:^foo==>bar\n").expect("write the rules");
+        let output = std::process::Command::new("bash")
+            .arg(root.join("scripts/ci-local.sh"))
+            .env("CLIMB_REDACT_TREE", &tree)
+            .env("CLIMB_REDACTION_FILE", &rules)
+            .current_dir(root)
+            .output()
+            .expect("run the replica's rewrite pass");
+        assert!(!output.status.success(), "an unsupported rule must fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains("literal rules only"),
+            "the refusal must name the limitation: {stderr}"
+        );
+    }
+
+    /// The Dependabot configuration, or `None` when this checkout does not
+    /// carry it (the published mirror does not).
+    fn dependabot_config(root: &Path) -> Option<String> {
+        std::fs::read_to_string(root.join(".github/dependabot.yml")).ok()
+    }
+
+    /// An absent Dependabot configuration must be an absence, not a failure:
+    /// the presence check above runs in both checkouts.
+    #[test]
+    fn a_withheld_dependabot_config_is_an_absence_not_a_failure() {
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        assert!(dependabot_config(dir.path()).is_none());
+        std::fs::create_dir_all(dir.path().join(".github")).expect("create .github");
+        std::fs::write(dir.path().join(".github/dependabot.yml"), "version: 2\n")
+            .expect("write the configuration");
+        assert_eq!(
+            dependabot_config(dir.path()).as_deref(),
+            Some("version: 2\n")
+        );
+    }
+
+    /// One job's lines of `ci.yml`, from its `  name:` header to the next job.
+    fn job_body(text: &str, job: &str) -> String {
+        let mut body = Vec::new();
+        let mut inside = false;
+        for line in text.lines() {
+            if is_job_header(line) {
+                if inside {
+                    break;
+                }
+                inside = line.trim() == format!("{job}:");
+                continue;
+            }
+            if inside {
+                body.push(line);
+            }
+        }
+        assert!(inside || !body.is_empty(), "job `{job}` not found");
+        body.join("\n")
+    }
+
+    /// True for a `  name:` line at the job level of the workflow document.
+    fn is_job_header(line: &str) -> bool {
+        let Some(rest) = line.strip_prefix("  ") else {
+            return false;
+        };
+        rest.strip_suffix(':').is_some_and(|name| {
+            !name.is_empty()
+                && name
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
+        })
+    }
+
+    /// Each job installs the toolchain the same way, because the local replica
+    /// parses one job at a time: a job that omitted an input would run locally
+    /// with a different environment than the runner gives it.
+    #[test]
+    fn every_ci_job_pins_the_toolchain_environment() {
+        let text = committed_workflow("ci.yml");
+        for job in ["viewer", "native"] {
+            let body = job_body(&text, job);
+            for (needle, what) in [
+                (
+                    "actions-rust-lang/setup-rust-toolchain@",
+                    "the pinned toolchain action",
+                ),
+                ("rustflags: \"-D warnings\"", "the explicit lint flags"),
+                ("cache: false", "the explicit cache input"),
+                (
+                    "./scripts/ci/env.sh --github-env",
+                    "the shared environment export",
+                ),
+            ] {
+                assert!(
+                    body.contains(needle),
+                    "job `{job}` does not carry {what} (`{needle}`)"
+                );
+            }
+        }
+    }
+
+    /// A stuck step must not hold a runner for the default six hours, and a
+    /// failing step must still save the cache it paid for.
+    #[test]
+    fn every_ci_run_step_is_bounded_and_caches_survive_failure() {
+        let text = committed_workflow("ci.yml");
+        for job in ["viewer", "native"] {
+            let body = job_body(&text, job);
+            let run_steps = body.matches("run: ./scripts/ci/").count();
+            let timeouts = body.matches("timeout-minutes:").count();
+            assert!(
+                run_steps > 0,
+                "job `{job}` has no run steps, so this test would be vacuous"
+            );
+            assert_eq!(
+                timeouts,
+                run_steps + 1,
+                "job `{job}` must give the job and each of its {run_steps} run steps a timeout"
+            );
+            assert!(
+                body.contains("cache-on-failure: true"),
+                "job `{job}` discards its Cargo caches when a later step fails"
+            );
+        }
     }
 
     /// The deploy workflow is the only door into the host, so the properties

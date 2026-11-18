@@ -17,6 +17,10 @@ jobs:
   viewer:
     name: viewer (no native libraries)
     runs-on: ubuntu-24.04
+    # The whole job, and every step, is bounded: a stuck download or a hung
+    # test fails the run instead of holding the runner for the default six
+    # hours.
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
@@ -29,12 +33,15 @@ jobs:
           fetch-depth: 0
 
       - name: Load the CI environment
+        timeout-minutes: 2
         run: ./scripts/ci/env.sh --github-env
 
       - name: Fetch remote branches and tags
+        timeout-minutes: 5
         run: ./scripts/ci/fetch-remotes.sh
 
       - name: Environment report
+        timeout-minutes: 2
         run: ./scripts/ci/environment-report.sh
 
       - name: Install Rust toolchain from rust-toolchain.toml
@@ -50,41 +57,56 @@ jobs:
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: viewer
+          # The cache is saved even when a later step fails, so a red run still
+          # warms the next one.
+          cache-on-failure: true
 
       - name: Check formatting
+        timeout-minutes: 5
         run: ./scripts/ci/format.sh
 
       - name: Lint viewer-scope crates with clippy
+        timeout-minutes: 15
         run: ./scripts/ci/clippy-viewer.sh
 
       - name: Feature matrix (check and clippy)
+        timeout-minutes: 20
         run: ./scripts/ci/feature-matrix-check.sh
 
       - name: Fetch main branch
+        timeout-minutes: 5
         run: ./scripts/ci/fetch-main.sh
 
       - name: Check committed sample pair
+        timeout-minutes: 10
         run: ./scripts/ci/sample-check.sh
 
       - name: Test viewer-scope crates
+        timeout-minutes: 15
         run: ./scripts/ci/test-viewer.sh
 
       - name: Verify viewer build has no native dependencies
+        timeout-minutes: 10
         run: ./scripts/ci/viewer-build.sh
 
       - name: Check source hygiene
+        timeout-minutes: 5
         run: ./scripts/ci/source-hygiene.sh
 
       - name: Check supply-chain pins
+        timeout-minutes: 5
         run: ./scripts/ci/check-pins.sh
 
       - name: Lint Mermaid diagrams
+        timeout-minutes: 5
         run: ./scripts/ci/mermaid-lint.sh
 
       - name: Check relative links in README and docs
+        timeout-minutes: 5
         run: ./scripts/ci/link-check.sh
 
       - name: Lint workflow files
+        timeout-minutes: 5
         run: ./scripts/ci/workflows.sh
 
       - name: Upload failing viewer logs
@@ -99,6 +121,9 @@ jobs:
     name: native (pinned Docker toolchain)
     needs: viewer
     runs-on: ubuntu-24.04
+    # A cold toolchain build plus a cold workspace build and the test suite fit
+    # in 45 minutes with room for a slow runner; anything longer is a hang.
+    timeout-minutes: 45
     permissions:
       contents: read
     steps:
@@ -111,6 +136,7 @@ jobs:
           fetch-depth: 0
 
       - name: Load the CI environment
+        timeout-minutes: 2
         run: ./scripts/ci/env.sh --github-env
 
       - name: Install Rust toolchain from rust-toolchain.toml
@@ -119,15 +145,23 @@ jobs:
           cache: false
           rustflags: "-D warnings"
 
+      - name: Read the pinned submodule commits
+        id: submodules
+        timeout-minutes: 2
+        run: ./scripts/ci/submodule-pins.sh
+
       - name: Restore extracted native toolchain (.mtl-install)
         id: mtl-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .mtl-install
-          key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh', '.gitmodules') }}
+          # The extracted prefix is a function of the build recipe and of the
+          # submodule commits, not of `.gitmodules` (which only carries URLs).
+          key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh') }}-${{ steps.submodules.outputs.sha }}
 
       - name: Build and extract pinned native toolchain
         if: steps.mtl-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 30
         run: ./scripts/ci/native-toolchain.sh
 
       # Saved in its own step, so the extraction survives a later failure in
@@ -137,29 +171,38 @@ jobs:
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: .mtl-install
-          key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh', '.gitmodules') }}
+          key: mtl-install-${{ runner.os }}-${{ hashFiles('docker/Dockerfile.build', 'docker/extract-libs.sh') }}-${{ steps.submodules.outputs.sha }}
 
       - name: Cache Cargo registry and target
         uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           shared-key: native
+          # Saved even when a later step fails: a failing test run still leaves
+          # a warm registry and dependency build for the next attempt.
+          cache-on-failure: true
 
       - name: Install documented system packages
+        timeout-minutes: 10
         run: ./scripts/ci/system-deps.sh
 
       - name: Build workspace
+        timeout-minutes: 20
         run: ./scripts/ci/build-workspace.sh
 
       - name: Test workspace
+        timeout-minutes: 20
         run: ./scripts/ci/test-workspace.sh
 
       - name: Check documentation against quote sheet and artifacts
+        timeout-minutes: 10
         run: ./scripts/ci/docs-check.sh
 
       - name: Verify published numbers from raw rows
+        timeout-minutes: 10
         run: ./scripts/ci/verify-numbers.sh
 
       - name: Build audit pack
+        timeout-minutes: 15
         run: ./scripts/ci/audit-pack.sh
 
       - name: Upload failing native logs

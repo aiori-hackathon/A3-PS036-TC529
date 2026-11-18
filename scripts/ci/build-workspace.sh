@@ -5,4 +5,5 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=scripts/ci/env.sh
 source "$repo_root/scripts/ci/env.sh"
 cd "$repo_root"
-cargo build --workspace
+mkdir -p target/test-logs
+cargo build --workspace 2>&1 | tee target/test-logs/build-workspace.log

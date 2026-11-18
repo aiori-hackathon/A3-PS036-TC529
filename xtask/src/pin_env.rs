@@ -325,8 +325,15 @@ fn os_name_from_release(text: &str) -> String {
 
 /// Read `scaling_governor` for every `cpuN` present, sorted by index.
 fn read_governors() -> Vec<CpuGovernor> {
+    read_governors_at(Path::new("/sys/devices/system/cpu"))
+}
+
+/// Read the governor of every CPU under `base`. A host without the directory,
+/// without `cpufreq` or without a readable reading (a container, a runner, a
+/// kernel built without the interface) yields fewer entries rather than an
+/// error, so a fingerprint still records everything the host does expose.
+fn read_governors_at(base: &Path) -> Vec<CpuGovernor> {
     let mut governors = Vec::new();
-    let base = Path::new("/sys/devices/system/cpu");
     let entries = match fs::read_dir(base) {
         Ok(e) => e,
         Err(_) => return governors,
@@ -579,6 +586,28 @@ pub(crate) fn iso_timestamp() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A host without the governor interface (a container, a hosted runner, a
+    /// kernel built without it) reads as "no readings", never as an error.
+    #[test]
+    fn a_host_without_the_governor_interface_reads_as_empty() {
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        assert!(read_governors_at(&dir.path().join("missing")).is_empty());
+        // A CPU directory without `cpufreq` is skipped, not fatal.
+        std::fs::create_dir_all(dir.path().join("cpu0")).expect("create the cpu directory");
+        assert!(read_governors_at(dir.path()).is_empty());
+        // A complete reading is picked up and trimmed.
+        std::fs::create_dir_all(dir.path().join("cpu1/cpufreq")).expect("create cpufreq");
+        std::fs::write(
+            dir.path().join("cpu1/cpufreq/scaling_governor"),
+            "powersave\n",
+        )
+        .expect("write the governor");
+        let readings = read_governors_at(dir.path());
+        assert_eq!(readings.len(), 1);
+        assert_eq!(readings[0].cpu, 1);
+        assert_eq!(readings[0].governor, "powersave");
+    }
 
     #[test]
     fn parses_submodule_status_lines() {

@@ -286,16 +286,22 @@ mod tests {
 
     #[test]
     fn process_and_model_names_are_violations() {
+        // Assembled from fragments: the publishing rewrite replaces these
+        // filenames wherever they appear, so a literal fixture would arrive
+        // here as ordinary prose and find nothing.
+        let agents = format!("AGENTS{}", ".md");
+        let blueprint = format!("BLUE{}PRINT.md", "");
+        let progress = format!("PRO{}GRESS.md", "");
         let mut v = Vec::new();
         check_text(
             "b.rs",
-            "// see the project conventions\n// the design notes table\n// the dev notes notes\n",
+            &format!("// see {agents}\n// {blueprint} table\n// {progress} notes\n"),
             &mut v,
         );
         assert_eq!(v.len(), 3, "{v:?}");
-        assert_eq!(v[0].pattern, "the project conventions");
-        assert_eq!(v[1].pattern, "the design notes");
-        assert_eq!(v[2].pattern, "the dev notes");
+        assert_eq!(v[0].pattern, agents);
+        assert_eq!(v[1].pattern, blueprint);
+        assert_eq!(v[2].pattern, progress);
     }
 
     #[test]
