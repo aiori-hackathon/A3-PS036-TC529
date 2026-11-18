@@ -34,6 +34,7 @@ mod feature_matrix;
 mod final_run;
 mod groups;
 mod headline;
+mod kit;
 #[cfg(feature = "native")]
 mod ladder_verify;
 mod link_check;
@@ -75,6 +76,7 @@ use feature_matrix::{cmd_feature_matrix, FeatureMatrixArgs};
 use final_run::FinalRunArgs;
 use groups::{BenchTarget, DatasetSize, GROUPS};
 use headline::{cmd_headline, HeadlineArgs};
+use kit::{cmd_kit, KitArgs};
 #[cfg(feature = "native")]
 use ladder_verify::{cmd_ladder_verify, LadderVerifyArgs};
 use link_check::{cmd_link_check, LinkCheckArgs};
@@ -356,6 +358,15 @@ enum Commands {
     /// request and loads all five site routes. `--plan` prints the arrangement
     /// without starting anything.
     Demo(DemoArgs),
+    /// Pack the travel kit: the built site and its server, the release
+    /// dashboard, the recorded fixtures, the self-checked report bundle, the
+    /// deck and the printed guides, with one digest manifest and a verifier.
+    ///
+    /// The new kit is staged beside the old one and swapped only when complete.
+    /// Docker images are optional: present images are compressed and their
+    /// sizes printed, `--skip-docker` leaves them out and `--with-docker`
+    /// makes a missing image an error. `--skip-site-build` reuses `site/dist`.
+    Kit(KitArgs),
     /// Recompute every headline number from raw rows and compare every surface.
     ///
     /// Checks the consolidated artifact, the quote sheet, the README headline
@@ -533,6 +544,7 @@ fn main() -> Result<()> {
         Commands::FinalRun(args) => final_run::cmd_final_run(args),
         Commands::Stability(args) => cmd_stability(args),
         Commands::Demo(args) => cmd_demo(args),
+        Commands::Kit(args) => cmd_kit(args),
         Commands::VerifyNumbers(args) => cmd_verify_numbers(args),
         Commands::Headline(args) => cmd_headline(args),
         Commands::DatasetDigests(args) => cmd_dataset_digests(args),

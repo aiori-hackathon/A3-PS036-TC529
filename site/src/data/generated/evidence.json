@@ -36,7 +36,7 @@
       "sha256": "a5f542682600361df98e28ea10a158587f5723718bb19bed3c84c7ac4ce0e45e"
     }
   ],
-  "content_sha256": "4522509b0ea42c26625abe1c5ed69e29dbac545aaa7bb13dfcdc8fc0cd784f85",
+  "content_sha256": "6534fe07232514278c7871fadd09f262ad98c35144942d1eeda5b02aaf2270bd",
   "published_base": "/evidence",
   "report": {
     "available": true,
@@ -81,9 +81,9 @@
       "sha256": "8c10b7123c93e8bbfe7394b2621543461202735bd2b694b64a686dfb8c2c10e7"
     },
     {
-      "bytes": 10276,
+      "bytes": 10454,
       "file": "commits.json",
-      "sha256": "69ba6108a21b9b20896e2b4475ed0c05a384e5464ab34afdf43a8783beb68884"
+      "sha256": "f66356f7471e0c578776e37afc5cddeff83df675c50fdfce9da7e2d557f3b2bb"
     }
   ],
   "source": "docs/sample-output",
