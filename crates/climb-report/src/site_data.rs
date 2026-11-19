@@ -2114,7 +2114,8 @@ mod tests {
 
     #[test]
     fn claims_class_counts_match_the_claims_document() {
-        let documents = render(&root()).expect("render");
+        let fixture = temp_root();
+        let documents = render(fixture.path()).expect("render");
         let document = |name: &str| -> Value {
             let text = documents
                 .iter()
