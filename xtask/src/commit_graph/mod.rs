@@ -1,11 +1,13 @@
 //! Commit-graph generation: read the public history of the repository and
 //! write one JSON document plus two self-contained SVG cards.
 //!
-//! The graph is a pure function of the history reachable from one commit and
-//! the `[commit_graph]` configuration in `docs/readme-config.toml`. Nothing in
-//! the output depends on the wall clock, the machine or the git version's
-//! display defaults: dates are bucketed in a fixed-offset zone, the log format
-//! is pinned, and the JSON is serialised with a fixed key order.
+//! The graph is a pure function of the history reachable from one commit, the
+//! `[commit_graph]` configuration in `docs/readme-config.toml`, and the day
+//! treated as today. The day is an explicit input (`--today`, `CLIMB_TODAY`, or
+//! the system clock resolved once by [`resolve_today`]); nothing else depends
+//! on the wall clock, the machine or the git version's display defaults: dates
+//! are bucketed in a fixed-offset zone, the log format is pinned, and the JSON
+//! is serialised with a fixed key order.
 //!
 //! The committed card must describe the public repository, never a private
 //! development checkout whose history has been rewritten. Unless the checkout
@@ -81,6 +83,11 @@ pub(crate) struct CommitGraphArgs {
     /// checkout and the configured source ref for the public cache.
     #[arg(long)]
     pub(crate) as_of: Option<String>,
+
+    /// Treat this ISO date (`YYYY-MM-DD`) as today when counting the refresh
+    /// commit. Defaults to `CLIMB_TODAY`, then to the system clock.
+    #[arg(long, value_name = "YYYY-MM-DD")]
+    pub(crate) today: Option<String>,
 
     /// Configuration file, relative to the root.
     #[arg(long, default_value = CONFIG_PATH)]
@@ -1112,10 +1119,9 @@ struct DayAccumulator {
 pub(crate) enum Pending {
     /// Count only commits that exist.
     Disabled,
-    /// Count a refresh commit that lands today in the configured zone.
-    Today,
-    /// Count a refresh commit on this day (days since the epoch). Used to
-    /// reproduce a committed document byte for byte.
+    /// Count a refresh commit on this day (days since the epoch). The day is an
+    /// explicit input so generation is reproducible and tests never read the
+    /// host clock.
     On(i64),
 }
 
@@ -1125,6 +1131,28 @@ fn now_unix_seconds() -> Result<i64> {
         .duration_since(std::time::UNIX_EPOCH)
         .context("the system clock is before the Unix epoch")?;
     i64::try_from(since.as_secs()).context("the system clock is out of range")
+}
+
+/// The one place the generator reads the date.
+///
+/// `--today` wins over `CLIMB_TODAY`; without either, the system clock is
+/// bucketed in the configured zone. Every date-dependent decision downstream
+/// takes the returned day as an input, so a caller can pin it and no test has
+/// to read the real date.
+pub(crate) fn resolve_today(args: &CommitGraphArgs, config: &CommitGraphConfig) -> Result<i64> {
+    let injected = args
+        .today
+        .clone()
+        .or_else(|| std::env::var("CLIMB_TODAY").ok())
+        .filter(|text| !text.trim().is_empty());
+    if let Some(text) = injected {
+        let text = text.trim();
+        return parse_iso_date(text).with_context(|| {
+            format!("`{text}` is not an ISO date (YYYY-MM-DD) for --today or CLIMB_TODAY")
+        });
+    }
+    let offset = tz_offset_minutes(&config.timezone)?;
+    Ok(local_day(now_unix_seconds()?, offset))
 }
 
 /// Build the graph document and its serialised JSON form.
@@ -1140,9 +1168,10 @@ pub(crate) fn generate(
     root: &Path,
     config: &CommitGraphConfig,
     as_of: Option<&str>,
+    today: i64,
 ) -> Result<(CommitGraph, String)> {
     let pending = if config.self_count {
-        Pending::Today
+        Pending::On(today)
     } else {
         Pending::Disabled
     };
@@ -1161,7 +1190,6 @@ pub(crate) fn generate_with(
     let as_of_day = local_day(commit_timestamp(root, &sha)?, offset);
     let pending_day = match pending {
         Pending::Disabled => None,
-        Pending::Today => Some(local_day(now_unix_seconds()?, offset)),
         Pending::On(day) => Some(day),
     };
 
@@ -1431,10 +1459,13 @@ fn write_artifacts(
     json: &str,
 ) -> Result<WrittenArtifacts> {
     let palette = svg::Palette::load(root, &config.style)?;
-    let full = svg::render_full(graph, &palette, &config.style)?;
-    let narrow = svg::render_narrow(graph, &palette, &config.style)?;
+    let (full, full_notices) = svg::render_full_with_notices(graph, &palette, &config.style)?;
+    let (narrow, narrow_notices) = svg::render_narrow_with_notices(graph, &palette, &config.style)?;
     let compact = svg::render_compact(graph, &palette, &config.style)?;
     let compact_narrow = svg::render_compact_narrow(graph, &palette, &config.style)?;
+    for notice in full_notices.iter().chain(narrow_notices.iter()) {
+        eprintln!("commit-graph: note: {notice}");
+    }
 
     let card_budget = (config.budget_kb as usize * 1024).min(CARD_BUDGET_BYTES);
     let strip_budget = (config.strip_budget_kb as usize * 1024).min(STRIP_BUDGET_BYTES);
@@ -1532,7 +1563,8 @@ pub(crate) fn cmd_commit_graph(args: CommitGraphArgs) -> Result<()> {
         "HEAD"
     };
     let as_of = args.as_of.as_deref().unwrap_or(default_as_of);
-    let (graph, json) = generate(&history.path, &config, Some(as_of))?;
+    let today = resolve_today(&args, &config)?;
+    let (graph, json) = generate(&history.path, &config, Some(as_of), today)?;
     let out_dir = args.root.join(&args.out_dir);
     let written = write_artifacts(&args.root, &config, &out_dir, &graph, &json)?;
 
@@ -1632,6 +1664,7 @@ pub(crate) fn run_auto(args: &CommitGraphArgs) -> Result<AutoOutcome> {
         bail!("--auto chooses its own as-of commit (the public tip); omit --as-of");
     }
     let config = load_config(&args.root.join(&args.config))?;
+    let today = resolve_today(args, &config)?;
     let history = acquire_history(&args.root, &config, args.source)?;
     ensure_full_history(&history.path)?;
     if !history.public {
@@ -1669,7 +1702,7 @@ pub(crate) fn run_auto(args: &CommitGraphArgs) -> Result<AutoOutcome> {
         });
     }
 
-    let (graph, json) = generate(&history.path, &config, Some(&tip))?;
+    let (graph, json) = generate(&history.path, &config, Some(&tip), today)?;
     write_artifacts(&args.root, &config, &out_dir, &graph, &json)?;
     let staged = stage_artifacts(&args.root, &out_dir)?;
     println!(

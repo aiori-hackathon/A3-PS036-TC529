@@ -202,7 +202,8 @@ fn per_day_counts_and_totals_reconcile() {
         &[("a.txt", "one\nthree\n")],
     );
 
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.totals.commits, 3);
     assert_eq!(graph.totals.active_days, 2);
     assert_eq!(day(&graph, "2026-10-10").commits, 2);
@@ -232,7 +233,8 @@ fn per_day_sums_match_the_totals() {
         &[("one.txt", "a\n")],
     );
 
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     let commits: u64 = graph.per_day.iter().map(|entry| entry.commits).sum();
     let added: u64 = graph.per_day.iter().map(|entry| entry.added).sum();
     let removed: u64 = graph.per_day.iter().map(|entry| entry.removed).sum();
@@ -260,7 +262,8 @@ fn the_istanbul_day_boundary_wins_over_the_utc_date() {
         &[("b.txt", "b\n")],
     );
 
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.as_of_date, "2026-10-14");
     // Both commits fall on 14 October in Kolkata, so the first day of the
     // range is that day and no earlier, empty day is emitted.
@@ -279,7 +282,8 @@ fn a_utc_graph_buckets_the_same_commit_on_the_previous_day() {
     );
     let mut utc = config();
     utc.timezone = "UTC".to_string();
-    let (graph, _) = generate(repo.path(), &utc, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &utc, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.as_of_date, "2026-10-13");
     assert_eq!(day(&graph, "2026-10-13").commits, 1);
 }
@@ -308,11 +312,13 @@ fn streak_logic_counts_consecutive_active_days() {
         &[("d.txt", "d\n")],
     );
 
-    let (head, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (head, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(head.totals.longest_streak, 3);
     assert_eq!(head.totals.current_streak, 1);
 
-    let (past, _) = generate(repo.path(), &config(), Some(&middle)).expect("generate");
+    let (past, _) =
+        generate(repo.path(), &config(), Some(&middle), day_of("2026-10-22")).expect("generate");
     assert_eq!(past.totals.longest_streak, 3);
     assert_eq!(past.totals.current_streak, 3);
     assert_eq!(past.range.end, "2026-10-12");
@@ -333,7 +339,8 @@ fn an_excluded_author_is_hidden_but_its_commits_are_counted() {
     );
     let mut config = config();
     config.exclude_authors = vec!["github-actions[bot]".to_string()];
-    let (graph, json) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, json) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     // The public repository's commit count includes the bot commit, so the
     // totals must too; only the contributor breakdown hides the name.
     assert_eq!(graph.totals.commits, 2);
@@ -370,7 +377,8 @@ fn media_only_commits_are_counted_and_reported_as_refreshes() {
     );
     let mut config = config();
     config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     // Nothing is hidden: the media-only commit is part of the total and the
     // per-day counts, and is reported separately as a graph refresh.
     assert_eq!(graph.totals.commits, 3);
@@ -393,7 +401,8 @@ fn a_commit_that_touches_a_graph_file_and_code_is_not_a_refresh() {
     );
     let mut config = config();
     config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.totals.commits, 1);
     assert_eq!(graph.totals.refresh_commits, 0);
 }
@@ -404,7 +413,8 @@ fn an_empty_commit_is_not_a_graph_refresh() {
     repo.commit("2026-10-10T09:00:00+05:30", "Pratyay Mukherjee", &[]);
     let mut config = config();
     config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.totals.commits, 1);
     assert_eq!(graph.totals.refresh_commits, 0);
     assert_eq!(graph.totals.files_touched, 0);
@@ -422,7 +432,8 @@ fn display_names_are_keyed_by_git_author_name() {
     config
         .display_names
         .insert("Pratyay Mukherjee".to_string(), "Pratyay".to_string());
-    let (graph, json) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, json) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.per_author[0].display, "Pratyay");
     assert!(json.contains("\"display\": \"Pratyay\""));
     assert!(!json.contains("Mukherjee"));
@@ -436,7 +447,8 @@ fn an_unmapped_author_keeps_the_git_name_and_no_email_appears() {
         "Someone Else",
         &[("a.txt", "a\n")],
     );
-    let (graph, json) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, json) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.per_author[0].display, "Someone Else");
     assert!(!json.contains('@'));
     assert!(!json.contains("harness@example.invalid"));
@@ -478,7 +490,7 @@ fn a_shallow_clone_is_rejected_with_an_actionable_message() {
         message.contains("fetch-depth 0"),
         "the refusal must name the CI checkout setting: {message}"
     );
-    assert!(generate(&clone, &config(), Some("HEAD")).is_ok());
+    assert!(generate(&clone, &config(), Some("HEAD"), day_of("2026-10-22")).is_ok());
     assert!(is_shallow(&clone).expect("shallow probe"));
 }
 
@@ -513,7 +525,8 @@ fn a_shallow_clone_skips_history_checks_and_reports_why() {
 
     std::fs::create_dir_all(clone.join("docs/media")).expect("create the card directory");
     write_config(&clone, &config());
-    let (graph, json) = generate(&clone, &config(), Some("HEAD")).expect("generate");
+    let (graph, json) =
+        generate(&clone, &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     let json_path = clone.join(JSON_PATH);
     std::fs::write(&json_path, json).expect("write the JSON");
     let cards = write_cards(&clone, &graph, &StyleConfig::default());
@@ -588,9 +601,11 @@ fn generation_is_byte_identical_twice() {
         &[("b.txt", "two\n")],
     );
     let (first_graph, first_json) =
-        generate(repo.path(), &config(), Some("HEAD")).expect("first generation");
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22"))
+            .expect("first generation");
     let (second_graph, second_json) =
-        generate(repo.path(), &config(), Some("HEAD")).expect("second generation");
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22"))
+            .expect("second generation");
     assert_eq!(first_json, second_json);
     assert_eq!(first_graph, second_graph);
 
@@ -614,7 +629,8 @@ fn the_cards_are_well_formed_self_contained_and_within_budget() {
         "Pratyay Mukherjee",
         &[("b.txt", "three\n")],
     );
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     for (label, card) in render_all(&graph, &StyleConfig::default()) {
         let budget = if label.starts_with("compact") {
             STRIP_BUDGET_BYTES
@@ -651,7 +667,8 @@ fn the_desc_numbers_equal_the_json_totals() {
         "Pratyay Mukherjee",
         &[("a.txt", "one\ntwo\n")],
     );
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     let palette = svg::Palette::default();
     let card = svg::render_full(&graph, &palette, &StyleConfig::default()).expect("card");
     let document = roxmltree::Document::parse(&card).expect("XML");
@@ -802,7 +819,8 @@ fn totals_commits_equals_git_rev_list_count() {
         .trim()
         .parse()
         .expect("a count");
-    let (graph, _) = generate(repo.path(), &config(), Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config(), Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(graph.totals.commits, expected);
     assert_eq!(
         graph.per_day.iter().map(|entry| entry.commits).sum::<u64>(),
@@ -877,7 +895,8 @@ fn readme_text(permalink: &str) -> String {
 }
 
 /// Write a complete, consistent set of artifacts for `repo` at `as_of`, read
-/// from `history`, so the `--check` command has something to read.
+/// from `history`, so the `--check` command has something to read. A
+/// self-counting configuration is generated for the fixed fixture day.
 fn write_artifacts_from(
     history: &Path,
     repo: &TempRepo,
@@ -885,7 +904,7 @@ fn write_artifacts_from(
     as_of: &str,
 ) -> CommitGraph {
     let pending = if config.self_count {
-        Pending::Today
+        Pending::On(day_of("2026-10-22"))
     } else {
         Pending::Disabled
     };
@@ -930,6 +949,7 @@ fn check_args(repo: &TempRepo) -> CommitGraphArgs {
         source: HistorySource::Auto,
         check: true,
         auto: false,
+        today: None,
     }
 }
 
@@ -1099,8 +1119,13 @@ fn the_public_graph_excludes_private_only_commits_and_matches_rev_list() {
     let history = acquire_history(private.path(), &config, HistorySource::Public)
         .expect("the public cache is populated");
     assert!(history.public);
-    let (graph, json) = generate(&history.path, &config, Some(&config.source_ref))
-        .expect("generate from the public cache");
+    let (graph, json) = generate(
+        &history.path,
+        &config,
+        Some(&config.source_ref),
+        day_of("2026-10-22"),
+    )
+    .expect("generate from the public cache");
     let expected: u64 = String::from_utf8_lossy(
         &run_git(&bare, &["rev-list", "--count", "refs/heads/main"]).expect("rev-list count"),
     )
@@ -1343,6 +1368,7 @@ fn auto_args(repo: &TempRepo) -> CommitGraphArgs {
         source: HistorySource::Public,
         check: false,
         auto: true,
+        today: Some("2026-10-22".to_string()),
     }
 }
 
@@ -1537,14 +1563,16 @@ fn a_refresh_may_carry_the_readme_permalink_but_a_readme_only_commit_may_not() {
     let mut config = config();
     config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
     config.refresh_commits_allow_readme = true;
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(
         graph.totals.refresh_commits, 1,
         "the graph artifact plus README is one refresh; README alone is not"
     );
 
     config.refresh_commits_allow_readme = false;
-    let (strict, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (strict, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert_eq!(
         strict.totals.refresh_commits, 0,
         "without the allowance a README rewrite makes the commit something else"
@@ -1619,7 +1647,8 @@ fn a_config_without_self_count_keeps_the_historical_default() {
     let config = load_config(&repo.path().join(CONFIG_PATH)).expect("load the configuration");
     assert!(config.self_count);
     assert!(config.refresh_commits_allow_readme);
-    let (graph, _) = generate(repo.path(), &config, Some("HEAD")).expect("generate");
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-10-22")).expect("generate");
     assert!(graph.pending_refresh);
     assert_eq!(graph.totals.commits, 2);
 }
@@ -1647,4 +1676,152 @@ fn a_card_without_self_count_is_not_checked_against_its_refresh_tip() {
 
     let outcome = check::check_docs(work.path()).expect("the check runs");
     assert!(outcome.violations.is_empty(), "{:#?}", outcome.violations);
+}
+
+/// A configuration with the three live milestones and a self-counted refresh
+/// commit, so the pending day decides every status.
+fn config_with_milestones(milestones: &[(&str, &str, &str)]) -> CommitGraphConfig {
+    let mut config = config();
+    config.self_count = true;
+    config.refresh_commits_whose_files_all_match = vec!["docs/media/commit-graph*".to_string()];
+    config.milestones = milestones
+        .iter()
+        .map(|(date, label, short)| MilestoneConfig {
+            date: (*date).to_string(),
+            label: (*label).to_string(),
+            short: Some((*short).to_string()),
+        })
+        .collect();
+    config
+}
+
+fn status_of(graph: &CommitGraph, date: &str) -> MilestoneStatus {
+    graph
+        .milestones
+        .iter()
+        .find(|milestone| milestone.date == date)
+        .unwrap_or_else(|| panic!("{date} is not a configured milestone"))
+        .status
+}
+
+/// The chart end is the greater of the as-of day and today. A milestone on
+/// that day is drawn like a past one (`done`) because the schema has no third
+/// state; only a date after the end is `upcoming`.
+#[test]
+fn a_milestone_today_or_earlier_is_done_and_a_later_one_is_upcoming() {
+    let repo = TempRepo::new("milestone-today");
+    repo.commit(
+        "2026-11-17T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    let config = config_with_milestones(&[
+        ("2026-11-17", "Yesterday", "Yest"),
+        ("2026-11-19", "Today", "Today"),
+        ("2026-11-20", "Tomorrow", "Tom"),
+    ]);
+
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-11-19")).expect("generate");
+    assert_eq!(graph.range.end, "2026-11-19");
+    assert_eq!(status_of(&graph, "2026-11-17"), MilestoneStatus::Done);
+    assert_eq!(status_of(&graph, "2026-11-19"), MilestoneStatus::Done);
+    assert_eq!(status_of(&graph, "2026-11-20"), MilestoneStatus::Upcoming);
+    assert!(
+        !graph
+            .milestones
+            .iter()
+            .find(|milestone| milestone.date == "2026-11-19")
+            .expect("the today milestone")
+            .future,
+        "a milestone on the chart end is not marked future"
+    );
+}
+
+/// The failing case from the report: a milestone on the chart's last day sits
+/// on top of the staircase, where the label band is blocked by the KPI row.
+/// The card must still be written and the omitted label must be explained.
+#[test]
+fn a_milestone_at_the_right_edge_is_omitted_with_a_notice_instead_of_failing() {
+    let repo = TempRepo::new("milestone-edge");
+    repo.commit(
+        "2026-11-17T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n"), ("b.txt", "b\n"), ("c.txt", "c\n")],
+    );
+    let config = config_with_milestones(&[("2026-11-19", "Regional", "Reg")]);
+    let (graph, _) =
+        generate(repo.path(), &config, Some("HEAD"), day_of("2026-11-19")).expect("generate");
+    assert_eq!(status_of(&graph, "2026-11-19"), MilestoneStatus::Done);
+
+    let (card, notices) =
+        svg::render_full_with_notices(&graph, &svg::Palette::default(), &config.style)
+            .expect("a crowded label never fails the refresh");
+    assert!(
+        notices
+            .iter()
+            .any(|notice| notice.contains("omitted the milestone label `Reg - 19 Nov`")),
+        "the omitted label is named: {notices:?}"
+    );
+    assert!(
+        !card.contains("data-name=\"milestone-1\""),
+        "the omitted label is absent from the card"
+    );
+}
+
+/// The committed configuration is the one that matters: on the day before the
+/// regional round the flag is upcoming, on the day itself it is done, and on
+/// the day after it is a past milestone. All four cards render on each day.
+#[test]
+fn the_real_configuration_renders_for_the_regional_day_and_its_neighbours() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives inside the workspace");
+    let config = load_config(&root.join(CONFIG_PATH)).expect("the committed configuration");
+    let repo = TempRepo::new("real-config-days");
+    repo.commit(
+        "2026-09-26T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("a.txt", "a\n")],
+    );
+    repo.commit(
+        "2026-11-17T09:00:00+05:30",
+        "Pratyay Mukherjee",
+        &[("b.txt", "b\n")],
+    );
+
+    for (today, regional) in [
+        ("2026-11-18", MilestoneStatus::Upcoming),
+        ("2026-11-19", MilestoneStatus::Done),
+        ("2026-11-20", MilestoneStatus::Done),
+    ] {
+        let (graph, _) = generate(repo.path(), &config, Some("HEAD"), day_of(today))
+            .unwrap_or_else(|error| panic!("generate for {today}: {error:#}"));
+        assert_eq!(
+            status_of(&graph, "2026-11-19"),
+            regional,
+            "the regional milestone on {today}"
+        );
+        assert_eq!(
+            status_of(&graph, "2026-12-17"),
+            MilestoneStatus::Upcoming,
+            "the finals milestone is still ahead on {today}"
+        );
+        assert_eq!(
+            status_of(&graph, "2026-10-14"),
+            MilestoneStatus::Done,
+            "a past milestone stays done on {today}"
+        );
+        assert_eq!(
+            status_of(&graph, "2026-10-20"),
+            MilestoneStatus::Done,
+            "a past milestone stays done on {today}"
+        );
+        assert_eq!(graph.range.end, today, "the chart ends on {today}");
+        let cards = render_all(&graph, &config.style);
+        assert_eq!(cards.len(), 4, "all four cards render on {today}");
+        for (name, card) in cards {
+            assert!(!card.is_empty(), "the {name} card on {today} is empty");
+        }
+    }
 }

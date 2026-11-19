@@ -1718,7 +1718,7 @@ fn a_future_milestone_label_never_crosses_the_staircase_edge() {
 }
 
 #[test]
-fn the_placement_failure_names_the_command_that_fixes_it() {
+fn an_unplaceable_milestone_label_is_omitted_with_a_notice() {
     let graph = synthetic_graph(
         "2026-11-17",
         53,
@@ -1728,16 +1728,33 @@ fn the_placement_failure_names_the_command_that_fixes_it() {
             "A regional milestone whose label is too wide",
         )],
     );
-    let error = render_full(&graph, &Palette::default(), &style())
-        .expect_err("a label wider than the runway must be refused");
-    let message = error.to_string();
+    let (svg, notices) = render_full_with_notices(&graph, &Palette::default(), &style())
+        .expect("a label wider than the runway is omitted, not fatal");
+    let message = notices.join("\n");
+    assert!(
+        message.contains("omitted the milestone label"),
+        "the notice must say the label was omitted: {message}"
+    );
     assert!(
         message.contains("cargo xtask commit-graph"),
-        "the refusal must name the command that fixes it: {message}"
+        "the notice must name the command that fixes the layout: {message}"
     );
     assert!(
         message.contains("docs/readme-config.toml"),
-        "the refusal must name the file to edit: {message}"
+        "the notice must name the file to edit: {message}"
+    );
+    let document = parse(&svg);
+    assert!(
+        text_groups(&document)
+            .iter()
+            .all(|group| group.name != "milestone-1"),
+        "the omitted label is absent, not drawn over another mark"
+    );
+    assert!(
+        document
+            .descendants()
+            .any(|node| node.attribute("data-status") == Some("upcoming")),
+        "the flag itself is still drawn"
     );
 }
 

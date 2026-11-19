@@ -115,6 +115,8 @@ fn run_auto(work: &Path) -> Output {
         .arg("--auto")
         .arg("--source")
         .arg("public")
+        .arg("--today")
+        .arg("2026-11-18")
         .arg("--root")
         .arg(work)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
@@ -222,6 +224,7 @@ fn auto_reports_up_to_date_then_changed_then_converges() {
     let generated = Command::new(BIN)
         .args(["commit-graph", "--source", "public", "--root"])
         .arg(&work)
+        .args(["--today", "2026-11-18"])
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
@@ -466,6 +469,7 @@ fn a_full_depth_clone_regenerates_the_card_from_its_own_history() {
     let generated = Command::new(BIN)
         .args(["commit-graph", "--source", "auto", "--root"])
         .arg(&clone)
+        .args(["--today", "2026-11-18"])
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
@@ -557,6 +561,7 @@ fn a_user_gitconfig_cannot_rewrite_the_url_or_run_a_credential_helper() {
     let output = Command::new(BIN)
         .args(["commit-graph", "--source", "public", "--root"])
         .arg(&work)
+        .args(["--today", "2026-11-18"])
         .env("HOME", &home)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_NOSYSTEM", "1")
@@ -625,6 +630,7 @@ fn a_public_tip_near_an_upcoming_milestone_still_refreshes() {
     let first = Command::new(BIN)
         .args(["commit-graph", "--source", "public", "--root"])
         .arg(&work)
+        .args(["--today", "2026-11-18"])
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
@@ -782,6 +788,7 @@ fn a_user_gitconfig_cannot_change_the_generated_document() {
         Command::new(BIN)
             .args(["commit-graph", "--source", "public", "--root"])
             .arg(&work)
+            .args(["--today", "2026-11-18"])
             .env("HOME", home)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env_remove("GIT_CONFIG_GLOBAL")
@@ -807,5 +814,78 @@ fn a_user_gitconfig_cannot_change_the_generated_document() {
     assert_eq!(
         clean_json, biased_json,
         "the generated document changed with the user's git configuration"
+    );
+}
+
+/// The generator's date is an input: `--today` and `CLIMB_TODAY` set the
+/// pending day, the flag wins over the environment, and a malformed date is
+/// refused before anything is written.
+#[test]
+fn the_clock_can_be_pinned_by_the_flag_or_the_environment() {
+    let temp = TempDir::new("pinned-clock");
+    let work = temp.root.join("work");
+    init_repo(&work);
+    write(
+        &work,
+        "docs/readme-config.toml",
+        &config_text_with_milestones("https://example.invalid/public.git"),
+    );
+    write(&work, "README.md", readme_text());
+    commit_all_at(&work, "first", "2026-11-17T09:00:00+0530");
+
+    let run = |flag: Option<&str>, env_today: Option<&str>| {
+        let mut command = Command::new(BIN);
+        command
+            .args(["commit-graph", "--source", "local", "--root"])
+            .arg(&work)
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_SYSTEM", "/dev/null");
+        if let Some(day) = flag {
+            command.args(["--today", day]);
+        }
+        match env_today {
+            Some(day) => {
+                command.env("CLIMB_TODAY", day);
+            }
+            None => {
+                command.env_remove("CLIMB_TODAY");
+            }
+        }
+        command.output().expect("run the generator")
+    };
+
+    let flagged = run(Some("2026-11-18"), None);
+    assert!(
+        flagged.status.success(),
+        "--today renders the card: {}",
+        stderr(&flagged)
+    );
+    assert_eq!(json(&work)["pending_date"], "2026-11-18");
+
+    let from_env = run(None, Some("2026-11-18"));
+    assert!(
+        from_env.status.success(),
+        "CLIMB_TODAY renders the card: {}",
+        stderr(&from_env)
+    );
+    assert_eq!(json(&work)["pending_date"], "2026-11-18");
+
+    let flag_wins = run(Some("2026-11-19"), Some("2026-11-18"));
+    assert!(
+        flag_wins.status.success(),
+        "the flag wins over the environment: {}",
+        stderr(&flag_wins)
+    );
+    assert_eq!(json(&work)["pending_date"], "2026-11-19");
+
+    let malformed = run(Some("2026-02-31"), None);
+    assert!(
+        !malformed.status.success(),
+        "a date that does not exist is refused"
+    );
+    assert!(
+        stderr(&malformed).contains("is not an ISO date"),
+        "the refusal names the input: {}",
+        stderr(&malformed)
     );
 }
