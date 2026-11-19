@@ -1600,7 +1600,9 @@ struct FlagGeom {
 /// staggered levels. Every candidate is measured from the glyph outlines and
 /// rejected when it comes within eight pixels of a box already placed or
 /// touches any data mark. If neither staggered level fits, the remaining legal
-/// band is searched before generation fails instead of drawing an overlap.
+/// band is searched. A label that still has no place is omitted and reported in
+/// the returned notices: one crowded annotation must not make the whole refresh
+/// fail.
 fn draw_flags(
     canvas: &mut Canvas,
     graph: &CommitGraph,
@@ -1609,10 +1611,11 @@ fn draw_flags(
     geom: &ChartGeom,
     style: &StyleConfig,
     occupied: &mut Vec<TextBox>,
-) -> Result<()> {
+) -> Result<Vec<String>> {
     if !style.show_flags {
-        return Ok(());
+        return Ok(Vec::new());
     }
+    let mut notices = Vec::new();
     let start = parse_iso_date(&graph.range.start)?;
     let end = parse_iso_date(&graph.range.end)?;
     let last_upcoming = graph
@@ -1651,7 +1654,7 @@ fn draw_flags(
         };
         let done = milestone.status == MilestoneStatus::Done;
         if !chart.labels {
-            let (number_run, number_box) = draw_narrow_flag(
+            let number = draw_narrow_flag(
                 canvas,
                 graph,
                 palette,
@@ -1661,8 +1664,19 @@ fn draw_flags(
                 base_x,
                 base_y,
             )?;
-            narrow_runs.push(number_run);
-            narrow_boxes.push(number_box);
+            match number {
+                Some((number_run, number_box)) => {
+                    narrow_runs.push(number_run);
+                    narrow_boxes.push(number_box);
+                }
+                None => notices.push(format!(
+                    "the narrow card omitted milestone number `{}` for {} because no place on \
+                     the line clears the other labels; shorten its `short` label in \
+                     docs/readme-config.toml or widen the card",
+                    index + 1,
+                    milestone.date
+                )),
+            }
             continue;
         }
         let pole_top = base_y - if done { 18.0 } else { 22.0 };
@@ -1722,12 +1736,13 @@ fn draw_flags(
             )?;
         }
         let Some((x, baseline, box_)) = placed else {
-            bail!(
-                "commit-graph milestone label `{}` cannot be placed directly above its pole; \
-                 shorten its `short` label in docs/readme-config.toml or widen the card, then \
-                 rerun `cargo xtask commit-graph --source public`",
+            notices.push(format!(
+                "the wide card omitted the milestone label `{}` because no place above its pole \
+                 clears the other labels; shorten its `short` label in docs/readme-config.toml or \
+                 widen the card, then rerun `cargo xtask commit-graph --source public`",
                 flag.text
-            );
+            ));
+            continue;
         };
         let fill = if flag.done {
             &palette.ink
@@ -1755,7 +1770,7 @@ fn draw_flags(
         )?;
         occupied.extend(narrow_boxes);
     }
-    Ok(())
+    Ok(notices)
 }
 
 /// Baselines to try for a milestone label, in preference order.
@@ -1933,7 +1948,7 @@ fn draw_narrow_flag(
     index: usize,
     base_x: f64,
     base_y: f64,
-) -> Result<(Run, TextBox)> {
+) -> Result<Option<(Run, TextBox)>> {
     let milestone = &graph.milestones[index];
     let done = milestone.status == MilestoneStatus::Done;
     let colour = if done {
@@ -1993,12 +2008,9 @@ fn draw_narrow_flag(
         break;
     }
     let Some((baseline, box_)) = placed else {
-        bail!(
-            "commit-graph milestone number `{number}` cannot be placed on the narrow card \
-             without overlapping another label"
-        );
+        return Ok(None);
     };
-    Ok((
+    Ok(Some((
         tinted(
             number,
             x,
@@ -2006,7 +2018,7 @@ fn draw_narrow_flag(
             if done { &palette.ink } else { &palette.muted },
         ),
         box_,
-    ))
+    )))
 }
 
 /// The left content edge used by the flag placer. The chart starts at the y
@@ -2306,11 +2318,12 @@ fn render(
     palette: &Palette,
     style: &StyleConfig,
     layout: &Layout,
-) -> Result<String> {
+) -> Result<(String, Vec<String>)> {
     let font = Font::load()?;
     let mut canvas = Canvas::new(&font);
     let display = display_face(style);
     let mut occupied: Vec<TextBox> = Vec::new();
+    let mut notices: Vec<String> = Vec::new();
 
     canvas.rect(
         0.5,
@@ -2325,14 +2338,15 @@ fn render(
 
     if let Some(compact) = &layout.compact {
         draw_compact(&mut canvas, graph, palette, layout, compact, display)?;
-        return canvas.finish(
+        let svg = canvas.finish(
             layout.width,
             layout.height,
             layout.variant.title(),
             &desc_text(graph),
             palette,
             false,
-        );
+        )?;
+        return Ok((svg, notices));
     }
 
     // Header: eyebrow, title and the two-line stamp.
@@ -2435,7 +2449,7 @@ fn render(
         }
         // Flags place their labels before the `now` label so the two cannot
         // claim the same space above the end dot.
-        draw_flags(
+        notices.extend(draw_flags(
             &mut canvas,
             graph,
             palette,
@@ -2443,7 +2457,7 @@ fn render(
             &geom,
             style,
             &mut occupied,
-        )?;
+        )?);
         draw_chart_labels(&mut canvas, graph, palette, chart, &geom, &mut occupied)?;
         if layout.variant == Variant::Wide {
             draw_annotations(
@@ -2465,14 +2479,15 @@ fn render(
         draw_footer(&mut canvas, graph, palette, layout, footer)?;
     }
 
-    canvas.finish(
+    let svg = canvas.finish(
         layout.width,
         layout.height,
         layout.variant.title(),
         &desc_text(graph),
         palette,
         true,
-    )
+    )?;
+    Ok((svg, notices))
 }
 
 /// The narrow card lists every milestone below the staircase; the past ones
@@ -2529,19 +2544,43 @@ fn draw_narrow_legend(canvas: &mut Canvas, graph: &CommitGraph, palette: &Palett
     Ok(())
 }
 
+/// The wide card on its own. The generator uses
+/// [`render_full_with_notices`] so an omitted milestone label is reported.
+#[cfg(test)]
 pub(crate) fn render_full(
     graph: &CommitGraph,
     palette: &Palette,
     style: &StyleConfig,
 ) -> Result<String> {
+    Ok(render_full_with_notices(graph, palette, style)?.0)
+}
+
+/// The wide card plus one notice for every milestone label it had to omit.
+pub(crate) fn render_full_with_notices(
+    graph: &CommitGraph,
+    palette: &Palette,
+    style: &StyleConfig,
+) -> Result<(String, Vec<String>)> {
     render(graph, palette, style, &Layout::wide())
 }
 
+/// The narrow card on its own. The generator uses
+/// [`render_narrow_with_notices`] so an omitted milestone number is reported.
+#[cfg(test)]
 pub(crate) fn render_narrow(
     graph: &CommitGraph,
     palette: &Palette,
     style: &StyleConfig,
 ) -> Result<String> {
+    Ok(render_narrow_with_notices(graph, palette, style)?.0)
+}
+
+/// The narrow card plus one notice for every milestone number it had to omit.
+pub(crate) fn render_narrow_with_notices(
+    graph: &CommitGraph,
+    palette: &Palette,
+    style: &StyleConfig,
+) -> Result<(String, Vec<String>)> {
     render(graph, palette, style, &Layout::narrow())
 }
 
@@ -2550,6 +2589,14 @@ pub(crate) fn render_compact(
     palette: &Palette,
     style: &StyleConfig,
 ) -> Result<String> {
+    Ok(render_compact_with_notices(graph, palette, style)?.0)
+}
+
+pub(crate) fn render_compact_with_notices(
+    graph: &CommitGraph,
+    palette: &Palette,
+    style: &StyleConfig,
+) -> Result<(String, Vec<String>)> {
     render(graph, palette, style, &Layout::compact())
 }
 
@@ -2558,6 +2605,14 @@ pub(crate) fn render_compact_narrow(
     palette: &Palette,
     style: &StyleConfig,
 ) -> Result<String> {
+    Ok(render_compact_narrow_with_notices(graph, palette, style)?.0)
+}
+
+pub(crate) fn render_compact_narrow_with_notices(
+    graph: &CommitGraph,
+    palette: &Palette,
+    style: &StyleConfig,
+) -> Result<(String, Vec<String>)> {
     render(graph, palette, style, &Layout::compact_narrow())
 }
 
