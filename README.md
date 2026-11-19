@@ -27,7 +27,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1cf158a4ce1d07ae10fc8ee7ea4d530c66b73b29" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/29176811cbc497725627648e08a316b7650c53df" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -64,8 +64,8 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 **Team Name:** CLIMB  
 **Team Code:** A3-PS036-TC529  
 **Presentation:** [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)  
-**Introduction video:** [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)
-**Visit the live demo website hosted on our VPS:** [CLIMB Website](climb-pqc.duckdns.org)
+**Introduction video:** [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)  
+**Visit the live demo website hosted on our VPS:** [CLIMB Website](climb-pqc.duckdns.org)  
 
 ## Judge fast path
 
@@ -164,7 +164,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/1cf158a4ce1d07ae10fc8ee7ea4d530c66b73b29" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/29176811cbc497725627648e08a316b7650c53df" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
