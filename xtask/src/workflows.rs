@@ -421,6 +421,7 @@ jobs:
         let stdout = String::from_utf8_lossy(&output.stdout);
         for step in [
             "Check committed sample pair",
+            "Check generated README blocks",
             "Test viewer-scope crates",
             "Lint workflow files",
         ] {
@@ -432,6 +433,229 @@ jobs:
         assert!(
             !stdout.contains("Detect docs-only changes"),
             "the viewer job no longer skips the native job, so the docs-only step must be gone:\n{stdout}"
+        );
+    }
+
+    /// The names of the `run:` steps of one job, parsed here independently of
+    /// the replica's own parser.
+    fn workflow_run_steps(text: &str, job: &str) -> Vec<String> {
+        let mut steps = Vec::new();
+        let mut in_job = false;
+        let mut current: Option<(String, bool)> = None;
+        for line in text.lines() {
+            if let Some(header) = line
+                .strip_prefix("  ")
+                .and_then(|rest| rest.strip_suffix(':'))
+            {
+                if !header.is_empty() && !header.contains(' ') && !header.contains('$') {
+                    if let Some((name, has_run)) = current.take() {
+                        if has_run {
+                            steps.push(name);
+                        }
+                    }
+                    in_job = header == job;
+                    continue;
+                }
+            }
+            if !in_job {
+                continue;
+            }
+            if let Some(name) = line.strip_prefix("      - name:") {
+                if let Some((previous, has_run)) = current.take() {
+                    if has_run {
+                        steps.push(previous);
+                    }
+                }
+                current = Some((name.trim().to_string(), false));
+            } else if line.starts_with("        run:") {
+                if let Some((_, has_run)) = current.as_mut() {
+                    *has_run = true;
+                }
+            }
+        }
+        if let Some((name, has_run)) = current {
+            if has_run {
+                steps.push(name);
+            }
+        }
+        steps
+    }
+
+    /// The replica must run exactly the steps the workflow declares, for both
+    /// jobs. `--list` is the replica's own answer to "what would you run?".
+    #[test]
+    fn ci_local_runs_the_same_step_set_as_the_workflow() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let workflow = committed_workflow("ci.yml");
+        for (job, args) in [
+            ("viewer", vec!["--list"]),
+            ("native", vec!["--native", "--list"]),
+        ] {
+            let output = std::process::Command::new("bash")
+                .arg(root.join("scripts/ci-local.sh"))
+                .args(&args)
+                .current_dir(root)
+                .output()
+                .expect("run scripts/ci-local.sh --list");
+            assert!(
+                output.status.success(),
+                "ci-local --list failed for {job}: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let listed: Vec<String> = stdout
+                .lines()
+                .filter_map(|line| line.strip_prefix("  "))
+                .filter(|line| !line.starts_with("GitHub action, not run:"))
+                .filter(|line| !line.trim().is_empty())
+                .map(|line| line.trim().to_string())
+                .collect();
+            let declared = workflow_run_steps(&workflow, job);
+            assert!(!declared.is_empty(), "no run steps found for {job}");
+            let mut listed = listed;
+            let mut declared = declared;
+            listed.sort();
+            declared.sort();
+            assert_eq!(
+                listed, declared,
+                "ci-local and ci.yml disagree about the {job} step set"
+            );
+        }
+    }
+
+    /// A red run must show every failing step, not stop at the first one.
+    /// `--fail-fast` keeps the old behaviour as an explicit option.
+    #[test]
+    fn ci_local_reports_every_failure_and_honours_fail_fast() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .expect("xtask lives in a subdirectory of the workspace");
+        let scratch = tempfile::tempdir().expect("create a temporary directory");
+        let repo = scratch.path().join("repo");
+        std::fs::create_dir_all(repo.join(".github/workflows")).expect("create the workflow dir");
+        std::fs::create_dir_all(repo.join("scripts/ci")).expect("create the script dir");
+        std::fs::copy(
+            root.join("scripts/ci/env.sh"),
+            repo.join("scripts/ci/env.sh"),
+        )
+        .expect("copy the CI environment");
+        let workflow = "\
+name: CI
+on: push
+permissions:
+  contents: read
+jobs:
+  viewer:
+    name: viewer
+    runs-on: ubuntu-24.04
+    steps:
+      - name: First fails
+        timeout-minutes: 1
+        run: exit 3
+      - name: Second runs
+        timeout-minutes: 1
+        run: touch \"$CLIMB_TEST_MARKER\"
+";
+        std::fs::write(repo.join(".github/workflows/ci.yml"), workflow)
+            .expect("write the scratch workflow");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&repo)
+                .status()
+                .expect("run git");
+            assert!(status.success(), "git {args:?} failed");
+        };
+        git(&["init", "-q"]);
+        git(&["add", "-A"]);
+        git(&[
+            "-c",
+            "user.name=CLIMB CI",
+            "-c",
+            "user.email=ci@example.invalid",
+            "commit",
+            "-qm",
+            "scratch",
+        ]);
+
+        let run = |extra: &[&str], marker: &Path| {
+            std::process::Command::new("bash")
+                .arg(root.join("scripts/ci-local.sh"))
+                .args(extra)
+                .current_dir(&repo)
+                .env("CLIMB_CI_WORKFLOW", repo.join(".github/workflows/ci.yml"))
+                .env("CLIMB_CI_WORKTREE_DIR", scratch.path().join("worktree"))
+                .env("CLIMB_TEST_MARKER", marker)
+                .env_remove("CLIMB_CI_JOB")
+                .output()
+                .expect("run scripts/ci-local.sh")
+        };
+
+        let marker = scratch.path().join("second-step-ran");
+        let output = run(&[], &marker);
+        assert!(
+            !output.status.success(),
+            "a failing step must make the replica exit non-zero"
+        );
+        assert!(
+            marker.exists(),
+            "the second step must run after the first failed:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(stdout.contains("step summary"), "{stdout}");
+        assert!(stdout.contains("FAIL"), "{stdout}");
+        assert!(stdout.contains("First fails"), "{stdout}");
+        assert!(stdout.contains("Second runs"), "{stdout}");
+
+        let fast_marker = scratch.path().join("fast-second-step-ran");
+        let output = run(&["--fail-fast"], &fast_marker);
+        assert!(
+            !output.status.success(),
+            "--fail-fast must still exit non-zero"
+        );
+        assert!(
+            !fast_marker.exists(),
+            "--fail-fast must stop before the second step:\n{}",
+            String::from_utf8_lossy(&output.stdout)
+        );
+    }
+
+    /// A publish pushes twice in a minute; cancelling the first run would leave
+    /// that commit with no completed result.
+    #[test]
+    fn ci_does_not_cancel_a_push_run_on_main() {
+        let text = committed_workflow("ci.yml");
+        let line = text
+            .lines()
+            .find(|line| line.trim_start().starts_with("cancel-in-progress:"))
+            .expect("ci.yml declares a concurrency policy");
+        assert!(
+            line.contains("github.event_name == 'pull_request'"),
+            "only pull requests may cancel an in-progress run: {line}"
+        );
+    }
+
+    /// The generated README blocks are a viewer gate too, so a drifted block is
+    /// caught before a push rather than only by the native job.
+    #[test]
+    fn the_viewer_job_checks_generated_readme_blocks() {
+        let text = committed_workflow("ci.yml");
+        assert!(
+            text.contains("./scripts/ci/readme-blocks.sh"),
+            "the viewer job must run the generated-block check"
+        );
+        let script = committed_file("scripts/ci/readme-blocks.sh");
+        assert!(
+            script.contains("readme-badges --check"),
+            "the generated-block check must call readme-badges --check"
+        );
+        let tests = committed_file("scripts/ci/test-viewer.sh");
+        assert!(
+            tests.contains("cargo test -p xtask --no-default-features --all-targets"),
+            "the viewer test step must run the automation crate's tests"
         );
     }
 

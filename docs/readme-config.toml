@@ -9,6 +9,39 @@
 #
 # This file is committed and mirrored publicly, so it carries no secrets.
 
+# ── Live address ─────────────────────────────────────────────────────────────
+#
+# The one owner of the published address. `cargo xtask readme-badges` renders
+# every README mention from this value, and `cargo xtask docs-check` refuses a
+# copy that differs. A full `https://` URL is required: a bare host name is a
+# relative path to a markdown renderer, not a link.
+#
+# `url` ends with `/` so the route links below can be written as `{url}report/`.
+# `inline` and `body` are the two generated blocks; `{url}` is replaced by the
+# canonical value. The markers are added by the generator, never typed here.
+
+[live]
+url = "https://climb-pqc.duckdns.org/"
+inline = "[CLIMB Website]({url})"
+body = '''**Live dashboard:** <{url}>
+
+Every route in this site is served from the same static build this repository
+produces: the home page, [`/report`]({url}report/),
+[`/verify`]({url}verify/),
+[`/reproduce`]({url}reproduce/) and the recorded
+dashboard at [`/tui`]({url}tui/).
+
+The host is a small VPS behind a DuckDNS name. `scripts/deploy-local.sh` builds
+and packages a release, the host verifies the archive digest, the manifest hash,
+every file digest and the WebAssembly magic bytes before it moves the `current`
+symlink, and `scripts/smoke-live.sh` checks the public path afterwards — the
+same script the deploy workflow runs. Rollback is one command; the pipeline and
+its failure modes are in [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+If the host is unavailable, nothing here becomes unreproducible: every figure,
+page and dashboard view is regenerated from this repository by the commands in
+[Quickstart](#quickstart).'''
+
 [badges]
 # The shields.io rendering style, and the colour of the small logo glyphs.
 style = "for-the-badge"

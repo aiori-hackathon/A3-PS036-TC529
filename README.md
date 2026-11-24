@@ -65,7 +65,7 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 **Team Code:** A3-PS036-TC529  
 **Presentation:** [`A3-PS036-TC529.pdf`](A3-PS036-TC529.pdf)  
 **Introduction video:** [Team CLIMB introduction video](https://www.youtube.com/watch?v=gDHYamjWmtE)  
-**Visit the live demo website hosted on our VPS:** [CLIMB Website](climb-pqc.duckdns.org)  
+**Visit the live demo website hosted on our VPS:** <!-- live-link:begin -->[CLIMB Website](https://climb-pqc.duckdns.org/)<!-- live-link:end -->
 
 ## Judge fast path
 
@@ -78,7 +78,7 @@ https://github.com/user-attachments/assets/a3ded014-acba-4165-9750-ee3282d5b52c
 ## Live demo
 
 <!-- live:begin -->
-**Live dashboard:** <https://climb-pqc.duckdns.org>
+**Live dashboard:** <https://climb-pqc.duckdns.org/>
 
 Every route in this site is served from the same static build this repository
 produces: the home page, [`/report`](https://climb-pqc.duckdns.org/report/),

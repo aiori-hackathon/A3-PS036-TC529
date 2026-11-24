@@ -18,6 +18,10 @@
 #   bash scripts/ci-local.sh --native     # run the native job, runner-shaped
 #   bash scripts/ci-local.sh --list       # print the parsed steps, run nothing
 #   bash scripts/ci-local.sh --keep       # keep the worktree after the run
+#   bash scripts/ci-local.sh --fail-fast  # stop at the first failing step
+#
+# Every parsed step runs even when an earlier one failed, and the summary at
+# the end names every failure; the exit status is non-zero if any step failed.
 #
 # `--public` first asks the publishing sync for a dry-run export (no push),
 # then rebuilds that tree as a fresh single-commit repository so its commit
@@ -85,6 +89,7 @@ LIST_ONLY=0
 KEEP=0
 PUBLIC=0
 NATIVE=0
+FAIL_FAST=0
 
 die() {
   printf 'ci-local: %s\n' "$*" >&2
@@ -160,6 +165,7 @@ for arg in "$@"; do
     --keep) KEEP=1 ;;
     --public) PUBLIC=1 ;;
     --native) NATIVE=1 ;;
+    --fail-fast) FAIL_FAST=1 ;;
     -h|--help)
       sed -n '2,40p' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -635,7 +641,9 @@ if [[ "$NATIVE" -eq 1 ]]; then
   # bridge and leaves the variable unset.
   export CLIMB_DOCKER_NETWORK="${CLIMB_DOCKER_NETWORK:-host}"
 fi
-durations=()
+results=()
+failed=0
+failed_numbers=()
 while IFS=$'\t' read -r number name; do
   [[ -n "$number" ]] || continue
   printf '\n==> [%s] %s\n' "$number" "$name"
@@ -660,7 +668,7 @@ while IFS=$'\t' read -r number name; do
     ( cd "$WORKTREE" && "${step_env[@]}" bash -euo pipefail "$TMP/$number.sh" ) || status=$?
   fi
   elapsed=$((SECONDS - started))
-  durations+=("$number"$'\t'"$name"$'\t'"$elapsed")
+  results+=("$number"$'\t'"$name"$'\t'"$elapsed"$'\t'"$status")
   printf 'ci-local: [%s] took %ss\n' "$number" "$elapsed"
   # Disk headroom on a runner is small; the two steps that fill it are measured.
   if [[ "$NATIVE" -eq 1 && ( "$name" == "Build workspace" || "$name" == "Test workspace" ) ]]; then
@@ -670,6 +678,7 @@ while IFS=$'\t' read -r number name; do
   fi
   if [[ "$status" -ne 0 ]]; then
     failed=1
+    failed_numbers+=("$number")
     if [[ "$NATIVE" -eq 1 ]]; then
       printf 'ci-local: step [%s] %s FAILED (%s)\n' "$number" "$name" "$where" >&2
       printf 'ci-local: last 60 lines:\n' >&2
@@ -677,25 +686,35 @@ while IFS=$'\t' read -r number name; do
     else
       printf 'ci-local: step [%s] %s FAILED\n' "$number" "$name" >&2
     fi
-    break
+    if [[ "$FAIL_FAST" -eq 1 ]]; then
+      printf 'ci-local: stopping after the first failure (--fail-fast)\n' >&2
+      break
+    fi
   fi
 done < "$TMP/steps"
 
-# The per-step durations are the budget evidence: a warm native job is the sum
-# of these plus the actions the runner performs.
-if [[ "${#durations[@]}" -gt 0 ]]; then
-  printf '\nci-local: step durations\n'
-  for row in "${durations[@]}"; do
-    IFS=$'\t' read -r number name seconds <<< "$row"
-    printf '  [%s] %-50s %4ss\n' "$number" "$name" "$seconds"
+# Every executed step is reported, passing or failing: one red run should name
+# every failure, not hide the later ones behind the first.
+if [[ "${#results[@]}" -gt 0 ]]; then
+  printf '\nci-local: step summary\n'
+  printf '  %-6s %-6s %-50s %8s\n' "STATUS" "STEP" "NAME" "SECONDS"
+  for row in "${results[@]}"; do
+    IFS=$'\t' read -r number name seconds status <<< "$row"
+    verdict="ok"
+    if [[ "$status" -ne 0 ]]; then
+      verdict="FAIL"
+    fi
+    printf '  %-6s [%s] %-50s %7ss\n' "$verdict" "$number" "$name" "$seconds"
   done
 fi
 
 if [[ "$failed" -ne 0 ]]; then
+  joined="$(printf '[%s] ' "${failed_numbers[@]}")"
   if [[ "$NATIVE" -eq 1 ]]; then
-    printf '\nci-local: FAILED — the native workflow would stop at step [%s]\n' "$number" >&2
+    printf '\nci-local: FAILED — the native workflow would fail step(s) %s\n' "$joined" >&2
   else
-    printf '\nci-local: FAILED — the viewer workflow would fail on this tree\n' >&2
+    printf '\nci-local: FAILED — the viewer workflow would fail step(s) %s on this tree\n' \
+      "$joined" >&2
   fi
   exit 1
 fi

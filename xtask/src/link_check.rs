@@ -22,6 +22,23 @@ pub(crate) struct LinkCheckArgs {
     pub(crate) root: PathBuf,
 }
 
+/// One broken relative target, with the reason when it looks like a URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct BrokenLink {
+    /// The document the target appears in, relative to the scan root.
+    pub(crate) file: String,
+    /// The target exactly as written.
+    pub(crate) target: String,
+    /// A hint for a scheme-less host name; `None` for a plain missing file.
+    pub(crate) hint: Option<String>,
+}
+
+impl std::fmt::Display for BrokenLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}: {}", self.file, self.target)
+    }
+}
+
 /// The result of one scan.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct LinkCheck {
@@ -30,9 +47,58 @@ pub(crate) struct LinkCheck {
     /// Relative targets that do not resolve to a file.
     pub(crate) broken: u64,
     /// The broken targets, sorted, at most eight entries.
-    pub(crate) broken_list: Vec<String>,
+    pub(crate) broken_list: Vec<BrokenLink>,
     /// Absolute links, counted but never fetched.
     pub(crate) external: u64,
+}
+
+/// Top-level domains the scheme-less-host hint recognises. The list is
+/// deliberately small and explicit: an unknown suffix is treated as a missing
+/// relative file, so a file name is never mistaken for a host.
+const KNOWN_TLDS: &[&str] = &[
+    "ai", "app", "au", "biz", "ca", "cc", "cloud", "co", "com", "de", "dev", "edu", "eu", "fr",
+    "gg", "gov", "in", "info", "int", "io", "jp", "me", "mil", "net", "online", "org", "page",
+    "sh", "site", "so", "to", "tv", "uk", "us", "xyz",
+];
+
+/// A hint for a target that is a host name written without its scheme.
+///
+/// Markdown resolves such a target as a relative path, which GitHub renders as
+/// a 404 even though the host itself answers. A real relative file has already
+/// been resolved before this function is called, so only a missing target gets
+/// here; a target whose last label is a known TLD and whose labels are a valid
+/// host name is almost certainly meant as a URL.
+fn scheme_less_host_hint(target: &str) -> Option<String> {
+    let trimmed = target
+        .split('#')
+        .next()
+        .unwrap_or(target)
+        .split('?')
+        .next()
+        .unwrap_or(target);
+    if trimmed.is_empty() || trimmed.chars().any(char::is_whitespace) {
+        return None;
+    }
+    let host = trimmed.split('/').next()?;
+    if host.contains('@') || host.contains(':') {
+        return None;
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    if labels.len() < 2 {
+        return None;
+    }
+    if labels.iter().any(|label| {
+        label.is_empty() || !label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+    }) {
+        return None;
+    }
+    let tld = labels.last()?.to_ascii_lowercase();
+    if !KNOWN_TLDS.contains(&tld.as_str()) {
+        return None;
+    }
+    Some(format!(
+        "looks like a URL without https://; did you mean https://{target}?"
+    ))
 }
 
 /// Scan `README.md` and `docs/**/*.md` for link targets.
@@ -50,7 +116,12 @@ pub(crate) fn scan(root: &Path) -> Result<LinkCheck> {
             if url.is_empty() || url.starts_with('#') {
                 continue;
             }
-            if url.starts_with("http://") || url.starts_with("https://") {
+            if url.starts_with("http://")
+                || url.starts_with("https://")
+                || url.starts_with("//")
+                || url.starts_with("mailto:")
+                || url.starts_with("tel:")
+            {
                 report.external += 1;
                 continue;
             }
@@ -59,12 +130,16 @@ pub(crate) fn scan(root: &Path) -> Result<LinkCheck> {
             }
             report.broken += 1;
             let relative = path.strip_prefix(root).unwrap_or(&path);
-            report
-                .broken_list
-                .push(format!("{}: {}", relative.display(), url));
+            report.broken_list.push(BrokenLink {
+                file: relative.display().to_string(),
+                target: url.clone(),
+                hint: scheme_less_host_hint(&url),
+            });
         }
     }
-    report.broken_list.sort();
+    report
+        .broken_list
+        .sort_by(|a, b| (&a.file, &a.target).cmp(&(&b.file, &b.target)));
     report.broken_list.truncate(8);
     Ok(report)
 }
@@ -131,6 +206,9 @@ pub(crate) fn cmd_link_check(args: LinkCheckArgs) -> Result<()> {
     }
     for broken in &report.broken_list {
         eprintln!("broken: {broken}");
+        if let Some(hint) = &broken.hint {
+            eprintln!("        {hint}");
+        }
     }
     bail!("link-check: {} broken relative link(s)", report.broken)
 }
@@ -185,7 +263,102 @@ mod tests {
         assert_eq!(report.total, 1);
         assert_eq!(report.broken, 1);
         assert_eq!(report.external, 0);
-        assert_eq!(report.broken_list, vec!["README.md: docs/missing.md"]);
+        assert_eq!(
+            report.broken_list,
+            vec![BrokenLink {
+                file: "README.md".to_string(),
+                target: "docs/missing.md".to_string(),
+                hint: None,
+            }]
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A bare host is what broke the published README: markdown treats it as a
+    /// relative path, so the scan must name both the failure and the fix.
+    #[test]
+    fn a_bare_host_is_reported_with_the_https_hint() {
+        let root = workspace(
+            "bare-host",
+            &[("README.md", "# Title\n\n[site](climb-pqc.duckdns.org)\n")],
+        );
+        let report = scan(&root).expect("the workspace is readable");
+        assert_eq!(report.broken, 1);
+        assert_eq!(report.external, 0);
+        assert_eq!(report.broken_list[0].target, "climb-pqc.duckdns.org");
+        assert_eq!(
+            report.broken_list[0].hint.as_deref(),
+            Some(
+                "looks like a URL without https://; did you mean \
+                 https://climb-pqc.duckdns.org?"
+            )
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_host_with_a_path_is_reported_with_the_https_hint() {
+        let root = workspace(
+            "host-path",
+            &[(
+                "README.md",
+                "# Title\n\n[report](climb-pqc.duckdns.org/report/)\n",
+            )],
+        );
+        let report = scan(&root).expect("the workspace is readable");
+        assert_eq!(report.broken, 1);
+        assert_eq!(
+            report.broken_list[0].hint.as_deref(),
+            Some(
+                "looks like a URL without https://; did you mean \
+                 https://climb-pqc.duckdns.org/report/?"
+            )
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    /// A file name with a dotted stem is not a host name.
+    #[test]
+    fn a_missing_file_with_a_dotted_name_gets_no_host_hint() {
+        let root = workspace(
+            "dotted-file",
+            &[("README.md", "# Title\n\n[notes](notes.md)\n")],
+        );
+        let report = scan(&root).expect("the workspace is readable");
+        assert_eq!(report.broken, 1);
+        assert!(report.broken_list[0].hint.is_none());
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_anchor_is_ignored_and_mailto_is_external() {
+        let root = workspace(
+            "mailto",
+            &[(
+                "README.md",
+                "# Title\n\n[top](#top) [mail](mailto:team@example.invalid)\n",
+            )],
+        );
+        let report = scan(&root).expect("the workspace is readable");
+        assert_eq!(report.total, 2);
+        assert_eq!(report.broken, 0);
+        assert_eq!(report.external, 1);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn http_and_https_targets_are_external_and_never_broken() {
+        let root = workspace(
+            "schemes",
+            &[(
+                "README.md",
+                "# Title\n\n[a](http://example.invalid/a) [b](https://example.invalid/b)\n",
+            )],
+        );
+        let report = scan(&root).expect("the workspace is readable");
+        assert_eq!(report.total, 2);
+        assert_eq!(report.external, 2);
+        assert_eq!(report.broken, 0);
         let _ = fs::remove_dir_all(&root);
     }
 

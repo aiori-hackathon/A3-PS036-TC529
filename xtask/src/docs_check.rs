@@ -33,6 +33,14 @@
 //! own lines are exempt from the numeric-result rule — and only those lines;
 //! the rule itself is unchanged for every other line of every document.
 //!
+//! The two live-address blocks (the one-line link inside
+//! `<!-- live-link:begin -->` / `<!-- live-link:end -->` and the Live demo
+//! section inside `<!-- live:begin -->` / `<!-- live:end -->`) are generated
+//! from the one address in `docs/readme-config.toml` by the same command, and
+//! are checked the same way. The workflow, the smoke-script default and the
+//! two deployment documents carry their own copy; every copy must equal the
+//! configured address, and no README occurrence may be a bare host name.
+//!
 //! The requirements-traceability table (`docs/COMPLIANCE.md`, between its
 //! own markers) is checked one level further: every evidence file it cites
 //! must exist in the repository tree, every command must parse with the real
@@ -1074,6 +1082,71 @@ pub(crate) fn check_badge_block(file: &str, readme_text: &str, root: &Path) -> V
             line: begin_line,
             message: format!("the managed badge block has drifted from the generated one:\n{diff}"),
         });
+    }
+    violations
+}
+
+/// Check the generated live-address blocks of the README.
+///
+/// Both blocks are rebuilt from `docs/readme-config.toml`; a committed copy
+/// that differs is a violation naming the marker pair and the command that
+/// rewrites it. A missing configuration is a violation too, because the blocks
+/// cannot be verified without it.
+pub(crate) fn check_live_block(file: &str, readme_text: &str, root: &Path) -> Vec<Violation> {
+    let config_path = root.join(readme_badges::DEFAULT_CONFIG);
+    let live = match readme_badges::generate_live_blocks(&config_path) {
+        Ok(live) => live,
+        Err(error) => {
+            return vec![Violation {
+                file: file.to_string(),
+                line: 1,
+                message: format!("the live blocks could not be regenerated: {error:#}"),
+            }]
+        }
+    };
+
+    let mut violations = Vec::new();
+    for (begin, end, expected, label) in [
+        (
+            readme_badges::LIVE_LINK_BEGIN,
+            readme_badges::LIVE_LINK_END,
+            live.inline.as_str(),
+            "live link",
+        ),
+        (
+            readme_badges::LIVE_BEGIN,
+            readme_badges::LIVE_END,
+            live.body.as_str(),
+            "Live demo section",
+        ),
+    ] {
+        let line = readme_text
+            .lines()
+            .position(|text| text.contains(begin))
+            .map(|index| index + 1)
+            .unwrap_or(1);
+        let Some(committed) = readme_badges::extract_marked(readme_text, begin, end) else {
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!(
+                    "the README carries no {label} (`{begin}` / `{end}`) — run \
+                     `cargo xtask readme-badges`"
+                ),
+            });
+            continue;
+        };
+        if committed.trim_end() != expected.trim_end() {
+            let diff = readme_badges::render_diff(&readme_badges::diff_lines(expected, &committed));
+            violations.push(Violation {
+                file: file.to_string(),
+                line,
+                message: format!(
+                    "the {label} between `{begin}` and `{end}` has drifted from what the \
+                     generator would write; run `cargo xtask readme-badges`:\n{diff}"
+                ),
+            });
+        }
     }
     violations
 }
@@ -2881,6 +2954,36 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // The badge block is generated: rebuild it in memory and fail when the
     // committed copy has drifted from the fresh generation.
     violations.extend(check_badge_block(&readme_label, &readme_text, &args.root));
+
+    // The two live-address blocks are generated from the same configuration,
+    // so an edit inside either pair is caught by regenerating it.
+    violations.extend(check_live_block(&readme_label, &readme_text, &args.root));
+
+    // Every surface that carries its own copy of the live address must agree
+    // with the one owner, and no README occurrence may be a bare host.
+    match readme_badges::generate_live_blocks(&args.root.join(readme_badges::DEFAULT_CONFIG)) {
+        Ok(live) => match readme_badges::check_live_surfaces(&args.root, &live.url) {
+            Ok(messages) => {
+                for message in messages {
+                    violations.push(Violation {
+                        file: readme_badges::DEFAULT_CONFIG.to_string(),
+                        line: 1,
+                        message,
+                    });
+                }
+            }
+            Err(error) => violations.push(Violation {
+                file: readme_badges::DEFAULT_CONFIG.to_string(),
+                line: 1,
+                message: format!("the live-address surfaces could not be read: {error:#}"),
+            }),
+        },
+        Err(error) => violations.push(Violation {
+            file: readme_badges::DEFAULT_CONFIG.to_string(),
+            line: 1,
+            message: format!("the live blocks could not be regenerated: {error:#}"),
+        }),
+    }
 
     // The help overlay and the README key table are two copies of the same key
     // list; every key must be documented on both surfaces.

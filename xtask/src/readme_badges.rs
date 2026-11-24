@@ -31,6 +31,24 @@ pub(crate) const BADGES_BEGIN: &str = "<!-- badges:begin -->";
 /// Marker closing the managed badge block in the README.
 pub(crate) const BADGES_END: &str = "<!-- badges:end -->";
 
+/// Marker opening the generated one-line live link in the README.
+pub(crate) const LIVE_LINK_BEGIN: &str = "<!-- live-link:begin -->";
+
+/// Marker closing the generated one-line live link in the README.
+pub(crate) const LIVE_LINK_END: &str = "<!-- live-link:end -->";
+
+/// Marker opening the generated Live demo section in the README.
+pub(crate) const LIVE_BEGIN: &str = "<!-- live:begin -->";
+
+/// Marker closing the generated Live demo section in the README.
+pub(crate) const LIVE_END: &str = "<!-- live:end -->";
+
+/// The placeholder the live templates use for the canonical address.
+const LIVE_URL_PLACEHOLDER: &str = "{url}";
+
+/// The command that rewrites every generated README block.
+const README_BLOCKS_FIX: &str = "cargo xtask readme-badges";
+
 /// The badge configuration file, relative to the workspace root.
 pub(crate) const DEFAULT_CONFIG: &str = "docs/readme-config.toml";
 
@@ -75,11 +93,25 @@ const SLOT_KEYS: [(Row, &str); 7] = [
 #[serde(deny_unknown_fields)]
 struct ConfigFile {
     badges: Badges,
+    /// The one owner of the published address and its generated README text.
+    live: Live,
     /// The shared file also carries the commit-graph table, which has its own
     /// typed reader; the badge renderer only has to tolerate it here.
     #[allow(dead_code)] // read by serde to satisfy deny_unknown_fields, not by this module
     #[serde(default)]
     commit_graph: Option<toml::Value>,
+}
+
+/// The `live` table of the configuration file.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Live {
+    /// The canonical live address, as a full `https://` URL ending in `/`.
+    url: String,
+    /// The one-line README mention, with `{url}` where the address goes.
+    inline: String,
+    /// The Live demo section body, with `{url}` where the address goes.
+    body: String,
 }
 
 /// The `badges` table of the configuration file.
@@ -211,6 +243,8 @@ pub(crate) struct Outcome {
     pub(crate) badges: Vec<Badge>,
     /// The claims count the block was built with.
     pub(crate) claims: ClaimsCount,
+    /// The canonical live address both live blocks carry.
+    pub(crate) live_url: String,
     /// Whether the README was rewritten.
     pub(crate) written: bool,
 }
@@ -414,6 +448,100 @@ fn build(config: &ConfigFile, claims: &ClaimsCount) -> Result<Vec<Badge>> {
     Ok(badges)
 }
 
+/// The two generated live-address blocks plus the address they were built from.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LiveBlocks {
+    /// The canonical address.
+    pub(crate) url: String,
+    /// The one-line block, markers included.
+    pub(crate) inline: String,
+    /// The Live demo section, markers included.
+    pub(crate) body: String,
+}
+
+/// Everything one generation pass produces.
+#[derive(Debug)]
+pub(crate) struct Generated {
+    pub(crate) badges: Vec<Badge>,
+    pub(crate) badge_block: String,
+    pub(crate) live: LiveBlocks,
+    pub(crate) claims: ClaimsCount,
+}
+
+/// Validate the live address and render both live blocks from it.
+fn generate_live(live: &Live) -> Result<LiveBlocks> {
+    let url = live.url.trim();
+    if !url.starts_with("https://") {
+        bail!(
+            "`docs/readme-config.toml` [live].url must be a full https:// URL, found `{}`; \
+             a bare host is a relative path to a markdown renderer",
+            live.url
+        );
+    }
+    if !url.ends_with('/') {
+        bail!(
+            "`docs/readme-config.toml` [live].url must end with `/` so the route links can be \
+             written as `{{url}}report/`, found `{}`",
+            live.url
+        );
+    }
+    if url.chars().any(char::is_whitespace) || url.len() <= "https://".len() + 1 {
+        bail!(
+            "`docs/readme-config.toml` [live].url is not a single address: `{}`",
+            live.url
+        );
+    }
+    for (field, template) in [("inline", &live.inline), ("body", &live.body)] {
+        if !template.contains(LIVE_URL_PLACEHOLDER) {
+            bail!(
+                "`docs/readme-config.toml` [live].{field} carries no `{LIVE_URL_PLACEHOLDER}`, \
+                 so the block would not use the canonical address"
+            );
+        }
+    }
+
+    let inline = format!(
+        "{LIVE_LINK_BEGIN}{}{LIVE_LINK_END}",
+        render_live(&live.inline, url)
+    );
+    let body_text = render_live(&live.body, url);
+    let body = format!(
+        "{LIVE_BEGIN}\n{}\n{LIVE_END}\n",
+        body_text.trim_matches('\n')
+    );
+    Ok(LiveBlocks {
+        url: url.to_string(),
+        inline,
+        body,
+    })
+}
+
+/// Substitute the canonical address into one live template.
+fn render_live(template: &str, url: &str) -> String {
+    template.replace(LIVE_URL_PLACEHOLDER, url)
+}
+
+/// The live blocks a configuration file generates.
+pub(crate) fn generate_live_blocks(config_path: &Path) -> Result<LiveBlocks> {
+    let config = load_config(config_path)?;
+    generate_live(&config.live)
+}
+
+/// Generate the badge block, the live blocks and the claims count in one pass.
+pub(crate) fn generate_all(config_path: &Path, results_path: &Path) -> Result<Generated> {
+    let config = load_config(config_path)?;
+    let live = generate_live(&config.live)?;
+    let claims = claims_count(results_path)?;
+    let badges = build(&config, &claims)?;
+    let badge_block = render_block(&badges);
+    Ok(Generated {
+        badges,
+        badge_block,
+        live,
+        claims,
+    })
+}
+
 /// The shields.io URL of one badge image.
 fn shields_url(
     config: &ConfigFile,
@@ -469,30 +597,40 @@ pub(crate) fn render_block(badges: &[Badge]) -> String {
 
 /// The managed block of a README, including its markers. `None` when the
 /// markers are absent or out of order.
-pub(crate) fn extract_block(readme: &str) -> Option<String> {
-    let begin = readme.find(BADGES_BEGIN)?;
-    let end = readme.find(BADGES_END)?;
+pub(crate) fn extract_marked(readme: &str, begin_marker: &str, end_marker: &str) -> Option<String> {
+    let begin = readme.find(begin_marker)?;
+    let end = readme.find(end_marker)?;
     if end < begin {
         return None;
     }
-    Some(readme[begin..end + BADGES_END.len()].to_string())
+    Some(readme[begin..end + end_marker.len()].to_string())
 }
 
-/// Replace the managed block of a README. Fails when the markers are absent.
-pub(crate) fn replace_block(readme: &str, block: &str) -> Result<String> {
+/// The managed badge block of a README, including its markers.
+pub(crate) fn extract_block(readme: &str) -> Option<String> {
+    extract_marked(readme, BADGES_BEGIN, BADGES_END)
+}
+
+/// Replace one marker-bracketed block of a README.
+pub(crate) fn replace_marked(
+    readme: &str,
+    begin_marker: &str,
+    end_marker: &str,
+    block: &str,
+) -> Result<String> {
     let begin = readme
-        .find(BADGES_BEGIN)
-        .with_context(|| format!("the README carries no `{BADGES_BEGIN}` marker"))?;
+        .find(begin_marker)
+        .with_context(|| format!("the README carries no `{begin_marker}` marker"))?;
     let end = readme
-        .find(BADGES_END)
-        .with_context(|| format!("the README carries no `{BADGES_END}` marker"))?;
+        .find(end_marker)
+        .with_context(|| format!("the README carries no `{end_marker}` marker"))?;
     if end < begin {
-        bail!("the `{BADGES_BEGIN}` marker comes after the `{BADGES_END}` marker");
+        bail!("the `{begin_marker}` marker comes after the `{end_marker}` marker");
     }
     let mut out = String::with_capacity(readme.len() + block.len());
     out.push_str(&readme[..begin]);
     out.push_str(block.trim_end_matches('\n'));
-    out.push_str(&readme[end + BADGES_END.len()..]);
+    out.push_str(&readme[end + end_marker.len()..]);
     Ok(out)
 }
 
@@ -568,18 +706,85 @@ pub(crate) fn generate(
     config_path: &Path,
     results_path: &Path,
 ) -> Result<(Vec<Badge>, String, ClaimsCount)> {
-    let config = load_config(config_path)?;
-    let claims = claims_count(results_path)?;
-    let badges = build(&config, &claims)?;
-    let block = render_block(&badges);
-    Ok((badges, block, claims))
+    let generated = generate_all(config_path, results_path)?;
+    Ok((generated.badges, generated.badge_block, generated.claims))
 }
 
-/// Run the badge generation.
-pub(crate) fn run(args: &ReadmeBadgesArgs) -> Result<Outcome> {
-    let (badges, block, claims) = generate(&args.config, &args.results)?;
+/// The workspace root a configuration path belongs to: `docs/readme-config.toml`
+/// resolves to `.`.
+fn root_of_config(config_path: &Path) -> PathBuf {
+    config_path
+        .parent()
+        .and_then(Path::parent)
+        .unwrap_or_else(|| Path::new("."))
+        .to_path_buf()
+}
 
-    if args.strict && !claims.is_available() {
+/// Check the surfaces that must carry the same canonical live address.
+///
+/// The README blocks are generated, so they cannot drift. These files carry
+/// their own copy — a workflow default, a script default and two deployment
+/// documents — and this check keeps every copy equal to the configuration. A
+/// README occurrence that is not part of an `https://` URL is reported too,
+/// because that is the shape of the broken link this check exists to prevent.
+pub(crate) fn check_live_surfaces(root: &Path, canonical: &str) -> Result<Vec<String>> {
+    let address = canonical.trim_end_matches('/');
+    let required = [
+        (
+            "scripts/smoke-live.sh",
+            format!("CLIMB_LIVE_URL:-{address}"),
+        ),
+        (".github/workflows/deploy.yml", format!("url: {address}")),
+        (
+            ".github/workflows/deploy.yml",
+            format!("vars.DEPLOY_URL || '{address}'"),
+        ),
+        ("docs/DEPLOYMENT.md", address.to_string()),
+        ("docs/DEMO-FALLBACKS.md", address.to_string()),
+    ];
+    let mut violations = Vec::new();
+    for (relative, needle) in required {
+        let path = root.join(relative);
+        match std::fs::read_to_string(&path) {
+            Ok(text) if text.contains(&needle) => {}
+            Ok(_) => violations.push(format!(
+                "{relative}: does not carry the canonical live address `{needle}` from \
+                 `docs/readme-config.toml`; update it or change the one owner"
+            )),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => violations.push(format!(
+                "{relative}: is missing, so its copy of the live address cannot be checked"
+            )),
+            Err(error) => {
+                return Err(
+                    anyhow::Error::new(error).context(format!("failed to read {}", path.display()))
+                )
+            }
+        }
+    }
+
+    let readme_path = root.join("README.md");
+    let readme = std::fs::read_to_string(&readme_path)
+        .with_context(|| format!("failed to read {}", readme_path.display()))?;
+    let host = address.trim_start_matches("https://");
+    for (index, line) in readme.lines().enumerate() {
+        for (position, _) in line.match_indices(host) {
+            if !line[..position].ends_with("https://") {
+                violations.push(format!(
+                    "README.md:{}: `{host}` is not part of an https:// URL; a bare host is a \
+                     relative path and renders as a 404",
+                    index + 1
+                ));
+            }
+        }
+    }
+    Ok(violations)
+}
+
+/// Run the generation.
+pub(crate) fn run(args: &ReadmeBadgesArgs) -> Result<Outcome> {
+    let generated = generate_all(&args.config, &args.results)?;
+
+    if args.strict && !generated.claims.is_available() {
         bail!(
             "{} is missing, so the claims badge would read `{}` — rerun without `--strict` \
              to generate the block anyway",
@@ -591,34 +796,63 @@ pub(crate) fn run(args: &ReadmeBadgesArgs) -> Result<Outcome> {
     let readme = std::fs::read_to_string(&args.readme)
         .with_context(|| format!("failed to read {}", args.readme.display()))?;
 
+    let blocks = [
+        (
+            BADGES_BEGIN,
+            BADGES_END,
+            generated.badge_block.as_str(),
+            "badge block",
+        ),
+        (
+            LIVE_LINK_BEGIN,
+            LIVE_LINK_END,
+            generated.live.inline.as_str(),
+            "live link",
+        ),
+        (
+            LIVE_BEGIN,
+            LIVE_END,
+            generated.live.body.as_str(),
+            "Live demo section",
+        ),
+    ];
+
     if args.check {
-        let committed = extract_block(&readme).with_context(|| {
-            format!(
-                "{} carries no managed badge block — run `cargo xtask readme-badges`",
-                args.readme.display()
-            )
-        })?;
-        if committed.trim_end() != block.trim_end() {
-            bail!(
-                "{}: the managed badge block has drifted from the generated one\n{}",
-                args.readme.display(),
-                render_diff(&diff_lines(&block, &committed))
-            );
+        for (begin, end, expected, label) in blocks {
+            let committed = extract_marked(&readme, begin, end).with_context(|| {
+                format!(
+                    "{} carries no {label} (`{begin}` / `{end}`) — run `{README_BLOCKS_FIX}`",
+                    args.readme.display()
+                )
+            })?;
+            if committed.trim_end() != expected.trim_end() {
+                bail!(
+                    "{}: the {label} between `{begin}` and `{end}` has drifted from what the \
+                     generator would write; run `{README_BLOCKS_FIX}`\n{}",
+                    args.readme.display(),
+                    render_diff(&diff_lines(expected, &committed))
+                );
+            }
         }
         return Ok(Outcome {
-            badges,
-            claims,
+            badges: generated.badges,
+            claims: generated.claims,
+            live_url: generated.live.url,
             written: false,
         });
     }
 
-    let updated = replace_block(&readme, &block)?;
+    let mut updated = readme;
+    for (begin, end, block, _) in blocks {
+        updated = replace_marked(&updated, begin, end, block)?;
+    }
     std::fs::write(&args.readme, &updated)
         .with_context(|| format!("failed to write {}", args.readme.display()))?;
 
     Ok(Outcome {
-        badges,
-        claims,
+        badges: generated.badges,
+        claims: generated.claims,
+        live_url: generated.live.url,
         written: true,
     })
 }
@@ -633,6 +867,7 @@ pub(crate) fn cmd_readme_badges(args: ReadmeBadgesArgs) -> Result<()> {
         println!("  image  : {}", badge.image_url);
         println!("  link   : {}", badge.href);
     }
+    println!("live url: {}", outcome.live_url);
     match &outcome.claims {
         ClaimsCount::Count { passed, total } => {
             println!("claims verified: {passed}/{total}");
@@ -653,9 +888,25 @@ pub(crate) fn cmd_readme_badges(args: ReadmeBadgesArgs) -> Result<()> {
         }
     }
     if outcome.written {
-        println!("wrote the badge block in {}", args.readme.display());
+        println!("wrote the generated blocks in {}", args.readme.display());
     } else {
-        println!("the badge block in {} is up to date", args.readme.display());
+        println!(
+            "the generated blocks in {} are up to date",
+            args.readme.display()
+        );
+    }
+
+    if args.check {
+        let violations = check_live_surfaces(&root_of_config(&args.config), &outcome.live_url)?;
+        if !violations.is_empty() {
+            for violation in &violations {
+                eprintln!("{violation}");
+            }
+            bail!(
+                "readme-badges: {} live-address surface(s) disagree with `docs/readme-config.toml`",
+                violations.len()
+            );
+        }
     }
     Ok(())
 }
@@ -668,6 +919,12 @@ mod tests {
     fn write_config(dir: &Path) -> PathBuf {
         let path = dir.join("readme-config.toml");
         let text = r##"
+[live]
+url = "https://live.example.invalid/"
+inline = "**Live:** [site]({url})"
+body = '''**Live:** <{url}>
+[report]({url}report/)'''
+
 [badges]
 style = "for-the-badge"
 logo_color = "white"
@@ -811,6 +1068,39 @@ logo = "githubactions"
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("create the temporary directory");
         dir
+    }
+
+    /// The live blocks a configuration file generates.
+    fn generated_live(config: &Path) -> Result<LiveBlocks> {
+        let text = std::fs::read_to_string(config)
+            .with_context(|| format!("failed to read {}", config.display()))?;
+        let parsed: ConfigFile =
+            toml::from_str(&text).with_context(|| format!("{} is not TOML", config.display()))?;
+        generate_live(&parsed.live)
+    }
+
+    /// Write the four surfaces that carry their own copy of the live address.
+    fn write_live_surfaces(dir: &Path, url: &str) {
+        let address = url.trim_end_matches('/');
+        let files = [
+            (
+                "scripts/smoke-live.sh",
+                format!("base=\"${{CLIMB_LIVE_URL:-{address}}}\"\n"),
+            ),
+            (
+                ".github/workflows/deploy.yml",
+                format!("      url: {address}\n        run: bash scripts/smoke-live.sh \"${{{{ vars.DEPLOY_URL || '{address}' }}}}\"\n"),
+            ),
+            ("docs/DEPLOYMENT.md", format!("| Variable | `DEPLOY_URL` | `{address}` |\n")),
+            ("docs/DEMO-FALLBACKS.md", format!("xdg-open {url}\n")),
+        ];
+        for (relative, text) in files {
+            let path = dir.join(relative);
+            if let Some(parent) = path.parent() {
+                std::fs::create_dir_all(parent).expect("create the surface directory");
+            }
+            std::fs::write(path, text).expect("write the surface");
+        }
     }
 
     #[test]
@@ -1002,7 +1292,11 @@ logo = "githubactions"
         let readme = dir.join("README.md");
         std::fs::write(
             &readme,
-            format!("# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n"),
+            format!(
+                "# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n\n\
+                 {LIVE_LINK_BEGIN}\nold\n{LIVE_LINK_END}\n\n\
+                 {LIVE_BEGIN}\nold\n{LIVE_END}\n"
+            ),
         )
         .expect("write the README");
 
@@ -1028,7 +1322,11 @@ logo = "githubactions"
         let readme = dir.join("README.md");
         std::fs::write(
             &readme,
-            format!("# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n\nafter\n"),
+            format!(
+                "# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n\n\
+                 {LIVE_LINK_BEGIN}\nold\n{LIVE_LINK_END}\n\n\
+                 {LIVE_BEGIN}\nold\n{LIVE_END}\n\nafter\n"
+            ),
         )
         .expect("write the README");
 
@@ -1071,7 +1369,11 @@ logo = "githubactions"
         let readme = dir.join("README.md");
         std::fs::write(
             &readme,
-            format!("# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n"),
+            format!(
+                "# Title\n\n{BADGES_BEGIN}\nold\n{BADGES_END}\n\n\
+                 {LIVE_LINK_BEGIN}\nold\n{LIVE_LINK_END}\n\n\
+                 {LIVE_BEGIN}\nold\n{LIVE_END}\n"
+            ),
         )
         .expect("write the README");
 
@@ -1101,8 +1403,182 @@ logo = "githubactions"
             .expect_err("the edit must be caught")
             .to_string();
         assert!(error.contains("drifted"), "unexpected message: {error}");
+        assert!(
+            error.contains("<!-- badges:begin -->") && error.contains("<!-- badges:end -->"),
+            "the error must name the marker pair: {error}"
+        );
+        assert!(
+            error.contains("cargo xtask readme-badges"),
+            "the error must name the fix command: {error}"
+        );
         assert!(error.contains("AIORI%203"), "unexpected message: {error}");
         assert!(error.contains("AIORI%204"), "unexpected message: {error}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A generated block that is edited by hand must be caught, and the error
+    /// must name the marker pair and the command that rewrites it.
+    #[test]
+    fn an_edited_live_block_is_named_with_its_marker_and_fix_command() {
+        let dir = temp_dir("live-drift");
+        let config = write_config(&dir);
+        let results = write_results(&dir);
+        let readme = dir.join("README.md");
+        std::fs::write(&readme, "# Title\n").expect("write the seed README");
+        let write_args = ReadmeBadgesArgs {
+            config: config.clone(),
+            readme: readme.clone(),
+            results: results.clone(),
+            strict: false,
+            check: false,
+        };
+        let error = run(&write_args).expect_err("the seed README has no markers");
+        assert!(
+            error.to_string().contains("<!-- badges:begin -->"),
+            "a missing block must name its marker: {error}"
+        );
+
+        let (_, block, _) = generate(&config, &results).expect("generate the badge block");
+        let live = generated_live(&config).expect("generate the live blocks");
+        std::fs::write(
+            &readme,
+            format!("# Title\n\n{block}\n\n{}\n{}\n", live.inline, live.body),
+        )
+        .expect("write a generated README");
+
+        let text = std::fs::read_to_string(&readme).expect("read the README");
+        let edited = text.replace(&live.url, "https://wrong.invalid/");
+        assert_ne!(edited, text, "the injection must change the live block");
+        std::fs::write(&readme, &edited).expect("write the edited README");
+
+        let check_args = ReadmeBadgesArgs {
+            config,
+            readme,
+            results,
+            strict: false,
+            check: true,
+        };
+        let error = run(&check_args)
+            .expect_err("the edit must be caught")
+            .to_string();
+        assert!(
+            error.contains("<!-- live-link:begin -->") && error.contains("<!-- live-link:end -->"),
+            "the error must name the edited marker pair: {error}"
+        );
+        assert!(
+            error.contains("cargo xtask readme-badges"),
+            "the error must name the fix command: {error}"
+        );
+        assert!(
+            error.contains("wrong.invalid"),
+            "unexpected message: {error}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The live address must be a full https URL that ends in `/`.
+    #[test]
+    fn a_live_address_without_https_is_refused() {
+        for url in [
+            "live.example.invalid/",
+            "http://live.example.invalid/",
+            "https://live.example.invalid",
+            "https://live.example.invalid/a b/",
+        ] {
+            let live = Live {
+                url: url.to_string(),
+                inline: "**Live:** {url}".to_string(),
+                body: "**Live:** {url}".to_string(),
+            };
+            let error = generate_live(&live)
+                .expect_err("a malformed live address must be refused")
+                .to_string();
+            assert!(
+                error.contains("[live].url"),
+                "the error must name the field for `{url}`: {error}"
+            );
+        }
+    }
+
+    /// A template that does not carry `{url}` would publish text with no
+    /// canonical address in it.
+    #[test]
+    fn a_template_without_the_url_placeholder_is_refused() {
+        let live = Live {
+            url: "https://live.example.invalid/".to_string(),
+            inline: "[site](https://live.example.invalid/)".to_string(),
+            body: "<{url}>".to_string(),
+        };
+        let error = generate_live(&live)
+            .expect_err("a template without the placeholder must be refused")
+            .to_string();
+        assert!(
+            error.contains("[live].inline"),
+            "unexpected message: {error}"
+        );
+    }
+
+    /// The committed README is generated from the committed configuration, and
+    /// every host occurrence is an https URL.
+    #[test]
+    fn the_committed_live_blocks_come_from_the_one_configured_address() {
+        let root = workspace_root();
+        let config = root.join(DEFAULT_CONFIG);
+        let readme_path = root.join("README.md");
+        let readme = std::fs::read_to_string(&readme_path).expect("read the README");
+        let live = generated_live(&config).expect("generate the live blocks");
+
+        let committed_inline = extract_marked(&readme, LIVE_LINK_BEGIN, LIVE_LINK_END)
+            .expect("the README carries the live-link block");
+        let committed_body = extract_marked(&readme, LIVE_BEGIN, LIVE_END)
+            .expect("the README carries the live block");
+        assert_eq!(committed_inline.trim_end(), live.inline.trim_end());
+        assert_eq!(committed_body.trim_end(), live.body.trim_end());
+
+        let violations = check_live_surfaces(&root, &live.url).expect("read the live surfaces");
+        assert!(
+            violations.is_empty(),
+            "the live address surfaces disagree: {violations:?}"
+        );
+    }
+
+    /// A scheme-less README host is a relative path; the surface check must
+    /// say so instead of accepting it.
+    #[test]
+    fn a_scheme_less_readme_host_is_reported() {
+        let dir = temp_dir("live-bare-host");
+        write_live_surfaces(&dir, "https://live.example.invalid/");
+        std::fs::write(dir.join("README.md"), "[site](live.example.invalid/)\n")
+            .expect("write the README");
+        let violations =
+            check_live_surfaces(&dir, "https://live.example.invalid/").expect("read the surfaces");
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.contains("README.md:1") && v.contains("not part of an https:// URL")),
+            "{violations:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A surface that drifts from the configuration is reported by name.
+    #[test]
+    fn a_drifted_live_surface_is_reported_by_file() {
+        let dir = temp_dir("live-drift-surface");
+        write_live_surfaces(&dir, "https://other.example.invalid/");
+        std::fs::write(
+            dir.join("README.md"),
+            "[site](https://live.example.invalid/)\n",
+        )
+        .expect("write the README");
+        let violations =
+            check_live_surfaces(&dir, "https://live.example.invalid/").expect("read the surfaces");
+        assert!(
+            violations
+                .iter()
+                .any(|v| v.starts_with("scripts/smoke-live.sh:")),
+            "{violations:?}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 

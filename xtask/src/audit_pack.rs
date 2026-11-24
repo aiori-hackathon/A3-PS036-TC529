@@ -34,6 +34,10 @@ const LINE_CAP: usize = 160;
 /// Default output path, relative to the workspace root.
 const DEFAULT_OUT: &str = "target/audit-pack.md";
 
+/// Directory that keeps one log per gate. The workflow uploads `*.log` from
+/// here when a job fails, so a failing test is named instead of discarded.
+const GATE_LOG_DIR: &str = "target/test-logs";
+
 /// The gate names, in the fixed order they are reported.  This order never
 /// changes, so the pack's gate table diffs cleanly between runs.
 const GATES: &[&str] = &[
@@ -53,6 +57,11 @@ const GATES: &[&str] = &[
 const README_MARKERS: &[(&str, &str, &str)] = &[
     ("logo", "<!-- logo:begin -->", "<!-- logo:end -->"),
     ("badges", "<!-- badges:begin -->", "<!-- badges:end -->"),
+    (
+        "live-link",
+        "<!-- live-link:begin -->",
+        "<!-- live-link:end -->",
+    ),
     ("live", "<!-- live:begin -->", "<!-- live:end -->"),
     (
         "headline",
@@ -322,7 +331,7 @@ fn run_gate(
             Ok((gate, Some(workspace), Some(per_crate)))
         }
         "docs-check" => Ok((
-            run_silent_gate("docs-check", || {
+            run_silent_gate(root, "docs-check", || {
                 docs_check::cmd_docs_check(docs_check::DocsCheckArgs {
                     root: root.to_path_buf(),
                     quote_sheet: PathBuf::from("docs/deck-facts.md"),
@@ -345,17 +354,19 @@ fn run_gate(
             None,
         )),
         "source-hygiene" => Ok((
-            run_silent_gate("source-hygiene", || source_hygiene::run(root)),
+            run_silent_gate(root, "source-hygiene", || source_hygiene::run(root)),
             None,
             None,
         )),
         "check-pins" => Ok((
-            run_silent_gate("check-pins", || check_pins::run(root)),
+            run_silent_gate(root, "check-pins", || check_pins::run(root)),
             None,
             None,
         )),
         "viewer build" => Ok((
-            run_silent_gate("viewer build", || docs_check::check_viewer_build(root)),
+            run_silent_gate(root, "viewer build", || {
+                docs_check::check_viewer_build(root)
+            }),
             None,
             None,
         )),
@@ -372,6 +383,11 @@ fn run_cargo_gate(name: &str, root: &Path, args: &[&str], timeout: Duration) -> 
     command.args(args).current_dir(root);
     let result = proc::run_raw(&mut command, timeout, name);
     let duration = started.elapsed();
+    if let Ok(output) = &result {
+        if let Err(error) = write_gate_log(root, name, &output.stdout, &output.stderr) {
+            eprintln!("audit-pack: warning: could not keep the {name} gate log: {error:#}");
+        }
+    }
     let exit = result.as_ref().ok().and_then(|output| output.status.code());
     eprintln!(
         "audit-pack: gate {name} -> exit {} in {:.2}s",
@@ -387,6 +403,46 @@ fn run_cargo_gate(name: &str, root: &Path, args: &[&str], timeout: Duration) -> 
     }
 }
 
+/// The file name one gate's retained output is written to.
+fn gate_log_name(name: &str) -> String {
+    let slug: String = name
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect();
+    format!("audit-pack-{slug}.log")
+}
+
+/// Keep one gate's captured output under `target/test-logs/`.
+fn write_gate_log(root: &Path, name: &str, stdout: &[u8], stderr: &[u8]) -> Result<()> {
+    let dir = root.join(GATE_LOG_DIR);
+    fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    let path = dir.join(gate_log_name(name));
+    let mut data = Vec::with_capacity(stdout.len() + stderr.len() + 32);
+    data.extend_from_slice(stdout);
+    if !stderr.is_empty() {
+        data.extend_from_slice(b"\n--- stderr ---\n");
+        data.extend_from_slice(stderr);
+    }
+    fs::write(&path, data).with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(())
+}
+
+/// The first test a libtest output names as failed, if any.
+///
+/// A line of the form `test module::name ... FAILED` is printed for every
+/// failure, so the audit pack can name the test even when the full output is
+/// retained only as a log artifact.
+fn first_failing_test(stdout: &str) -> Option<String> {
+    stdout.lines().find_map(|line| {
+        let rest = line.trim_start().strip_prefix("test ")?;
+        let (name, after) = rest.split_once(" ... ")?;
+        after
+            .trim_start()
+            .starts_with("FAILED")
+            .then(|| name.trim().to_string())
+    })
+}
+
 /// Run the test gate and parse its output for per-crate test counts.
 fn run_test_gate(root: &Path) -> Result<(GateResult, TestTargetCounts, Vec<TestTargetCounts>)> {
     let started = Instant::now();
@@ -396,8 +452,14 @@ fn run_test_gate(root: &Path) -> Result<(GateResult, TestTargetCounts, Vec<TestT
         .current_dir(root);
     let output = proc::run_raw(&mut command, Duration::from_secs(1800), "test")?;
     let duration = started.elapsed();
+    if let Err(error) = write_gate_log(root, "test", &output.stdout, &output.stderr) {
+        eprintln!("audit-pack: warning: could not keep the test gate log: {error:#}");
+    }
     let exit = output.status.code();
     let text = String::from_utf8_lossy(&output.stdout);
+    if let Some(failure) = first_failing_test(&text) {
+        eprintln!("audit-pack: gate test first failure: {failure}");
+    }
     let (workspace, per_crate) = parse_test_output(&text);
     eprintln!(
         "audit-pack: gate test -> exit {} in {:.2}s ({} passed, {} failed, {} ignored)",
@@ -418,14 +480,21 @@ fn run_test_gate(root: &Path) -> Result<(GateResult, TestTargetCounts, Vec<TestT
 }
 
 /// Run one gate that is a pure function call, timing it and recording success
-/// (exit 0) or failure (exit 1) without propagating the error.
-fn run_silent_gate<F>(name: &str, f: F) -> GateResult
+/// (exit 0) or failure (exit 1) without propagating the error. A failure's
+/// message is kept in the gate log beside the cargo gates' output.
+fn run_silent_gate<F>(root: &Path, name: &str, f: F) -> GateResult
 where
     F: FnOnce() -> Result<()>,
 {
     let started = Instant::now();
     let result = f();
     let duration = started.elapsed();
+    if let Err(error) = &result {
+        let text = format!("{error:#}\n");
+        if let Err(write_error) = write_gate_log(root, name, &[], text.as_bytes()) {
+            eprintln!("audit-pack: warning: could not keep the {name} gate log: {write_error:#}");
+        }
+    }
     let exit = match result {
         Ok(()) => Some(0),
         Err(_) => Some(1),
@@ -1562,6 +1631,56 @@ mod tests {
             date: "2026-11-09T13:00:00Z".to_string(),
             host_fingerprint: "4a8f2c1e".to_string(),
         }
+    }
+
+    /// Run 52's failure could not be diagnosed because the test gate kept only
+    /// its counts. The first failing name must be recoverable from the output.
+    #[test]
+    fn the_first_failing_test_is_named_from_libtest_output() {
+        let output = "\
+running 4 tests
+test a::passes ... ok
+test b::fails ... FAILED
+test c::also_fails ... FAILED
+
+failures:
+    b::fails
+    c::also_fails
+";
+        assert_eq!(first_failing_test(output), Some("b::fails".to_string()));
+        assert_eq!(
+            first_failing_test("running 1 test\ntest a::passes ... ok\n"),
+            None
+        );
+    }
+
+    /// The workflow uploads `target/test-logs/*.log` on failure, so every gate
+    /// must write its captured output there under its own name.
+    #[test]
+    fn a_gate_log_is_kept_under_the_uploaded_directory() {
+        let dir = tempfile::tempdir().expect("create a temporary directory");
+        write_gate_log(
+            dir.path(),
+            "viewer build",
+            b"stdout line\n",
+            b"stderr line\n",
+        )
+        .expect("write the gate log");
+        let path = dir
+            .path()
+            .join(GATE_LOG_DIR)
+            .join("audit-pack-viewer-build.log");
+        let text = std::fs::read_to_string(&path).expect("read the gate log");
+        assert!(text.contains("stdout line"), "{text}");
+        assert!(text.contains("--- stderr ---"), "{text}");
+        assert!(text.contains("stderr line"), "{text}");
+    }
+
+    #[test]
+    fn gate_log_names_are_derived_from_the_gate_names() {
+        assert_eq!(gate_log_name("test"), "audit-pack-test.log");
+        assert_eq!(gate_log_name("viewer build"), "audit-pack-viewer-build.log");
+        assert_eq!(gate_log_name("docs-check"), "audit-pack-docs-check.log");
     }
 
     #[test]
