@@ -1825,3 +1825,174 @@ fn the_real_configuration_renders_for_the_regional_day_and_its_neighbours() {
         }
     }
 }
+
+/// A milestone short-label edit is a configuration change: the document's
+/// `config_hash` must change with it, and a card carrying the old hash must be
+/// rejected by the documentation check rather than accepted as current.
+#[test]
+fn a_milestone_short_label_change_changes_the_config_hash_and_a_stale_card_is_rejected() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives inside the workspace");
+    let config = load_config(&root.join(CONFIG_PATH)).expect("the committed configuration");
+    let mut changed = config.clone();
+    changed
+        .milestones
+        .iter_mut()
+        .find(|milestone| milestone.date == "2026-11-19")
+        .expect("the regional milestone")
+        .short = Some("Reg won".to_string());
+    assert_ne!(
+        config_hash(&config).expect("hash"),
+        config_hash(&changed).expect("hash"),
+        "editing the regional short label must change the config hash"
+    );
+
+    let committed =
+        std::fs::read_to_string(root.join(JSON_PATH)).expect("the committed commit graph");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&committed).expect("the committed document is valid JSON");
+    *value
+        .pointer_mut("/config_hash")
+        .expect("the document carries config_hash") = serde_json::json!("0".repeat(64));
+    let stale = root.join("target/commit-graph-stale-config.json");
+    std::fs::write(
+        &stale,
+        format!(
+            "{}\n",
+            serde_json::to_string_pretty(&value).expect("serialise the stale document")
+        ),
+    )
+    .expect("write the stale document");
+
+    let outcome = check::check_with_paths(
+        root,
+        &stale,
+        &root.join(SVG_PATH),
+        &root.join(NARROW_PATH),
+        &root.join(COMPACT_PATH),
+        &root.join(COMPACT_NARROW_PATH),
+    )
+    .expect("the check runs");
+    assert!(
+        outcome
+            .violations
+            .iter()
+            .any(|violation| violation.contains("config_hash does not match")),
+        "a stale card must be rejected: {:?}",
+        outcome.violations
+    );
+    let _ = std::fs::remove_file(stale);
+}
+
+/// The regional label states the result and keeps its date. It must place on
+/// every variant five days after the regional result, in the run-up to the
+/// finals, and after the finals, with the clock injected each time so the test
+/// cannot drift with the host date.
+#[test]
+fn the_regional_result_label_places_on_all_four_cards_before_and_after_the_finals() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("xtask lives inside the workspace");
+    let config = load_config(&root.join(CONFIG_PATH)).expect("the committed configuration");
+    let regional = config
+        .milestones
+        .iter()
+        .find(|milestone| milestone.date == "2026-11-19")
+        .expect("the regional milestone");
+    assert_eq!(
+        regional.short.as_deref(),
+        Some("Regional champion"),
+        "the regional short label records the result"
+    );
+
+    let font = super::text::Font::load().expect("the embedded font");
+    let wide_text = "Regional champion - 19 Nov";
+    let narrow_text = "3. Regional champion - 19 Nov";
+    let wide_width = font
+        .width(super::text::Typeface::Mono, wide_text, 13.0, 0.0)
+        .expect("a wide label width");
+    let narrow_width = font
+        .width(super::text::Typeface::Mono, narrow_text, 13.0, 0.0)
+        .expect("a narrow label width");
+    eprintln!(
+        "regional label widths: wide {wide_width:.1} px, narrow legend {narrow_width:.1} px \
+         (available {:.1} px)",
+        400.0 - 52.0 - 24.0
+    );
+    assert!(
+        narrow_width <= 400.0 - 52.0 - 24.0,
+        "the narrow legend must not run past the card margin"
+    );
+
+    // One commit per day keeps the staircase and the milestone geometry close
+    // to the real history while the three clock dates stay explicit.
+    let repo = TempRepo::new("regional-result-days");
+    let mut shas = BTreeMap::new();
+    for day in day_of("2026-09-26")..=day_of("2026-12-18") {
+        let date = format_date(day);
+        let content = format!("{date}\n");
+        let sha = repo.commit(
+            &format!("{date}T09:00:00+05:30"),
+            "Pratyay Mukherjee",
+            &[("daily.txt", content.as_str())],
+        );
+        if matches!(date.as_str(), "2026-11-24" | "2026-12-16" | "2026-12-18") {
+            shas.insert(date, sha);
+        }
+    }
+
+    for date in ["2026-11-24", "2026-12-16", "2026-12-18"] {
+        let sha = shas
+            .get(date)
+            .unwrap_or_else(|| panic!("a commit for {date}"));
+        let (graph, _) = generate(repo.path(), &config, Some(sha), day_of(date))
+            .unwrap_or_else(|error| panic!("generate for {date}: {error:#}"));
+        assert_eq!(graph.range.end, date, "the chart ends on {date}");
+        assert_eq!(
+            status_of(&graph, "2026-11-19"),
+            MilestoneStatus::Done,
+            "the regional result is done on {date}"
+        );
+        assert_eq!(
+            status_of(&graph, "2026-12-17"),
+            if date == "2026-12-18" {
+                MilestoneStatus::Done
+            } else {
+                MilestoneStatus::Upcoming
+            },
+            "the finals status on {date}"
+        );
+
+        let palette = svg::Palette::default();
+        let (full, full_notices) = svg::render_full_with_notices(&graph, &palette, &config.style)
+            .unwrap_or_else(|error| panic!("full card for {date}: {error:#}"));
+        let (narrow, narrow_notices) =
+            svg::render_narrow_with_notices(&graph, &palette, &config.style)
+                .unwrap_or_else(|error| panic!("narrow card for {date}: {error:#}"));
+        let (compact, compact_notices) =
+            svg::render_compact_with_notices(&graph, &palette, &config.style)
+                .unwrap_or_else(|error| panic!("compact strip for {date}: {error:#}"));
+        let (compact_narrow, compact_narrow_notices) =
+            svg::render_compact_narrow_with_notices(&graph, &palette, &config.style)
+                .unwrap_or_else(|error| panic!("compact narrow strip for {date}: {error:#}"));
+        assert!(full_notices.is_empty(), "{date}: {full_notices:?}");
+        assert!(narrow_notices.is_empty(), "{date}: {narrow_notices:?}");
+        assert!(compact_notices.is_empty(), "{date}: {compact_notices:?}");
+        assert!(
+            compact_narrow_notices.is_empty(),
+            "{date}: {compact_narrow_notices:?}"
+        );
+        assert!(
+            full.contains("data-name=\"milestone-3\""),
+            "the regional label is drawn on the wide card for {date}"
+        );
+        for (name, card) in [
+            ("narrow", &narrow),
+            ("compact", &compact),
+            ("compact-narrow", &compact_narrow),
+        ] {
+            assert!(!card.is_empty(), "the {name} card for {date} is empty");
+        }
+    }
+}

@@ -43,7 +43,7 @@ Winner of the AIORI-3 Hackathon Regional Finals, East Zone (IIEST Shibpur, 19 No
 
 <!-- commit-graph-strip:begin -->
 <div align="center">
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/3dfd20b9a8adde803537dea690782b959367a166" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/895ed02b78b54110713a0447b59308f13e9416d6" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-compact-narrow.svg" width="390">
   <img src="docs/media/commit-graph-compact.svg" alt="CLIMB commit activity: total commits, active days and the current streak" width="840">
@@ -180,7 +180,7 @@ the A/B/C configurations. Regenerate both blocks with `cargo xtask headline`;
 ## Built in the open
 
 <!-- commit-graph:begin -->
-<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/3dfd20b9a8adde803537dea690782b959367a166" target="_blank" rel="noopener">
+<a href="https://github.com/aiori-hackathon/A3-PS036-TC529/commit/895ed02b78b54110713a0447b59308f13e9416d6" target="_blank" rel="noopener">
 <picture>
   <source media="(max-width: 600px)" srcset="docs/media/commit-graph-narrow.svg" width="390">
   <img src="docs/media/commit-graph.svg" alt="CLIMB commit graph: cumulative commits drawn as a staircase, daily activity bars, headline totals, contributor activity and the milestone roadmap" width="840">
