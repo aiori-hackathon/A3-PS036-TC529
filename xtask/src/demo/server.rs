@@ -415,8 +415,23 @@ mod tests {
         let started = Instant::now();
         server.stop();
         assert!(started.elapsed() < Duration::from_secs(5));
-        let listener = TcpListener::bind(addr).expect("port is free again");
-        drop(listener);
+        // Another test in this binary can bind the just-released ephemeral port
+        // between the stop and this assertion. Retry the bind; a listener the
+        // server failed to close never frees the port and still fails.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match TcpListener::bind(addr) {
+                Ok(listener) => {
+                    drop(listener);
+                    break;
+                }
+                Err(error) if Instant::now() < deadline => {
+                    let _ = error;
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("{addr} was not free within 5 s: {error}"),
+            }
+        }
         let _ = fs::remove_dir_all(dir);
     }
 

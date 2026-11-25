@@ -175,11 +175,12 @@ fn autopublish_installs_a_guarded_hook_and_remove_is_scoped() {
     assert!(post_commit.contains("scripts/publish.sh"));
     assert!(text.contains("post-commit autopublish"), "{text}");
 
-    // The guard stops the hook before it touches publish.sh.
+    // The guard stops the hook before it touches publish.sh. The guard is the
+    // repository root, so the hook compares against the repository it is in.
     let guarded = Command::new("bash")
         .arg(hook(&repo.root, "post-commit"))
         .current_dir(&repo.root)
-        .env("CLIMB_AUTOPUBLISH_RUNNING", "1")
+        .env("CLIMB_AUTOPUBLISH_RUNNING", &repo.root)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()

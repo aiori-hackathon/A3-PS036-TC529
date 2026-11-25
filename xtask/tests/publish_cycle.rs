@@ -419,7 +419,7 @@ fn publish_refuses_to_reenter_when_the_hook_started_it() {
         .current_dir(&fixture.repo)
         .env("CLIMB_SYNC_SCRIPT", &fixture.sync_script)
         .env("CLIMB_XTASK", &fixture.xtask_script)
-        .env("CLIMB_AUTOPUBLISH_RUNNING", "1")
+        .env("CLIMB_AUTOPUBLISH_RUNNING", &fixture.repo)
         .env("GIT_CONFIG_GLOBAL", "/dev/null")
         .env("GIT_CONFIG_SYSTEM", "/dev/null")
         .output()
@@ -430,6 +430,37 @@ fn publish_refuses_to_reenter_when_the_hook_started_it() {
     assert!(
         !fixture.sync_log.exists(),
         "a re-entrant publish never reaches the sync"
+    );
+}
+
+/// The guard belongs to one repository. A publish in a fixture repository must
+/// not be blocked by the publish that launched the test suite, which is a
+/// different repository. This is the shape that broke the pre-push replica:
+/// `publish.sh` exported the old bare `1`, `ci-local` ran the `xtask` tests,
+/// and every fixture publish refused itself.
+#[test]
+fn a_guard_from_another_repository_does_not_block_this_one() {
+    let fixture = fixture("foreign-guard", 3);
+    let output = Command::new("bash")
+        .arg(script())
+        .args(["--skip-ci"])
+        .current_dir(&fixture.repo)
+        .env("CLIMB_SYNC_SCRIPT", &fixture.sync_script)
+        .env("CLIMB_XTASK", &fixture.xtask_script)
+        .env("SYNC_EXIT", "0")
+        .env("CLIMB_AUTOPUBLISH_RUNNING", "1")
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_SYSTEM", "/dev/null")
+        .output()
+        .expect("run publish.sh");
+    let text = combined(&output);
+    assert!(
+        output.status.success(),
+        "a guard from another repository must not block this publish: {text}"
+    );
+    assert!(
+        fixture.sync_log.exists(),
+        "the publish reached the sync: {text}"
     );
 }
 

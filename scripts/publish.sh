@@ -27,18 +27,20 @@
 # new work adds one small refresh commit to the public history.
 set -euo pipefail
 
-# The autopublish hook runs this script after a commit. Refuse to re-enter when
-# a publish is already in progress: the refresh commit this script creates would
-# otherwise start another publish, and so on. The variable is exported below so
-# the post-commit hook sees it and stays out of the way.
-if [ "${CLIMB_AUTOPUBLISH_RUNNING:-}" = "1" ]; then
-  echo "error: a publish is already running in this process tree." >&2
-  exit 1
-fi
-export CLIMB_AUTOPUBLISH_RUNNING=1
-
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
+
+# The autopublish hook runs this script after a commit. Refuse to re-enter when
+# a publish is already in progress for this repository: the refresh commit this
+# script creates would otherwise start another publish, and so on. The guard is
+# the repository root, not a bare flag, so a publish in an unrelated repository
+# (a test fixture, a second checkout) is not blocked by this one. The variable
+# is exported below so the post-commit hook sees it and stays out of the way.
+if [ "${CLIMB_AUTOPUBLISH_RUNNING:-}" = "$repo_root" ]; then
+  echo "error: a publish is already running for this repository." >&2
+  exit 1
+fi
+export CLIMB_AUTOPUBLISH_RUNNING="$repo_root"
 
 skip_ci=0
 for arg in "$@"; do

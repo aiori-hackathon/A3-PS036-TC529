@@ -254,7 +254,13 @@ fn read_disk_free(df: Option<&Path>, target: &Path) -> Option<u64> {
     let df = df?;
     let mut command = Command::new(df);
     command.args(["-Pk", "--"]).arg(target);
-    let output = proc::run(&mut command, Duration::from_secs(10), "df -Pk").ok()?;
+    let output = match proc::run(&mut command, Duration::from_secs(10), "df -Pk") {
+        Ok(output) => output,
+        Err(error) => {
+            eprintln!("read_disk_free: df failed: {error:#}");
+            return None;
+        }
+    };
     let text = String::from_utf8_lossy(&output.stdout);
     let row = text.lines().nth(1)?;
     let available_kib: u64 = row.split_whitespace().nth(3)?.parse().ok()?;
@@ -659,6 +665,7 @@ pub(crate) fn report(rows: &[Row]) -> bool {
 mod tests {
     use super::*;
     use std::os::unix::fs::PermissionsExt;
+    use std::time::Instant;
 
     fn temp_root(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -836,7 +843,11 @@ mod tests {
         let bin = root.join("bin");
         fake_binary(&bin, "df", "printf 'Filesystem 1024-blocks Used Available Capacity Mounted on\\n/dev/x 100 10 50 70%% /\\n'");
         let df = locate(std::slice::from_ref(&bin), "df");
-        assert_eq!(read_disk_free(df.as_deref(), &root), Some(50 * 1024));
+        // A shared runner can fail one exec transiently under load; the parser
+        // itself is what this test proves, and a broken fake still fails all
+        // three attempts.
+        let disk = (0..3).find_map(|_| read_disk_free(df.as_deref(), &root));
+        assert_eq!(disk, Some(50 * 1024));
         assert_eq!(read_disk_free(None, &root), None);
         let _ = fs::remove_dir_all(root);
     }
@@ -883,13 +894,25 @@ mod tests {
         assert!(clock_is_sane(CLOCK_LOWER_SECS, None));
     }
 
+    fn wait_for_free_port(port: u16) {
+        // Other tests in this binary bind ephemeral ports in parallel, so the
+        // kernel can hand a just-released port to one of them. Wait for it to
+        // be free again instead of assuming an instant release; a port that
+        // never frees still fails.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !port_is_free(port) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(port_is_free(port), "port {port} was not free within 5 s");
+    }
+
     #[test]
     fn the_port_probe_notices_a_bound_socket() {
         let listener = TcpListener::bind(("127.0.0.1", 0)).expect("bind ephemeral");
         let port = listener.local_addr().expect("addr").port();
         assert!(!port_is_free(port));
         drop(listener);
-        assert!(port_is_free(port));
+        wait_for_free_port(port);
     }
 
     #[test]
@@ -936,7 +959,22 @@ mod tests {
             port,
             offline: true,
         };
-        let readings = collect(&probe);
+        wait_for_free_port(port);
+        // The port can be claimed by a parallel test between the wait and the
+        // collection; collect again while it is held instead of asserting on a
+        // single race.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let readings = loop {
+            let readings = collect(&probe);
+            if readings.port_free || Instant::now() >= deadline {
+                break readings;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert!(
+            readings.port_free,
+            "the probe port {port} was held for the whole collection window"
+        );
         assert_eq!(readings.battery_percent, Some(88));
         assert_eq!(readings.ac_online, Some(true));
         assert!(readings.sample_results && readings.sample_report);

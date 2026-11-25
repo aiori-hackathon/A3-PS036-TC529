@@ -153,6 +153,55 @@ fn the_verify_script_checks_the_report_bundle_against_its_own_manifest() {
     let _ = fs::remove_dir_all(root);
 }
 
+/// Read an HTTP/1.0 response that ends when the server closes the connection.
+///
+/// A busy server can close with a reset after it has already written the whole
+/// response; a reset is therefore treated as end-of-stream. The caller still
+/// asserts on the status line and the body, so a truncated response fails.
+fn read_http_response(reader: &mut impl Read) -> String {
+    let mut bytes = Vec::new();
+    match reader.read_to_end(&mut bytes) {
+        Ok(_) => {}
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionReset => {}
+        Err(error) => panic!("read the response: {error}"),
+    }
+    String::from_utf8_lossy(&bytes).into_owned()
+}
+
+/// A reset after the response bytes is end-of-stream, not a lost response.
+/// This is the flake the loopback server produced: the status line and body
+/// were complete, and only the close reset the connection.
+#[test]
+fn a_connection_reset_after_the_response_still_yields_the_bytes() {
+    struct ResetAfter {
+        data: &'static [u8],
+        offset: usize,
+    }
+    impl Read for ResetAfter {
+        fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+            if self.offset >= self.data.len() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "reset",
+                ));
+            }
+            let remaining = &self.data[self.offset..];
+            let count = remaining.len().min(buf.len());
+            buf[..count].copy_from_slice(&remaining[..count]);
+            self.offset += count;
+            Ok(count)
+        }
+    }
+
+    let mut reader = ResetAfter {
+        data: b"HTTP/1.0 200 OK\r\nContent-Length: 9\r\n\r\nhome page",
+        offset: 0,
+    };
+    let response = read_http_response(&mut reader);
+    assert!(response.contains("200 OK"), "{response}");
+    assert!(response.ends_with("home page"), "{response}");
+}
+
 #[test]
 fn the_serve_script_serves_loopback_only_with_the_deployment_404() {
     let root = temp_root("serve");
@@ -160,11 +209,13 @@ fn the_serve_script_serves_loopback_only_with_the_deployment_404() {
     write(&root.join("site/dist/404.html"), "custom not found");
     write_script(&root.join("serve.sh"), render_serve_script()).expect("serve script");
 
+    let stderr_path = root.join("serve.err");
+    let stderr_file = fs::File::create(&stderr_path).expect("create the server stderr file");
     let mut child = Command::new("sh")
         .arg(root.join("serve.sh"))
         .arg("0")
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::from(stderr_file))
         .spawn()
         .expect("start the server");
 
@@ -174,6 +225,13 @@ fn the_serve_script_serves_loopback_only_with_the_deployment_404() {
         let mut line = String::new();
         let _ = stdout.read_line(&mut line);
         let _ = sender.send(line);
+        // The server prints two flushed startup lines. Closing the read end
+        // after the first one makes the second print raise BrokenPipeError,
+        // which exits the interpreter before it serves anything; the failure
+        // surfaces here as `Connection refused`. Keep the pipe open and drain
+        // it so neither startup line nor a later write can kill the server.
+        let mut rest = String::new();
+        let _ = stdout.read_to_string(&mut rest);
     });
     let first = receiver
         .recv_timeout(Duration::from_secs(10))
@@ -200,21 +258,35 @@ fn the_serve_script_serves_loopback_only_with_the_deployment_404() {
                         .expect("timeout");
                     write!(stream, "GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n")
                         .expect("request");
-                    let mut response = String::new();
-                    stream.read_to_string(&mut response).expect("response");
+                    let response = read_http_response(&mut stream);
                     let status = response
                         .lines()
                         .next()
                         .and_then(|line| line.split_whitespace().nth(1))
-                        .and_then(|code| code.parse().ok())
-                        .expect("status");
-                    return (status, response);
+                        .and_then(|code| code.parse().ok());
+                    if let Some(status) = status {
+                        return (status, response);
+                    }
+                    // A connection can be accepted before the request thread is
+                    // ready and answered with a reset and no bytes. Retry the
+                    // whole request; a server that never answers still fails.
+                    if Instant::now() >= deadline {
+                        let log = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+                        panic!(
+                            "no status line for {path}; last response: {response:?}\n\
+                             server stderr:\n{log}"
+                        );
+                    }
+                    thread::sleep(Duration::from_millis(50));
                 }
                 Err(error) if Instant::now() < deadline => {
                     let _ = error;
                     thread::sleep(Duration::from_millis(50));
                 }
-                Err(error) => panic!("connect to the server: {error}"),
+                Err(error) => {
+                    let log = std::fs::read_to_string(&stderr_path).unwrap_or_default();
+                    panic!("connect to the server: {error}\nserver stderr:\n{log}");
+                }
             }
         }
     };
@@ -238,7 +310,6 @@ fn the_serve_script_serves_loopback_only_with_the_deployment_404() {
 
     child.kill().expect("stop the server");
     let _ = child.wait();
-    let _ = child.stderr.take();
     let _ = fs::remove_dir_all(root);
 }
 

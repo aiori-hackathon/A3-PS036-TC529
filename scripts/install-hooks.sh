@@ -121,11 +121,12 @@ if [ "$mode" = "autopublish" ]; then
 # commit, so it prints a warning and appends the full output to a log.
 set -uo pipefail
 
-if [ "${CLIMB_AUTOPUBLISH_RUNNING:-}" = "1" ]; then
+repo_root="$(git rev-parse --show-toplevel)" || exit 0
+
+if [ "${CLIMB_AUTOPUBLISH_RUNNING:-}" = "$repo_root" ]; then
   exit 0
 fi
 
-repo_root="$(git rev-parse --show-toplevel)" || exit 0
 cd "$repo_root" || exit 0
 mkdir -p target
 
