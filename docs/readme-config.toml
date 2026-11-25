@@ -185,8 +185,11 @@ refresh_commits_allow_readme = true
 self_count = true
 
 # Both SVG cards stay at or below this size. Generation fails rather than
-# writing an oversized card.
-budget_kb = 50
+# writing an oversized card. The hard cap in the renderer is 60 KiB; this
+# value uses it because the card grows with the history (one bar per active
+# day, and a new serif glyph when a total gains a digit). At 52.2 kB the card
+# has room for the remaining active days without dropping detail.
+budget_kb = 60
 
 # Both compact strips stay at or below this size. Generation fails rather than
 # writing an oversized strip.
