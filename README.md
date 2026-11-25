@@ -13,6 +13,7 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
 
 <!-- badges:begin -->
 <div align="center">
+  <a href="#regional-finals-winner" target="_blank" rel="noopener"><img alt="AIORI-3 Hackathon Regional Finals, East Zone: winner" src="https://img.shields.io/static/v1?label=regional%20finals&amp;message=Winner%20%C2%B7%20East%20Zone&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
   <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="AIORI 3 Hackathon — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=AIORI%203&amp;message=Hackathon&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
   <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Problem statement PS-036 — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=problem%20statement&amp;message=PS-036&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
   <a href="https://portal.aiori.in/aiori-3/hackathon-guideline/" target="_blank" rel="noopener"><img alt="Track 2 Cyber Security — open the hackathon guidelines" src="https://img.shields.io/static/v1?label=track%202&amp;message=Cyber%20Security&amp;color=FF5400&amp;labelColor=3A4A66&amp;style=for-the-badge"></a>
@@ -23,6 +24,21 @@ A reproducible benchmark suite measuring the operational impact of Merkle Tree L
   <a href="https://github.com/aiori-hackathon/A3-PS036-TC529/actions/workflows/ci.yml" target="_blank" rel="noopener"><img alt="CI — open the GitHub Actions workflows" src="https://img.shields.io/static/v1?label=CI&amp;message=GitHub%20Actions&amp;color=3A4A66&amp;labelColor=07080A&amp;style=for-the-badge&amp;logo=githubactions&amp;logoColor=white"></a>
 </div>
 <!-- badges:end -->
+
+
+<!-- winner:begin -->
+<div align="center" id="regional-finals-winner">
+
+<h3 align="center">Regional finals winner</h3>
+
+<picture>
+  <source media="(max-width: 600px)" srcset="docs/media/regional-winner-narrow.svg" width="390">
+  <img src="docs/media/regional-winner.svg" alt="Regional finals winner: AIORI-3 Hackathon Regional Finals, East Zone, IIEST Shibpur, 19 November 2026" width="840">
+</picture>
+
+Winner of the AIORI-3 Hackathon Regional Finals, East Zone (IIEST Shibpur, 19 November 2026). The finals are on 17 December.
+</div>
+<!-- winner:end -->
 
 
 <!-- commit-graph-strip:begin -->

@@ -18,7 +18,7 @@
 
 mod check;
 mod svg;
-mod text;
+pub(crate) mod text;
 
 use anyhow::{bail, Context, Result};
 use clap::{Args, ValueEnum};

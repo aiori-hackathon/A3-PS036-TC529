@@ -137,6 +137,32 @@ label_color = "ink"
 message_color = "slate"
 logo = "githubactions"
 
+# ── Regional-finals winner ───────────────────────────────────────────────────
+#
+# One table owns the winner badge, the two banner cards and the README block
+# under them. `cargo xtask winner` renders `docs/media/regional-winner.svg`
+# (shown at 840 px) and `docs/media/regional-winner-narrow.svg` (shown at
+# 390 px), then rewrites the block between `<!-- winner:begin -->` and
+# `<!-- winner:end -->`. `cargo xtask docs-check` regenerates all three and
+# fails when the committed copies differ.
+#
+# The badge is the first badge of the identity row and links to the block's
+# anchor, so a click on the badge lands on the banner. `next` is checked against
+# `finals_date`, and both dates are checked as real calendar dates.
+
+[winner]
+heading = "Regional finals winner"
+event = "AIORI-3 Hackathon Regional Finals"
+zone = "East Zone"
+venue = "IIEST Shibpur"
+date = "2026-11-19"
+project = "CLIMB · PS-036 · Track 2 Cyber Security"
+next = "Next: Finals · 17 Dec"
+finals_date = "2026-12-17"
+badge_label = "regional finals"
+badge_message = "Winner · East Zone"
+link = "#regional-finals-winner"
+
 # ── Commit graph ─────────────────────────────────────────────────────────────
 #
 # `cargo xtask commit-graph` reads the repository's git history up to one

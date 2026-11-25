@@ -1871,16 +1871,52 @@ pub(crate) fn check_commit_graph_strip_placement(file: &str, text: &str) -> Vec<
     let Some(strip_end) = line_of(COMMIT_GRAPH_STRIP_END) else {
         return violations;
     };
-    if strip_begin <= badges_end {
+
+    // The winner block sits directly under the badges, and the compact strip
+    // sits directly under whichever of the two comes last. Nothing else may
+    // occupy that space.
+    let mut boundary = badges_end;
+    let mut boundary_marker = readme_badges::BADGES_END;
+    if let (Some(winner_begin), Some(winner_end)) = (
+        line_of(crate::winner::BLOCK_BEGIN),
+        line_of(crate::winner::BLOCK_END),
+    ) {
+        if winner_begin <= badges_end {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: winner_begin + 1,
+                message: format!(
+                    "the `{}` block must come after `{}`",
+                    crate::winner::BLOCK_BEGIN,
+                    readme_badges::BADGES_END
+                ),
+            });
+        } else if lines[badges_end + 1..winner_begin]
+            .iter()
+            .any(|line| !line.trim().is_empty())
+        {
+            violations.push(Violation {
+                file: file.to_string(),
+                line: winner_begin + 1,
+                message: format!(
+                    "the `{}` block must sit directly under `{}`, separated only by blank lines",
+                    crate::winner::BLOCK_BEGIN,
+                    readme_badges::BADGES_END
+                ),
+            });
+        }
+        boundary = winner_end;
+        boundary_marker = crate::winner::BLOCK_END;
+    }
+    if strip_begin <= boundary {
         violations.push(Violation {
             file: file.to_string(),
             line: strip_begin + 1,
             message: format!(
-                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must come after `{}`",
-                readme_badges::BADGES_END
+                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must come after `{boundary_marker}`"
             ),
         });
-    } else if lines[badges_end + 1..strip_begin]
+    } else if lines[boundary + 1..strip_begin]
         .iter()
         .any(|line| !line.trim().is_empty())
     {
@@ -1888,9 +1924,8 @@ pub(crate) fn check_commit_graph_strip_placement(file: &str, text: &str) -> Vec<
             file: file.to_string(),
             line: strip_begin + 1,
             message: format!(
-                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must sit directly under `{}`, \
-                 separated only by blank lines",
-                readme_badges::BADGES_END
+                "the `{COMMIT_GRAPH_STRIP_BEGIN}` block must sit directly under \
+                 `{boundary_marker}`, separated only by blank lines"
             ),
         });
     }
@@ -2954,6 +2989,22 @@ pub(crate) fn cmd_docs_check(args: DocsCheckArgs) -> Result<()> {
     // The badge block is generated: rebuild it in memory and fail when the
     // committed copy has drifted from the fresh generation.
     violations.extend(check_badge_block(&readme_label, &readme_text, &args.root));
+
+    // The winner banner and its README block are generated from `[winner]`.
+    // Both cards must reproduce byte for byte and the block must sit between
+    // its markers unchanged.
+    if let Err(error) = crate::winner::check(&args.root, &readme_text) {
+        let line = readme_text
+            .lines()
+            .position(|text| text.contains(crate::winner::BLOCK_BEGIN))
+            .map(|index| index + 1)
+            .unwrap_or(1);
+        violations.push(Violation {
+            file: readme_label.clone(),
+            line,
+            message: format!("the winner block could not be verified: {error:#}"),
+        });
+    }
 
     // The two live-address blocks are generated from the same configuration,
     // so an edit inside either pair is caught by regenerating it.
@@ -4173,6 +4224,64 @@ mod tests {
         assert_eq!(violations.len(), 1, "{violations:?}");
         assert!(
             violations[0].message.contains("directly under"),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn the_strip_sits_directly_under_the_winner_block() {
+        let text = format!(
+            "{}\n\n\n{}\n{}\n\n{}\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\"></picture>\n\
+             {}\n",
+            readme_badges::BADGES_END,
+            crate::winner::BLOCK_BEGIN,
+            crate::winner::BLOCK_END,
+            COMMIT_GRAPH_STRIP_BEGIN,
+            COMMIT_GRAPH_STRIP_END
+        );
+        let violations = check_commit_graph_strip_placement("README.md", &text);
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn the_strip_above_the_winner_block_is_a_violation() {
+        let text = format!(
+            "{}\n\n{}\n\
+             <picture><source media=\"{COMMIT_GRAPH_MEDIA}\" srcset=\"{COMMIT_GRAPH_STRIP_NARROW}\">\
+             <img src=\"{COMMIT_GRAPH_STRIP}\" alt=\"the climb so far\"></picture>\n\
+             {}\n\n{}\n{}\n",
+            readme_badges::BADGES_END,
+            COMMIT_GRAPH_STRIP_BEGIN,
+            COMMIT_GRAPH_STRIP_END,
+            crate::winner::BLOCK_BEGIN,
+            crate::winner::BLOCK_END
+        );
+        let violations = check_commit_graph_strip_placement("README.md", &text);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains(crate::winner::BLOCK_END)),
+            "{violations:?}"
+        );
+    }
+
+    #[test]
+    fn a_winner_block_before_the_badges_is_a_violation() {
+        let text = format!(
+            "{}\n{}\n\n{}\n\n{}\n{}\n",
+            crate::winner::BLOCK_BEGIN,
+            crate::winner::BLOCK_END,
+            readme_badges::BADGES_END,
+            COMMIT_GRAPH_STRIP_BEGIN,
+            COMMIT_GRAPH_STRIP_END
+        );
+        let violations = check_commit_graph_strip_placement("README.md", &text);
+        assert!(
+            violations
+                .iter()
+                .any(|violation| violation.message.contains("must come after")),
             "{violations:?}"
         );
     }

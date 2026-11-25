@@ -54,6 +54,7 @@ mod stability;
 mod sweep;
 mod verify_consolidated;
 mod verify_numbers;
+mod winner;
 #[cfg(feature = "native")]
 mod wire;
 mod workflows;
@@ -98,6 +99,7 @@ use stability::{cmd_stability, StabilityArgs};
 use sweep::{cmd_sweep, SweepArgs};
 use verify_consolidated::{cmd_verify_consolidated, VerifyConsolidatedArgs};
 use verify_numbers::{cmd_verify_numbers, VerifyNumbersArgs};
+use winner::{cmd_winner, WinnerArgs};
 #[cfg(feature = "native")]
 use wire::{cmd_wire_report, WireReportArgs};
 use workflows::{cmd_workflows, WorkflowsArgs};
@@ -302,6 +304,14 @@ enum Commands {
     /// artifact, never typed in. `--check` compares the committed block with a
     /// fresh generation instead of writing.
     ReadmeBadges(ReadmeBadgesArgs),
+    /// Generate the regional-finals winner banner and its README block.
+    ///
+    /// Renders `docs/media/regional-winner.svg` and its narrow variant from
+    /// the `[winner]` table of `docs/readme-config.toml`, then rewrites the
+    /// block between `<!-- winner:begin -->` and `<!-- winner:end -->`.
+    /// `--check` compares the committed block and both cards with a fresh
+    /// render instead of writing.
+    Winner(WinnerArgs),
     /// Refresh the commit graph: one JSON document and four SVG cards.
     ///
     /// Reads the history reachable from `--as-of` (default HEAD) with a pinned
@@ -544,6 +554,7 @@ fn main() -> Result<()> {
         Commands::DnsRtt(args) => cmd_dns_rtt(args),
         Commands::DocsCheck(args) => cmd_docs_check(args),
         Commands::ReadmeBadges(args) => cmd_readme_badges(args),
+        Commands::Winner(args) => cmd_winner(args),
         Commands::CommitGraph(args) => cmd_commit_graph(args),
         Commands::SourceHygiene(args) => cmd_source_hygiene(args),
         Commands::CheckPins(args) => check_pins::run(&args.root),

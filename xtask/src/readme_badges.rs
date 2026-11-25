@@ -95,6 +95,8 @@ struct ConfigFile {
     badges: Badges,
     /// The one owner of the published address and its generated README text.
     live: Live,
+    /// The regional-finals winner: badge text, banner text and link target.
+    winner: crate::winner::Winner,
     /// The shared file also carries the commit-graph table, which has its own
     /// typed reader; the badge renderer only has to tolerate it here.
     #[allow(dead_code)] // read by serde to satisfy deny_unknown_fields, not by this module
@@ -415,9 +417,15 @@ pub(crate) fn claims_count(results_path: &Path) -> Result<ClaimsCount> {
 }
 
 /// Build the badge URLs and the block they are rendered into.
+///
+/// The winner badge comes first, ahead of the identity badges: the regional
+/// finals result is the strongest single fact on the page. It takes its label,
+/// message and link from the `[winner]` table, so the badge and the banner
+/// under it cannot disagree.
 fn build(config: &ConfigFile, claims: &ClaimsCount) -> Result<Vec<Badge>> {
     let message = claims.message();
-    let mut badges = Vec::with_capacity(SLOT_KEYS.len());
+    let mut badges = Vec::with_capacity(SLOT_KEYS.len() + 1);
+    badges.push(winner_badge(config)?);
     for (row, key) in SLOT_KEYS {
         let spec = config.badges.spec(key);
         let href = config
@@ -435,7 +443,14 @@ fn build(config: &ConfigFile, claims: &ClaimsCount) -> Result<Vec<Badge>> {
         let message_color = config.badges.colour(&spec.message_color, key)?;
         let message = spec.message.replace(CLAIMS_PLACEHOLDER, &message);
         let alt = spec.alt.replace(CLAIMS_PLACEHOLDER, &message);
-        let image_url = shields_url(config, spec, &message, &label_color, &message_color);
+        let image_url = shields_url(
+            config,
+            &spec.label,
+            &message,
+            spec.logo.as_deref(),
+            &label_color,
+            &message_color,
+        );
         badges.push(Badge {
             row,
             label: spec.label.clone(),
@@ -542,23 +557,49 @@ pub(crate) fn generate_all(config_path: &Path, results_path: &Path) -> Result<Ge
     })
 }
 
+/// The winner badge, built from the `[winner]` table.
+fn winner_badge(config: &ConfigFile) -> Result<Badge> {
+    let winner = &config.winner;
+    winner.validate()?;
+    let label_color = config.badges.colour("slate", "winner")?;
+    let message_color = config.badges.colour("orange", "winner")?;
+    let alt = format!("{}, {}: winner", winner.event, winner.zone);
+    let image_url = shields_url(
+        config,
+        &winner.badge_label,
+        &winner.badge_message,
+        None,
+        &label_color,
+        &message_color,
+    );
+    Ok(Badge {
+        row: Row::Identity,
+        label: winner.badge_label.clone(),
+        message: winner.badge_message.clone(),
+        href: winner.link.clone(),
+        alt,
+        image_url,
+    })
+}
+
 /// The shields.io URL of one badge image.
 fn shields_url(
     config: &ConfigFile,
-    spec: &BadgeSpec,
+    label: &str,
     message: &str,
+    logo: Option<&str>,
     label_color: &str,
     message_color: &str,
 ) -> String {
     let mut url = format!(
         "{SHIELDS_ENDPOINT}?label={}&message={}&color={}&labelColor={}&style={}",
-        percent_encode(&spec.label),
+        percent_encode(label),
         percent_encode(message),
         percent_encode(message_color),
         percent_encode(label_color),
         percent_encode(&config.badges.style),
     );
-    if let Some(logo) = &spec.logo {
+    if let Some(logo) = logo {
         url.push_str(&format!(
             "&logo={}&logoColor={}",
             percent_encode(logo),
@@ -897,7 +938,8 @@ pub(crate) fn cmd_readme_badges(args: ReadmeBadgesArgs) -> Result<()> {
     }
 
     if args.check {
-        let violations = check_live_surfaces(&root_of_config(&args.config), &outcome.live_url)?;
+        let root = root_of_config(&args.config);
+        let violations = check_live_surfaces(&root, &outcome.live_url)?;
         if !violations.is_empty() {
             for violation in &violations {
                 eprintln!("{violation}");
@@ -907,6 +949,13 @@ pub(crate) fn cmd_readme_badges(args: ReadmeBadgesArgs) -> Result<()> {
                 violations.len()
             );
         }
+        // The winner badge belongs to this block, so the banner it links to is
+        // verified in the same check: a block that reproduces but a banner that
+        // does not would publish a dead result.
+        let readme_text = std::fs::read_to_string(&args.readme)
+            .with_context(|| format!("failed to read {}", args.readme.display()))?;
+        crate::winner::check(&root, &readme_text)
+            .context("the winner banner and its README block must reproduce")?;
     }
     Ok(())
 }
@@ -999,6 +1048,19 @@ link = "actions"
 label_color = "slate"
 message_color = "teal"
 logo = "githubactions"
+
+[winner]
+heading = "Regional finals winner"
+event = "AIORI-3 Hackathon Regional Finals"
+zone = "East Zone"
+venue = "IIEST Shibpur"
+date = "2026-11-19"
+project = "CLIMB · PS-036 · Track 2 Cyber Security"
+next = "Next: Finals · 17 Dec"
+finals_date = "2026-12-17"
+badge_label = "regional finals"
+badge_message = "Winner · East Zone"
+link = "#regional-finals-winner"
 "##;
         std::fs::write(&path, text).expect("write the configuration");
         path
@@ -1132,11 +1194,13 @@ logo = "githubactions"
         let results = write_results(&dir);
         let (badges, block, _) = generate(&config, &results).expect("generate the block");
 
-        assert_eq!(badges.len(), 7);
+        assert_eq!(badges.len(), 8);
         assert_eq!(badges[0].row, Row::Identity);
-        assert_eq!(badges[2].row, Row::Identity);
-        assert_eq!(badges[3].row, Row::Proof);
-        assert_eq!(badges[6].row, Row::Proof);
+        assert_eq!(badges[0].label, "regional finals");
+        assert_eq!(badges[1].row, Row::Identity);
+        assert_eq!(badges[3].row, Row::Identity);
+        assert_eq!(badges[4].row, Row::Proof);
+        assert_eq!(badges[7].row, Row::Proof);
 
         assert!(block.starts_with(BADGES_BEGIN));
         assert!(block.contains(BADGES_END));
@@ -1149,8 +1213,8 @@ logo = "githubactions"
 
         // Every badge is an anchor wrapping an image: the link is on the
         // anchor, never inside the image.
-        assert_eq!(block.matches("<a href=").count(), 7);
-        assert_eq!(block.matches("<img ").count(), 7);
+        assert_eq!(block.matches("<a href=").count(), 8);
+        assert_eq!(block.matches("<img ").count(), 8);
         assert!(!block.contains("]("), "no markdown image links");
 
         let _ = std::fs::remove_dir_all(&dir);
@@ -1174,6 +1238,45 @@ logo = "githubactions"
         assert!(
             root.join(".github/workflows/ci.yml").is_file(),
             "the badge names a workflow the repository does not carry"
+        );
+    }
+
+    /// The winner badge sits first, takes its text from the `[winner]` table,
+    /// uses only the house palette and the same style as its siblings, and
+    /// links to the banner block's anchor.
+    #[test]
+    fn the_winner_badge_comes_first_and_links_to_the_banner() {
+        let root = workspace_root();
+        let (badges, block, _) = generate(&root.join(DEFAULT_CONFIG), &root.join(DEFAULT_RESULTS))
+            .expect("generate the committed badge block");
+        let winner = &badges[0];
+        assert_eq!(winner.row, Row::Identity);
+        assert_eq!(winner.label, "regional finals");
+        assert_eq!(winner.message, "Winner · East Zone");
+        assert_eq!(
+            winner.alt,
+            "AIORI-3 Hackathon Regional Finals, East Zone: winner"
+        );
+        assert_eq!(winner.href, "#regional-finals-winner");
+
+        let url = &winner.image_url;
+        assert!(
+            url.contains("color=FF5400") && url.contains("labelColor=3A4A66"),
+            "the winner badge must use the orange value and slate label: {url}"
+        );
+        for sibling in &badges[1..] {
+            assert!(
+                sibling.image_url.contains("style=for-the-badge"),
+                "a sibling badge changed style: {sibling:?}"
+            );
+        }
+        assert!(
+            url.contains("style=for-the-badge"),
+            "the winner badge must match its siblings' style: {url}"
+        );
+        assert!(
+            block.contains("href=\"#regional-finals-winner\""),
+            "the badge must link to the banner anchor: {block}"
         );
     }
 
@@ -1210,22 +1313,17 @@ logo = "githubactions"
             );
             assert!(badge.image_url.contains("style=for-the-badge"), "{badge:?}");
         }
-        // The identity row and the language badge sit on the slate label and
-        // carry an orange message; the video badge carries a teal message and
-        // the claims badge swaps the two.
-        for badge in &badges[..3] {
+        // The winner and the identity badges sit on the slate label and
+        // carry an orange message; the language badge has a teal message, the
+        // video badge a teal message and the claims badge swaps the two.
+        for badge in &badges[..4] {
             assert!(badge.image_url.contains("labelColor=38454E"), "{badge:?}");
             assert!(badge.image_url.contains("color=C55E33"), "{badge:?}");
         }
         assert!(
-            badges[3].image_url.contains("labelColor=38454E"),
+            badges[4].image_url.contains("labelColor=38454E"),
             "{:?}",
-            badges[3]
-        );
-        assert!(
-            badges[3].image_url.contains("color=5C8E8D"),
-            "{:?}",
-            badges[3]
+            badges[4]
         );
         assert!(
             badges[4].image_url.contains("color=5C8E8D"),
@@ -1233,29 +1331,34 @@ logo = "githubactions"
             badges[4]
         );
         assert!(
-            badges[5].image_url.contains("labelColor=5C8E8D"),
+            badges[5].image_url.contains("color=5C8E8D"),
             "{:?}",
             badges[5]
         );
         assert!(
-            badges[5].image_url.contains("color=C55E33"),
+            badges[6].image_url.contains("labelColor=5C8E8D"),
             "{:?}",
-            badges[5]
+            badges[6]
+        );
+        assert!(
+            badges[6].image_url.contains("color=C55E33"),
+            "{:?}",
+            badges[6]
         );
 
-        assert!(badges[3].image_url.contains("logo=rust"), "{:?}", badges[3]);
+        assert!(badges[4].image_url.contains("logo=rust"), "{:?}", badges[4]);
         assert!(
-            badges[3].image_url.contains("logoColor=white"),
-            "{:?}",
-            badges[3]
-        );
-        assert!(
-            badges[4].image_url.contains("logo=youtube"),
+            badges[4].image_url.contains("logoColor=white"),
             "{:?}",
             badges[4]
         );
+        assert!(
+            badges[5].image_url.contains("logo=youtube"),
+            "{:?}",
+            badges[5]
+        );
         assert!(!badges[0].image_url.contains("logo="), "{:?}", badges[0]);
-        assert!(!badges[5].image_url.contains("logo="), "{:?}", badges[5]);
+        assert!(!badges[6].image_url.contains("logo="), "{:?}", badges[6]);
 
         let _ = std::fs::remove_dir_all(&dir);
     }
